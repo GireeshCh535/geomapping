@@ -1,0 +1,18 @@
+# Core Django
+Django==4.2.7
+djangorestframework==3.14.0
+django-cors-headers==4.3.1
+django-filter==23.3
+
+# GeoDjango and Spatial
+djangorestframework-gis==1.0
+psycopg2-binary==2.9.7
+GDAL==3.7.2
+
+# Vector Tiles (required by your services.py)
+mercantile==1.2.1
+mapbox-vector-tile==2.0.1
+
+# Environment management
+python-decouple==3.8
+Pillow>=10.0.0

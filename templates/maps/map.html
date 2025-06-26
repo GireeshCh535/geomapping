@@ -1,0 +1,1104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ page_title|default:"Geo Mapping Visualization" }}</title>
+    
+    <!-- Mapbox GL JS -->
+    <script src='https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.js'></script>
+    <link href='https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.css' rel='stylesheet' />
+    
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        // Auto-select Bangalore for testing
+        setTimeout(() => {
+            const citySelect = document.getElementById('citySelect');
+            if (citySelect.options.length > 1) {
+                citySelect.value = 'bangalore';
+                citySelect.dispatchEvent(new Event('change'));
+                debugLog('🎯 Auto-selected Bangalore for testing', 'info');
+            }
+        }, 2000);
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        .container {
+            display: flex;
+            height: 100vh;
+        }
+
+        .sidebar {
+            width: 400px;
+            background: #f8f9fa;
+            border-right: 1px solid #dee2e6;
+            overflow-y: auto;
+            z-index: 1000;
+        }
+
+        .sidebar-header {
+            padding: 20px;
+            background: #ffffff;
+            border-bottom: 1px solid #dee2e6;
+        }
+
+        .sidebar-header h1 {
+            font-size: 1.5rem;
+            color: #212529;
+            margin-bottom: 10px;
+        }
+
+        .controls {
+            padding: 20px;
+        }
+
+        .control-group {
+            margin-bottom: 25px;
+        }
+
+        .control-group label {
+            display: block;
+            font-weight: 600;
+            margin-bottom: 8px;
+            color: #495057;
+        }
+
+        .control-group select {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ced4da;
+            border-radius: 4px;
+            font-size: 14px;
+            background: white;
+        }
+
+        .layers-list {
+            max-height: 300px;
+            overflow-y: auto;
+        }
+
+        .layer-item {
+            padding: 12px 20px;
+            border-bottom: 1px solid #e9ecef;
+            cursor: pointer;
+            transition: background-color 0.2s;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .layer-item:hover {
+            background: #e9ecef;
+        }
+
+        .layer-item.active {
+            background: #e3f2fd;
+            border-left: 4px solid #2196f3;
+        }
+
+        .layer-color {
+            width: 20px;
+            height: 20px;
+            border-radius: 3px;
+            border: 1px solid #dee2e6;
+        }
+
+        .layer-info {
+            flex: 1;
+        }
+
+        .layer-name {
+            font-weight: 500;
+            color: #212529;
+            font-size: 14px;
+        }
+
+        .layer-details {
+            font-size: 12px;
+            color: #6c757d;
+            margin-top: 2px;
+        }
+
+        .map-container {
+            flex: 1;
+            position: relative;
+        }
+
+        #map {
+            width: 100%;
+            height: 100%;
+        }
+
+        .map-info {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: rgba(255, 255, 255, 0.9);
+            padding: 10px;
+            border-radius: 4px;
+            font-size: 12px;
+            z-index: 1000;
+        }
+
+        .debug-panel {
+            background: rgba(0, 0, 0, 0.8);
+            color: white;
+            padding: 15px;
+            margin: 10px 20px;
+            border-radius: 4px;
+            max-height: 200px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 12px;
+        }
+
+        .debug-panel h4 {
+            color: #4CAF50;
+            margin-bottom: 10px;
+        }
+
+        .debug-log {
+            margin-bottom: 5px;
+        }
+
+        .debug-log.error {
+            color: #f44336;
+        }
+
+        .debug-log.success {
+            color: #4CAF50;
+        }
+
+        .debug-log.warning {
+            color: #ff9800;
+        }
+
+        .loading {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(255, 255, 255, 0.9);
+            padding: 20px;
+            border-radius: 4px;
+            z-index: 1000;
+        }
+
+        .error {
+            background: #f8d7da;
+            color: #721c24;
+            padding: 10px;
+            margin: 10px 20px;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+
+        .toggle-all {
+            padding: 10px 20px;
+            background: #007bff;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            width: 100%;
+            margin-bottom: 10px;
+        }
+
+        .toggle-all:hover {
+            background: #0056b3;
+        }
+
+        .test-buttons {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+
+        .test-btn {
+            padding: 8px 12px;
+            background: #28a745;
+            color: white;
+            border: none;
+            border-radius: 3px;
+            cursor: pointer;
+            font-size: 12px;
+        }
+
+        .test-btn:hover {
+            background: #218838;
+        }
+
+        .feature-popup {
+            max-width: 300px;
+        }
+
+        .feature-popup h4 {
+            margin-bottom: 10px;
+            color: #212529;
+        }
+
+        .feature-popup .property {
+            margin-bottom: 5px;
+            font-size: 13px;
+        }
+
+        .feature-popup .property strong {
+            color: #495057;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="sidebar">
+            <div class="sidebar-header">
+                <h1>🗺️ Geo Map Explorer</h1>
+                <div id="status">Initializing...</div>
+            </div>
+
+            <div class="controls">
+                <!-- Test Buttons -->
+                <div class="test-buttons">
+                    <button class="test-btn" onclick="testAPIs()">Test APIs</button>
+                    <button class="test-btn" onclick="testTiles()">Test Tiles</button>
+                    <button class="test-btn" onclick="testSpecificLayer()">Test Layer</button>
+                    <button class="test-btn" onclick="clearDebugLog()">Clear Log</button>
+                </div>
+
+                <!-- City Selection -->
+                <div class="control-group">
+                    <label for="citySelect">Select City:</label>
+                    <select id="citySelect">
+                        <option value="">Choose a city...</option>
+                    </select>
+                </div>
+
+                <!-- Category Filter -->
+                <div class="control-group">
+                    <label for="categorySelect">Filter by Category:</label>
+                    <select id="categorySelect">
+                        <option value="">All Categories</option>
+                    </select>
+                </div>
+
+                <!-- Layer Controls -->
+                <div class="control-group">
+                    <label>Layers:</label>
+                    <button class="toggle-all" onclick="toggleAllLayers()">Toggle All Layers</button>
+                    <div id="layersList" class="layers-list">
+                        <div style="text-align: center; padding: 20px; color: #6c757d;">
+                            Select a city to view layers
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Debug Panel -->
+                <div class="debug-panel">
+                    <h4>🔍 Debug Log</h4>
+                    <div id="debugLog"></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="map-container">
+            <div id="map"></div>
+            <div class="map-info">
+                <div id="coordinates">Lat: 0, Lng: 0</div>
+                <div id="zoom">Zoom: 0</div>
+                <div id="layerCount">Active Layers: 0</div>
+            </div>
+            <div id="loading" class="loading" style="display: none;">
+                Loading map data...
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Global variables
+        let map;
+        let currentCity = null;
+        let currentLayers = [];
+        let activeLayers = new Set();
+        let allLayersVisible = false;
+        let debugMessages = [];
+
+        // API base URL
+        const API_BASE = "{{ api_base_url|default:'/api' }}";
+
+        // Debug logging function
+        function debugLog(message, type = 'info') {
+            const timestamp = new Date().toLocaleTimeString();
+            const logMessage = `[${timestamp}] ${message}`;
+            
+            debugMessages.push({ message: logMessage, type });
+            console.log(logMessage);
+
+            const debugLogElement = document.getElementById('debugLog');
+            const logDiv = document.createElement('div');
+            logDiv.className = `debug-log ${type}`;
+            logDiv.textContent = logMessage;
+            debugLogElement.appendChild(logDiv);
+            debugLogElement.scrollTop = debugLogElement.scrollHeight;
+
+            // Keep only last 50 messages
+            if (debugMessages.length > 50) {
+                debugMessages.shift();
+                debugLogElement.removeChild(debugLogElement.firstChild);
+            }
+        }
+
+        function clearDebugLog() {
+            document.getElementById('debugLog').innerHTML = '';
+            debugMessages = [];
+        }
+
+        // Initialize the application
+        document.addEventListener('DOMContentLoaded', function() {
+            debugLog('🚀 Application starting...', 'info');
+            initializeMap();
+            loadCities();
+            setupEventListeners();
+        });
+
+        function initializeMap() {
+            debugLog('🗺️ Initializing map...', 'info');
+            
+            // Initialize Mapbox map with OpenStreetMap style
+            map = new mapboxgl.Map({
+                container: 'map',
+                style: {
+                    version: 8,
+                    sources: {
+                        'osm': {
+                            type: 'raster',
+                            tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
+                            tileSize: 256,
+                            attribution: '© OpenStreetMap contributors'
+                        }
+                    },
+                    layers: [
+                        {
+                            id: 'osm-tiles',
+                            type: 'raster',
+                            source: 'osm'
+                        }
+                    ]
+                },
+                center: [77.5946, 12.9716], // Bangalore center
+                zoom: 10
+            });
+
+            map.on('load', function() {
+                debugLog('✅ Map loaded successfully', 'success');
+                updateStatus('Map ready');
+            });
+
+            map.on('error', function(e) {
+                debugLog(`❌ Map error: ${e.error}`, 'error');
+            });
+
+            // Add mouse position tracking
+            map.on('mousemove', function(e) {
+                document.getElementById('coordinates').textContent = 
+                    `Lat: ${e.lngLat.lat.toFixed(4)}, Lng: ${e.lngLat.lng.toFixed(4)}`;
+            });
+
+            map.on('zoom', function() {
+                document.getElementById('zoom').textContent = `Zoom: ${map.getZoom().toFixed(1)}`;
+            });
+
+            // Add click handler for features
+            map.on('click', function(e) {
+                const features = map.queryRenderedFeatures(e.point);
+                debugLog(`🖱️ Map clicked, found ${features.length} features`, 'info');
+                
+                if (features.length > 0) {
+                    const feature = features[0];
+                    debugLog(`📍 Feature clicked: ${JSON.stringify(feature.properties)}`, 'info');
+                    showFeaturePopup(feature, e.lngLat);
+                }
+            });
+
+            // Track tile loading
+            map.on('sourcedata', function(e) {
+                if (e.isSourceLoaded && e.sourceId && e.sourceId.startsWith('source-')) {
+                    debugLog(`📦 Tiles loaded for: ${e.sourceId}`, 'success');
+                }
+            });
+
+            debugLog('🗺️ Map initialization complete', 'success');
+        }
+
+        function setupEventListeners() {
+            // City selection change
+            document.getElementById('citySelect').addEventListener('change', function() {
+                const citySlug = this.value;
+                debugLog(`🏙️ City selected: ${citySlug}`, 'info');
+                
+                if (citySlug) {
+                    loadCityLayers(citySlug);
+                } else {
+                    clearLayers();
+                }
+            });
+
+            // Category filter change
+            document.getElementById('categorySelect').addEventListener('change', function() {
+                debugLog(`🏷️ Category filter: ${this.value}`, 'info');
+                filterLayersByCategory(this.value);
+            });
+        }
+
+        async function testAPIs() {
+            debugLog('🧪 Testing API endpoints...', 'info');
+            
+            try {
+                // Test cities endpoint
+                const citiesResponse = await fetch(`${API_BASE}/cities/`);
+                const citiesData = await citiesResponse.json();
+                debugLog(`✅ Cities API: ${citiesData.results.length} cities found`, 'success');
+
+                // Test categories endpoint
+                const categoriesResponse = await fetch(`${API_BASE}/categories/`);
+                const categoriesData = await categoriesResponse.json();
+                debugLog(`✅ Categories API: ${categoriesData.results.length} categories found`, 'success');
+
+                // Test Bangalore layers
+                const layersResponse = await fetch(`${API_BASE}/cities/bangalore/layers/`);
+                const layersData = await layersResponse.json();
+                debugLog(`✅ Bangalore layers API: ${layersData.layers.length} layers found`, 'success');
+
+                // Show layer details
+                layersData.layers.forEach(layer => {
+                    debugLog(`📋 Layer: ${layer.name} (${layer.slug}) - ${layer.feature_count} features`, 'info');
+                });
+
+                // Test layer features for first layer
+                if (layersData.layers.length > 0) {
+                    const firstLayer = layersData.layers[0];
+                    const featuresResponse = await fetch(`${API_BASE}/cities/bangalore/layers/${firstLayer.slug}/features/?page_size=5`);
+                    const featuresData = await featuresResponse.json();
+                    debugLog(`✅ Features API: ${featuresData.pagination.total_count} total features for ${firstLayer.name}`, 'success');
+                }
+
+            } catch (error) {
+                debugLog(`❌ API test failed: ${error.message}`, 'error');
+            }
+        }
+
+        async function testTiles() {
+            debugLog('🧪 Testing tile endpoints with ACTUAL layers...', 'info');
+            
+            if (!currentLayers || currentLayers.length === 0) {
+                debugLog('⚠️ No layers loaded. Load a city first!', 'warning');
+                return;
+            }
+
+            // Test actual layers with coordinates based on their bounding boxes
+            for (const layer of currentLayers.slice(0, 5)) { // Test first 5 layers
+                try {
+                    const bbox = layer.bbox;
+                    if (!bbox) {
+                        debugLog(`⚠️ ${layer.slug}: No bounding box`, 'warning');
+                        continue;
+                    }
+
+                    // Calculate center coordinates
+                    const centerLat = (bbox.min_lat + bbox.max_lat) / 2;
+                    const centerLng = (bbox.min_lng + bbox.max_lng) / 2;
+
+                    // Test multiple zoom levels
+                    for (const zoom of [10, 12, 14]) {
+                        const tileX = Math.floor((centerLng + 180) / 360 * Math.pow(2, zoom));
+                        const tileY = Math.floor((1 - Math.log(Math.tan(centerLat * Math.PI / 180) + 1 / Math.cos(centerLat * Math.PI / 180)) / Math.PI) / 2 * Math.pow(2, zoom));
+
+                        const url = `${API_BASE}/tiles/${currentCity}/${layer.slug}/${zoom}/${tileX}/${tileY}.mvt`;
+                        
+                        try {
+                            const response = await fetch(url);
+                            const arrayBuffer = await response.arrayBuffer();
+                            const bytes = arrayBuffer.byteLength;
+                            
+                            if (response.ok && bytes > 0) {
+                                debugLog(`✅ ${layer.slug} z${zoom}: ${bytes} bytes (${tileX},${tileY})`, 'success');
+                                
+                                // Try to decode the MVT
+                                try {
+                                    const uint8Array = new Uint8Array(arrayBuffer);
+                                    // Note: We can't decode MVT in browser without additional library
+                                    debugLog(`📦 ${layer.slug}: MVT data found at z${zoom}`, 'success');
+                                    
+                                    return; // Found working tile, can stop testing this layer
+                                } catch (decodeError) {
+                                    debugLog(`⚠️ ${layer.slug}: Could not decode MVT`, 'warning');
+                                }
+                            } else if (response.ok && bytes === 0) {
+                                debugLog(`⚠️ ${layer.slug} z${zoom}: Empty tile (${tileX},${tileY})`, 'warning');
+                            } else {
+                                debugLog(`❌ ${layer.slug} z${zoom}: HTTP ${response.status}`, 'error');
+                            }
+                        } catch (fetchError) {
+                            debugLog(`❌ ${layer.slug} z${zoom}: ${fetchError.message}`, 'error');
+                        }
+                    }
+                } catch (error) {
+                    debugLog(`❌ ${layer.slug}: Error - ${error.message}`, 'error');
+                }
+            }
+        }
+
+        async function loadCities() {
+            try {
+                debugLog('📡 Loading cities...', 'info');
+                updateStatus('Loading cities...');
+                
+                const response = await fetch(`${API_BASE}/cities/`);
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                
+                const data = await response.json();
+                debugLog(`✅ Cities loaded: ${JSON.stringify(data.results.map(c => ({name: c.name, features: c.total_features})))}`, 'success');
+
+                const citySelect = document.getElementById('citySelect');
+                citySelect.innerHTML = '<option value="">Choose a city...</option>';
+
+                data.results.forEach(city => {
+                    const option = document.createElement('option');
+                    option.value = city.slug;
+                    option.textContent = `${city.name} (${city.total_features} features)`;
+                    citySelect.appendChild(option);
+                });
+
+                updateStatus('Cities loaded');
+                debugLog(`✅ ${data.results.length} cities added to dropdown`, 'success');
+                
+            } catch (error) {
+                debugLog(`❌ Failed to load cities: ${error.message}`, 'error');
+                showError('Failed to load cities: ' + error.message);
+            }
+        }
+
+        async function loadCityLayers(citySlug) {
+            try {
+                debugLog(`📡 Loading layers for ${citySlug}...`, 'info');
+                updateStatus(`Loading layers for ${citySlug}...`);
+                currentCity = citySlug;
+
+                const response = await fetch(`${API_BASE}/cities/${citySlug}/layers/`);
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                
+                const data = await response.json();
+                debugLog(`✅ Layers loaded: ${data.layers.length} layers`, 'success');
+
+                // Log detailed layer info
+                data.layers.forEach(layer => {
+                    debugLog(`📋 Layer: ${layer.name} (${layer.slug}) - ${layer.feature_count} features, color: ${layer.style.fill_color}`, 'info');
+                });
+
+                currentLayers = data.layers;
+                renderLayersList(currentLayers);
+                loadCategories(currentLayers);
+
+                // Center map on city
+                if (data.layers.length > 0) {
+                    centerMapOnCity(data.layers);
+                }
+
+                updateStatus(`Loaded ${data.layers.length} layers`);
+                debugLog(`✅ City layers setup complete`, 'success');
+                
+            } catch (error) {
+                debugLog(`❌ Failed to load city layers: ${error.message}`, 'error');
+                showError(`Failed to load layers for ${citySlug}: ${error.message}`);
+            }
+        }
+
+        function loadCategories(layers) {
+            const categories = [...new Set(layers.map(layer => layer.category_name))];
+            const categorySelect = document.getElementById('categorySelect');
+            
+            categorySelect.innerHTML = '<option value="">All Categories</option>';
+            categories.forEach(category => {
+                const option = document.createElement('option');
+                option.value = category;
+                option.textContent = category;
+                categorySelect.appendChild(option);
+            });
+
+            debugLog(`✅ Categories loaded: ${categories.join(', ')}`, 'success');
+        }
+
+        function renderLayersList(layers) {
+            const layersList = document.getElementById('layersList');
+            layersList.innerHTML = '';
+
+            layers.forEach(layer => {
+                const layerItem = document.createElement('div');
+                layerItem.className = 'layer-item';
+                layerItem.dataset.layerId = layer.slug;
+
+                layerItem.innerHTML = `
+                    <div class="layer-color" style="background-color: ${layer.style.fill_color}"></div>
+                    <div class="layer-info">
+                        <div class="layer-name">${layer.name}</div>
+                        <div class="layer-details">
+                            ${layer.category_name} • ${layer.feature_count} features
+                        </div>
+                    </div>
+                `;
+
+                layerItem.addEventListener('click', () => toggleLayer(layer));
+                layersList.appendChild(layerItem);
+            });
+
+            debugLog(`✅ Rendered ${layers.length} layer items in sidebar`, 'success');
+        }
+
+        function filterLayersByCategory(categoryName) {
+            const layerItems = document.querySelectorAll('.layer-item');
+            let visibleCount = 0;
+            
+            layerItems.forEach(item => {
+                const layerId = item.dataset.layerId;
+                const layer = currentLayers.find(l => l.slug === layerId);
+                
+                if (!categoryName || layer.category_name === categoryName) {
+                    item.style.display = 'flex';
+                    visibleCount++;
+                } else {
+                    item.style.display = 'none';
+                    // Remove layer from map if it's filtered out
+                    if (activeLayers.has(layerId)) {
+                        removeLayerFromMap(layerId);
+                        activeLayers.delete(layerId);
+                        item.classList.remove('active');
+                    }
+                }
+            });
+
+            debugLog(`🏷️ Category filter applied: showing ${visibleCount} layers`, 'info');
+        }
+
+        async function toggleLayer(layer) {
+            const layerItem = document.querySelector(`[data-layer-id="${layer.slug}"]`);
+            
+            if (activeLayers.has(layer.slug)) {
+                debugLog(`➖ Removing layer: ${layer.name}`, 'warning');
+                removeLayerFromMap(layer.slug);
+                activeLayers.delete(layer.slug);
+                layerItem.classList.remove('active');
+            } else {
+                debugLog(`➕ Adding layer: ${layer.name}`, 'info');
+                await addLayerToMap(layer);
+                activeLayers.add(layer.slug);
+                layerItem.classList.add('active');
+            }
+
+            updateLayerCount();
+        }
+
+        async function addLayerToMap(layer) {
+            try {
+                debugLog(`🔧 Setting up layer: ${layer.name} (${layer.slug})`, 'info');
+                debugLog(`📊 Layer info: ${layer.feature_count} features, bbox: [${layer.bbox.min_lng.toFixed(4)}, ${layer.bbox.min_lat.toFixed(4)}] to [${layer.bbox.max_lng.toFixed(4)}, ${layer.bbox.max_lat.toFixed(4)}]`, 'info');
+                updateStatus(`Loading ${layer.name}...`);
+
+                const sourceId = `source-${layer.slug}`;
+
+                // Construct tile URL
+                const tileUrl = `${window.location.origin}${API_BASE}/tiles/${currentCity}/${layer.slug}/{z}/{x}/{y}.mvt`;
+                debugLog(`🔗 Tile URL template: ${tileUrl}`, 'info');
+
+                // Test a tile in the center of the layer's bounding box
+                const centerLat = (layer.bbox.min_lat + layer.bbox.max_lat) / 2;
+                const centerLng = (layer.bbox.min_lng + layer.bbox.max_lng) / 2;
+                const testZoom = 12;
+                const testX = Math.floor((centerLng + 180) / 360 * Math.pow(2, testZoom));
+                const testY = Math.floor((1 - Math.log(Math.tan(centerLat * Math.PI / 180) + 1 / Math.cos(centerLat * Math.PI / 180)) / Math.PI) / 2 * Math.pow(2, testZoom));
+                
+                const testTileUrl = `${API_BASE}/tiles/${currentCity}/${layer.slug}/${testZoom}/${testX}/${testY}.mvt`;
+                debugLog(`🧪 Test tile URL: ${testTileUrl}`, 'info');
+
+                // Test if tile has data
+                try {
+                    const testResponse = await fetch(testTileUrl);
+                    const arrayBuffer = await testResponse.arrayBuffer();
+                    const bytes = arrayBuffer.byteLength;
+                    
+                    if (testResponse.ok && bytes > 0) {
+                        debugLog(`✅ Test tile SUCCESS: ${bytes} bytes at z${testZoom}/${testX}/${testY}`, 'success');
+                    } else if (testResponse.ok && bytes === 0) {
+                        debugLog(`⚠️ Test tile EMPTY: 0 bytes - trying different coordinates`, 'warning');
+                        
+                        // Try different coordinates if center is empty
+                        const altCoords = [
+                            {z: 11, x: Math.floor(testX/2), y: Math.floor(testY/2)},
+                            {z: 13, x: testX*2, y: testY*2},
+                            {z: 10, x: Math.floor(testX/4), y: Math.floor(testY/4)}
+                        ];
+                        
+                        for (const coord of altCoords) {
+                            const altUrl = `${API_BASE}/tiles/${currentCity}/${layer.slug}/${coord.z}/${coord.x}/${coord.y}.mvt`;
+                            const altResponse = await fetch(altUrl);
+                            const altBuffer = await altResponse.arrayBuffer();
+                            
+                            if (altResponse.ok && altBuffer.byteLength > 0) {
+                                debugLog(`✅ Found data at z${coord.z}/${coord.x}/${coord.y}: ${altBuffer.byteLength} bytes`, 'success');
+                                break;
+                            }
+                        }
+                    } else {
+                        debugLog(`❌ Test tile FAILED: HTTP ${testResponse.status}`, 'error');
+                    }
+                } catch (testError) {
+                    debugLog(`❌ Test tile ERROR: ${testError.message}`, 'error');
+                }
+
+                // Add vector tile source
+                map.addSource(sourceId, {
+                    type: 'vector',
+                    tiles: [tileUrl],
+                    minzoom: 8,
+                    maxzoom: 18
+                });
+
+                debugLog(`✅ Source added: ${sourceId}`, 'success');
+
+                // Try multiple source-layer name variations
+                const sourceLayerVariations = [
+                    layer.slug,                                    // residential_main_
+                    layer.slug.replace(/_+$/, ''),               // residential_main (remove trailing underscores)
+                    layer.name.toLowerCase().replace(/\s+/g, '_'), // residential_main  
+                    layer.slug.replace(/_/g, '-'),               // residential-main-
+                    'default',                                    // default layer name
+                    layer.category_code.toLowerCase(),           // residential
+                    `${layer.city_name.toLowerCase()}_${layer.slug}` // bangalore_residential_main_
+                ];
+
+                debugLog(`🔍 Trying source-layer variations: ${sourceLayerVariations.join(', ')}`, 'info');
+
+                // Try each source-layer name variation
+                let workingSourceLayer = null;
+                
+                for (let i = 0; i < sourceLayerVariations.length; i++) {
+                    const sourceLayerName = sourceLayerVariations[i];
+                    const fillLayerId = `layer-${layer.slug}-${i}`;
+                    const strokeLayerId = `stroke-${layer.slug}-${i}`;
+                    
+                    try {
+                        // Add fill layer
+                        map.addLayer({
+                            id: fillLayerId,
+                            type: 'fill',
+                            source: sourceId,
+                            'source-layer': sourceLayerName,
+                            paint: {
+                                'fill-color': layer.style.fill_color,
+                                'fill-opacity': 0.8
+                            },
+                            filter: ['==', '$type', 'Polygon']
+                        });
+
+                        // Add stroke layer
+                        map.addLayer({
+                            id: strokeLayerId,
+                            type: 'line',
+                            source: sourceId,
+                            'source-layer': sourceLayerName,
+                            paint: {
+                                'line-color': layer.style.stroke_color || '#333333',
+                                'line-width': 3,
+                                'line-opacity': 1.0
+                            },
+                            filter: ['==', '$type', 'Polygon']
+                        });
+
+                        debugLog(`🧪 Testing source-layer: '${sourceLayerName}'`, 'info');
+
+                        // Wait a moment for rendering, then check for features
+                        await new Promise(resolve => setTimeout(resolve, 500));
+                        
+                        const features = map.queryRenderedFeatures({
+                            layers: [fillLayerId, strokeLayerId]
+                        });
+
+                        if (features.length > 0) {
+                            debugLog(`✅ SUCCESS! Source-layer '${sourceLayerName}' shows ${features.length} features`, 'success');
+                            workingSourceLayer = sourceLayerName;
+                            
+                            // Remove the other layers since this one works
+                            for (let j = 0; j < i; j++) {
+                                const oldFillId = `layer-${layer.slug}-${j}`;
+                                const oldStrokeId = `stroke-${layer.slug}-${j}`;
+                                if (map.getLayer(oldFillId)) map.removeLayer(oldFillId);
+                                if (map.getLayer(oldStrokeId)) map.removeLayer(oldStrokeId);
+                            }
+                            
+                            break;
+                        } else {
+                            debugLog(`❌ Source-layer '${sourceLayerName}' shows 0 features`, 'warning');
+                            // Remove these layers since they don't work
+                            map.removeLayer(fillLayerId);
+                            map.removeLayer(strokeLayerId);
+                        }
+
+                    } catch (layerError) {
+                        debugLog(`❌ Error with source-layer '${sourceLayerName}': ${layerError.message}`, 'error');
+                    }
+                }
+
+                if (workingSourceLayer) {
+                    debugLog(`🎉 SOLUTION FOUND! Use source-layer: '${workingSourceLayer}' for ${layer.name}`, 'success');
+                    
+                    // Zoom to layer's bounding box
+                    map.fitBounds([
+                        [layer.bbox.min_lng, layer.bbox.min_lat],
+                        [layer.bbox.max_lng, layer.bbox.max_lat]
+                    ], {
+                        padding: 50,
+                        duration: 1000
+                    });
+
+                    debugLog(`🎯 Map zoomed to layer bounds`, 'success');
+                } else {
+                    debugLog(`❌ FAILED: No working source-layer found for ${layer.name}`, 'error');
+                    debugLog(`🔍 This means either: 1) MVT has different layer name, 2) No features in tiles, or 3) Geometry issue`, 'error');
+                }
+
+                updateStatus(`Layer ${layer.name} added`);
+
+            } catch (error) {
+                debugLog(`❌ Error adding layer ${layer.name}: ${error.message}`, 'error');
+                showError(`Failed to add layer: ${layer.name} - ${error.message}`);
+            }
+        }
+
+        function removeLayerFromMap(layerSlug) {
+            const sourceId = `source-${layerSlug}`;
+
+            try {
+                // Remove all possible layer variations (since we test multiple source-layer names)
+                for (let i = 0; i < 10; i++) {
+                    const fillLayerId = `layer-${layerSlug}-${i}`;
+                    const strokeLayerId = `stroke-${layerSlug}-${i}`;
+                    
+                    if (map.getLayer(fillLayerId)) {
+                        map.removeLayer(fillLayerId);
+                        debugLog(`🗑️ Removed fill layer: ${fillLayerId}`, 'info');
+                    }
+                    if (map.getLayer(strokeLayerId)) {
+                        map.removeLayer(strokeLayerId);
+                        debugLog(`🗑️ Removed stroke layer: ${strokeLayerId}`, 'info');
+                    }
+                }
+                
+                // Remove source
+                if (map.getSource(sourceId)) {
+                    map.removeSource(sourceId);
+                    debugLog(`🗑️ Removed source: ${sourceId}`, 'info');
+                }
+
+            } catch (error) {
+                debugLog(`❌ Error removing layer: ${error.message}`, 'error');
+            }
+        }
+
+        function toggleAllLayers() {
+            allLayersVisible = !allLayersVisible;
+            
+            debugLog(`🔄 Toggle all layers: ${allLayersVisible ? 'ON' : 'OFF'}`, 'info');
+            
+            if (allLayersVisible) {
+                // Show all visible layers
+                const visibleLayers = currentLayers.filter(layer => {
+                    const layerItem = document.querySelector(`[data-layer-id="${layer.slug}"]`);
+                    return layerItem && layerItem.style.display !== 'none';
+                });
+
+                visibleLayers.forEach(layer => {
+                    if (!activeLayers.has(layer.slug)) {
+                        toggleLayer(layer);
+                    }
+                });
+            } else {
+                // Hide all layers
+                activeLayers.forEach(layerSlug => {
+                    const layer = currentLayers.find(l => l.slug === layerSlug);
+                    if (layer) toggleLayer(layer);
+                });
+            }
+
+            updateLayerCount();
+        }
+
+        function centerMapOnCity(layers) {
+            // Calculate overall bounding box
+            let minLng = Infinity, minLat = Infinity;
+            let maxLng = -Infinity, maxLat = -Infinity;
+
+            layers.forEach(layer => {
+                if (layer.bbox) {
+                    minLng = Math.min(minLng, layer.bbox.min_lng);
+                    minLat = Math.min(minLat, layer.bbox.min_lat);
+                    maxLng = Math.max(maxLng, layer.bbox.max_lng);
+                    maxLat = Math.max(maxLat, layer.bbox.max_lat);
+                }
+            });
+
+            if (minLng !== Infinity) {
+                map.fitBounds([[minLng, minLat], [maxLng, maxLat]], {
+                    padding: 50
+                });
+                debugLog(`🎯 Map centered on city bounds: [${minLng.toFixed(4)}, ${minLat.toFixed(4)}] to [${maxLng.toFixed(4)}, ${maxLat.toFixed(4)}]`, 'success');
+            }
+        }
+
+        function showFeaturePopup(feature, lngLat) {
+            const props = feature.properties;
+            
+            let popupContent = `<div class="feature-popup">`;
+            popupContent += `<h4>${props.layer_name || props.name || 'Feature'}</h4>`;
+            
+            // Show all properties for debugging
+            Object.keys(props).forEach(key => {
+                if (props[key]) {
+                    popupContent += `<div class="property"><strong>${key}:</strong> ${props[key]}</div>`;
+                }
+            });
+
+            popupContent += `</div>`;
+
+            new mapboxgl.Popup()
+                .setLngLat(lngLat)
+                .setHTML(popupContent)
+                .addTo(map);
+
+            debugLog(`📍 Popup shown for feature with ${Object.keys(props).length} properties`, 'info');
+        }
+
+        function clearLayers() {
+            debugLog('🧹 Clearing all layers...', 'warning');
+            
+            // Remove all active layers
+            activeLayers.forEach(layerSlug => {
+                removeLayerFromMap(layerSlug);
+            });
+            activeLayers.clear();
+
+            // Clear UI
+            document.getElementById('layersList').innerHTML = '<div style="text-align: center; padding: 20px; color: #6c757d;">Select a city to view layers</div>';
+            document.getElementById('categorySelect').innerHTML = '<option value="">All Categories</option>';
+            
+            currentCity = null;
+            currentLayers = [];
+            updateLayerCount();
+        }
+
+        function updateStatus(message) {
+            document.getElementById('status').textContent = message;
+        }
+
+        function updateLayerCount() {
+            document.getElementById('layerCount').textContent = `Active Layers: ${activeLayers.size}`;
+        }
+
+        function showError(message) {
+            const sidebar = document.querySelector('.sidebar');
+            const existingError = sidebar.querySelector('.error');
+            if (existingError) existingError.remove();
+
+            const errorDiv = document.createElement('div');
+            errorDiv.className = 'error';
+            errorDiv.textContent = message;
+            sidebar.appendChild(errorDiv);
+
+            setTimeout(() => errorDiv.remove(), 10000);
+        }
+
+        // Auto-select Bangalore for testing
+        setTimeout(() => {
+            const citySelect = document.getElementById('citySelect');
+            if (citySelect.options.length > 1) {
+                citySelect.value = 'bangalore';
+                citySelect.dispatchEvent(new Event('change'));
+            async function testSpecificLayer() {
+            if (!currentLayers || currentLayers.length === 0) {
+                debugLog('⚠️ No layers loaded. Load a city first!', 'warning');
+                return;
+            }
+
+            // Test the first layer with substantial data
+            const testLayer = currentLayers.find(layer => layer.feature_count > 100) || currentLayers[0];
+            
+            debugLog(`🔬 Deep testing layer: ${testLayer.name} (${testLayer.feature_count} features)`, 'info');
+            debugLog(`📊 Layer details: ${JSON.stringify({
+                slug: testLayer.slug,
+                category: testLayer.category_name,
+                bbox: testLayer.bbox,
+                style: testLayer.style
+            }, null, 2)}`, 'info');
+
+            const bbox = testLayer.bbox;
+            
+            // Test grid of coordinates across the bounding box
+            const testPoints = [
+                { lat: bbox.min_lat, lng: bbox.min_lng, name: 'SW corner' },
+                { lat: bbox.max_lat, lng: bbox.max_lng, name: 'NE corner' },
+                { lat: (bbox.min_lat + bbox.max_lat) / 2, lng: (bbox.min_lng + bbox.max_lng) / 2, name: 'center' },
+                { lat: bbox.min_lat, lng: bbox.max_lng, name: 'SE corner' },
+                { lat: bbox.max_lat, lng: bbox.min_lng, name: 'NW corner' }
+            ];
+
+            let foundData = false;
+
+            for (const point of testPoints) {
+                for (const zoom of [10, 11, 12, 13, 14]) {
+                    const tileX = Math.floor((point.lng + 180) / 360 * Math.pow(2, zoom));
+                    const tileY = Math.floor((1 - Math.log(Math.tan(point.lat * Math.PI / 180) + 1 / Math.cos(point.lat * Math.PI / 180)) / Math.PI) / 2 * Math.pow(2, zoom));
+
+                    const url = `${API_BASE}/tiles/${currentCity}/${testLayer.slug}/${zoom}/${tileX}/${tileY}.mvt`;
+                    
+                    try {
+                        const response = await fetch(url);
+                        const arrayBuffer = await response.arrayBuffer();
+                        const bytes = arrayBuffer.byteLength;
+                        
+                        if (response.ok && bytes > 0) {
+                            debugLog(`✅ FOUND DATA at ${point.name} z${zoom}/${tileX}/${tileY}: ${bytes} bytes`, 'success');
+                            debugLog(`🔗 Working URL: ${url}`, 'success');
+                            foundData = true;
+                            return; // Stop at first success
+                        } else if (response.ok) {
+                            debugLog(`⚪ Empty tile at ${point.name} z${zoom}/${tileX}/${tileY}`, 'info');
+                        } else {
+                            debugLog(`❌ Error at ${point.name} z${zoom}/${tileX}/${tileY}: HTTP ${response.status}`, 'error');
+                        }
+                    } catch (error) {
+                        debugLog(`❌ Request failed at ${point.name} z${zoom}/${tileX}/${tileY}: ${error.message}`, 'error');
+                    }
+                }
+            }
+
+            if (!foundData) {
+                debugLog(`❌ NO DATA FOUND for ${testLayer.name} across all test coordinates`, 'error');
+                debugLog(`🔍 This suggests an issue with MVT generation or coordinate calculation`, 'error');
+            }
+        }
+            }
+        }, 2000);
+    </script>
+</body>
+</html>

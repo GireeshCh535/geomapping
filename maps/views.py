@@ -1,0 +1,699 @@
+from django.shortcuts import get_object_or_404
+from django.http import HttpResponse
+from django.db.models import Count, Q, Avg, Max, Min, Sum
+from rest_framework import viewsets, status
+from rest_framework.decorators import action
+from rest_framework.response import Response
+from rest_framework.views import APIView
+from django.contrib.gis.geos import Polygon
+from django.contrib.gis.db.models import Extent
+from .services import VectorTileService
+from .tile_rendering_service import TileRenderingService
+import mercantile
+import json
+from django.shortcuts import render
+from django.views.generic import TemplateView
+from django.http import JsonResponse
+import mapbox_vector_tile
+
+from .models import (
+    City, LayerCategory, DataLayer, GeoFeature, VectorTileLayer, 
+    PLUCodeMapping, ImportJob
+)
+from .serializers import (
+    CitySerializer, LayerCategorySerializer, DataLayerSerializer, 
+    GeoFeatureSerializer, PLUCodeMappingSerializer, ImportJobSerializer
+)
+from .services import DataImportService, VectorTileService
+from .config import get_city_config, get_plu_mapping
+
+class CityViewSet(viewsets.ReadOnlyModelViewSet):
+    """Enhanced city viewset with PLU information"""
+    queryset = City.objects.annotate(
+        layer_count=Count('layers'),
+        total_features=Count('layers__features')
+    ).filter(is_active=True)
+    serializer_class = CitySerializer
+    lookup_field = 'slug'
+
+    @action(detail=True, methods=['get'])
+    def statistics(self, request, slug=None):  # Keep as 'slug'
+        """Get detailed city statistics"""
+        city = self.get_object()  # This works with DRF router
+        
+        # Rest of your method stays the same...
+        layers = DataLayer.objects.filter(city=city)
+        layer_stats = {
+            'total_layers': layers.count(),
+            'processed_layers': layers.filter(is_processed=True).count(),
+            'layers_with_tiles': layers.filter(tiles_generated=True).count(),
+        }
+        
+        features = GeoFeature.objects.filter(layer__city=city)
+        feature_stats = {
+            'total_features': features.count(),
+            'valid_features': features.filter(is_valid=True).count(),
+            'features_with_plu': features.exclude(
+                Q(plu_primary_code='') | Q(plu_primary_code__isnull=True)
+            ).count(),
+        }
+        
+        plu_stats = {}
+        if city.slug == 'bangalore':
+            plu_codes = features.exclude(
+                Q(plu_primary_code='') | Q(plu_primary_code__isnull=True)
+            ).values('plu_primary_code').annotate(
+                count=Count('id')
+            ).order_by('-count')
+            
+            plu_stats = {
+                'unique_plu_codes': len(plu_codes),
+                'top_plu_codes': list(plu_codes[:10]),
+                'plu_mappings': PLUCodeMapping.objects.filter(city=city).count()
+            }
+        
+        area_stats = features.aggregate(
+            total_area=Sum('calculated_area'),
+            avg_area=Avg('calculated_area'),
+            max_area=Max('calculated_area'),
+            min_area=Min('calculated_area')
+        )
+        
+        return Response({
+            'city': {
+                'name': city.name,
+                'slug': city.slug,
+                'state': city.state
+            },
+            'layers': layer_stats,
+            'features': feature_stats,
+            'plu_codes': plu_stats,
+            'area_statistics': area_stats
+        })
+
+    @action(detail=True, methods=['get'])
+    def plu_mappings(self, request, slug=None):  # Keep as 'slug'
+        """Get PLU mappings for a city"""
+        city = self.get_object()  # This works with DRF router
+        
+        mappings = PLUCodeMapping.objects.filter(city=city).select_related('mapped_category')
+        serializer = PLUCodeMappingSerializer(mappings, many=True)
+        
+        return Response({
+            'city': city.name,
+            'total_mappings': mappings.count(),
+            'mappings': serializer.data
+        })
+
+
+class LayerCategoryViewSet(viewsets.ReadOnlyModelViewSet):
+    queryset = LayerCategory.objects.filter(is_active=True)
+    serializer_class = LayerCategorySerializer
+    lookup_field = 'code'
+
+class DataLayerViewSet(viewsets.ReadOnlyModelViewSet):
+    """Enhanced data layer viewset"""
+    queryset = DataLayer.objects.select_related('city', 'category').filter(
+        is_processed=True
+    )
+    serializer_class = DataLayerSerializer
+    filterset_fields = ['city__slug', 'category__code', 'file_format', 'categorization_method']
+
+    @action(detail=True, methods=['get'])
+    def plu_analysis(self, request, pk=None):
+        """Get PLU code analysis for a layer"""
+        layer = self.get_object()
+        
+        if layer.city.slug != 'bangalore':
+            return Response({
+                'error': 'PLU analysis only available for Bangalore layers'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        features = GeoFeature.objects.filter(layer=layer)
+        
+        # PLU code distribution
+        plu_distribution = features.exclude(
+            Q(plu_primary_code='') | Q(plu_primary_code__isnull=True)
+        ).values('plu_primary_code', 'plu_secondary_1').annotate(
+            count=Count('id')
+        ).order_by('-count')
+        
+        # Category mapping accuracy
+        categorization_stats = features.values('derived_category').annotate(
+            count=Count('id')
+        ).order_by('-count')
+        
+        return Response({
+            'layer': {
+                'name': layer.name,
+                'total_features': features.count()
+            },
+            'plu_distribution': list(plu_distribution),
+            'categorization': list(categorization_stats),
+            'primary_plu_codes': layer.primary_plu_codes
+        })
+
+    @action(detail=True, methods=['post'])
+    def generate_tiles(self, request, pk=None):
+        """Generate vector tiles for this layer"""
+        layer = self.get_object()
+        
+        min_zoom = request.data.get('min_zoom', 8)
+        max_zoom = request.data.get('max_zoom', 14)
+        
+        try:
+            tile_service = VectorTileService()
+            result = tile_service.generate_layer_tiles(layer, min_zoom, max_zoom)
+            
+            # Update layer status
+            layer.tiles_generated = True
+            layer.save()
+            
+            return Response(result, status=status.HTTP_200_OK)
+            
+        except Exception as e:
+            return Response(
+                {'error': str(e)}, 
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+class GeoFeatureViewSet(viewsets.ReadOnlyModelViewSet):
+    """Enhanced geo feature viewset with PLU support"""
+    queryset = GeoFeature.objects.select_related('layer', 'layer__city', 'layer__category')
+    serializer_class = GeoFeatureSerializer
+    filterset_fields = [
+        'layer__slug', 'derived_category', 'land_use_type', 
+        'plu_primary_code', 'plu_authority', 'is_valid'
+    ]
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        
+        # Add PLU filtering for Bangalore
+        plu_code = self.request.query_params.get('plu_code')
+        if plu_code:
+            queryset = queryset.filter(plu_primary_code=plu_code)
+        
+        # Area filtering
+        min_area = self.request.query_params.get('min_area')
+        max_area = self.request.query_params.get('max_area')
+        if min_area:
+            queryset = queryset.filter(calculated_area__gte=float(min_area))
+        if max_area:
+            queryset = queryset.filter(calculated_area__lte=float(max_area))
+        
+        return queryset
+
+class VectorTileView(APIView):
+    """RESTORED - Original vector tile serving (should work without errors)"""
+    
+    def get(self, request, city_slug, layer_slug, z, x, y):
+        try:
+            # Get layer
+            layer = get_object_or_404(
+                DataLayer, 
+                city__slug=city_slug, 
+                slug=layer_slug,
+                is_processed=True
+            )
+            
+            # Generate tile using your existing service
+            tile_service = VectorTileService()
+            mvt_data = tile_service.generate_tile(layer, z, x, y)
+            
+            if mvt_data:
+                response = HttpResponse(mvt_data, content_type='application/vnd.mapbox-vector-tile')
+                response['Cache-Control'] = 'max-age=3600'
+                response['Access-Control-Allow-Origin'] = '*'
+                return response
+            
+            # Return empty tile if no data
+            return HttpResponse(b'', content_type='application/vnd.mapbox-vector-tile')
+            
+        except Exception as e:
+            print(f"Error in VectorTileView: {e}")
+            return HttpResponse(b'', content_type='application/vnd.mapbox-vector-tile', status=500)
+
+class CombinedVectorTileView(APIView):
+    """RESTORED - Original combined vector tiles"""
+    
+    def get(self, request, city_slug, z, x, y):
+        try:
+            # Get all layers for city
+            layers = DataLayer.objects.filter(
+                city__slug=city_slug,
+                is_processed=True
+            ).select_related('category')
+            
+            # Filter layers if specified
+            layer_slugs = request.GET.getlist('layers')
+            if layer_slugs:
+                layers = layers.filter(slug__in=layer_slugs)
+            
+            categories = request.GET.getlist('categories')
+            if categories:
+                layers = layers.filter(category__code__in=categories)
+            
+            # Generate combined tile
+            tile_service = VectorTileService()
+            mvt_data = tile_service.generate_combined_tile(layers, z, x, y)
+            
+            if mvt_data:
+                response = HttpResponse(mvt_data, content_type='application/vnd.mapbox-vector-tile')
+                response['Cache-Control'] = 'max-age=3600'
+                response['Access-Control-Allow-Origin'] = '*'
+                return response
+            
+            return HttpResponse(b'', content_type='application/vnd.mapbox-vector-tile')
+            
+        except Exception as e:
+            print(f"Error in CombinedVectorTileView: {e}")
+            return HttpResponse(b'', content_type='application/vnd.mapbox-vector-tile', status=500)
+
+class CityLayersView(APIView):
+    """Enhanced city layers view with filtering"""
+    
+    def get(self, request, city_slug):
+        layers = DataLayer.objects.filter(
+            city__slug=city_slug,
+            is_processed=True
+        ).select_related('city', 'category')
+        
+        # Filter by category
+        category = request.GET.get('category')
+        if category:
+            layers = layers.filter(category__code=category)
+        
+        # Filter by file format
+        file_format = request.GET.get('format')
+        if file_format:
+            layers = layers.filter(file_format=file_format)
+        
+        # Filter by PLU availability (Bangalore)
+        has_plu = request.GET.get('has_plu')
+        if has_plu and has_plu.lower() == 'true':
+            layers = layers.filter(categorization_method='PLU_CODE')
+        
+        serializer = DataLayerSerializer(layers, many=True)
+        
+        return Response({
+            'city': city_slug,
+            'total_layers': layers.count(),
+            'layers': serializer.data
+        })
+
+class LayerFeaturesView(APIView):
+    """Enhanced layer features view with spatial and PLU filtering"""
+    
+    def get(self, request, city_slug, layer_slug):
+        layer = get_object_or_404(DataLayer, city__slug=city_slug, slug=layer_slug)
+        
+        features = GeoFeature.objects.filter(layer=layer)
+        
+        # Spatial filtering by bounding box
+        bbox = request.GET.get('bbox')
+        if bbox:
+            try:
+                coords = [float(x) for x in bbox.split(',')]
+                if len(coords) == 4:
+                    bbox_geom = Polygon.from_bbox(coords)
+                    features = features.filter(geometry__intersects=bbox_geom)
+            except (ValueError, TypeError):
+                pass
+        
+        # PLU filtering
+        plu_code = request.GET.get('plu_code')
+        if plu_code:
+            features = features.filter(plu_primary_code=plu_code)
+        
+        plu_authority = request.GET.get('plu_authority')
+        if plu_authority:
+            features = features.filter(plu_authority=plu_authority)
+        
+        # Category filtering
+        category = request.GET.get('category')
+        if category:
+            features = features.filter(derived_category=category)
+        
+        # Land use filtering
+        land_use = request.GET.get('land_use')
+        if land_use:
+            features = features.filter(land_use_type__icontains=land_use)
+        
+        # Area filtering
+        min_area = request.GET.get('min_area')
+        max_area = request.GET.get('max_area')
+        if min_area:
+            features = features.filter(calculated_area__gte=float(min_area))
+        if max_area:
+            features = features.filter(calculated_area__lte=float(max_area))
+        
+        # Pagination
+        page_size = min(int(request.GET.get('page_size', 100)), 1000)  # Max 1000
+        page = int(request.GET.get('page', 1))
+        start = (page - 1) * page_size
+        end = start + page_size
+        
+        total_count = features.count()
+        paginated_features = features[start:end]
+        
+        serializer = GeoFeatureSerializer(paginated_features, many=True)
+        
+        return Response({
+            'layer': {
+                'name': layer.name,
+                'city': layer.city.name,
+                'category': layer.category.name
+            },
+            'pagination': {
+                'page': page,
+                'page_size': page_size,
+                'total_count': total_count,
+                'total_pages': (total_count + page_size - 1) // page_size
+            },
+            'features': serializer.data
+        })
+
+class DataImportView(APIView):
+    """Enhanced data import with ESRI and configuration support"""
+    
+    def post(self, request):
+        try:
+            city_slug = request.data.get('city')
+            category_code = request.data.get('category')
+            uploaded_file = request.FILES.get('file')
+            use_config = request.data.get('use_config', 'true').lower() == 'true'
+            
+            if not all([city_slug, uploaded_file]):
+                return Response(
+                    {'error': 'city and file are required'}, 
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Get city
+            city = get_object_or_404(City, slug=city_slug)
+            
+            import_service = DataImportService()
+            
+            if use_config and not category_code:
+                # Use configuration-based import (automatic category detection)
+                try:
+                    # Save file temporarily for config-based import
+                    import tempfile
+                    import os
+                    
+                    temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=uploaded_file.name)
+                    for chunk in uploaded_file.chunks():
+                        temp_file.write(chunk)
+                    temp_file.close()
+                    
+                    result = import_service.import_file_with_config(temp_file.name, city_slug)
+                    os.unlink(temp_file.name)
+                    
+                except Exception as e:
+                    return Response(
+                        {'error': f'Configuration-based import failed: {str(e)}'}, 
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+            else:
+                # Manual import with specified category
+                if not category_code:
+                    return Response(
+                        {'error': 'category required for manual import'}, 
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+                
+                category = get_object_or_404(LayerCategory, code=category_code)
+                result = import_service.import_file(uploaded_file, city, category)
+            
+            return Response(result, status=status.HTTP_201_CREATED)
+            
+        except Exception as e:
+            return Response(
+                {'error': str(e)}, 
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+class ImportJobViewSet(viewsets.ReadOnlyModelViewSet):
+    """View import job history and status"""
+    queryset = ImportJob.objects.all().select_related('city')
+    serializer_class = ImportJobSerializer
+    filterset_fields = ['city__slug', 'status', 'file_format']
+    ordering = ['-started_at']
+
+# Configuration and utility views
+class CityConfigView(APIView):
+    """Get all city configurations"""
+    
+    def get(self, request):
+        from .config import CITY_CONFIGS
+        
+        configs = {}
+        for city_slug, config in CITY_CONFIGS.items():
+            # Get city statistics if exists
+            try:
+                city = City.objects.get(slug=city_slug)
+                layer_count = DataLayer.objects.filter(city=city).count()
+                feature_count = GeoFeature.objects.filter(layer__city=city).count()
+            except City.DoesNotExist:
+                layer_count = 0
+                feature_count = 0
+            
+            configs[city_slug] = {
+                'city_info': config['city_info'],
+                'total_files': len(config['file_mappings']),
+                'categories': list(set(config['file_mappings'].values())),
+                'colors': config['colors'],
+                'data_format': config.get('data_format', 'UNKNOWN'),
+                'has_plu_mapping': 'plu_mapping' in config,
+                'statistics': {
+                    'layers_imported': layer_count,
+                    'features_imported': feature_count
+                }
+            }
+        
+        return Response(configs)
+
+class CityConfigDetailView(APIView):
+    """Get detailed configuration for a specific city"""
+    
+    def get(self, request, city_slug):
+        config = get_city_config(city_slug)
+        if not config:
+            return Response(
+                {'error': f'Configuration not found for city: {city_slug}'}, 
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        # Add import status for each file
+        try:
+            city = City.objects.get(slug=city_slug)
+            existing_layers = DataLayer.objects.filter(city=city).values_list('original_filename', flat=True)
+        except City.DoesNotExist:
+            existing_layers = []
+        
+        file_status = {}
+        for filename, category_code in config['file_mappings'].items():
+            file_status[filename] = {
+                'category': category_code,
+                'imported': filename in existing_layers,
+                'color': config['colors'].get(category_code, '#666666')
+            }
+        
+        # Add PLU mapping info
+        plu_info = {}
+        if 'plu_mapping' in config:
+            plu_mapping = config['plu_mapping']
+            plu_info = {
+                'total_codes': len(plu_mapping),
+                'codes': list(plu_mapping.keys()),
+                'categories_mapped': list(set(info['category'] for info in plu_mapping.values()))
+            }
+        
+        return Response({
+            'city_info': config['city_info'],
+            'file_mappings': config['file_mappings'],
+            'colors': config['colors'],
+            'file_status': file_status,
+            'data_format': config.get('data_format', 'UNKNOWN'),
+            'coordinate_precision': config.get('coordinate_precision', 8),
+            'plu_mapping': plu_info
+        })
+
+class SetupCitiesView(APIView):
+    """Setup all cities and categories from configuration"""
+    
+    def post(self, request):
+        try:
+            from django.core.management import call_command
+            from io import StringIO
+            
+            # Capture command output
+            out = StringIO()
+            call_command('setup_cities', '--with-plu', stdout=out)
+            output = out.getvalue()
+            
+            return Response({
+                'message': 'Setup completed successfully',
+                'output': output
+            }, status=status.HTTP_201_CREATED)
+            
+        except Exception as e:
+            return Response(
+                {'error': str(e)}, 
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+class RasterTileView(APIView):
+    """Convert MVT tiles to PNG images for anti-scraping protection - FIXED VERSION"""
+    
+    def get(self, request, city_slug, layer_slug, z, x, y):
+        try:
+            # Get layer
+            layer = get_object_or_404(
+                DataLayer, 
+                city__slug=city_slug, 
+                slug=layer_slug,
+                is_processed=True
+            )
+            
+            # Generate MVT data
+            tile_service = VectorTileService()
+            mvt_data = tile_service.generate_tile(layer, z, x, y)
+            
+            # Convert MVT to PNG
+            render_service = TileRenderingService()
+            
+            if mvt_data:
+                try:
+                    png_data = render_service.mvt_to_png(mvt_data, layer, z, x, y)
+                    
+                    if png_data and len(png_data) > 0:
+                        response = HttpResponse(png_data, content_type='image/png')
+                        response['Cache-Control'] = 'max-age=3600'
+                        response['Access-Control-Allow-Origin'] = '*'
+                        return response
+                        
+                except Exception as e:
+                    print(f"Error converting MVT to PNG: {e}")
+                    # Fall through to empty tile
+            
+            # Return empty/transparent image if no data or error
+            empty_png = render_service.create_empty_tile()
+            response = HttpResponse(empty_png, content_type='image/png')
+            response['Cache-Control'] = 'max-age=3600'
+            response['Access-Control-Allow-Origin'] = '*'
+            return response
+            
+        except Exception as e:
+            print(f"Error in RasterTileView: {e}")
+            # Return empty tile on any error
+            try:
+                render_service = TileRenderingService()
+                empty_png = render_service.create_empty_tile()
+                return HttpResponse(empty_png, content_type='image/png')
+            except:
+                # Last resort - return minimal response
+                return HttpResponse(b'', content_type='image/png', status=204)
+
+class CombinedRasterTileView(APIView):
+    """Serve combined raster tiles (PNG)"""
+    
+    def get(self, request, city_slug, z, x, y):
+        """Handle request and return combined PNG"""
+        
+        try:
+            # Get layers for city
+            layers = DataLayer.objects.filter(
+                city__slug=city_slug, 
+                is_processed=True
+            ).select_related('category')
+            
+            # Use VectorTileService to get combined MVT
+            vector_service = VectorTileService()
+            mvt_data = vector_service.generate_combined_tile(layers, z, x, y)
+            
+            if not mvt_data:
+                renderer = TileRenderingService()
+                return HttpResponse(renderer.create_empty_tile(), content_type='image/png')
+            
+            # Use TileRenderingService to convert MVT to PNG
+            renderer = TileRenderingService()
+            png_data = renderer.combined_mvt_to_png(mvt_data, layers, z, x, y)
+            
+            # Return PNG response
+            response = HttpResponse(png_data, content_type='image/png')
+            response['Cache-Control'] = 'max-age=3600'
+            return response
+            
+        except Exception as e:
+            print(f"Error generating combined raster tile for {city_slug}: {e}")
+            renderer = TileRenderingService()
+            return HttpResponse(renderer.create_empty_tile(), content_type='image/png', status=500)
+
+# -----------------------------------------------------------------------------
+# ADDED FOR DEBUGGING: Simplified Views to test core functionality directly
+# -----------------------------------------------------------------------------
+
+class SimpleVectorTileView(APIView):
+    """A simplified view to directly test VectorTileService"""
+    
+    def get(self, request, city_slug, layer_slug, z, x, y):
+        try:
+            layer = DataLayer.objects.get(city__slug=city_slug, slug=layer_slug)
+            service = VectorTileService()
+            mvt_data = service.generate_tile(layer, z, x, y)
+            
+            if mvt_data:
+                return HttpResponse(mvt_data, content_type='application/vnd.mapbox-vector-tile')
+            
+            return HttpResponse(b'', status=204) # No Content
+            
+        except DataLayer.DoesNotExist:
+            return HttpResponse("Layer not found", status=404)
+        except Exception as e:
+            print(f"[SimpleVectorTileView] Error: {e}")
+            return HttpResponse(f"Error: {e}", status=500)
+
+class SimpleRasterTileView(APIView):
+    """A simplified view to directly test TileRenderingService"""
+    
+    def get(self, request, city_slug, layer_slug, z, x, y):
+        try:
+            layer = DataLayer.objects.get(city__slug=city_slug, slug=layer_slug)
+            
+            # Step 1: Generate MVT
+            vector_service = VectorTileService()
+            mvt_data = vector_service.generate_tile(layer, z, x, y)
+            
+            # Step 2: Render to PNG
+            renderer = TileRenderingService()
+            if not mvt_data:
+                return HttpResponse(renderer.create_empty_tile(), content_type='image/png')
+            
+            png_data = renderer.mvt_to_png(mvt_data, layer, z, x, y)
+            
+            return HttpResponse(png_data, content_type='image/png')
+            
+        except DataLayer.DoesNotExist:
+            return HttpResponse("Layer not found", status=404)
+        except Exception as e:
+            print(f"[SimpleRasterTileView] Error: {e}")
+            renderer = TileRenderingService()
+            return HttpResponse(renderer.create_empty_tile(), content_type='image/png', status=500)
+
+class MapVisualizationView(TemplateView):
+    """Simple map visualization frontend"""
+    template_name = 'maps/map.html'
+    
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        
+        # Add any context data you need
+        context.update({
+            'api_base_url': '/api',  # Adjust this if your API is at a different path
+            'page_title': 'Geo Mapping Visualization'
+        })
+        
+        return context
+    
