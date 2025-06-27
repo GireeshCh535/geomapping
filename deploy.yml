@@ -1,0 +1,224 @@
+---
+- name: Deploy GeoMapping Application
+  hosts: all
+  become: yes
+  remote_user: root
+  vars:
+    repo_url: "https://gitlab.com/rohit.boni/geomapping.git"
+    project_name: "geomapping"
+    project_dir: "/opt/{{ project_name }}"
+    temp_dir: "/tmp/{{ project_name }}"
+    archive_name: "{{ project_name }}.tar.gz"
+    container_prefix: "geomapping"
+
+  tasks:
+    - name: Delete previous temp files (if any)
+      file:
+        path: "{{ temp_dir }}"
+        state: absent
+      delegate_to: localhost
+      run_once: true
+
+    - name: Delete previous archive (if any)
+      file:
+        path: "/tmp/{{ archive_name }}"
+        state: absent
+      delegate_to: localhost
+      run_once: true
+
+    - name: Install git on localhost
+      package:
+        name: git
+        state: present
+      delegate_to: localhost
+      run_once: true
+
+    - name: Clone the GitLab repository
+      git:
+        repo: "{{ repo_url }}"
+        dest: "{{ temp_dir }}"
+        force: yes
+      delegate_to: localhost
+      run_once: true
+
+    - name: Create .tar.gz archive of the cloned repository
+      archive:
+        path: "{{ temp_dir }}"
+        dest: "/tmp/{{ archive_name }}"
+        format: gz
+      delegate_to: localhost
+      run_once: true
+
+    - name: Send archive to remote server
+      copy:
+        src: "/tmp/{{ archive_name }}"
+        dest: "/tmp/{{ archive_name }}"
+
+    - name: Update apt package cache
+      apt:
+        update_cache: yes
+        cache_valid_time: 3600
+
+    - name: Install required packages
+      apt:
+        name:
+          - apt-transport-https
+          - ca-certificates
+          - curl
+          - gnupg
+          - lsb-release
+          - python3-pip
+        state: present
+
+    - name: Add Docker GPG key
+      apt_key:
+        url: https://download.docker.com/linux/ubuntu/gpg
+        state: present
+
+    - name: Add Docker repository
+      apt_repository:
+        repo: "deb [arch=amd64] https://download.docker.com/linux/ubuntu {{ ansible_distribution_release }} stable"
+        state: present
+
+    - name: Install Docker and Docker Compose
+      apt:
+        name:
+          - docker-ce
+          - docker-ce-cli
+          - containerd.io
+          - docker-buildx-plugin
+          - docker-compose-plugin
+        state: present
+        update_cache: yes
+
+    - name: Install Docker Compose (standalone)
+      pip:
+        name: docker-compose
+        state: present
+
+    - name: Start and enable Docker service
+      systemd:
+        name: docker
+        state: started
+        enabled: yes
+
+    - name: Add user to docker group
+      user:
+        name: "{{ ansible_user }}"
+        groups: docker
+        append: yes
+
+    - name: Stop and remove old Docker containers (if they exist)
+      shell: |
+        docker-compose down || true
+        docker container prune -f || true
+      args:
+        chdir: "{{ project_dir }}"
+      ignore_errors: yes
+
+    - name: Remove old project directory
+      file:
+        path: "{{ project_dir }}"
+        state: absent
+
+    - name: Re-create project directory
+      file:
+        path: "{{ project_dir }}"
+        state: directory
+        mode: '0755'
+
+    - name: Unarchive new code
+      unarchive:
+        src: "/tmp/{{ archive_name }}"
+        dest: "{{ project_dir }}"
+        remote_src: yes
+        extra_opts: [--strip-components=1]
+
+    - name: Update Django ALLOWED_HOSTS in settings.py
+      lineinfile:
+        path: "{{ project_dir }}/geo_mapping/settings.py"
+        regexp: '^ALLOWED_HOSTS\s*='
+        line: "ALLOWED_HOSTS = ['localhost', '127.0.0.1', '{{ ansible_default_ipv4.address }}', '{{ inventory_hostname }}']"
+
+    - name: Create .env file if it doesn't exist
+      copy:
+        content: |
+          DEBUG=False
+          ALLOWED_HOSTS={{ ansible_default_ipv4.address }},{{ inventory_hostname }},localhost,127.0.0.1
+        dest: "{{ project_dir }}/.env"
+        mode: '0644'
+
+    - name: Build Docker containers
+      shell: docker-compose build
+      args:
+        chdir: "{{ project_dir }}"
+
+    - name: Start Docker containers in background
+      shell: docker-compose up -d
+      args:
+        chdir: "{{ project_dir }}"
+
+    - name: Wait for containers to be ready
+      wait_for:
+        port: 8000
+        host: "{{ ansible_default_ipv4.address }}"
+        delay: 30
+        timeout: 300
+
+    - name: Get web container name
+      shell: docker-compose ps -q web
+      args:
+        chdir: "{{ project_dir }}"
+      register: web_container_id
+
+    - name: Run Django migrations
+      shell: "docker exec {{ web_container_id.stdout }} python manage.py migrate"
+      args:
+        chdir: "{{ project_dir }}"
+
+    - name: Collect static files
+      shell: "docker exec {{ web_container_id.stdout }} python manage.py collectstatic --noinput"
+      args:
+        chdir: "{{ project_dir }}"
+      ignore_errors: yes
+
+    - name: Setup cities (if management command exists)
+      shell: "docker exec {{ web_container_id.stdout }} python manage.py setup_cities"
+      args:
+        chdir: "{{ project_dir }}"
+      ignore_errors: yes
+
+    - name: Restart Docker containers
+      shell: |
+        docker-compose restart
+      args:
+        chdir: "{{ project_dir }}"
+
+    - name: Delete transferred archive file from remote
+      file:
+        path: "/tmp/{{ archive_name }}"
+        state: absent
+
+    - name: Clean up localhost temp files
+      file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - "{{ temp_dir }}"
+        - "/tmp/{{ archive_name }}"
+      delegate_to: localhost
+      run_once: true
+
+    - name: Display deployment information
+      debug:
+        msg: |
+          🚀 Deployment completed successfully!
+          
+          Application URL: http://{{ ansible_default_ipv4.address }}:8000
+          
+          Useful commands:
+          - Check containers: docker-compose ps
+          - View logs: docker-compose logs -f
+          - Access shell: docker-compose exec web bash
+          
+          Project directory: {{ project_dir }}
