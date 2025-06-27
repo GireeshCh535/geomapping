@@ -39,12 +39,48 @@ if ! command -v ansible-playbook &> /dev/null; then
         # macOS
         if command -v brew &> /dev/null; then
             brew install ansible
+            # Install sshpass for macOS
+            brew install hudochenkov/sshpass/sshpass
         else
-            echo -e "${RED}❌ Please install Homebrew first or install Ansible manually${NC}"
+            echo -e "${RED}❌ Please install Homebrew first${NC}"
+            echo -e "${YELLOW}💡 Install Homebrew: /bin/bash -c \"\$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\"${NC}"
             exit 1
         fi
     fi
 fi
+
+# Check if sshpass is installed (required for password authentication)
+if ! command -v sshpass &> /dev/null; then
+    echo -e "${YELLOW}⚠️  sshpass not found. Installing...${NC}"
+    
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+        # macOS
+        if command -v brew &> /dev/null; then
+            brew install hudochenkov/sshpass/sshpass
+        else
+            echo -e "${RED}❌ Please install sshpass manually or use SSH keys${NC}"
+            echo -e "${YELLOW}💡 Alternative: brew install hudochenkov/sshpass/sshpass${NC}"
+            exit 1
+        fi
+    elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
+        # Linux
+        if command -v apt &> /dev/null; then
+            sudo apt install -y sshpass
+        elif command -v yum &> /dev/null; then
+            sudo yum install -y sshpass
+        fi
+    fi
+fi
+
+# Verify sshpass is now available
+if ! command -v sshpass &> /dev/null; then
+    echo -e "${RED}❌ sshpass is still not available. Please install it manually.${NC}"
+    echo -e "${YELLOW}💡 macOS: brew install hudochenkov/sshpass/sshpass${NC}"
+    echo -e "${YELLOW}💡 Ubuntu: sudo apt install sshpass${NC}"
+    exit 1
+fi
+
+echo -e "${GREEN}✅ sshpass is available${NC}"
 
 # Create temporary inventory file
 cat > /tmp/inventory << EOF
@@ -53,6 +89,7 @@ ${SERVER_IP} ansible_user=${PRIMARY_USER} ansible_ssh_pass=${SERVER_PASSWORD} an
 
 [servers:vars]
 ansible_python_interpreter=/usr/bin/python3
+ansible_ssh_common_args='-o StrictHostKeyChecking=no'
 EOF
 
 echo -e "${GREEN}📝 Created inventory file${NC}"
@@ -65,12 +102,25 @@ fi
 
 echo -e "${BLUE}📦 Running Ansible playbook...${NC}"
 
+# Test SSH connection first
+echo -e "${YELLOW}🔍 Testing SSH connection...${NC}"
+if sshpass -p "${SERVER_PASSWORD}" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 ${PRIMARY_USER}@${SERVER_IP} "echo 'SSH connection successful'" 2>/dev/null; then
+    echo -e "${GREEN}✅ SSH connection test passed${NC}"
+else
+    echo -e "${RED}❌ SSH connection test failed${NC}"
+    echo -e "${YELLOW}💡 Please check:${NC}"
+    echo -e "   - Server IP: ${SERVER_IP}"
+    echo -e "   - Username: ${PRIMARY_USER}"
+    echo -e "   - Password: [hidden]"
+    echo -e "   - Server firewall allows SSH (port 22)"
+    exit 1
+fi
+
 # Run the Ansible playbook
 ansible-playbook \
     -i /tmp/inventory \
     -e "ansible_ssh_pass=${SERVER_PASSWORD}" \
     -e "ansible_become_pass=${SERVER_PASSWORD}" \
-    --ask-vault-pass \
     deploy.yml
 
 DEPLOYMENT_STATUS=$?
