@@ -7,24 +7,18 @@
     repo_url: "https://gitlab.com/rohit.boni/geomapping.git"
     project_name: "geomapping"
     project_dir: "/opt/{{ project_name }}"
-    temp_dir: "/tmp/{{ project_name }}"
-    archive_name: "{{ project_name }}.tar.gz"
+    temp_dir: "/tmp/{{ project_name }}_{{ ansible_date_time.epoch }}"
+    archive_name: "{{ project_name }}_{{ ansible_date_time.epoch }}.tar.gz"
     container_prefix: "geomapping"
 
   tasks:
-    - name: Delete previous temp files (if any)
-      file:
-        path: "{{ temp_dir }}"
-        state: absent
+    - name: Clean up old temp files quickly
+      shell: |
+        rm -rf /tmp/geomapping* || true
+        rm -rf /tmp/geomapping_*.tar.gz || true
       delegate_to: localhost
       run_once: true
-
-    - name: Delete previous archive (if any)
-      file:
-        path: "/tmp/{{ archive_name }}"
-        state: absent
-      delegate_to: localhost
-      run_once: true
+      ignore_errors: yes
 
     - name: Install git on localhost
       package:
@@ -32,20 +26,20 @@
         state: present
       delegate_to: localhost
       run_once: true
+      ignore_errors: yes
 
-    - name: Clone the GitLab repository
-      git:
-        repo: "{{ repo_url }}"
-        dest: "{{ temp_dir }}"
-        force: yes
+    - name: Clone the GitLab repository (shallow clone for speed)
+      shell: |
+        cd /tmp
+        rm -rf {{ temp_dir }}
+        git clone --depth 1 {{ repo_url }} {{ temp_dir }}
       delegate_to: localhost
       run_once: true
 
     - name: Create .tar.gz archive of the cloned repository
-      archive:
-        path: "{{ temp_dir }}"
-        dest: "/tmp/{{ archive_name }}"
-        format: gz
+      shell: |
+        cd /tmp
+        tar -czf {{ archive_name }} -C {{ temp_dir }} .
       delegate_to: localhost
       run_once: true
 
@@ -108,18 +102,15 @@
         groups: docker
         append: yes
 
-    - name: Stop and remove old Docker containers (if they exist)
+    - name: Stop and remove old Docker containers (quick)
       shell: |
-        docker-compose down || true
-        docker container prune -f || true
-      args:
-        chdir: "{{ project_dir }}"
+        cd {{ project_dir }} && docker-compose down --remove-orphans || true
+        docker system prune -f || true
       ignore_errors: yes
 
-    - name: Remove old project directory
-      file:
-        path: "{{ project_dir }}"
-        state: absent
+    - name: Remove old project directory (quick)
+      shell: rm -rf {{ project_dir }}
+      ignore_errors: yes
 
     - name: Re-create project directory
       file:
@@ -132,24 +123,15 @@
         src: "/tmp/{{ archive_name }}"
         dest: "{{ project_dir }}"
         remote_src: yes
-        extra_opts: [--strip-components=1]
 
     - name: Update Django ALLOWED_HOSTS in settings.py
       lineinfile:
         path: "{{ project_dir }}/geo_mapping/settings.py"
         regexp: '^ALLOWED_HOSTS\s*='
-        line: "ALLOWED_HOSTS = ['localhost', '127.0.0.1', '{{ ansible_default_ipv4.address }}', '{{ inventory_hostname }}']"
-
-    - name: Create .env file if it doesn't exist
-      copy:
-        content: |
-          DEBUG=False
-          ALLOWED_HOSTS={{ ansible_default_ipv4.address }},{{ inventory_hostname }},localhost,127.0.0.1
-        dest: "{{ project_dir }}/.env"
-        mode: '0644'
+        line: "ALLOWED_HOSTS = ['*']"
 
     - name: Build Docker containers
-      shell: docker-compose build
+      shell: docker-compose build --no-cache
       args:
         chdir: "{{ project_dir }}"
 
@@ -161,53 +143,39 @@
     - name: Wait for containers to be ready
       wait_for:
         port: 8000
-        host: "{{ ansible_default_ipv4.address }}"
+        host: "0.0.0.0"
         delay: 30
         timeout: 300
 
-    - name: Get web container name
-      shell: docker-compose ps -q web
-      args:
-        chdir: "{{ project_dir }}"
-      register: web_container_id
-
     - name: Run Django migrations
-      shell: "docker exec {{ web_container_id.stdout }} python manage.py migrate"
+      shell: docker-compose exec -T web python manage.py migrate
       args:
         chdir: "{{ project_dir }}"
 
     - name: Collect static files
-      shell: "docker exec {{ web_container_id.stdout }} python manage.py collectstatic --noinput"
+      shell: docker-compose exec -T web python manage.py collectstatic --noinput
       args:
         chdir: "{{ project_dir }}"
       ignore_errors: yes
 
     - name: Setup cities (if management command exists)
-      shell: "docker exec {{ web_container_id.stdout }} python manage.py setup_cities"
+      shell: docker-compose exec -T web python manage.py setup_cities
       args:
         chdir: "{{ project_dir }}"
       ignore_errors: yes
-
-    - name: Restart Docker containers
-      shell: |
-        docker-compose restart
-      args:
-        chdir: "{{ project_dir }}"
 
     - name: Delete transferred archive file from remote
       file:
         path: "/tmp/{{ archive_name }}"
         state: absent
 
-    - name: Clean up localhost temp files
-      file:
-        path: "{{ item }}"
-        state: absent
-      loop:
-        - "{{ temp_dir }}"
-        - "/tmp/{{ archive_name }}"
+    - name: Clean up localhost temp files (quick)
+      shell: |
+        rm -rf {{ temp_dir }} || true
+        rm -f /tmp/{{ archive_name }} || true
       delegate_to: localhost
       run_once: true
+      ignore_errors: yes
 
     - name: Display deployment information
       debug:
@@ -217,8 +185,8 @@
           Application URL: http://{{ ansible_default_ipv4.address }}:8000
           
           Useful commands:
-          - Check containers: docker-compose ps
-          - View logs: docker-compose logs -f
-          - Access shell: docker-compose exec web bash
+          - Check containers: cd {{ project_dir }} && docker-compose ps
+          - View logs: cd {{ project_dir }} && docker-compose logs -f
+          - Access shell: cd {{ project_dir }} && docker-compose exec web bash
           
           Project directory: {{ project_dir }}
