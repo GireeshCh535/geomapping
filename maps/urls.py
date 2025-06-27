@@ -1,3 +1,4 @@
+# urls.py
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 from . import views
@@ -35,6 +36,11 @@ urlpatterns = [
     path('cities/<slug:city_slug>/layers/<slug:layer_slug>/features/',
          views.LayerFeaturesView.as_view(), name='layer_features'),
     
+    # 🚀 ADD THIS NEW LINE - The complete city endpoint your frontend is calling
+    path('cities/<slug:city_slug>/complete/',
+         views.CityCompleteView.as_view(), name='city_complete'),
+    
+    # Rest of your existing URLs...
     path('layers/<int:pk>/plu-analysis/',
          views.DataLayerViewSet.as_view({'get': 'plu_analysis'}), name='layer_plu_analysis'),
     

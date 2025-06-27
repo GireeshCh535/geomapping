@@ -3,11 +3,12 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{{ page_title|default:"Geo Mapping Visualization" }}</title>
+    <title>{{ page_title|default:"Bangalore Geo Mapping - Hybrid Interface" }}</title>
     
-    <!-- Mapbox GL JS -->
-    <script src='https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.js'></script>
-    <link href='https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.css' rel='stylesheet' />
+    <!-- Leaflet CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <!-- Leaflet Vector Grid Plugin for MVT -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet-vectorgrid@1.3.0/dist/Leaflet.VectorGrid.css" />
     
     <style>
         * {
@@ -15,16 +16,6 @@
             padding: 0;
             box-sizing: border-box;
         }
-
-        // Auto-select Bangalore for testing
-        setTimeout(() => {
-            const citySelect = document.getElementById('citySelect');
-            if (citySelect.options.length > 1) {
-                citySelect.value = 'bangalore';
-                citySelect.dispatchEvent(new Event('change'));
-                debugLog('🎯 Auto-selected Bangalore for testing', 'info');
-            }
-        }, 2000);
 
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
@@ -38,7 +29,7 @@
         }
 
         .sidebar {
-            width: 400px;
+            width: 380px;
             background: #f8f9fa;
             border-right: 1px solid #dee2e6;
             overflow-y: auto;
@@ -52,9 +43,14 @@
         }
 
         .sidebar-header h1 {
-            font-size: 1.5rem;
+            font-size: 1.4rem;
             color: #212529;
-            margin-bottom: 10px;
+            margin-bottom: 5px;
+        }
+
+        .sidebar-header .subtitle {
+            font-size: 0.9rem;
+            color: #6c757d;
         }
 
         .controls {
@@ -62,7 +58,7 @@
         }
 
         .control-group {
-            margin-bottom: 25px;
+            margin-bottom: 20px;
         }
 
         .control-group label {
@@ -70,6 +66,7 @@
             font-weight: 600;
             margin-bottom: 8px;
             color: #495057;
+            font-size: 14px;
         }
 
         .control-group select {
@@ -81,51 +78,134 @@
             background: white;
         }
 
+        .quick-actions {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+            margin-bottom: 15px;
+        }
+
+        .quick-btn {
+            padding: 8px 10px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 11px;
+            font-weight: 500;
+        }
+
+        .btn-primary {
+            background: #007bff;
+            color: white;
+        }
+
+        .btn-success {
+            background: #28a745;
+            color: white;
+        }
+
+        .btn-warning {
+            background: #ffc107;
+            color: #212529;
+        }
+
+        .btn-info {
+            background: #17a2b8;
+            color: white;
+        }
+
+        .btn-danger {
+            background: #dc3545;
+            color: white;
+        }
+
+        .quick-btn:hover {
+            opacity: 0.8;
+        }
+
         .layers-list {
-            max-height: 300px;
+            max-height: 400px;
             overflow-y: auto;
         }
 
         .layer-item {
-            padding: 12px 20px;
-            border-bottom: 1px solid #e9ecef;
+            padding: 10px;
+            border: 1px solid #e9ecef;
+            border-radius: 4px;
+            margin-bottom: 6px;
             cursor: pointer;
-            transition: background-color 0.2s;
+            transition: all 0.2s;
             display: flex;
             align-items: center;
-            gap: 10px;
+            gap: 8px;
+            background: white;
+            font-size: 12px;
         }
 
         .layer-item:hover {
-            background: #e9ecef;
+            border-color: #007bff;
+            box-shadow: 0 2px 5px rgba(0,123,255,0.1);
         }
 
         .layer-item.active {
             background: #e3f2fd;
-            border-left: 4px solid #2196f3;
+            border-color: #2196f3;
+            box-shadow: 0 2px 8px rgba(33,150,243,0.2);
+        }
+
+        .layer-item.loading {
+            background: #fff3cd;
+            border-color: #ffc107;
         }
 
         .layer-color {
-            width: 20px;
-            height: 20px;
+            width: 16px;
+            height: 16px;
             border-radius: 3px;
             border: 1px solid #dee2e6;
+            flex-shrink: 0;
         }
 
         .layer-info {
             flex: 1;
+            min-width: 0;
         }
 
         .layer-name {
             font-weight: 500;
             color: #212529;
-            font-size: 14px;
+            font-size: 12px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
         }
 
         .layer-details {
-            font-size: 12px;
+            font-size: 10px;
             color: #6c757d;
-            margin-top: 2px;
+            margin-top: 1px;
+        }
+
+        .layer-status {
+            font-size: 9px;
+            padding: 2px 4px;
+            border-radius: 8px;
+            flex-shrink: 0;
+        }
+
+        .status-success {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .status-loading {
+            background: #fff3cd;
+            color: #856404;
+        }
+
+        .status-error {
+            background: #f8d7da;
+            color: #721c24;
         }
 
         .map-container {
@@ -142,117 +222,134 @@
             position: absolute;
             top: 10px;
             right: 10px;
-            background: rgba(255, 255, 255, 0.9);
-            padding: 10px;
-            border-radius: 4px;
-            font-size: 12px;
+            background: rgba(255, 255, 255, 0.95);
+            padding: 12px;
+            border-radius: 6px;
+            font-size: 11px;
             z-index: 1000;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            min-width: 200px;
         }
 
-        .debug-panel {
+        .map-info .info-row {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 4px;
+        }
+
+        .map-info .info-label {
+            font-weight: 600;
+            color: #495057;
+        }
+
+        .map-info .info-value {
+            color: #212529;
+            font-family: monospace;
+        }
+
+        .status-bar {
+            position: absolute;
+            bottom: 10px;
+            left: 10px;
+            right: 10px;
             background: rgba(0, 0, 0, 0.8);
             color: white;
-            padding: 15px;
-            margin: 10px 20px;
+            padding: 8px 12px;
             border-radius: 4px;
-            max-height: 200px;
-            overflow-y: auto;
-            font-family: monospace;
-            font-size: 12px;
-        }
-
-        .debug-panel h4 {
-            color: #4CAF50;
-            margin-bottom: 10px;
-        }
-
-        .debug-log {
-            margin-bottom: 5px;
-        }
-
-        .debug-log.error {
-            color: #f44336;
-        }
-
-        .debug-log.success {
-            color: #4CAF50;
-        }
-
-        .debug-log.warning {
-            color: #ff9800;
-        }
-
-        .loading {
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            background: rgba(255, 255, 255, 0.9);
-            padding: 20px;
-            border-radius: 4px;
+            font-size: 11px;
             z-index: 1000;
-        }
-
-        .error {
-            background: #f8d7da;
-            color: #721c24;
-            padding: 10px;
-            margin: 10px 20px;
-            border-radius: 4px;
-            font-size: 14px;
-        }
-
-        .toggle-all {
-            padding: 10px 20px;
-            background: #007bff;
-            color: white;
-            border: none;
-            border-radius: 4px;
-            cursor: pointer;
-            width: 100%;
-            margin-bottom: 10px;
-        }
-
-        .toggle-all:hover {
-            background: #0056b3;
-        }
-
-        .test-buttons {
             display: flex;
-            gap: 10px;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .status-message {
+            flex: 1;
+        }
+
+        .status-indicator {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            margin-left: 10px;
+        }
+
+        .indicator-success { background: #28a745; }
+        .indicator-loading { background: #ffc107; }
+        .indicator-error { background: #dc3545; }
+
+        .loading-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(255, 255, 255, 0.9);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 2000;
+            flex-direction: column;
+        }
+
+        .loading-spinner {
+            width: 40px;
+            height: 40px;
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #007bff;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
             margin-bottom: 15px;
         }
 
-        .test-btn {
-            padding: 8px 12px;
-            background: #28a745;
-            color: white;
-            border: none;
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .auto-load-info {
+            background: #e8f5e8;
+            border: 1px solid #c3e6cb;
+            color: #155724;
+            padding: 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            margin-bottom: 15px;
+        }
+
+        .opacity-control {
+            margin-top: 15px;
+            padding-top: 15px;
+            border-top: 1px solid #dee2e6;
+        }
+
+        .opacity-slider {
+            width: 100%;
+            margin: 8px 0;
+        }
+
+        .tile-debug {
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            padding: 10px;
+            border-radius: 4px;
+            margin-top: 15px;
+            font-size: 10px;
+            font-family: monospace;
+        }
+
+        .coordinates-input {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 5px;
+            margin: 10px 0;
+        }
+
+        .coordinates-input input {
+            padding: 5px;
+            border: 1px solid #ddd;
             border-radius: 3px;
-            cursor: pointer;
-            font-size: 12px;
-        }
-
-        .test-btn:hover {
-            background: #218838;
-        }
-
-        .feature-popup {
-            max-width: 300px;
-        }
-
-        .feature-popup h4 {
-            margin-bottom: 10px;
-            color: #212529;
-        }
-
-        .feature-popup .property {
-            margin-bottom: 5px;
-            font-size: 13px;
-        }
-
-        .feature-popup .property strong {
-            color: #495057;
+            font-size: 11px;
         }
     </style>
 </head>
@@ -260,22 +357,45 @@
     <div class="container">
         <div class="sidebar">
             <div class="sidebar-header">
-                <h1>🗺️ Geo Map Explorer</h1>
+                <h1>🗺️ Bangalore Geo Map</h1>
+                <div class="subtitle">Hybrid MVT + Full Features</div>
                 <div id="status">Initializing...</div>
             </div>
 
             <div class="controls">
-                <!-- Test Buttons -->
-                <div class="test-buttons">
-                    <button class="test-btn" onclick="testAPIs()">Test APIs</button>
-                    <button class="test-btn" onclick="testTiles()">Test Tiles</button>
-                    <button class="test-btn" onclick="testSpecificLayer()">Test Layer</button>
-                    <button class="test-btn" onclick="clearDebugLog()">Clear Log</button>
+                <!-- Auto-load notification -->
+                <div class="auto-load-info">
+                    ✨ <strong>Hybrid Mode!</strong><br>
+                    Working MVT converter + full city/layer features
+                </div>
+
+                <!-- Quick Actions -->
+                <div class="quick-actions">
+                    <button class="quick-btn btn-primary" onclick="loadAllLayers()">📥 Load All</button>
+                    <button class="quick-btn btn-warning" onclick="clearAllLayers()">🧹 Clear</button>
+                    <button class="quick-btn btn-success" onclick="fitToLayers()">🎯 Fit</button>
+                    <button class="quick-btn btn-info" onclick="testBigLayer()">🏠 Big Layer</button>
+                </div>
+
+                <!-- Debug Actions -->
+                <div class="quick-actions">
+                    <button class="quick-btn btn-primary" onclick="showTileUrls()">🔗 URLs</button>
+                    <button class="quick-btn btn-warning" onclick="testHighContrast()">🎨 Contrast</button>
+                    <button class="quick-btn btn-success" onclick="changeBaseMap()">🗺️ Dark</button>
+                    <button class="quick-btn btn-danger" onclick="showTileGrid()">⊞ Grid</button>
+                </div>
+
+                <!-- MVT/PNG Control -->
+                <div class="quick-actions">
+                    <button class="quick-btn btn-info" onclick="forceMVTMode()">⚡ Force MVT</button>
+                    <button class="quick-btn btn-warning" onclick="forcePNGMode()">🖼️ Force PNG</button>
+                    <button class="quick-btn btn-success" onclick="autoMode()">🤖 Auto Mode</button>
+                    <button class="quick-btn btn-primary" onclick="reloadLayers()">🔄 Reload</button>
                 </div>
 
                 <!-- City Selection -->
                 <div class="control-group">
-                    <label for="citySelect">Select City:</label>
+                    <label for="citySelect">City:</label>
                     <select id="citySelect">
                         <option value="">Choose a city...</option>
                     </select>
@@ -289,160 +409,240 @@
                     </select>
                 </div>
 
+                <!-- Manual Tile Testing -->
+                <div class="control-group">
+                    <label>🔧 Manual Tile Testing:</label>
+                    <div class="coordinates-input">
+                        <input type="number" id="zoom" placeholder="Z" value="12">
+                        <input type="number" id="tile-x" placeholder="X" value="2931">
+                        <input type="number" id="tile-y" placeholder="Y" value="1899">
+                    </div>
+                    <div class="quick-actions">
+                        <button class="quick-btn btn-info" onclick="updateMapFromCoords()">🗺️ Go to Tile</button>
+                        <button class="quick-btn btn-primary" onclick="testSpecificTile()">🧪 Test Tile</button>
+                    </div>
+                </div>
+
                 <!-- Layer Controls -->
                 <div class="control-group">
-                    <label>Layers:</label>
-                    <button class="toggle-all" onclick="toggleAllLayers()">Toggle All Layers</button>
+                    <label>Available Layers:</label>
                     <div id="layersList" class="layers-list">
                         <div style="text-align: center; padding: 20px; color: #6c757d;">
-                            Select a city to view layers
+                            <div class="loading-spinner"></div>
+                            Loading layers...
                         </div>
                     </div>
                 </div>
 
-                <!-- Debug Panel -->
-                <div class="debug-panel">
-                    <h4>🔍 Debug Log</h4>
-                    <div id="debugLog"></div>
+                <!-- Opacity Control -->
+                <div class="opacity-control">
+                    <label for="opacity-slider">Layer Opacity:</label>
+                    <input type="range" id="opacity-slider" class="opacity-slider" min="0" max="1" step="0.1" value="0.9">
+                    <div style="display: flex; justify-content: space-between; font-size: 10px; color: #6c757d;">
+                        <span>Transparent</span>
+                        <span id="opacity-value">0.9</span>
+                        <span>Opaque</span>
+                    </div>
+                </div>
+
+                <!-- Tile Debug Info -->
+                <div class="tile-debug">
+                    <strong>🔍 Current Tile:</strong><br>
+                    <span id="current-tile-info">Click map to see tile coordinates</span>
                 </div>
             </div>
         </div>
 
         <div class="map-container">
             <div id="map"></div>
+            
             <div class="map-info">
-                <div id="coordinates">Lat: 0, Lng: 0</div>
-                <div id="zoom">Zoom: 0</div>
-                <div id="layerCount">Active Layers: 0</div>
+                <div class="info-row">
+                    <span class="info-label">Position:</span>
+                    <span class="info-value" id="coordinates">12.9716, 77.5946</span>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">Zoom:</span>
+                    <span class="info-value" id="zoom-display">11</span>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">Active Layers:</span>
+                    <span class="info-value" id="layerCount">0</span>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">Tile Type:</span>
+                    <span class="info-value" id="tileType">MVT</span>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">Current Tile:</span>
+                    <span class="info-value" id="currentTile">-/-/-</span>
+                </div>
             </div>
-            <div id="loading" class="loading" style="display: none;">
-                Loading map data...
+
+            <div class="status-bar">
+                <span class="status-message" id="statusMessage">Map ready - select city to load layers</span>
+                <div class="status-indicator indicator-success" id="statusIndicator"></div>
+            </div>
+
+            <div id="loadingOverlay" class="loading-overlay" style="display: none;">
+                <div class="loading-spinner"></div>
+                <div>Loading map data...</div>
             </div>
         </div>
     </div>
 
+    <!-- Leaflet JS -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <!-- Leaflet Vector Grid Plugin for MVT (with fallback) -->
+    <script src="https://unpkg.com/leaflet-vectorgrid@1.3.0/dist/Leaflet.VectorGrid.bundled.js"></script>
+    <!-- Fallback: Alternative VectorGrid CDN -->
     <script>
+        // Check if VectorGrid loaded, if not try alternative CDN
+        let vectorGridAttempts = 0;
+        let usePNGFallback = false;
+        
+        function checkVectorGrid() {
+            if (typeof L !== 'undefined' && L.vectorGrid && L.vectorGrid.protobuf) {
+                console.log('✅ VectorGrid loaded successfully');
+                return true;
+            }
+            return false;
+        }
+        
+        function loadAlternativeVectorGrid() {
+            if (vectorGridAttempts >= 2) {
+                console.log('🔄 VectorGrid failed to load, using PNG fallback');
+                usePNGFallback = true;
+                return;
+            }
+            
+            vectorGridAttempts++;
+            console.log(`⚠️ VectorGrid not loaded, trying alternative CDN (attempt ${vectorGridAttempts})`);
+            
+            const script = document.createElement('script');
+            script.src = vectorGridAttempts === 1 
+                ? 'https://cdn.jsdelivr.net/npm/leaflet-vectorgrid@1.3.0/dist/Leaflet.VectorGrid.bundled.min.js'
+                : 'https://cdnjs.cloudflare.com/ajax/libs/leaflet-vectorgrid/1.3.0/Leaflet.VectorGrid.bundled.min.js';
+                
+            script.onload = function() {
+                if (checkVectorGrid()) {
+                    console.log('✅ Alternative VectorGrid CDN loaded successfully');
+                } else {
+                    setTimeout(loadAlternativeVectorGrid, 1000);
+                }
+            };
+            
+            script.onerror = function() {
+                console.warn('❌ Alternative VectorGrid CDN failed');
+                setTimeout(loadAlternativeVectorGrid, 1000);
+            };
+            
+            document.head.appendChild(script);
+        }
+        
+        // Check on DOM load
+        document.addEventListener('DOMContentLoaded', function() {
+            setTimeout(() => {
+                if (!checkVectorGrid()) {
+                    loadAlternativeVectorGrid();
+                }
+            }, 500);
+        });
+    </script>
+
+    <script>
+        // Configuration
+        const API_BASE = "{{ api_base_url|default:'/api' }}";
+        const BANGALORE_CENTER = [12.9716, 77.5946];
+
+        // YOUR SPECIFIED COLOR SCHEME
+        const CATEGORY_COLORS = {
+            'RESIDENTIAL': '#FFC400',      // Yellow - Residential
+            'COMMERCIAL': '#004DA8',       // Blue - Commercial  
+            'INDUSTRIAL': '#AA66B2',       // Purple - Industrial
+            'HIGH_TECH': '#C29ED7',        // Light Purple - High Tech
+            'PUBLIC': '#E60000',           // Red - Public/Semi Public
+            'DEFENSE': '#8B4513',          // Brown - Defense
+            'PROTECTED': '#228B22',        // Forest Green - State Forest/Protected
+            'PARKS_GREEN': '#98E600',      // Bright Green - Parks and Green Spaces
+            'WATER_BODIES': '#1E90FF',     // Dodger Blue - Lake/Tank
+            'TRANSPORT': '#808080',        // Gray - Road/Rail/Airport Transport
+            'UTILITIES': '#FF6347',        // Tomato - Power/Water/Utilities
+            'AGRICULTURAL': '#9ACD32',     // Yellow Green - Agricultural Land
+            'UNCLASSIFIED': '#D3D3D3',     // Light Gray - Unclassified Use
+            'DRAINS': '#4682B4'            // Steel Blue - Drains
+        };
+
+        // Layer slug to color mapping (backup)
+        const LAYER_COLORS = {
+            'residential_main_': '#FFC400',
+            'residential_mixed': '#FFC400',
+            'commercial_central_': '#004DA8',
+            'commercial': '#004DA8',
+            'industrial': '#AA66B2',
+            'hightech': '#C29ED7',
+            'public_semipublic': '#E60000',
+            'defense': '#8B4513',
+            'stateforest_valley_protectedland_': '#228B22',
+            'parks_green': '#98E600',
+            'lake_tank': '#1E90FF',
+            'transport': '#808080',
+            'airport': '#808080',
+            'power_water_garbagefacility_treatmentplant': '#FF6347',
+            'agricultural_land': '#9ACD32',
+            'unclassified_use': '#D3D3D3',
+            'drains': '#4682B4'
+        };
+
         // Global variables
         let map;
-        let currentCity = null;
         let currentLayers = [];
-        let activeLayers = new Set();
-        let allLayersVisible = false;
-        let debugMessages = [];
+        let activeMVTLayers = new Map();
+        let currentOpacity = 0.9;
+        let currentCity = null;
+        let mapInitialized = false;
 
-        // API base URL
-        const API_BASE = "{{ api_base_url|default:'/api' }}";
-
-        // Debug logging function
-        function debugLog(message, type = 'info') {
-            const timestamp = new Date().toLocaleTimeString();
-            const logMessage = `[${timestamp}] ${message}`;
-            
-            debugMessages.push({ message: logMessage, type });
-            console.log(logMessage);
-
-            const debugLogElement = document.getElementById('debugLog');
-            const logDiv = document.createElement('div');
-            logDiv.className = `debug-log ${type}`;
-            logDiv.textContent = logMessage;
-            debugLogElement.appendChild(logDiv);
-            debugLogElement.scrollTop = debugLogElement.scrollHeight;
-
-            // Keep only last 50 messages
-            if (debugMessages.length > 50) {
-                debugMessages.shift();
-                debugLogElement.removeChild(debugLogElement.firstChild);
-            }
-        }
-
-        function clearDebugLog() {
-            document.getElementById('debugLog').innerHTML = '';
-            debugMessages = [];
-        }
-
-        // Initialize the application
+        // Initialize application
         document.addEventListener('DOMContentLoaded', function() {
-            debugLog('🚀 Application starting...', 'info');
+            initializeApplication();
+        });
+
+        function initializeApplication() {
+            if (mapInitialized) return;
+            mapInitialized = true;
+            
+            updateStatus('Initializing hybrid map interface...', 'loading');
+            
             initializeMap();
             loadCities();
             setupEventListeners();
-        });
+        }
 
         function initializeMap() {
-            debugLog('🗺️ Initializing map...', 'info');
+            updateStatus('Initializing map...', 'loading');
             
-            // Initialize Mapbox map with OpenStreetMap style
-            map = new mapboxgl.Map({
-                container: 'map',
-                style: {
-                    version: 8,
-                    sources: {
-                        'osm': {
-                            type: 'raster',
-                            tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
-                            tileSize: 256,
-                            attribution: '© OpenStreetMap contributors'
-                        }
-                    },
-                    layers: [
-                        {
-                            id: 'osm-tiles',
-                            type: 'raster',
-                            source: 'osm'
-                        }
-                    ]
-                },
-                center: [77.5946, 12.9716], // Bangalore center
-                zoom: 10
-            });
+            // Initialize Leaflet map
+            map = L.map('map').setView(BANGALORE_CENTER, 11);
 
-            map.on('load', function() {
-                debugLog('✅ Map loaded successfully', 'success');
-                updateStatus('Map ready');
-            });
+            // Add base tile layer
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '© OpenStreetMap contributors',
+                maxZoom: 18
+            }).addTo(map);
 
-            map.on('error', function(e) {
-                debugLog(`❌ Map error: ${e.error}`, 'error');
-            });
+            // Add event listeners
+            map.on('moveend', updateMapInfo);
+            map.on('zoomend', updateMapInfo);
+            map.on('click', handleMapClick);
 
-            // Add mouse position tracking
-            map.on('mousemove', function(e) {
-                document.getElementById('coordinates').textContent = 
-                    `Lat: ${e.lngLat.lat.toFixed(4)}, Lng: ${e.lngLat.lng.toFixed(4)}`;
-            });
-
-            map.on('zoom', function() {
-                document.getElementById('zoom').textContent = `Zoom: ${map.getZoom().toFixed(1)}`;
-            });
-
-            // Add click handler for features
-            map.on('click', function(e) {
-                const features = map.queryRenderedFeatures(e.point);
-                debugLog(`🖱️ Map clicked, found ${features.length} features`, 'info');
-                
-                if (features.length > 0) {
-                    const feature = features[0];
-                    debugLog(`📍 Feature clicked: ${JSON.stringify(feature.properties)}`, 'info');
-                    showFeaturePopup(feature, e.lngLat);
-                }
-            });
-
-            // Track tile loading
-            map.on('sourcedata', function(e) {
-                if (e.isSourceLoaded && e.sourceId && e.sourceId.startsWith('source-')) {
-                    debugLog(`📦 Tiles loaded for: ${e.sourceId}`, 'success');
-                }
-            });
-
-            debugLog('🗺️ Map initialization complete', 'success');
+            updateStatus('Map ready - loading cities...', 'success');
+            updateMapInfo();
         }
 
         function setupEventListeners() {
             // City selection change
             document.getElementById('citySelect').addEventListener('change', function() {
                 const citySlug = this.value;
-                debugLog(`🏙️ City selected: ${citySlug}`, 'info');
-                
                 if (citySlug) {
                     loadCityLayers(citySlug);
                 } else {
@@ -452,122 +652,45 @@
 
             // Category filter change
             document.getElementById('categorySelect').addEventListener('change', function() {
-                debugLog(`🏷️ Category filter: ${this.value}`, 'info');
                 filterLayersByCategory(this.value);
+            });
+
+            // Opacity control
+            const opacitySlider = document.getElementById('opacity-slider');
+            const opacityValue = document.getElementById('opacity-value');
+            
+            opacitySlider.addEventListener('input', function() {
+                currentOpacity = parseFloat(this.value);
+                opacityValue.textContent = currentOpacity;
+                
+                // Update all active layers (works for both MVT and PNG)
+                activeMVTLayers.forEach(layer => {
+                    if (layer.setOpacity) {
+                        // For PNG tile layers
+                        layer.setOpacity(currentOpacity);
+                    } else if (layer.setStyle) {
+                        // For MVT vector layers
+                        layer.setStyle({ 
+                            opacity: currentOpacity, 
+                            fillOpacity: currentOpacity * 0.8 
+                        });
+                    }
+                });
             });
         }
 
-        async function testAPIs() {
-            debugLog('🧪 Testing API endpoints...', 'info');
-            
-            try {
-                // Test cities endpoint
-                const citiesResponse = await fetch(`${API_BASE}/cities/`);
-                const citiesData = await citiesResponse.json();
-                debugLog(`✅ Cities API: ${citiesData.results.length} cities found`, 'success');
-
-                // Test categories endpoint
-                const categoriesResponse = await fetch(`${API_BASE}/categories/`);
-                const categoriesData = await categoriesResponse.json();
-                debugLog(`✅ Categories API: ${categoriesData.results.length} categories found`, 'success');
-
-                // Test Bangalore layers
-                const layersResponse = await fetch(`${API_BASE}/cities/bangalore/layers/`);
-                const layersData = await layersResponse.json();
-                debugLog(`✅ Bangalore layers API: ${layersData.layers.length} layers found`, 'success');
-
-                // Show layer details
-                layersData.layers.forEach(layer => {
-                    debugLog(`📋 Layer: ${layer.name} (${layer.slug}) - ${layer.feature_count} features`, 'info');
-                });
-
-                // Test layer features for first layer
-                if (layersData.layers.length > 0) {
-                    const firstLayer = layersData.layers[0];
-                    const featuresResponse = await fetch(`${API_BASE}/cities/bangalore/layers/${firstLayer.slug}/features/?page_size=5`);
-                    const featuresData = await featuresResponse.json();
-                    debugLog(`✅ Features API: ${featuresData.pagination.total_count} total features for ${firstLayer.name}`, 'success');
-                }
-
-            } catch (error) {
-                debugLog(`❌ API test failed: ${error.message}`, 'error');
-            }
-        }
-
-        async function testTiles() {
-            debugLog('🧪 Testing tile endpoints with ACTUAL layers...', 'info');
-            
-            if (!currentLayers || currentLayers.length === 0) {
-                debugLog('⚠️ No layers loaded. Load a city first!', 'warning');
-                return;
-            }
-
-            // Test actual layers with coordinates based on their bounding boxes
-            for (const layer of currentLayers.slice(0, 5)) { // Test first 5 layers
-                try {
-                    const bbox = layer.bbox;
-                    if (!bbox) {
-                        debugLog(`⚠️ ${layer.slug}: No bounding box`, 'warning');
-                        continue;
-                    }
-
-                    // Calculate center coordinates
-                    const centerLat = (bbox.min_lat + bbox.max_lat) / 2;
-                    const centerLng = (bbox.min_lng + bbox.max_lng) / 2;
-
-                    // Test multiple zoom levels
-                    for (const zoom of [10, 12, 14]) {
-                        const tileX = Math.floor((centerLng + 180) / 360 * Math.pow(2, zoom));
-                        const tileY = Math.floor((1 - Math.log(Math.tan(centerLat * Math.PI / 180) + 1 / Math.cos(centerLat * Math.PI / 180)) / Math.PI) / 2 * Math.pow(2, zoom));
-
-                        const url = `${API_BASE}/tiles/${currentCity}/${layer.slug}/${zoom}/${tileX}/${tileY}.mvt`;
-                        
-                        try {
-                            const response = await fetch(url);
-                            const arrayBuffer = await response.arrayBuffer();
-                            const bytes = arrayBuffer.byteLength;
-                            
-                            if (response.ok && bytes > 0) {
-                                debugLog(`✅ ${layer.slug} z${zoom}: ${bytes} bytes (${tileX},${tileY})`, 'success');
-                                
-                                // Try to decode the MVT
-                                try {
-                                    const uint8Array = new Uint8Array(arrayBuffer);
-                                    // Note: We can't decode MVT in browser without additional library
-                                    debugLog(`📦 ${layer.slug}: MVT data found at z${zoom}`, 'success');
-                                    
-                                    return; // Found working tile, can stop testing this layer
-                                } catch (decodeError) {
-                                    debugLog(`⚠️ ${layer.slug}: Could not decode MVT`, 'warning');
-                                }
-                            } else if (response.ok && bytes === 0) {
-                                debugLog(`⚠️ ${layer.slug} z${zoom}: Empty tile (${tileX},${tileY})`, 'warning');
-                            } else {
-                                debugLog(`❌ ${layer.slug} z${zoom}: HTTP ${response.status}`, 'error');
-                            }
-                        } catch (fetchError) {
-                            debugLog(`❌ ${layer.slug} z${zoom}: ${fetchError.message}`, 'error');
-                        }
-                    }
-                } catch (error) {
-                    debugLog(`❌ ${layer.slug}: Error - ${error.message}`, 'error');
-                }
-            }
-        }
-
+        // Load cities from API
         async function loadCities() {
             try {
-                debugLog('📡 Loading cities...', 'info');
-                updateStatus('Loading cities...');
+                updateStatus('Loading cities...', 'loading');
                 
                 const response = await fetch(`${API_BASE}/cities/`);
-                
                 if (!response.ok) {
                     throw new Error(`HTTP ${response.status}: ${response.statusText}`);
                 }
                 
                 const data = await response.json();
-                debugLog(`✅ Cities loaded: ${JSON.stringify(data.results.map(c => ({name: c.name, features: c.total_features})))}`, 'success');
+                console.log(`✅ Cities loaded:`, data.results);
 
                 const citySelect = document.getElementById('citySelect');
                 citySelect.innerHTML = '<option value="">Choose a city...</option>';
@@ -579,53 +702,317 @@
                     citySelect.appendChild(option);
                 });
 
-                updateStatus('Cities loaded');
-                debugLog(`✅ ${data.results.length} cities added to dropdown`, 'success');
+                // Auto-select Bangalore
+                setTimeout(() => {
+                    citySelect.value = 'bangalore';
+                    citySelect.dispatchEvent(new Event('change'));
+                }, 1000);
+
+                updateStatus('Cities loaded', 'success');
                 
             } catch (error) {
-                debugLog(`❌ Failed to load cities: ${error.message}`, 'error');
-                showError('Failed to load cities: ' + error.message);
+                console.error('Error loading cities:', error);
+                updateStatus(`Error loading cities: ${error.message}`, 'error');
             }
         }
+        async function loadCompleteGeoJSON(completeData) {
+            console.log(`🎯 Loading complete city as GeoJSON: ${completeData.metadata.total_features} features`);
+            
+            // Clear existing layers
+            clearAllLayers();
+            
+            // Create single Leaflet layer with all city data
+            const cityLayer = L.geoJSON(completeData, {
+                style: function(feature) {
+                    const color = feature.properties.color || '#666666';
+                    return {
+                        color: color,
+                        fillColor: color,
+                        fillOpacity: 0.7,
+                        opacity: 0.9,
+                        weight: 1
+                    };
+                },
+                onEachFeature: function(feature, layer) {
+                    // Add popup on click
+                    layer.on('click', function(e) {
+                        showEnhancedFeaturePopup(feature.properties, e.latlng);
+                    });
+                    
+                    // Add hover effect
+                    layer.on('mouseover', function(e) {
+                        e.target.setStyle({
+                            weight: 2,
+                            fillOpacity: 0.9
+                        });
+                    });
+                    
+                    layer.on('mouseout', function(e) {
+                        e.target.setStyle({
+                            weight: 1,
+                            fillOpacity: 0.7
+                        });
+                    });
+                }
+            });
+            
+            // Add to map
+            cityLayer.addTo(map);
+            
+            // Store as single "complete city" layer
+            activeMVTLayers.set('complete_city', cityLayer);
+            
+            // Mark all individual layers as "loaded" in UI
+            markAllLayersAsLoaded();
+            
+            // Update tile type display
+            document.getElementById('tileType').textContent = 'COMPLETE-GEOJSON';
+            
+            console.log(`✅ Complete city loaded as single layer`);
+        }
 
+        // Load layers for selected city
         async function loadCityLayers(citySlug) {
             try {
-                debugLog(`📡 Loading layers for ${citySlug}...`, 'info');
-                updateStatus(`Loading layers for ${citySlug}...`);
+                showLoadingOverlay(true);
+                updateStatus(`Loading complete city view for ${citySlug}...`, 'loading');
                 currentCity = citySlug;
 
-                const response = await fetch(`${API_BASE}/cities/${citySlug}/layers/`);
-                
-                if (!response.ok) {
-                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                // STEP 1: Get layer list (for sidebar)
+                const layersResponse = await fetch(`${API_BASE}/cities/${citySlug}/layers/`);
+                if (!layersResponse.ok) {
+                    throw new Error(`HTTP ${layersResponse.status}: ${layersResponse.statusText}`);
                 }
                 
-                const data = await response.json();
-                debugLog(`✅ Layers loaded: ${data.layers.length} layers`, 'success');
+                const layersData = await layersResponse.json();
+                currentLayers = layersData.layers;
+                
+                // STEP 2: Load complete city data in ONE request
+                updateStatus(`Loading all ${currentLayers.length} layers at once...`, 'loading');
+                
+                const completeResponse = await fetch(`${API_BASE}/cities/${citySlug}/complete/`);
+                if (!completeResponse.ok) {
+                    throw new Error(`HTTP ${completeResponse.status}: ${completeResponse.statusText}`);
+                }
+                
+                const completeData = await completeResponse.json();
+                console.log(`✅ Complete city data loaded:`, completeData);
 
-                // Log detailed layer info
-                data.layers.forEach(layer => {
-                    debugLog(`📋 Layer: ${layer.name} (${layer.slug}) - ${layer.feature_count} features, color: ${layer.style.fill_color}`, 'info');
-                });
+                // STEP 3: Handle response based on strategy
+                if (completeData.strategy === 'complete_geojson') {
+                    await loadCompleteGeoJSON(completeData);
+                } else {
+                    await loadTileBased(completeData);
+                }
 
-                currentLayers = data.layers;
+                // STEP 4: Setup UI
                 renderLayersList(currentLayers);
                 loadCategories(currentLayers);
 
-                // Center map on city
-                if (data.layers.length > 0) {
-                    centerMapOnCity(data.layers);
+                // STEP 5: Fit map to city bounds
+                if (completeData.metadata?.bounds || completeData.bounds) {
+                    const bounds = completeData.metadata?.bounds || completeData.bounds;
+                    map.fitBounds([
+                        [bounds.min_lat, bounds.min_lng],
+                        [bounds.max_lat, bounds.max_lng]
+                    ], { padding: [50, 50] });
                 }
 
-                updateStatus(`Loaded ${data.layers.length} layers`);
-                debugLog(`✅ City layers setup complete`, 'success');
+                updateStatus(`✅ ${citySlug} loaded: ${currentLayers.length} layers, ${completeData.metadata?.total_features || 0} features`, 'success');
+                showLoadingOverlay(false);
                 
             } catch (error) {
-                debugLog(`❌ Failed to load city layers: ${error.message}`, 'error');
-                showError(`Failed to load layers for ${citySlug}: ${error.message}`);
+                console.error('Error loading city:', error);
+                updateStatus(`Error loading ${citySlug}: ${error.message}`, 'error');
+                showLoadingOverlay(false);
             }
         }
 
+        async function loadTileBased(tileData) {
+            console.log(`🗺️ Loading city using tiles (large dataset)`);
+            
+            // Use your existing combined tile approach
+            const combinedTileUrl = tileData.combined_tile_url.replace('{z}', '{z}').replace('{x}', '{x}').replace('{y}', '{y}');
+            
+            if (!usePNGFallback && typeof L !== 'undefined' && L.vectorGrid && L.vectorGrid.protobuf) {
+                const combinedLayer = L.vectorGrid.protobuf(combinedTileUrl, {
+                    rendererFactory: L.svg.tile,
+                    vectorTileLayerStyles: createCombinedStyles(tileData.layers),
+                    interactive: true
+                });
+                
+                combinedLayer.addTo(map);
+                activeMVTLayers.set('combined_tiles', combinedLayer);
+                
+            } else {
+                // PNG fallback
+                const pngTileUrl = combinedTileUrl.replace('.mvt', '.png');
+                const pngLayer = L.tileLayer(pngTileUrl, { opacity: 0.8 });
+                pngLayer.addTo(map);
+                activeMVTLayers.set('combined_png', pngLayer);
+            }
+            
+            markAllLayersAsLoaded();
+            document.getElementById('tileType').textContent = 'COMBINED-TILES';
+        }
+
+        function createCombinedStyles(layers) {
+            const styles = {};
+            
+            layers.forEach(layer => {
+                styles[layer.slug] = {
+                    color: layer.color,
+                    fillColor: layer.color,
+                    fillOpacity: 0.7,
+                    opacity: 0.9,
+                    weight: 1
+                };
+            });
+            
+            return styles;
+        }
+
+        function markAllLayersAsLoaded() {
+            currentLayers.forEach(layer => {
+                const layerItem = document.querySelector(`[data-layer-id="${layer.slug}"]`);
+                const statusElement = document.getElementById(`status-${layer.slug}`);
+                
+                if (layerItem) {
+                    layerItem.classList.add('active');
+                    statusElement.textContent = 'Loaded ✓';
+                    statusElement.className = 'layer-status status-success';
+                }
+            });
+            
+            updateLayerCount();
+        }
+
+        function showEnhancedFeaturePopup(properties, latlng) {
+            let popupContent = `
+                <div style="max-width: 300px;">
+                    <h4 style="margin: 0 0 10px 0; color: ${properties.color};">
+                        ${properties.layer_name}
+                    </h4>
+                    <div style="margin-bottom: 8px;">
+                        <strong>Category:</strong> ${properties.category}
+                    </div>
+            `;
+            
+            if (properties.name) {
+                popupContent += `<div style="margin-bottom: 8px;"><strong>Name:</strong> ${properties.name}</div>`;
+            }
+            
+            if (properties.land_use) {
+                popupContent += `<div style="margin-bottom: 8px;"><strong>Land Use:</strong> ${properties.land_use}</div>`;
+            }
+            
+            if (properties.plu_code) {
+                popupContent += `<div style="margin-bottom: 8px;"><strong>PLU Code:</strong> ${properties.plu_code}</div>`;
+            }
+            
+            if (properties.area > 0) {
+                popupContent += `<div style="margin-bottom: 8px;"><strong>Area:</strong> ${properties.area.toLocaleString()} sq units</div>`;
+            }
+            
+            popupContent += `
+                    <div style="margin-top: 10px; padding-top: 8px; border-top: 1px solid #eee; font-size: 12px; color: #666;">
+                        Feature ID: ${properties.id}
+                    </div>
+                </div>
+            `;
+
+            L.popup()
+                .setLatLng(latlng)
+                .setContent(popupContent)
+                .openOn(map);
+        }
+
+        // Update the loadAllLayers function to be instant (since everything is already loaded)
+        async function loadAllLayers() {
+            if (activeMVTLayers.has('complete_city') || activeMVTLayers.has('combined_tiles')) {
+                updateStatus('All layers already loaded!', 'success');
+                return;
+            }
+            
+            // If individual layers are being used, fall back to old method
+            updateStatus('Loading all layers...', 'loading');
+            
+            for (const layer of currentLayers.slice(0, 10)) {
+                if (!activeMVTLayers.has(layer.slug)) {
+                    await toggleLayer(layer);
+                    await new Promise(resolve => setTimeout(resolve, 200));
+                }
+            }
+            
+            updateStatus(`Loaded multiple layers`, 'success');
+        }
+
+        // Optional: Add a toggle to switch between complete view and individual layers
+        function toggleViewMode() {
+            if (activeMVTLayers.has('complete_city')) {
+                // Switch to individual layer mode
+                clearAllLayers();
+                updateStatus('Switched to individual layer mode', 'info');
+            } else {
+                // Reload complete city view
+                loadCityLayers(currentCity);
+            }
+        }
+
+        // Render layers list in sidebar
+        function renderLayersList(layers) {
+            const layersList = document.getElementById('layersList');
+            layersList.innerHTML = '';
+
+            layers.forEach(layer => {
+                const layerItem = document.createElement('div');
+                layerItem.className = 'layer-item';
+                layerItem.dataset.layerId = layer.slug;
+
+                // Get color based on category or slug
+                const color = getLayerColor(layer);
+
+                layerItem.innerHTML = `
+                    <div class="layer-color" style="background-color: ${color}"></div>
+                    <div class="layer-info">
+                        <div class="layer-name">${layer.name}</div>
+                        <div class="layer-details">
+                            ${layer.category_name} • ${layer.feature_count.toLocaleString()} features
+                        </div>
+                    </div>
+                    <div class="layer-status" id="status-${layer.slug}">Click to load</div>
+                `;
+
+                layerItem.addEventListener('click', () => toggleLayer(layer));
+                layersList.appendChild(layerItem);
+            });
+
+            console.log(`Rendered ${layers.length} layers in sidebar`);
+        }
+
+        // Get layer color based on category or slug
+        function getLayerColor(layer) {
+            // First try category-based color
+            const categoryKey = layer.category_code?.toUpperCase() || layer.category_name?.toUpperCase();
+            if (categoryKey && CATEGORY_COLORS[categoryKey]) {
+                return CATEGORY_COLORS[categoryKey];
+            }
+
+            // Then try slug-based color
+            if (LAYER_COLORS[layer.slug]) {
+                return LAYER_COLORS[layer.slug];
+            }
+
+            // Finally try from layer style
+            if (layer.style?.fill_color) {
+                return layer.style.fill_color;
+            }
+
+            // Default gray
+            return '#666666';
+        }
+
+        // Load categories for filtering
         function loadCategories(layers) {
             const categories = [...new Set(layers.map(layer => layer.category_name))];
             const categorySelect = document.getElementById('categorySelect');
@@ -638,35 +1025,10 @@
                 categorySelect.appendChild(option);
             });
 
-            debugLog(`✅ Categories loaded: ${categories.join(', ')}`, 'success');
+            console.log(`✅ Categories loaded:`, categories);
         }
 
-        function renderLayersList(layers) {
-            const layersList = document.getElementById('layersList');
-            layersList.innerHTML = '';
-
-            layers.forEach(layer => {
-                const layerItem = document.createElement('div');
-                layerItem.className = 'layer-item';
-                layerItem.dataset.layerId = layer.slug;
-
-                layerItem.innerHTML = `
-                    <div class="layer-color" style="background-color: ${layer.style.fill_color}"></div>
-                    <div class="layer-info">
-                        <div class="layer-name">${layer.name}</div>
-                        <div class="layer-details">
-                            ${layer.category_name} • ${layer.feature_count} features
-                        </div>
-                    </div>
-                `;
-
-                layerItem.addEventListener('click', () => toggleLayer(layer));
-                layersList.appendChild(layerItem);
-            });
-
-            debugLog(`✅ Rendered ${layers.length} layer items in sidebar`, 'success');
-        }
-
+        // Filter layers by category
         function filterLayersByCategory(categoryName) {
             const layerItems = document.querySelectorAll('.layer-item');
             let visibleCount = 0;
@@ -681,271 +1043,328 @@
                 } else {
                     item.style.display = 'none';
                     // Remove layer from map if it's filtered out
-                    if (activeLayers.has(layerId)) {
-                        removeLayerFromMap(layerId);
-                        activeLayers.delete(layerId);
+                    if (activeMVTLayers.has(layerId)) {
+                        removeLayer(layer);
                         item.classList.remove('active');
                     }
                 }
             });
 
-            debugLog(`🏷️ Category filter applied: showing ${visibleCount} layers`, 'info');
+            console.log(`🏷️ Category filter applied: showing ${visibleCount} layers`);
         }
 
+        // Toggle layer on/off
         async function toggleLayer(layer) {
             const layerItem = document.querySelector(`[data-layer-id="${layer.slug}"]`);
+            const statusElement = document.getElementById(`status-${layer.slug}`);
             
-            if (activeLayers.has(layer.slug)) {
-                debugLog(`➖ Removing layer: ${layer.name}`, 'warning');
-                removeLayerFromMap(layer.slug);
-                activeLayers.delete(layer.slug);
+            if (activeMVTLayers.has(layer.slug)) {
+                // Remove layer
+                removeLayer(layer);
                 layerItem.classList.remove('active');
+                statusElement.textContent = 'Click to load';
+                statusElement.className = 'layer-status';
             } else {
-                debugLog(`➕ Adding layer: ${layer.name}`, 'info');
-                await addLayerToMap(layer);
-                activeLayers.add(layer.slug);
-                layerItem.classList.add('active');
+                // Add layer
+                layerItem.classList.add('loading');
+                statusElement.textContent = 'Loading...';
+                statusElement.className = 'layer-status status-loading';
+                
+                const success = await addLayer(layer);
+                
+                layerItem.classList.remove('loading');
+                if (success) {
+                    layerItem.classList.add('active');
+                    statusElement.textContent = 'Loaded ✓';
+                    statusElement.className = 'layer-status status-success';
+                } else {
+                    statusElement.textContent = 'Failed ✗';
+                    statusElement.className = 'layer-status status-error';
+                }
             }
-
+            
             updateLayerCount();
         }
 
-        async function addLayerToMap(layer) {
+        // Add layer to map (HYBRID APPROACH: MVT with PNG fallback)
+        async function addLayer(layer) {
             try {
-                debugLog(`🔧 Setting up layer: ${layer.name} (${layer.slug})`, 'info');
-                debugLog(`📊 Layer info: ${layer.feature_count} features, bbox: [${layer.bbox.min_lng.toFixed(4)}, ${layer.bbox.min_lat.toFixed(4)}] to [${layer.bbox.max_lng.toFixed(4)}, ${layer.bbox.max_lat.toFixed(4)}]`, 'info');
-                updateStatus(`Loading ${layer.name}...`);
-
-                const sourceId = `source-${layer.slug}`;
-
-                // Construct tile URL
-                const tileUrl = `${window.location.origin}${API_BASE}/tiles/${currentCity}/${layer.slug}/{z}/{x}/{y}.mvt`;
-                debugLog(`🔗 Tile URL template: ${tileUrl}`, 'info');
-
-                // Test a tile in the center of the layer's bounding box
-                const centerLat = (layer.bbox.min_lat + layer.bbox.max_lat) / 2;
-                const centerLng = (layer.bbox.min_lng + layer.bbox.max_lng) / 2;
-                const testZoom = 12;
-                const testX = Math.floor((centerLng + 180) / 360 * Math.pow(2, testZoom));
-                const testY = Math.floor((1 - Math.log(Math.tan(centerLat * Math.PI / 180) + 1 / Math.cos(centerLat * Math.PI / 180)) / Math.PI) / 2 * Math.pow(2, testZoom));
+                updateStatus(`Loading ${layer.name}...`, 'loading');
                 
-                const testTileUrl = `${API_BASE}/tiles/${currentCity}/${layer.slug}/${testZoom}/${testX}/${testY}.mvt`;
-                debugLog(`🧪 Test tile URL: ${testTileUrl}`, 'info');
+                const color = getLayerColor(layer);
+                console.log(`Loading layer: ${layer.name} with color: ${color}`);
 
-                // Test if tile has data
-                try {
-                    const testResponse = await fetch(testTileUrl);
-                    const arrayBuffer = await testResponse.arrayBuffer();
-                    const bytes = arrayBuffer.byteLength;
-                    
-                    if (testResponse.ok && bytes > 0) {
-                        debugLog(`✅ Test tile SUCCESS: ${bytes} bytes at z${testZoom}/${testX}/${testY}`, 'success');
-                    } else if (testResponse.ok && bytes === 0) {
-                        debugLog(`⚠️ Test tile EMPTY: 0 bytes - trying different coordinates`, 'warning');
-                        
-                        // Try different coordinates if center is empty
-                        const altCoords = [
-                            {z: 11, x: Math.floor(testX/2), y: Math.floor(testY/2)},
-                            {z: 13, x: testX*2, y: testY*2},
-                            {z: 10, x: Math.floor(testX/4), y: Math.floor(testY/4)}
-                        ];
-                        
-                        for (const coord of altCoords) {
-                            const altUrl = `${API_BASE}/tiles/${currentCity}/${layer.slug}/${coord.z}/${coord.x}/${coord.y}.mvt`;
-                            const altResponse = await fetch(altUrl);
-                            const altBuffer = await altResponse.arrayBuffer();
-                            
-                            if (altResponse.ok && altBuffer.byteLength > 0) {
-                                debugLog(`✅ Found data at z${coord.z}/${coord.x}/${coord.y}: ${altBuffer.byteLength} bytes`, 'success');
-                                break;
-                            }
-                        }
-                    } else {
-                        debugLog(`❌ Test tile FAILED: HTTP ${testResponse.status}`, 'error');
-                    }
-                } catch (testError) {
-                    debugLog(`❌ Test tile ERROR: ${testError.message}`, 'error');
-                }
+                let layerToAdd;
+                let usesPNG = false;
 
-                // Add vector tile source
-                map.addSource(sourceId, {
-                    type: 'vector',
-                    tiles: [tileUrl],
-                    minzoom: 8,
-                    maxzoom: 18
-                });
-
-                debugLog(`✅ Source added: ${sourceId}`, 'success');
-
-                // Try multiple source-layer name variations
-                const sourceLayerVariations = [
-                    layer.slug,                                    // residential_main_
-                    layer.slug.replace(/_+$/, ''),               // residential_main (remove trailing underscores)
-                    layer.name.toLowerCase().replace(/\s+/g, '_'), // residential_main  
-                    layer.slug.replace(/_/g, '-'),               // residential-main-
-                    'default',                                    // default layer name
-                    layer.category_code.toLowerCase(),           // residential
-                    `${layer.city_name.toLowerCase()}_${layer.slug}` // bangalore_residential_main_
-                ];
-
-                debugLog(`🔍 Trying source-layer variations: ${sourceLayerVariations.join(', ')}`, 'info');
-
-                // Try each source-layer name variation
-                let workingSourceLayer = null;
-                
-                for (let i = 0; i < sourceLayerVariations.length; i++) {
-                    const sourceLayerName = sourceLayerVariations[i];
-                    const fillLayerId = `layer-${layer.slug}-${i}`;
-                    const strokeLayerId = `stroke-${layer.slug}-${i}`;
-                    
+                // Check if VectorGrid is available for MVT
+                if (!usePNGFallback && typeof L !== 'undefined' && L.vectorGrid && L.vectorGrid.protobuf) {
                     try {
-                        // Add fill layer
-                        map.addLayer({
-                            id: fillLayerId,
-                            type: 'fill',
-                            source: sourceId,
-                            'source-layer': sourceLayerName,
-                            paint: {
-                                'fill-color': layer.style.fill_color,
-                                'fill-opacity': 0.8
-                            },
-                            filter: ['==', '$type', 'Polygon']
-                        });
-
-                        // Add stroke layer
-                        map.addLayer({
-                            id: strokeLayerId,
-                            type: 'line',
-                            source: sourceId,
-                            'source-layer': sourceLayerName,
-                            paint: {
-                                'line-color': layer.style.stroke_color || '#333333',
-                                'line-width': 3,
-                                'line-opacity': 1.0
-                            },
-                            filter: ['==', '$type', 'Polygon']
-                        });
-
-                        debugLog(`🧪 Testing source-layer: '${sourceLayerName}'`, 'info');
-
-                        // Wait a moment for rendering, then check for features
-                        await new Promise(resolve => setTimeout(resolve, 500));
+                        console.log(`🎯 Using MVT tiles for ${layer.name}`);
                         
-                        const features = map.queryRenderedFeatures({
-                            layers: [fillLayerId, strokeLayerId]
+                        // Create MVT tile URL
+                        const mvtTileUrl = `${window.location.origin}${API_BASE}/tiles/${currentCity}/${layer.slug}/{z}/{x}/{y}.mvt`;
+                        
+                        // Create vector grid layer
+                        layerToAdd = L.vectorGrid.protobuf(mvtTileUrl, {
+                            rendererFactory: L.svg.tile,
+                            vectorTileLayerStyles: {
+                                // Try multiple source-layer name variations
+                                [layer.slug]: {
+                                    color: color,
+                                    fillColor: color,
+                                    fillOpacity: currentOpacity * 0.8,
+                                    weight: 1,
+                                    opacity: currentOpacity
+                                },
+                                [layer.slug.replace(/_+$/, '')]: {
+                                    color: color,
+                                    fillColor: color,
+                                    fillOpacity: currentOpacity * 0.8,
+                                    weight: 1,
+                                    opacity: currentOpacity
+                                },
+                                'default': {
+                                    color: color,
+                                    fillColor: color,
+                                    fillOpacity: currentOpacity * 0.8,
+                                    weight: 1,
+                                    opacity: currentOpacity
+                                }
+                            },
+                            interactive: true,
+                            getFeatureId: function(f) {
+                                return f.properties.id || f.properties.fid || Math.random();
+                            }
                         });
 
-                        if (features.length > 0) {
-                            debugLog(`✅ SUCCESS! Source-layer '${sourceLayerName}' shows ${features.length} features`, 'success');
-                            workingSourceLayer = sourceLayerName;
-                            
-                            // Remove the other layers since this one works
-                            for (let j = 0; j < i; j++) {
-                                const oldFillId = `layer-${layer.slug}-${j}`;
-                                const oldStrokeId = `stroke-${layer.slug}-${j}`;
-                                if (map.getLayer(oldFillId)) map.removeLayer(oldFillId);
-                                if (map.getLayer(oldStrokeId)) map.removeLayer(oldStrokeId);
+                        // Add click handler for feature info (MVT only)
+                        layerToAdd.on('click', function(e) {
+                            if (e.layer && e.layer.properties) {
+                                showFeaturePopup(e.layer.properties, e.latlng, layer.name);
                             }
-                            
-                            break;
-                        } else {
-                            debugLog(`❌ Source-layer '${sourceLayerName}' shows 0 features`, 'warning');
-                            // Remove these layers since they don't work
-                            map.removeLayer(fillLayerId);
-                            map.removeLayer(strokeLayerId);
-                        }
+                        });
 
-                    } catch (layerError) {
-                        debugLog(`❌ Error with source-layer '${sourceLayerName}': ${layerError.message}`, 'error');
+                    } catch (mvtError) {
+                        console.warn(`❌ MVT failed for ${layer.name}:`, mvtError);
+                        layerToAdd = null; // Will fall through to PNG
                     }
                 }
 
-                if (workingSourceLayer) {
-                    debugLog(`🎉 SOLUTION FOUND! Use source-layer: '${workingSourceLayer}' for ${layer.name}`, 'success');
+                // PNG FALLBACK (if MVT failed or not available)
+                if (!layerToAdd) {
+                    console.log(`🖼️ Using PNG tiles for ${layer.name} (fallback)`);
+                    usesPNG = true;
                     
-                    // Zoom to layer's bounding box
-                    map.fitBounds([
-                        [layer.bbox.min_lng, layer.bbox.min_lat],
-                        [layer.bbox.max_lng, layer.bbox.max_lat]
-                    ], {
-                        padding: 50,
-                        duration: 1000
+                    const pngTileUrl = `${window.location.origin}${API_BASE}/tiles/${currentCity}/${layer.slug}/{z}/{x}/{y}.png`;
+                    
+                    layerToAdd = L.tileLayer(pngTileUrl, {
+                        attribution: `${layer.name} Data`,
+                        opacity: Math.max(currentOpacity, 0.8), // Ensure minimum visibility
+                        maxZoom: 16,
+                        errorTileUrl: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==', // Transparent 1x1 pixel
+                        className: `layer-${layer.slug}` // Add class for debugging
                     });
 
-                    debugLog(`🎯 Map zoomed to layer bounds`, 'success');
-                } else {
-                    debugLog(`❌ FAILED: No working source-layer found for ${layer.name}`, 'error');
-                    debugLog(`🔍 This means either: 1) MVT has different layer name, 2) No features in tiles, or 3) Geometry issue`, 'error');
+                    // Add PNG tile event handlers
+                    layerToAdd.on('tileload', function(e) {
+                        console.log(`🖼️ PNG Tile loaded for ${layer.name}: ${e.tile.src}`);
+                        
+                        // Test if tile has actual content
+                        const img = new Image();
+                        img.onload = function() {
+                            if (this.width > 1 && this.height > 1) {
+                                console.log(`✅ PNG tile has content: ${this.width}x${this.height}`);
+                            } else {
+                                console.log(`⚠️ PNG tile might be empty: ${this.width}x${this.height}`);
+                            }
+                        };
+                        img.src = e.tile.src;
+                    });
+
+                    layerToAdd.on('tileerror', function(e) {
+                        console.warn(`❌ PNG Tile error for ${layer.name}: ${e.tile.src}`, e);
+                    });
                 }
 
-                updateStatus(`Layer ${layer.name} added`);
+                // Add to map
+                layerToAdd.addTo(map);
+                activeMVTLayers.set(layer.slug, layerToAdd);
 
-            } catch (error) {
-                debugLog(`❌ Error adding layer ${layer.name}: ${error.message}`, 'error');
-                showError(`Failed to add layer: ${layer.name} - ${error.message}`);
-            }
-        }
-
-        function removeLayerFromMap(layerSlug) {
-            const sourceId = `source-${layerSlug}`;
-
-            try {
-                // Remove all possible layer variations (since we test multiple source-layer names)
-                for (let i = 0; i < 10; i++) {
-                    const fillLayerId = `layer-${layerSlug}-${i}`;
-                    const strokeLayerId = `stroke-${layerSlug}-${i}`;
-                    
-                    if (map.getLayer(fillLayerId)) {
-                        map.removeLayer(fillLayerId);
-                        debugLog(`🗑️ Removed fill layer: ${fillLayerId}`, 'info');
-                    }
-                    if (map.getLayer(strokeLayerId)) {
-                        map.removeLayer(strokeLayerId);
-                        debugLog(`🗑️ Removed stroke layer: ${strokeLayerId}`, 'info');
-                    }
+                // Auto-zoom to layer bounds (for first layer only)
+                if (layer.bbox && activeMVTLayers.size === 1) {
+                    setTimeout(() => {
+                        console.log(`🎯 Zooming to ${layer.name} bounds:`, layer.bbox);
+                        map.fitBounds([
+                            [layer.bbox.min_lat, layer.bbox.min_lng],
+                            [layer.bbox.max_lat, layer.bbox.max_lng]
+                        ], { 
+                            padding: [50, 50], 
+                            maxZoom: 14 
+                        });
+                        
+                        // Test a specific tile to see if it has data
+                        const centerLat = (layer.bbox.min_lat + layer.bbox.max_lat) / 2;
+                        const centerLng = (layer.bbox.min_lng + layer.bbox.max_lng) / 2;
+                        const testZoom = 12;
+                        const tileX = Math.floor((centerLng + 180) / 360 * Math.pow(2, testZoom));
+                        const tileY = Math.floor((1 - Math.log(Math.tan(centerLat * Math.PI / 180) + 1 / Math.cos(centerLat * Math.PI / 180)) / Math.PI) / 2 * Math.pow(2, testZoom));
+                        
+                        const testUrl = `${API_BASE}/tiles/${currentCity}/${layer.slug}/${testZoom}/${tileX}/${tileY}.${usesPNG ? 'png' : 'mvt'}`;
+                        console.log(`🧪 Test tile URL: ${testUrl}`);
+                        
+                        // Show visual tile preview for PNG
+                        if (usesPNG) {
+                            showTilePreview(layer, testUrl, testZoom, tileX, tileY);
+                        }
+                        
+                    }, 500);
                 }
+
+                const tileType = usesPNG ? 'PNG' : 'MVT';
+                updateStatus(`${layer.name} loaded successfully (${tileType})`, 'success');
                 
-                // Remove source
-                if (map.getSource(sourceId)) {
-                    map.removeSource(sourceId);
-                    debugLog(`🗑️ Removed source: ${sourceId}`, 'info');
-                }
+                // Update tile type display
+                document.getElementById('tileType').textContent = tileType;
+                
+                return true;
 
             } catch (error) {
-                debugLog(`❌ Error removing layer: ${error.message}`, 'error');
+                console.error(`Error loading layer ${layer.name}:`, error);
+                updateStatus(`Failed to load ${layer.name}: ${error.message}`, 'error');
+                return false;
             }
         }
 
-        function toggleAllLayers() {
-            allLayersVisible = !allLayersVisible;
-            
-            debugLog(`🔄 Toggle all layers: ${allLayersVisible ? 'ON' : 'OFF'}`, 'info');
-            
-            if (allLayersVisible) {
-                // Show all visible layers
-                const visibleLayers = currentLayers.filter(layer => {
-                    const layerItem = document.querySelector(`[data-layer-id="${layer.slug}"]`);
-                    return layerItem && layerItem.style.display !== 'none';
-                });
-
-                visibleLayers.forEach(layer => {
-                    if (!activeLayers.has(layer.slug)) {
-                        toggleLayer(layer);
-                    }
-                });
-            } else {
-                // Hide all layers
-                activeLayers.forEach(layerSlug => {
-                    const layer = currentLayers.find(l => l.slug === layerSlug);
-                    if (layer) toggleLayer(layer);
-                });
+        // Remove layer from map
+        function removeLayer(layer) {
+            const mvtLayer = activeMVTLayers.get(layer.slug);
+            if (mvtLayer) {
+                map.removeLayer(mvtLayer);
+                activeMVTLayers.delete(layer.slug);
+                console.log(`Removed layer: ${layer.name}`);
             }
+        }
 
+        // Show feature popup
+        function showFeaturePopup(properties, latlng, layerName) {
+            let popupContent = `<div><h4>${layerName}</h4>`;
+            
+            // Show relevant properties
+            Object.entries(properties).forEach(([key, value]) => {
+                if (value && key !== 'geometry' && typeof value !== 'object') {
+                    popupContent += `<div><strong>${key}:</strong> ${value}</div>`;
+                }
+            });
+            
+            popupContent += '</div>';
+
+            L.popup()
+                .setLatLng(latlng)
+                .setContent(popupContent)
+                .openOn(map);
+        }
+
+        // Show visual tile preview (for debugging PNG tiles)
+        function showTilePreview(layer, testUrl, zoom, x, y) {
+            const tilePreview = document.createElement('div');
+            tilePreview.innerHTML = `
+                <div style="position: fixed; top: 100px; right: 10px; background: white; padding: 15px; border: 2px solid #333; border-radius: 5px; z-index: 10000; max-width: 350px; box-shadow: 0 4px 20px rgba(0,0,0,0.3);">
+                    <h4>🔍 Debugging: ${layer.name}</h4>
+                    <p><strong>Tile:</strong> ${zoom}/${x}/${y}</p>
+                    <p><strong>Color:</strong> <span style="display: inline-block; width: 20px; height: 20px; background: ${getLayerColor(layer)}; border: 1px solid #ccc; vertical-align: middle;"></span> ${getLayerColor(layer)}</p>
+                    <div style="border: 1px solid #ccc; background: #f0f0f0; padding: 8px; margin: 10px 0;">
+                        <img src="${testUrl}" style="max-width: 256px; max-height: 256px; border: 1px solid red;" 
+                             onerror="this.style.display='none'; this.nextSibling.style.display='block';"
+                             onload="console.log('Tile preview loaded:', this.width + 'x' + this.height); this.nextSibling.nextSibling.textContent = 'Image: ' + this.width + 'x' + this.height;">
+                        <div style="display: none; color: red; padding: 20px; text-align: center;">❌ Tile failed to load</div>
+                        <div style="font-size: 10px; color: #666; margin-top: 5px;">Loading...</div>
+                    </div>
+                    <div style="display: flex; gap: 5px;">
+                        <button onclick="this.parentElement.parentElement.remove()" style="flex: 1; padding: 8px; background: #dc3545; color: white; border: none; border-radius: 3px; font-size: 12px;">Close</button>
+                        <button onclick="window.open('${testUrl}', '_blank')" style="flex: 1; padding: 8px; background: #007bff; color: white; border: none; border-radius: 3px; font-size: 12px;">Open Tile</button>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(tilePreview);
+            
+            // Remove preview after 15 seconds
+            setTimeout(() => {
+                if (tilePreview.parentElement) {
+                    tilePreview.remove();
+                }
+            }, 15000);
+        }
+
+        // Quick action functions
+        async function loadAllLayers() {
+            updateStatus('Loading all layers...', 'loading');
+            
+            for (const layer of currentLayers.slice(0, 8)) { // Limit to prevent overload
+                if (!activeMVTLayers.has(layer.slug)) {
+                    await toggleLayer(layer);
+                    await new Promise(resolve => setTimeout(resolve, 300));
+                }
+            }
+            
+            updateStatus(`Loaded multiple layers`, 'success');
+        }
+
+        function clearAllLayers() {
+            activeMVTLayers.forEach((layer, slug) => {
+                map.removeLayer(layer);
+                const layerItem = document.querySelector(`[data-layer-id="${slug}"]`);
+                const statusElement = document.getElementById(`status-${slug}`);
+                
+                if (layerItem) {
+                    layerItem.classList.remove('active');
+                    statusElement.textContent = 'Click to load';
+                    statusElement.className = 'layer-status';
+                }
+            });
+            
+            activeMVTLayers.clear();
             updateLayerCount();
+            updateStatus('All layers cleared', 'success');
+        }
+
+        function testBigLayer() {
+            clearAllLayers();
+            
+            const bigLayer = currentLayers.find(layer => 
+                layer.slug.includes('residential_main') || 
+                layer.feature_count > 30000
+            ) || currentLayers.find(layer => layer.feature_count > 10000);
+            
+            if (bigLayer) {
+                updateStatus(`Testing big layer: ${bigLayer.name}`, 'loading');
+                toggleLayer(bigLayer);
+            } else {
+                updateStatus('No big layer found', 'error');
+            }
+        }
+
+        function fitToLayers() {
+            if (currentLayers.length === 0) return;
+            
+            let bounds = L.latLngBounds();
+            let hasBounds = false;
+            
+            currentLayers.forEach(layer => {
+                if (layer.bbox) {
+                    bounds.extend([layer.bbox.min_lat, layer.bbox.min_lng]);
+                    bounds.extend([layer.bbox.max_lat, layer.bbox.max_lng]);
+                    hasBounds = true;
+                }
+            });
+            
+            if (hasBounds) {
+                map.fitBounds(bounds, { padding: [20, 20] });
+                updateStatus('View fitted to all layers', 'success');
+            }
         }
 
         function centerMapOnCity(layers) {
-            // Calculate overall bounding box
             let minLng = Infinity, minLat = Infinity;
             let maxLng = -Infinity, maxLat = -Infinity;
 
@@ -959,46 +1378,17 @@
             });
 
             if (minLng !== Infinity) {
-                map.fitBounds([[minLng, minLat], [maxLng, maxLat]], {
-                    padding: 50
-                });
-                debugLog(`🎯 Map centered on city bounds: [${minLng.toFixed(4)}, ${minLat.toFixed(4)}] to [${maxLng.toFixed(4)}, ${maxLat.toFixed(4)}]`, 'success');
+                map.fitBounds([[minLat, minLng], [maxLat, maxLng]], { padding: [50, 50] });
+                console.log(`🎯 Map centered on city bounds`);
             }
         }
 
-        function showFeaturePopup(feature, lngLat) {
-            const props = feature.properties;
-            
-            let popupContent = `<div class="feature-popup">`;
-            popupContent += `<h4>${props.layer_name || props.name || 'Feature'}</h4>`;
-            
-            // Show all properties for debugging
-            Object.keys(props).forEach(key => {
-                if (props[key]) {
-                    popupContent += `<div class="property"><strong>${key}:</strong> ${props[key]}</div>`;
-                }
-            });
-
-            popupContent += `</div>`;
-
-            new mapboxgl.Popup()
-                .setLngLat(lngLat)
-                .setHTML(popupContent)
-                .addTo(map);
-
-            debugLog(`📍 Popup shown for feature with ${Object.keys(props).length} properties`, 'info');
-        }
-
         function clearLayers() {
-            debugLog('🧹 Clearing all layers...', 'warning');
-            
-            // Remove all active layers
-            activeLayers.forEach(layerSlug => {
-                removeLayerFromMap(layerSlug);
+            activeMVTLayers.forEach((layer, slug) => {
+                map.removeLayer(layer);
             });
-            activeLayers.clear();
+            activeMVTLayers.clear();
 
-            // Clear UI
             document.getElementById('layersList').innerHTML = '<div style="text-align: center; padding: 20px; color: #6c757d;">Select a city to view layers</div>';
             document.getElementById('categorySelect').innerHTML = '<option value="">All Categories</option>';
             
@@ -1007,98 +1397,272 @@
             updateLayerCount();
         }
 
-        function updateStatus(message) {
+        // Manual tile testing functions
+        function updateMapFromCoords() {
+            const zoom = parseInt(document.getElementById('zoom').value);
+            const x = parseInt(document.getElementById('tile-x').value);
+            const y = parseInt(document.getElementById('tile-y').value);
+            
+            // Calculate center of tile
+            const bounds = tileToBounds(x, y, zoom);
+            const centerLat = (bounds.north + bounds.south) / 2;
+            const centerLng = (bounds.east + bounds.west) / 2;
+            
+            map.setView([centerLat, centerLng], zoom);
+            
+            // Add tile boundary rectangle
+            if (window.tileBoundary) {
+                map.removeLayer(window.tileBoundary);
+            }
+            
+            window.tileBoundary = L.rectangle([
+                [bounds.south, bounds.west],
+                [bounds.north, bounds.east]
+            ], {
+                color: 'red',
+                weight: 2,
+                fillOpacity: 0.1
+            }).addTo(map);
+            
+            updateStatus(`Moved to tile ${zoom}/${x}/${y}`, 'info');
+        }
+
+        function testSpecificTile() {
+            const zoom = document.getElementById('zoom').value;
+            const x = document.getElementById('tile-x').value;
+            const y = document.getElementById('tile-y').value;
+            
+            if (!currentLayers.length) {
+                updateStatus('No layers loaded. Select a city first.', 'error');
+                return;
+            }
+            
+            const testLayer = currentLayers[0];
+            const testUrl = `${API_BASE}/tiles/${currentCity}/${testLayer.slug}/${zoom}/${x}/${y}.mvt`;
+            
+            console.log(`🧪 Testing tile: ${testUrl}`);
+            
+            // Visual tile preview
+            const tilePreview = document.createElement('div');
+            tilePreview.innerHTML = `
+                <div style="position: fixed; top: 100px; right: 10px; background: white; padding: 15px; border: 2px solid #333; border-radius: 5px; z-index: 10000; max-width: 350px;">
+                    <h4>🔍 Testing Tile: ${testLayer.name}</h4>
+                    <p><strong>Coordinates:</strong> ${zoom}/${x}/${y}</p>
+                    <p><strong>URL:</strong><br><a href="${testUrl}" target="_blank" style="font-size: 10px; word-break: break-all;">${testUrl}</a></p>
+                    <button onclick="this.parentElement.remove()" style="margin-top: 10px; padding: 5px 10px; background: #dc3545; color: white; border: none; border-radius: 3px;">Close</button>
+                    <button onclick="window.open('${testUrl}', '_blank')" style="margin-top: 10px; margin-left: 5px; padding: 5px 10px; background: #007bff; color: white; border: none; border-radius: 3px;">Open Tile</button>
+                </div>
+            `;
+            document.body.appendChild(tilePreview);
+            
+            setTimeout(() => {
+                if (tilePreview.parentElement) {
+                    tilePreview.remove();
+                }
+            }, 10000);
+        }
+
+        // Debug functions (keeping your grid functionality)
+        function showTileUrls() {
+            if (currentLayers.length === 0) {
+                alert('No layers loaded. Select a city first.');
+                return;
+            }
+            
+            const urlList = currentLayers.slice(0, 5).map(layer => {
+                const testUrl = `${API_BASE}/tiles/${currentCity}/${layer.slug}/12/2931/1899.mvt`;
+                return `${layer.name}: ${testUrl}`;
+            }).join('\n\n');
+            
+            const popup = document.createElement('div');
+            popup.innerHTML = `
+                <div style="position: fixed; top: 50px; left: 50px; right: 50px; background: white; padding: 20px; border: 2px solid #333; border-radius: 5px; z-index: 10000; max-height: 70vh; overflow-y: auto;">
+                    <h3>🔗 Test Tile URLs</h3>
+                    <p>Copy these URLs and paste in browser to see actual tiles:</p>
+                    <textarea style="width: 100%; height: 200px; font-size: 10px; font-family: monospace;">${urlList}</textarea>
+                    <br><br>
+                    <button onclick="this.parentElement.parentElement.remove()" style="padding: 10px 20px; background: #dc3545; color: white; border: none; border-radius: 3px;">Close</button>
+                </div>
+            `;
+            document.body.appendChild(popup);
+        }
+
+        function testHighContrast() {
+            // Apply high visibility to all active layers
+            activeMVTLayers.forEach((layer, slug) => {
+                if (layer.setOpacity) {
+                    layer.setOpacity(1.0);
+                }
+            });
+            
+            // Update slider
+            document.getElementById('opacity-slider').value = 1.0;
+            document.getElementById('opacity-value').textContent = '1.0';
+            currentOpacity = 1.0;
+            
+            updateStatus('Applied high contrast mode', 'success');
+        }
+
+        let isDarkBase = false;
+        function changeBaseMap() {
+            map.eachLayer(layer => {
+                if (layer.options && layer.options.attribution && layer.options.attribution.includes('OpenStreetMap')) {
+                    map.removeLayer(layer);
+                }
+            });
+            
+            if (!isDarkBase) {
+                L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+                    attribution: '© CARTO © OpenStreetMap contributors',
+                    maxZoom: 18
+                }).addTo(map);
+                updateStatus('Switched to dark base map', 'success');
+                isDarkBase = true;
+            } else {
+                L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                    attribution: '© OpenStreetMap contributors',
+                    maxZoom: 18
+                }).addTo(map);
+                updateStatus('Switched to light base map', 'success');
+                isDarkBase = false;
+            }
+        }
+
+        let tileGridVisible = false;
+        function showTileGrid() {
+            if (!tileGridVisible) {
+                const tileGrid = L.gridLayer({
+                    attribution: 'Tile Grid',
+                    opacity: 0.5
+                });
+                
+                tileGrid.createTile = function(coords) {
+                    const tile = document.createElement('div');
+                    tile.style.border = '1px solid red';
+                    tile.style.backgroundColor = 'rgba(255,0,0,0.1)';
+                    tile.innerHTML = `<div style="color: red; font-size: 10px; font-weight: bold; padding: 2px;">${coords.z}/${coords.x}/${coords.y}</div>`;
+                    return tile;
+                };
+                
+                tileGrid.addTo(map);
+                window.tileGridLayer = tileGrid;
+                tileGridVisible = true;
+                updateStatus('Tile grid overlay enabled', 'success');
+            } else {
+                map.removeLayer(window.tileGridLayer);
+                tileGridVisible = false;
+                updateStatus('Tile grid overlay disabled', 'success');
+            }
+        }
+
+        // MVT/PNG Mode Controls
+        function forceMVTMode() {
+            usePNGFallback = false;
+            document.getElementById('tileType').textContent = 'MVT (Forced)';
+            clearAllLayers();
+            updateStatus('Forced MVT mode - will only use vector tiles', 'success');
+            console.log('🔥 Forced MVT mode enabled');
+        }
+
+        function forcePNGMode() {
+            usePNGFallback = true;
+            document.getElementById('tileType').textContent = 'PNG (Forced)';
+            clearAllLayers();
+            updateStatus('Forced PNG mode - will only use raster tiles', 'success');
+            console.log('🖼️ Forced PNG mode enabled');
+        }
+
+        function autoMode() {
+            // Reset to automatic detection
+            usePNGFallback = !checkVectorGrid();
+            const mode = usePNGFallback ? 'PNG (Auto)' : 'MVT (Auto)';
+            document.getElementById('tileType').textContent = mode;
+            clearAllLayers();
+            updateStatus(`Auto mode - will use ${usePNGFallback ? 'PNG' : 'MVT'} tiles`, 'success');
+            console.log(`🤖 Auto mode: ${mode}`);
+        }
+
+        function reloadLayers() {
+            updateStatus('Reloading layers...', 'loading');
+            clearAllLayers();
+            if (currentCity) {
+                loadCityLayers(currentCity);
+            } else {
+                updateStatus('No city selected', 'error');
+            }
+        }
+
+        // Check if VectorGrid is available
+        function checkVectorGrid() {
+            return typeof L !== 'undefined' && L.vectorGrid && L.vectorGrid.protobuf;
+        }
+
+        // Utility functions
+        function tileToBounds(x, y, zoom) {
+            const n = Math.PI - 2 * Math.PI * y / Math.pow(2, zoom);
+            const west = x / Math.pow(2, zoom) * 360 - 180;
+            const east = (x + 1) / Math.pow(2, zoom) * 360 - 180;
+            const north = 180 / Math.PI * Math.atan(0.5 * (Math.exp(n) - Math.exp(-n)));
+            
+            const n2 = Math.PI - 2 * Math.PI * (y + 1) / Math.pow(2, zoom);
+            const south = 180 / Math.PI * Math.atan(0.5 * (Math.exp(n2) - Math.exp(-n2)));
+            
+            return { north, south, east, west };
+        }
+
+        function updateStatus(message, type = 'info') {
+            const statusElement = document.getElementById('statusMessage');
+            const indicatorElement = document.getElementById('statusIndicator');
+            
+            statusElement.textContent = message;
+            indicatorElement.className = `status-indicator indicator-${type}`;
+            
+            // Also update sidebar status
             document.getElementById('status').textContent = message;
+            
+            console.log(`[${type.toUpperCase()}] ${message}`);
+        }
+
+        function updateMapInfo() {
+            const center = map.getCenter();
+            const zoom = map.getZoom();
+            
+            document.getElementById('coordinates').textContent = 
+                `${center.lat.toFixed(4)}, ${center.lng.toFixed(4)}`;
+            document.getElementById('zoom-display').textContent = zoom.toFixed(1);
+            
+            // Calculate current tile coordinates
+            const tileX = Math.floor((center.lng + 180) / 360 * Math.pow(2, Math.floor(zoom)));
+            const tileY = Math.floor((1 - Math.log(Math.tan(center.lat * Math.PI / 180) + 1 / Math.cos(center.lat * Math.PI / 180)) / Math.PI) / 2 * Math.pow(2, Math.floor(zoom)));
+            
+            document.getElementById('currentTile').textContent = `${Math.floor(zoom)}/${tileX}/${tileY}`;
+            document.getElementById('current-tile-info').textContent = `${Math.floor(zoom)}/${tileX}/${tileY}`;
         }
 
         function updateLayerCount() {
-            document.getElementById('layerCount').textContent = `Active Layers: ${activeLayers.size}`;
+            document.getElementById('layerCount').textContent = activeMVTLayers.size;
         }
 
-        function showError(message) {
-            const sidebar = document.querySelector('.sidebar');
-            const existingError = sidebar.querySelector('.error');
-            if (existingError) existingError.remove();
-
-            const errorDiv = document.createElement('div');
-            errorDiv.className = 'error';
-            errorDiv.textContent = message;
-            sidebar.appendChild(errorDiv);
-
-            setTimeout(() => errorDiv.remove(), 10000);
+        function showLoadingOverlay(show) {
+            const overlay = document.getElementById('loadingOverlay');
+            overlay.style.display = show ? 'flex' : 'none';
         }
 
-        // Auto-select Bangalore for testing
-        setTimeout(() => {
-            const citySelect = document.getElementById('citySelect');
-            if (citySelect.options.length > 1) {
-                citySelect.value = 'bangalore';
-                citySelect.dispatchEvent(new Event('change'));
-            async function testSpecificLayer() {
-            if (!currentLayers || currentLayers.length === 0) {
-                debugLog('⚠️ No layers loaded. Load a city first!', 'warning');
-                return;
-            }
-
-            // Test the first layer with substantial data
-            const testLayer = currentLayers.find(layer => layer.feature_count > 100) || currentLayers[0];
+        function handleMapClick(e) {
+            console.log(`Map clicked at: ${e.latlng.lat.toFixed(4)}, ${e.latlng.lng.toFixed(4)}`);
             
-            debugLog(`🔬 Deep testing layer: ${testLayer.name} (${testLayer.feature_count} features)`, 'info');
-            debugLog(`📊 Layer details: ${JSON.stringify({
-                slug: testLayer.slug,
-                category: testLayer.category_name,
-                bbox: testLayer.bbox,
-                style: testLayer.style
-            }, null, 2)}`, 'info');
-
-            const bbox = testLayer.bbox;
+            // Update manual tile coordinates
+            const zoom = map.getZoom();
+            const tileX = Math.floor((e.latlng.lng + 180) / 360 * Math.pow(2, Math.floor(zoom)));
+            const tileY = Math.floor((1 - Math.log(Math.tan(e.latlng.lat * Math.PI / 180) + 1 / Math.cos(e.latlng.lat * Math.PI / 180)) / Math.PI) / 2 * Math.pow(2, Math.floor(zoom)));
             
-            // Test grid of coordinates across the bounding box
-            const testPoints = [
-                { lat: bbox.min_lat, lng: bbox.min_lng, name: 'SW corner' },
-                { lat: bbox.max_lat, lng: bbox.max_lng, name: 'NE corner' },
-                { lat: (bbox.min_lat + bbox.max_lat) / 2, lng: (bbox.min_lng + bbox.max_lng) / 2, name: 'center' },
-                { lat: bbox.min_lat, lng: bbox.max_lng, name: 'SE corner' },
-                { lat: bbox.max_lat, lng: bbox.min_lng, name: 'NW corner' }
-            ];
-
-            let foundData = false;
-
-            for (const point of testPoints) {
-                for (const zoom of [10, 11, 12, 13, 14]) {
-                    const tileX = Math.floor((point.lng + 180) / 360 * Math.pow(2, zoom));
-                    const tileY = Math.floor((1 - Math.log(Math.tan(point.lat * Math.PI / 180) + 1 / Math.cos(point.lat * Math.PI / 180)) / Math.PI) / 2 * Math.pow(2, zoom));
-
-                    const url = `${API_BASE}/tiles/${currentCity}/${testLayer.slug}/${zoom}/${tileX}/${tileY}.mvt`;
-                    
-                    try {
-                        const response = await fetch(url);
-                        const arrayBuffer = await response.arrayBuffer();
-                        const bytes = arrayBuffer.byteLength;
-                        
-                        if (response.ok && bytes > 0) {
-                            debugLog(`✅ FOUND DATA at ${point.name} z${zoom}/${tileX}/${tileY}: ${bytes} bytes`, 'success');
-                            debugLog(`🔗 Working URL: ${url}`, 'success');
-                            foundData = true;
-                            return; // Stop at first success
-                        } else if (response.ok) {
-                            debugLog(`⚪ Empty tile at ${point.name} z${zoom}/${tileX}/${tileY}`, 'info');
-                        } else {
-                            debugLog(`❌ Error at ${point.name} z${zoom}/${tileX}/${tileY}: HTTP ${response.status}`, 'error');
-                        }
-                    } catch (error) {
-                        debugLog(`❌ Request failed at ${point.name} z${zoom}/${tileX}/${tileY}: ${error.message}`, 'error');
-                    }
-                }
-            }
-
-            if (!foundData) {
-                debugLog(`❌ NO DATA FOUND for ${testLayer.name} across all test coordinates`, 'error');
-                debugLog(`🔍 This suggests an issue with MVT generation or coordinate calculation`, 'error');
-            }
+            document.getElementById('zoom').value = Math.floor(zoom);
+            document.getElementById('tile-x').value = tileX;
+            document.getElementById('tile-y').value = tileY;
         }
-            }
-        }, 2000);
+
+        // Initialize status
+        updateStatus('Hybrid map interface ready', 'success');
     </script>
 </body>
 </html>

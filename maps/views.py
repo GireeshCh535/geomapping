@@ -697,3 +697,249 @@ class MapVisualizationView(TemplateView):
         
         return context
     
+class CityCompleteView(APIView):
+    """
+    OPTIMAL: Return ALL city layers in one response with proper colors
+    Perfect for "show entire city at once" use case
+    """
+    
+    def get(self, request, city_slug):
+        try:
+            # Get city
+            city = get_object_or_404(City, slug=city_slug, is_active=True)
+            
+            # Get all layers for this city
+            layers = DataLayer.objects.filter(
+                city=city,
+                is_processed=True
+            ).select_related('category').order_by('category__display_order', 'name')
+            
+            if not layers.exists():
+                return Response({
+                    'error': 'No layers found for this city',
+                    'city': city_slug
+                }, status=404)
+            
+            # Calculate total features to decide response strategy
+            total_features = sum(layer.feature_count or 0 for layer in layers)
+            
+            # DECISION: If too many features, return tile-based approach
+            if total_features > 100000:  # Configurable threshold
+                return self._get_tile_based_response(city, layers, total_features)
+            
+            # OPTIMAL: Return complete GeoJSON with all layers
+            return self._get_complete_geojson_response(city, layers, total_features)
+            
+        except Exception as e:
+            print(f"Error in CityCompleteView: {e}")
+            return Response({
+                'error': 'Failed to load city data',
+                'message': str(e)
+            }, status=500)
+    
+    def _get_complete_geojson_response(self, city, layers, total_features):
+        """Return all city layers as one combined GeoJSON"""
+        
+        # Define color mapping
+        color_map = self._get_color_mapping()
+        
+        all_features = []
+        layer_metadata = []
+        
+        for layer in layers:
+            try:
+                # Get features for this layer
+                features = GeoFeature.objects.filter(
+                    layer=layer,
+                    is_valid=True
+                ).select_related('layer__category')
+                
+                # Get layer color
+                layer_color = self._get_layer_color(layer, color_map)
+                
+                # Add layer metadata
+                layer_metadata.append({
+                    'slug': layer.slug,
+                    'name': layer.name,
+                    'category': layer.category.name if layer.category else 'Unknown',
+                    'category_code': layer.category.code if layer.category else None,
+                    'color': layer_color,
+                    'feature_count': features.count(),
+                    'bbox': {
+                        'min_lng': layer.bbox_xmin,
+                        'min_lat': layer.bbox_ymin,
+                        'max_lng': layer.bbox_xmax,
+                        'max_lat': layer.bbox_ymax
+                    } if all([layer.bbox_xmin, layer.bbox_ymin, layer.bbox_xmax, layer.bbox_ymax]) else None
+                })
+                
+                # Convert features to GeoJSON (limit per layer for safety)
+                for feature in features[:5000]:  # Limit per layer
+                    try:
+                        geometry = json.loads(feature.geometry.geojson)
+                        
+                        properties = {
+                            'id': feature.id,
+                            'name': feature.name or '',
+                            'layer_slug': layer.slug,
+                            'layer_name': layer.name,
+                            'category': layer.category.name if layer.category else 'Unknown',
+                            'category_code': layer.category.code if layer.category else None,
+                            'land_use': feature.land_use_type or '',
+                            'plu_code': feature.plu_primary_code or '',
+                            'area': float(feature.calculated_area) if feature.calculated_area else 0.0,
+                            'color': layer_color,  # Include color in each feature
+                            'city': city.slug
+                        }
+                        
+                        all_features.append({
+                            'type': 'Feature',
+                            'geometry': geometry,
+                            'properties': properties
+                        })
+                        
+                    except Exception as e:
+                        print(f"Skipping feature {feature.id}: {e}")
+                        continue
+                        
+            except Exception as e:
+                print(f"Error processing layer {layer.slug}: {e}")
+                continue
+        
+        # Build complete response
+        response_data = {
+            'type': 'FeatureCollection',
+            'strategy': 'complete_geojson',
+            'city': {
+                'slug': city.slug,
+                'name': city.name,
+                'center': [city.center_lat, city.center_lng]
+            },
+            'features': all_features,
+            'metadata': {
+                'total_features': len(all_features),
+                'total_layers': len(layer_metadata),
+                'layers': layer_metadata,
+                'color_scheme': color_map,
+                'bounds': self._calculate_city_bounds(layers)
+            }
+        }
+        
+        print(f"✅ Generated complete GeoJSON for {city.slug}: {len(all_features)} features, {len(layer_metadata)} layers")
+        
+        # Cache for 30 minutes
+        response = Response(response_data)
+        response['Cache-Control'] = 'max-age=1800'
+        response['Access-Control-Allow-Origin'] = '*'
+        
+        return response
+    
+    def _get_tile_based_response(self, city, layers, total_features):
+        """Return tile-based info for large datasets"""
+        
+        color_map = self._get_color_mapping()
+        layer_info = []
+        
+        for layer in layers:
+            layer_info.append({
+                'slug': layer.slug,
+                'name': layer.name,
+                'category': layer.category.name if layer.category else 'Unknown',
+                'color': self._get_layer_color(layer, color_map),
+                'feature_count': layer.feature_count,
+                'tile_url': f'/api/tiles/{city.slug}/{layer.slug}/{{z}}/{{x}}/{{y}}.mvt'
+            })
+        
+        return Response({
+            'strategy': 'tile_based',
+            'reason': f'Large dataset ({total_features:,} features)',
+            'city': city.slug,
+            'combined_tile_url': f'/api/tiles/{city.slug}/combined/{{z}}/{{x}}/{{y}}.mvt',
+            'layers': layer_info,
+            'recommended_zoom': {'min': 10, 'max': 16},
+            'bounds': self._calculate_city_bounds(layers)
+        })
+    
+    def _get_color_mapping(self):
+        """Return standardized color mapping for categories - matches your frontend"""
+        return {
+            'RESIDENTIAL': '#FFC400',      # Yellow - Residential
+            'COMMERCIAL': '#004DA8',       # Blue - Commercial  
+            'MIXED_USE': '#F7931E',        # Orange - Mixed Use
+            'INDUSTRIAL': '#AA66B2',       # Purple - Industrial
+            'HIGH_TECH': '#C29ED7',        # Light Purple - High Tech
+            'GOVERNMENT': '#E60000',       # Red - Government
+            'PUBLIC': '#E60000',           # Red - Public/Semi Public
+            'DEFENSE': '#8B4513',          # Brown - Defense
+            'PROTECTED': '#228B22',        # Forest Green - State Forest/Protected
+            'PARKS_GREEN': '#98E600',      # Bright Green - Parks and Green Spaces
+            'WATER_BODIES': '#1E90FF',     # Dodger Blue - Lake/Tank
+            'TRANSPORT': '#808080',        # Gray - Road/Rail/Airport Transport
+            'UTILITIES': '#FF6347',        # Tomato - Power/Water/Utilities
+            'AGRICULTURAL': '#9ACD32',     # Yellow Green - Agricultural Land
+            'UNCLASSIFIED': '#D3D3D3',     # Light Gray - Unclassified Use
+            'DRAINS': '#4682B4'            # Steel Blue - Drains
+        }
+    
+    def _get_layer_color(self, layer, color_map):
+        """Get color for a specific layer"""
+        
+        # Try category-based color first
+        if layer.category and layer.category.code:
+            category_color = color_map.get(layer.category.code.upper())
+            if category_color:
+                return category_color
+        
+        # Try layer style
+        style = layer.get_style()
+        if isinstance(style, dict) and style.get('fill_color'):
+            return style['fill_color']
+        
+        # Backup slug-based mapping (matches your frontend LAYER_COLORS)
+        slug_colors = {
+            'residential_main_': '#FFC400',
+            'residential_mixed': '#FFC400',
+            'commercial_central_': '#004DA8',
+            'commercial': '#004DA8',
+            'industrial': '#AA66B2',
+            'hightech': '#C29ED7',
+            'public_semipublic': '#E60000',
+            'defense': '#8B4513',
+            'stateforest_valley_protectedland_': '#228B22',
+            'parks_green': '#98E600',
+            'lake_tank': '#1E90FF',
+            'transport': '#808080',
+            'airport': '#808080',
+            'power_water_garbagefacility_treatmentplant': '#FF6347',
+            'agricultural_land': '#9ACD32',
+            'unclassified_use': '#D3D3D3',
+            'drains': '#4682B4'
+        }
+        
+        if layer.slug in slug_colors:
+            return slug_colors[layer.slug]
+        
+        # Default gray
+        return '#666666'
+    
+    def _calculate_city_bounds(self, layers):
+        """Calculate bounding box for all layers"""
+        bounds = {
+            'min_lng': float('inf'),
+            'min_lat': float('inf'), 
+            'max_lng': float('-inf'),
+            'max_lat': float('-inf')
+        }
+        
+        valid_bounds = False
+        
+        for layer in layers:
+            if all([layer.bbox_xmin, layer.bbox_ymin, layer.bbox_xmax, layer.bbox_ymax]):
+                bounds['min_lng'] = min(bounds['min_lng'], layer.bbox_xmin)
+                bounds['min_lat'] = min(bounds['min_lat'], layer.bbox_ymin)
+                bounds['max_lng'] = max(bounds['max_lng'], layer.bbox_xmax)
+                bounds['max_lat'] = max(bounds['max_lat'], layer.bbox_ymax)
+                valid_bounds = True
+        
+        return bounds if valid_bounds else None
+    
