@@ -351,6 +351,79 @@
             border-radius: 3px;
             font-size: 11px;
         }
+        .coordinate-search-container {
+            background: #f8f9fa;
+            padding: 10px;
+            border-radius: 6px;
+            border: 1px solid #e9ecef;
+        }
+
+        .coordinate-inputs {
+            display: flex;
+            width: 100%;
+        }
+
+        .coordinate-inputs input {
+            padding: 8px;
+            border: 1px solid #ced4da;
+            border-radius: 4px;
+            font-size: 12px;
+        }
+
+        .search-actions {
+            display: flex;
+            gap: 5px;
+        }
+
+        .search-results {
+            max-height: 300px;
+            overflow-y: auto;
+            background: white;
+            border: 1px solid #dee2e6;
+            border-radius: 4px;
+            padding: 10px;
+            margin-top: 5px;
+        }
+
+        .search-result-item {
+            padding: 8px;
+            border-left: 4px solid;
+            margin-bottom: 8px;
+            background: #f8f9fa;
+            border-radius: 0 4px 4px 0;
+            font-size: 11px;
+        }
+
+        .search-result-primary {
+            background: #e8f5e9;
+            border-left-color: #28a745;
+        }
+
+        .search-result-nearby {
+            background: #fff3cd;
+            border-left-color: #ffc107;
+        }
+
+        .search-marker {
+            background: #dc3545;
+            border: 2px solid white;
+            border-radius: 50%;
+            width: 12px;
+            height: 12px;
+        }
+
+        .highlighted-feature {
+            stroke: #ff0000 !important;
+            stroke-width: 3 !important;
+            stroke-dasharray: 5,5 !important;
+            animation: highlightPulse 2s infinite;
+        }
+
+        @keyframes highlightPulse {
+            0% { stroke-opacity: 1; }
+            50% { stroke-opacity: 0.5; }
+            100% { stroke-opacity: 1; }
+        }
     </style>
 </head>
 <body>
@@ -407,6 +480,46 @@
                     <select id="categorySelect">
                         <option value="">All Categories</option>
                     </select>
+                </div>
+
+                <div class="control-group">
+                    <label for="coordinateSearch">🔍 Search by Coordinates:</label>
+                    <div class="coordinate-search-container">
+                        <div class="coordinate-inputs">
+                            <input type="number" 
+                                   id="searchLatitude" 
+                                   placeholder="Latitude (e.g., 12.9716)" 
+                                   step="any"
+                                   style="width: 48%; margin-right: 4%;">
+                            <input type="number" 
+                                   id="searchLongitude" 
+                                   placeholder="Longitude (e.g., 77.5946)" 
+                                   step="any"
+                                   style="width: 48%;">
+                        </div>
+                        <div class="search-actions" style="margin-top: 8px;">
+                            <button class="quick-btn btn-primary" onclick="searchByCoordinates()" style="flex: 1; margin-right: 5px;">
+                                🎯 Search Location
+                            </button>
+                            <button class="quick-btn btn-info" onclick="getCurrentLocation()" style="flex: 1;">
+                                📍 My Location
+                            </button>
+                        </div>
+                        <div class="search-examples" style="font-size: 10px; color: #666; margin-top: 5px;">
+                            <strong>Examples:</strong><br>
+                            • Bangalore: 12.9716, 77.5946<br>
+                            • HSR Layout: 12.9082, 77.6476<br>
+                            • Koramangala: 12.9279, 77.6271
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Search Results Section -->
+                <div class="control-group" id="searchResultsSection" style="display: none;">
+                    <label>🎯 Search Results:</label>
+                    <div id="searchResults" class="search-results">
+                        <!-- Results will be populated here -->
+                    </div>
                 </div>
 
                 <!-- Manual Tile Testing -->
@@ -500,6 +613,330 @@
         // Check if VectorGrid loaded, if not try alternative CDN
         let vectorGridAttempts = 0;
         let usePNGFallback = false;
+
+        let searchMarker = null;
+        let highlightedFeature = null;
+        let searchResults = [];
+
+        // Main coordinate search function
+        async function searchByCoordinates() {
+            const latitude = parseFloat(document.getElementById('searchLatitude').value);
+            const longitude = parseFloat(document.getElementById('searchLongitude').value);
+            
+            // Validate coordinates
+            if (isNaN(latitude) || isNaN(longitude)) {
+                updateStatus('Please enter valid latitude and longitude', 'error');
+                return;
+            }
+            
+            if (latitude < -90 || latitude > 90) {
+                updateStatus('Latitude must be between -90 and 90', 'error');
+                return;
+            }
+            
+            if (longitude < -180 || longitude > 180) {
+                updateStatus('Longitude must be between -180 and 180', 'error');
+                return;
+            }
+            
+            if (!currentCity) {
+                updateStatus('Please select a city first', 'error');
+                return;
+            }
+            
+            try {
+                updateStatus(`Searching location ${latitude}, ${longitude}...`, 'loading');
+                
+                // Call backend API
+                const response = await fetch(`${API_BASE}/cities/${currentCity}/search-coords/`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': getCsrfToken()
+                    },
+                    body: JSON.stringify({
+                        latitude: latitude,
+                        longitude: longitude
+                    })
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                
+                const searchData = await response.json();
+                console.log('🔍 Search results:', searchData);
+                
+                // Process search results
+                processSearchResults(searchData);
+                
+                // Zoom to location
+                zoomToSearchLocation(latitude, longitude);
+                
+                updateStatus(searchData.summary, 'success');
+                
+            } catch (error) {
+                console.error('Error searching coordinates:', error);
+                updateStatus(`Search failed: ${error.message}`, 'error');
+            }
+        }
+
+        // Process and display search results
+        function processSearchResults(searchData) {
+            searchResults = searchData;
+            
+            // Show search results section
+            document.getElementById('searchResultsSection').style.display = 'block';
+            
+            const resultsContainer = document.getElementById('searchResults');
+            resultsContainer.innerHTML = '';
+            
+            // Add search summary
+            const summaryDiv = document.createElement('div');
+            summaryDiv.innerHTML = `
+                <div style="font-weight: bold; margin-bottom: 10px; color: #495057;">
+                    📍 Location: ${searchData.search_point.latitude.toFixed(6)}, ${searchData.search_point.longitude.toFixed(6)}
+                </div>
+                <div style="margin-bottom: 10px; padding: 8px; background: #e3f2fd; border-radius: 4px; font-size: 12px;">
+                    ${searchData.summary}
+                </div>
+            `;
+            resultsContainer.appendChild(summaryDiv);
+            
+            // Display containing features
+            if (searchData.containing_features && searchData.containing_features.length > 0) {
+                const containingTitle = document.createElement('div');
+                containingTitle.innerHTML = '<strong>🎯 This location is in:</strong>';
+                containingTitle.style.marginBottom = '8px';
+                resultsContainer.appendChild(containingTitle);
+                
+                searchData.containing_features.forEach((feature, index) => {
+                    const featureDiv = document.createElement('div');
+                    featureDiv.className = 'search-result-item search-result-primary';
+                    featureDiv.style.borderLeftColor = feature.color;
+                    
+                    featureDiv.innerHTML = `
+                        <div style="font-weight: bold; color: ${feature.color};">
+                            ${feature.layer_name}
+                        </div>
+                        <div>Category: ${feature.category}</div>
+                        ${feature.land_use ? `<div>Land Use: ${feature.land_use}</div>` : ''}
+                        ${feature.plu_code ? `<div>PLU Code: ${feature.plu_code}</div>` : ''}
+                        ${feature.area > 0 ? `<div>Area: ${feature.area.toLocaleString()} sq units</div>` : ''}
+                        ${feature.administrative_info.village ? `<div>Village: ${feature.administrative_info.village}</div>` : ''}
+                    `;
+                    
+                    // Add click handler to highlight feature
+                    featureDiv.addEventListener('click', () => highlightFeatureOnMap(feature));
+                    featureDiv.style.cursor = 'pointer';
+                    
+                    resultsContainer.appendChild(featureDiv);
+                });
+            }
+            
+            // Display nearby features
+            if (searchData.nearby_features && searchData.nearby_features.length > 0) {
+                const nearbyTitle = document.createElement('div');
+                nearbyTitle.innerHTML = '<strong>📍 Nearby features:</strong>';
+                nearbyTitle.style.marginTop = '15px';
+                nearbyTitle.style.marginBottom = '8px';
+                resultsContainer.appendChild(nearbyTitle);
+                
+                searchData.nearby_features.forEach(feature => {
+                    const featureDiv = document.createElement('div');
+                    featureDiv.className = 'search-result-item search-result-nearby';
+                    featureDiv.style.borderLeftColor = feature.color;
+                    
+                    featureDiv.innerHTML = `
+                        <div style="font-weight: bold; color: ${feature.color};">
+                            ${feature.layer_name}
+                        </div>
+                        <div>Category: ${feature.category}</div>
+                        <div>Distance: ${feature.distance_meters}m away</div>
+                        ${feature.land_use ? `<div>Land Use: ${feature.land_use}</div>` : ''}
+                    `;
+                    
+                    resultsContainer.appendChild(featureDiv);
+                });
+            }
+        }
+
+        // Zoom to search location and add marker
+        function zoomToSearchLocation(latitude, longitude) {
+            // Remove existing search marker
+            if (searchMarker) {
+                map.removeLayer(searchMarker);
+            }
+            
+            // Create custom marker
+            const searchIcon = L.divIcon({
+                className: 'search-marker',
+                html: '📍',
+                iconSize: [24, 24],
+                iconAnchor: [12, 24],
+                popupAnchor: [0, -24]
+            });
+            
+            // Add new marker
+            searchMarker = L.marker([latitude, longitude], {
+                icon: searchIcon
+            }).addTo(map);
+            
+            // Add popup with coordinate info
+            const popupContent = `
+                <div style="text-align: center;">
+                    <strong>🔍 Search Location</strong><br>
+                    <code>${latitude.toFixed(6)}, ${longitude.toFixed(6)}</code><br>
+                    <small>Click on results below to highlight features</small>
+                </div>
+            `;
+            
+            searchMarker.bindPopup(popupContent).openPopup();
+            
+            // Zoom to location
+            map.setView([latitude, longitude], 16);
+            
+            console.log(`🎯 Zoomed to search location: ${latitude}, ${longitude}`);
+        }
+
+        // Highlight a specific feature on the map
+        function highlightFeatureOnMap(featureData) {
+            console.log('🎯 Highlighting feature:', featureData);
+            
+            // Remove previous highlight
+            if (highlightedFeature) {
+                // This is complex since we need to access the actual leaflet layer
+                // For now, we'll just log and show info
+            }
+            
+            // Show feature details in popup
+            const detailsPopup = `
+                <div style="max-width: 300px;">
+                    <h4 style="color: ${featureData.color}; margin: 0 0 10px 0;">
+                        🎯 ${featureData.layer_name}
+                    </h4>
+                    <div><strong>Category:</strong> ${featureData.category}</div>
+                    ${featureData.land_use ? `<div><strong>Land Use:</strong> ${featureData.land_use}</div>` : ''}
+                    ${featureData.plu_code ? `<div><strong>PLU Code:</strong> ${featureData.plu_code}</div>` : ''}
+                    ${featureData.area > 0 ? `<div><strong>Area:</strong> ${featureData.area.toLocaleString()} sq units</div>` : ''}
+                    <div style="margin-top: 10px; padding-top: 8px; border-top: 1px solid #eee; font-size: 12px; color: #666;">
+                        Feature ID: ${featureData.feature_id}
+                    </div>
+                </div>
+            `;
+            
+            // Update the existing marker popup with feature details
+            if (searchMarker) {
+                searchMarker.setPopupContent(detailsPopup).openPopup();
+            }
+            
+            updateStatus(`Highlighted: ${featureData.layer_name}`, 'success');
+        }
+
+        // Get user's current location using browser geolocation
+        function getCurrentLocation() {
+            if (!navigator.geolocation) {
+                updateStatus('Geolocation is not supported by this browser', 'error');
+                return;
+            }
+            
+            updateStatus('Getting your current location...', 'loading');
+            
+            navigator.geolocation.getCurrentPosition(
+                function(position) {
+                    const latitude = position.coords.latitude;
+                    const longitude = position.coords.longitude;
+                    
+                    // Fill in the coordinate inputs
+                    document.getElementById('searchLatitude').value = latitude.toFixed(6);
+                    document.getElementById('searchLongitude').value = longitude.toFixed(6);
+                    
+                    // Automatically search
+                    searchByCoordinates();
+                    
+                    updateStatus(`Found your location: ${latitude.toFixed(4)}, ${longitude.toFixed(4)}`, 'success');
+                },
+                function(error) {
+                    let errorMessage = 'Unable to get location';
+                    switch(error.code) {
+                        case error.PERMISSION_DENIED:
+                            errorMessage = 'Location access denied by user';
+                            break;
+                        case error.POSITION_UNAVAILABLE:
+                            errorMessage = 'Location information unavailable';
+                            break;
+                        case error.TIMEOUT:
+                            errorMessage = 'Location request timed out';
+                            break;
+                    }
+                    updateStatus(errorMessage, 'error');
+                },
+                {
+                    enableHighAccuracy: true,
+                    timeout: 10000,
+                    maximumAge: 60000
+                }
+            );
+        }
+
+        // Clear search results
+        function clearSearchResults() {
+            if (searchMarker) {
+                map.removeLayer(searchMarker);
+                searchMarker = null;
+            }
+            
+            if (highlightedFeature) {
+                // Remove highlighting
+                highlightedFeature = null;
+            }
+            
+            document.getElementById('searchResultsSection').style.display = 'none';
+            document.getElementById('searchLatitude').value = '';
+            document.getElementById('searchLongitude').value = '';
+            
+            updateStatus('Search results cleared', 'success');
+        }
+
+        // Helper function to get CSRF token
+        function getCsrfToken() {
+            const cookieValue = document.cookie
+                .split('; ')
+                .find(row => row.startsWith('csrftoken='))
+                ?.split('=')[1];
+            return cookieValue || '';
+        }
+
+        // Add some example coordinate buttons (optional)
+        function addExampleCoordinates() {
+            const examples = [
+                { name: 'Bangalore Center', lat: 12.9716, lng: 77.5946 },
+                { name: 'Koramangala', lat: 12.9279, lng: 77.6271 },
+                { name: 'HSR Layout', lat: 12.9082, lng: 77.6476 },
+                { name: 'Electronic City', lat: 12.8456, lng: 77.6603 }
+            ];
+            
+            // You can add quick example buttons if desired
+            // This is optional functionality
+        }
+
+        // Enhanced map click to show coordinates
+        function enhancedHandleMapClick(e) {
+            // Call original map click handler
+            handleMapClick(e);
+            
+            // Also populate search coordinates
+            document.getElementById('searchLatitude').value = e.latlng.lat.toFixed(6);
+            document.getElementById('searchLongitude').value = e.latlng.lng.toFixed(6);
+            
+            console.log(`📍 Map clicked: ${e.latlng.lat.toFixed(6)}, ${e.latlng.lng.toFixed(6)}`);
+        }
+
+        // Replace the existing map click handler
+        if (typeof map !== 'undefined') {
+            map.off('click', handleMapClick);
+            map.on('click', enhancedHandleMapClick);
+        }
         
         function checkVectorGrid() {
             if (typeof L !== 'undefined' && L.vectorGrid && L.vectorGrid.protobuf) {

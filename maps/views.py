@@ -15,6 +15,8 @@ from django.shortcuts import render
 from django.views.generic import TemplateView
 from django.http import JsonResponse
 import mapbox_vector_tile
+from django.contrib.gis.geos import Point
+from django.contrib.gis.measure import Distance
 
 from .models import (
     City, LayerCategory, DataLayer, GeoFeature, VectorTileLayer, 
@@ -943,3 +945,311 @@ class CityCompleteView(APIView):
         
         return bounds if valid_bounds else None
     
+class CoordinateSearchView(APIView):
+    """
+    Search for features containing a specific coordinate point - COMPLETE VERSION
+    """
+    
+    def post(self, request, city_slug):
+        try:
+            # Get city
+            city = get_object_or_404(City, slug=city_slug, is_active=True)
+            
+            # Parse coordinates from request
+            data = request.data
+            latitude = float(data.get('latitude', 0))
+            longitude = float(data.get('longitude', 0))
+            
+            if not (-90 <= latitude <= 90) or not (-180 <= longitude <= 180):
+                return Response({
+                    'error': 'Invalid coordinates',
+                    'message': 'Latitude must be between -90 and 90, longitude between -180 and 180'
+                }, status=400)
+            
+            # Create point geometry
+            search_point = Point(longitude, latitude, srid=4326)
+            
+            # Find all features containing this point
+            containing_features = self._find_containing_features(city, search_point)
+            
+            # Find nearby features if no exact match
+            nearby_features = []
+            if not containing_features:
+                nearby_features = self._find_nearby_features(city, search_point, radius_meters=100)
+            
+            # Build response
+            response_data = {
+                'search_point': {
+                    'latitude': latitude,
+                    'longitude': longitude,
+                    'coordinates': [longitude, latitude]  # GeoJSON format
+                },
+                'city': city_slug,
+                'found': len(containing_features) > 0,
+                'containing_features': containing_features,
+                'nearby_features': nearby_features[:5],  # Limit to 5 nearby
+                'summary': self._create_search_summary(containing_features, nearby_features)
+            }
+            
+            return Response(response_data)
+            
+        except ValueError:
+            return Response({
+                'error': 'Invalid coordinate format',
+                'message': 'Coordinates must be valid numbers'
+            }, status=400)
+        except Exception as e:
+            print(f"Error in CoordinateSearchView: {e}")
+            return Response({
+                'error': 'Search failed',
+                'message': str(e)
+            }, status=500)
+    
+    def _find_containing_features(self, city, point):
+        """Find all features that contain the search point"""
+        
+        containing_features = []
+        
+        # Query features that contain the point
+        features = GeoFeature.objects.filter(
+            layer__city=city,
+            layer__is_processed=True,
+            is_valid=True,
+            geometry__contains=point
+        ).select_related('layer', 'layer__category').order_by('-calculated_area')
+        
+        for feature in features:
+            try:
+                # Get layer color
+                layer_color = self._get_feature_color(feature)
+                
+                feature_data = {
+                    'feature_id': feature.id,
+                    'feature_name': feature.name or 'Unnamed',
+                    'layer_slug': feature.layer.slug,
+                    'layer_name': feature.layer.name,
+                    'category': feature.layer.category.name if feature.layer.category else 'Unknown',
+                    'category_code': feature.layer.category.code if feature.layer.category else None,
+                    'land_use': feature.land_use_type or '',
+                    'plu_code': feature.plu_primary_code or '',
+                    'area': float(feature.calculated_area) if feature.calculated_area else 0.0,
+                    'color': layer_color,
+                    'administrative_info': {
+                        'state': feature.state or '',
+                        'district': feature.district or '',
+                        'village': feature.village or ''
+                    }
+                }
+                
+                containing_features.append(feature_data)
+                
+            except Exception as e:
+                print(f"Error processing feature {feature.id}: {e}")
+                continue
+        
+        return containing_features
+    
+    def _find_nearby_features(self, city, point, radius_meters=100):
+        """Find features near the point if no exact match"""
+        
+        nearby_features = []
+        
+        # Create buffer around point (rough conversion to degrees)
+        buffer_degrees = radius_meters / 111320  # Very rough conversion
+        search_area = point.buffer(buffer_degrees)
+        
+        # Find intersecting features
+        features = GeoFeature.objects.filter(
+            layer__city=city,
+            layer__is_processed=True,
+            is_valid=True,
+            geometry__intersects=search_area
+        ).select_related('layer', 'layer__category')[:10]
+        
+        for feature in features:
+            try:
+                # Calculate distance (rough)
+                distance = point.distance(feature.geometry) * 111320  # Convert to meters
+                
+                layer_color = self._get_feature_color(feature)
+                
+                feature_data = {
+                    'feature_id': feature.id,
+                    'feature_name': feature.name or 'Unnamed',
+                    'layer_name': feature.layer.name,
+                    'category': feature.layer.category.name if feature.layer.category else 'Unknown',
+                    'land_use': feature.land_use_type or '',
+                    'color': layer_color,
+                    'distance_meters': round(distance, 1)
+                }
+                
+                nearby_features.append(feature_data)
+                
+            except Exception as e:
+                print(f"Error processing nearby feature {feature.id}: {e}")
+                continue
+        
+        # Sort by distance
+        nearby_features.sort(key=lambda x: x['distance_meters'])
+        
+        return nearby_features
+    
+    def _get_feature_color(self, feature):
+        """Get color for a feature based on its layer/category"""
+        
+        # Color mapping (same as CityCompleteView)
+        color_map = {
+            'RESIDENTIAL': '#FFC400',
+            'COMMERCIAL': '#004DA8',
+            'MIXED_USE': '#F7931E',
+            'INDUSTRIAL': '#AA66B2',
+            'HIGH_TECH': '#C29ED7',
+            'GOVERNMENT': '#E60000',
+            'PUBLIC': '#E60000',
+            'DEFENSE': '#8B4513',
+            'PROTECTED': '#228B22',
+            'PARKS_GREEN': '#98E600',
+            'WATER_BODIES': '#1E90FF',
+            'TRANSPORT': '#808080',
+            'UTILITIES': '#FF6347',
+            'AGRICULTURAL': '#9ACD32',
+            'UNCLASSIFIED': '#D3D3D3',
+            'DRAINS': '#4682B4'
+        }
+        
+        # Try category-based color
+        if feature.layer.category and feature.layer.category.code:
+            return color_map.get(feature.layer.category.code.upper(), '#666666')
+        
+        # Backup slug-based mapping
+        slug_colors = {
+            'residential_main_': '#FFC400',
+            'residential_mixed': '#FFC400',
+            'commercial_central_': '#004DA8',
+            'commercial': '#004DA8',
+            'industrial': '#AA66B2',
+            'hightech': '#C29ED7',
+            'public_semipublic': '#E60000',
+            'defense': '#8B4513',
+            'stateforest_valley_protectedland_': '#228B22',
+            'parks_green': '#98E600',
+            'lake_tank': '#1E90FF',
+            'transport': '#808080',
+            'airport': '#808080',
+            'power_water_garbagefacility_treatmentplant': '#FF6347',
+            'agricultural_land': '#9ACD32',
+            'unclassified_use': '#D3D3D3',
+            'drains': '#4682B4'
+        }
+        
+        if feature.layer.slug in slug_colors:
+            return slug_colors[feature.layer.slug]
+        
+        # Try layer style
+        try:
+            style = feature.layer.get_style()
+            if isinstance(style, dict) and style.get('fill_color'):
+                return style['fill_color']
+        except:
+            pass
+        
+        return '#666666'
+    
+    def _create_search_summary(self, containing_features, nearby_features):
+        """Create human-readable summary of search results"""
+        
+        if containing_features:
+            primary_feature = containing_features[0]  # Largest containing feature
+            
+            summary = f"This location is in {primary_feature['layer_name']}"
+            
+            if primary_feature['land_use']:
+                summary += f" ({primary_feature['land_use']})"
+            
+            if primary_feature['administrative_info']['village']:
+                summary += f", {primary_feature['administrative_info']['village']}"
+            
+            if len(containing_features) > 1:
+                summary += f". Also overlaps with {len(containing_features) - 1} other features."
+            
+            return summary
+            
+        elif nearby_features:
+            nearest = nearby_features[0]
+            return f"No exact match. Nearest feature is {nearest['layer_name']} ({nearest['distance_meters']}m away)"
+            
+        else:
+            return "No features found at this location"
+
+
+# Also add a GET version for testing
+class CoordinateSearchTestView(APIView):
+    """Test version using GET parameters - FIXED"""
+    
+    def get(self, request, city_slug):
+        latitude = request.GET.get('lat')
+        longitude = request.GET.get('lng')
+        
+        if not latitude or not longitude:
+            return Response({
+                'error': 'Missing parameters',
+                'message': 'Provide lat and lng parameters',
+                'example': f'/api/cities/{city_slug}/search-coords-test/?lat=12.9716&lng=77.5946'
+            }, status=400)
+        
+        try:
+            # Parse coordinates
+            lat_float = float(latitude)
+            lng_float = float(longitude)
+            
+            # Validate coordinates
+            if not (-90 <= lat_float <= 90) or not (-180 <= lng_float <= 180):
+                return Response({
+                    'error': 'Invalid coordinates',
+                    'message': 'Latitude must be between -90 and 90, longitude between -180 and 180'
+                }, status=400)
+            
+            # Get city
+            city = get_object_or_404(City, slug=city_slug, is_active=True)
+            
+            # Create point geometry
+            search_point = Point(lng_float, lat_float, srid=4326)
+            
+            # Create an instance of the main search view to use its methods
+            search_view = CoordinateSearchView()
+            
+            # Find containing features
+            containing_features = search_view._find_containing_features(city, search_point)
+            
+            # Find nearby features if no exact match
+            nearby_features = []
+            if not containing_features:
+                nearby_features = search_view._find_nearby_features(city, search_point, radius_meters=100)
+            
+            # Build response
+            response_data = {
+                'search_point': {
+                    'latitude': lat_float,
+                    'longitude': lng_float,
+                    'coordinates': [lng_float, lat_float]
+                },
+                'city': city_slug,
+                'found': len(containing_features) > 0,
+                'containing_features': containing_features,
+                'nearby_features': nearby_features[:5],
+                'summary': search_view._create_search_summary(containing_features, nearby_features)
+            }
+            
+            return Response(response_data)
+            
+        except ValueError:
+            return Response({
+                'error': 'Invalid coordinate format',
+                'message': 'Coordinates must be valid numbers'
+            }, status=400)
+        except Exception as e:
+            print(f"Error in CoordinateSearchTestView: {e}")
+            return Response({
+                'error': 'Search failed',
+                'message': str(e)
+            }, status=500)

@@ -14,10 +14,10 @@ router.register(r'import-jobs', views.ImportJobViewSet)
 urlpatterns = [
     path('map/', views.MapVisualizationView.as_view(), name='map_visualization'),
     
-    # Router URLs (REST API endpoints) - These create the working URLs
+    # Router URLs (REST API endpoints)
     path('', include(router.urls)),
     
-    # Keep your other custom URLs (these don't conflict)
+    # Your existing tile URLs...
     path('tiles/<slug:city_slug>/combined/<int:z>/<int:x>/<int:y>.png',
          views.CombinedRasterTileView.as_view(), name='combined_raster_tile'),
     
@@ -30,15 +30,23 @@ urlpatterns = [
     path('tiles/<slug:city_slug>/<slug:layer_slug>/<int:z>/<int:x>/<int:y>.mvt', 
          views.VectorTileView.as_view(), name='vector_tile'),
     
+    # Your existing layer URLs...
     path('cities/<slug:city_slug>/layers/', 
          views.CityLayersView.as_view(), name='city_layers'),
     
     path('cities/<slug:city_slug>/layers/<slug:layer_slug>/features/',
          views.LayerFeaturesView.as_view(), name='layer_features'),
     
-    # 🚀 ADD THIS NEW LINE - The complete city endpoint your frontend is calling
     path('cities/<slug:city_slug>/complete/',
          views.CityCompleteView.as_view(), name='city_complete'),
+    
+    # 🚀 NEW COORDINATE SEARCH ENDPOINTS
+    path('cities/<slug:city_slug>/search-coords/',
+         views.CoordinateSearchView.as_view(), name='coordinate_search'),
+    
+    # Optional: GET version for testing
+    path('cities/<slug:city_slug>/search-coords-test/',
+         views.CoordinateSearchTestView.as_view(), name='coordinate_search_test'),
     
     # Rest of your existing URLs...
     path('layers/<int:pk>/plu-analysis/',
