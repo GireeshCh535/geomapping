@@ -17,6 +17,7 @@ from django.http import JsonResponse
 import mapbox_vector_tile
 from django.contrib.gis.geos import Point
 from django.contrib.gis.measure import Distance
+from .config import get_city_config
 
 from .models import (
     City, LayerCategory, DataLayer, GeoFeature, VectorTileLayer, 
@@ -947,7 +948,8 @@ class CityCompleteView(APIView):
     
 class CoordinateSearchView(APIView):
     """
-    Search for features containing a specific coordinate point - COMPLETE VERSION
+    Search for features containing a specific coordinate point
+    Uses city-specific configuration for colors (NO HARDCODING)
     """
     
     def post(self, request, city_slug):
@@ -1020,8 +1022,8 @@ class CoordinateSearchView(APIView):
         
         for feature in features:
             try:
-                # Get layer color
-                layer_color = self._get_feature_color(feature)
+                # Get layer color using existing config system
+                layer_color = self._get_feature_color_from_config(feature, city.slug)
                 
                 feature_data = {
                     'feature_id': feature.id,
@@ -1071,7 +1073,7 @@ class CoordinateSearchView(APIView):
                 # Calculate distance (rough)
                 distance = point.distance(feature.geometry) * 111320  # Convert to meters
                 
-                layer_color = self._get_feature_color(feature)
+                layer_color = self._get_feature_color_from_config(feature, city.slug)
                 
                 feature_data = {
                     'feature_id': feature.id,
@@ -1094,65 +1096,54 @@ class CoordinateSearchView(APIView):
         
         return nearby_features
     
-    def _get_feature_color(self, feature):
-        """Get color for a feature based on its layer/category"""
+    def _get_feature_color_from_config(self, feature, city_slug):
+        """
+        Get color for a feature using the existing configuration system
+        NO HARDCODING - uses city-specific config
+        """
         
-        # Color mapping (same as CityCompleteView)
-        color_map = {
-            'RESIDENTIAL': '#FFC400',
-            'COMMERCIAL': '#004DA8',
-            'MIXED_USE': '#F7931E',
-            'INDUSTRIAL': '#AA66B2',
-            'HIGH_TECH': '#C29ED7',
-            'GOVERNMENT': '#E60000',
-            'PUBLIC': '#E60000',
-            'DEFENSE': '#8B4513',
-            'PROTECTED': '#228B22',
-            'PARKS_GREEN': '#98E600',
-            'WATER_BODIES': '#1E90FF',
-            'TRANSPORT': '#808080',
-            'UTILITIES': '#FF6347',
-            'AGRICULTURAL': '#9ACD32',
-            'UNCLASSIFIED': '#D3D3D3',
-            'DRAINS': '#4682B4'
-        }
-        
-        # Try category-based color
-        if feature.layer.category and feature.layer.category.code:
-            return color_map.get(feature.layer.category.code.upper(), '#666666')
-        
-        # Backup slug-based mapping
-        slug_colors = {
-            'residential_main_': '#FFC400',
-            'residential_mixed': '#FFC400',
-            'commercial_central_': '#004DA8',
-            'commercial': '#004DA8',
-            'industrial': '#AA66B2',
-            'hightech': '#C29ED7',
-            'public_semipublic': '#E60000',
-            'defense': '#8B4513',
-            'stateforest_valley_protectedland_': '#228B22',
-            'parks_green': '#98E600',
-            'lake_tank': '#1E90FF',
-            'transport': '#808080',
-            'airport': '#808080',
-            'power_water_garbagefacility_treatmentplant': '#FF6347',
-            'agricultural_land': '#9ACD32',
-            'unclassified_use': '#D3D3D3',
-            'drains': '#4682B4'
-        }
-        
-        if feature.layer.slug in slug_colors:
-            return slug_colors[feature.layer.slug]
-        
-        # Try layer style
         try:
+            # Method 1: Try to use the existing layer.get_style() method
             style = feature.layer.get_style()
             if isinstance(style, dict) and style.get('fill_color'):
                 return style['fill_color']
-        except:
-            pass
+            elif hasattr(style, 'fill_color'):
+                return style.fill_color
+        except Exception as e:
+            print(f"Could not get style from layer.get_style(): {e}")
         
+        try:
+            # Method 2: Try to get CityLayerStyle directly
+            if feature.layer.category:
+                from .models import CityLayerStyle
+                city_style = CityLayerStyle.objects.get(
+                    city__slug=city_slug,
+                    category=feature.layer.category
+                )
+                return city_style.fill_color
+        except Exception as e:
+            print(f"Could not get CityLayerStyle: {e}")
+        
+        try:
+            # Method 3: Get color from city config
+            city_config = get_city_config(city_slug)
+            if city_config and 'colors' in city_config:
+                if feature.layer.category and feature.layer.category.code:
+                    category_code = feature.layer.category.code.upper()
+                    if category_code in city_config['colors']:
+                        return city_config['colors'][category_code]
+        except Exception as e:
+            print(f"Could not get color from city config: {e}")
+        
+        try:
+            # Method 4: Fallback to category default color
+            if feature.layer.category:
+                return feature.layer.category.default_color
+        except Exception as e:
+            print(f"Could not get category default color: {e}")
+        
+        # Final fallback
+        print(f"Using fallback color for feature {feature.id}")
         return '#666666'
     
     def _create_search_summary(self, containing_features, nearby_features):
@@ -1184,7 +1175,7 @@ class CoordinateSearchView(APIView):
 
 # Also add a GET version for testing
 class CoordinateSearchTestView(APIView):
-    """Test version using GET parameters - FIXED"""
+    """Test version using GET parameters - FIXED VERSION"""
     
     def get(self, request, city_slug):
         latitude = request.GET.get('lat')
