@@ -26,13 +26,44 @@ SECRET_KEY = "django-insecure-9xdea)mc6dhr@)lrhn65!&!uc+#z6nlajj8j091eswp$$2jf!#
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = ['134.122.116.219', 'localhost', '127.0.0.1']
 
 
-# Set GDAL and GEOS library paths for macOS ARM64
-if os.name == 'posix':  # Unix/Linux/macOS
-    import platform
+# # Set GDAL and GEOS library paths for macOS ARM64
+# if os.name == 'posix':  # Unix/Linux/macOS
+#     import platform
     
+#     if platform.machine() == 'arm64':  # M1/M2 Mac
+#         # Homebrew paths for ARM64 Macs
+#         GDAL_LIBRARY_PATH = '/opt/homebrew/opt/gdal/lib/libgdal.dylib'
+#         GEOS_LIBRARY_PATH = '/opt/homebrew/opt/geos/lib/libgeos_c.dylib'
+#         PROJ_LIB = '/opt/homebrew/opt/proj/share/proj'
+        
+#         # Set environment variables
+#         os.environ['GDAL_LIBRARY_PATH'] = GDAL_LIBRARY_PATH
+#         os.environ['GEOS_LIBRARY_PATH'] = GEOS_LIBRARY_PATH
+#         os.environ['PROJ_LIB'] = PROJ_LIB
+        
+#         # Add Homebrew paths to system PATH
+#         homebrew_bin = '/opt/homebrew/bin'
+#         if homebrew_bin not in os.environ.get('PATH', ''):
+#             os.environ['PATH'] = f"{homebrew_bin}:{os.environ.get('PATH', '')}"
+    
+#     else:  # Intel Mac or Linux
+#         # Intel Mac Homebrew paths
+#         GDAL_LIBRARY_PATH = '/usr/local/opt/gdal/lib/libgdal.dylib'
+#         GEOS_LIBRARY_PATH = '/usr/local/opt/geos/lib/libgeos_c.dylib'
+
+# GDAL/GEOS Configuration for different environments
+import os
+import platform
+
+# Check if running in Docker
+if os.getenv('DJANGO_DB_HOST'):  # Docker environment indicator
+    # Docker Linux paths - let Django auto-detect or use system defaults
+    # Don't set GDAL_LIBRARY_PATH, let it use system libraries
+    pass
+elif os.name == 'posix':  # Unix/Linux/macOS (local development)
     if platform.machine() == 'arm64':  # M1/M2 Mac
         # Homebrew paths for ARM64 Macs
         GDAL_LIBRARY_PATH = '/opt/homebrew/opt/gdal/lib/libgdal.dylib'
@@ -49,10 +80,13 @@ if os.name == 'posix':  # Unix/Linux/macOS
         if homebrew_bin not in os.environ.get('PATH', ''):
             os.environ['PATH'] = f"{homebrew_bin}:{os.environ.get('PATH', '')}"
     
-    else:  # Intel Mac or Linux
+    else:  # Intel Mac
         # Intel Mac Homebrew paths
         GDAL_LIBRARY_PATH = '/usr/local/opt/gdal/lib/libgdal.dylib'
         GEOS_LIBRARY_PATH = '/usr/local/opt/geos/lib/libgeos_c.dylib'
+        
+        os.environ['GDAL_LIBRARY_PATH'] = GDAL_LIBRARY_PATH
+        os.environ['GEOS_LIBRARY_PATH'] = GEOS_LIBRARY_PATH
 
 # Application definition
 
@@ -104,11 +138,11 @@ WSGI_APPLICATION = "geo_mapping.wsgi.application"
 DATABASES = {
     'default': {
         'ENGINE': 'django.contrib.gis.db.backends.postgis',
-        'NAME': 'geo_mapping_db',
-        'USER': 'postgres',
-        'PASSWORD': '',
-        'HOST': 'localhost',
-        'PORT': '5432',
+        'NAME': os.getenv('DJANGO_DB_NAME', 'geo_mapping_db'),
+        'USER': os.getenv('DJANGO_DB_USER', 'postgres'), 
+        'PASSWORD': os.getenv('DJANGO_DB_PASSWORD', 'postgres'),
+        'HOST': os.getenv('DJANGO_DB_HOST', 'db'),  # <-- Changed to 'db'
+        'PORT': os.getenv('DJANGO_DB_PORT', '5432'),
     }
 }
 

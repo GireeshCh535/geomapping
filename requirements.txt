@@ -7,9 +7,8 @@ django-filter==23.3
 # GeoDjango and Spatial
 djangorestframework-gis==1.0
 psycopg2-binary==2.9.7
-GDAL==3.7.2
 
-# Vector Tiles (required by your services.py)
+# Vector Tiles
 mercantile==1.2.1
 mapbox-vector-tile==2.0.1
 
