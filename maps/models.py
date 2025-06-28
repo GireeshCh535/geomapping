@@ -51,6 +51,7 @@ class LayerCategory(models.Model):
         ('AGRICULTURAL', 'Agricultural'),
         ('CEMETERY', 'Cemetery'),
         ('DRAINS', 'Drains'),
+        ('HILLS', 'Hills/Topographic'),  # ✅ ADD THIS LINE
         ('SPECIAL', 'Special Use'),
         ('UNCLASSIFIED', 'Unclassified'),
     ]
@@ -257,6 +258,8 @@ class GeoFeature(models.Model):
     validation_notes = models.TextField(blank=True)
     geometry_simplified = models.BooleanField(default=False)
     original_precision = models.IntegerField(null=True, blank=True)         # Track original decimal places
+    rule_id = models.IntegerField(null=True, blank=True)          # RuleID from Vizag data
+    override_value = models.CharField(max_length=100, blank=True) # Override from Vizag data
     
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

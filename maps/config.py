@@ -360,61 +360,146 @@ VIZAG_CONFIG = {
     },
     'data_format': 'GEOJSON',
     'coordinate_precision': 8,
+    
+    # File mappings (inferred from category names)
     'file_mappings': {
-        'Residential_Use_Zone.geojson': 'RESIDENTIAL',
+        'Agricultural_Use_Zone.geojson': 'AGRICULTURAL',
+        'Blue_Zone_Water_Bodies.geojson': 'WATER_BODIES',
+        'Brown_Zone_Hills.geojson': 'HILLS',
         'Commercial_Use_Zone.geojson': 'COMMERCIAL',
+        'Existing_Crematorium_Burial_Ground_Graveyard.geojson': 'CEMETERY',
+        'Existing_Educational_Facilities.geojson': 'EDUCATION',
+        'Existing_Government_Semi_Government_Facilities.geojson': 'GOVERNMENT',
+        'Existing_Health_Facilities.geojson': 'HEALTHCARE',
+        'Existing_Industrial_Area.geojson': 'INDUSTRIAL',
+        'Existing_Public_Utilities.geojson': 'UTILITIES',
+        'Existing_Recreational_Playgrounds_Parks_Layout_OpenSpace.geojson': 'PARKS_GREEN',
+        'Existing_Religious_Facilities.geojson': 'CULTURAL',
+        'Existing_Road_Railway_Line_Area.geojson': 'TRANSPORT',
+        'Existing_Transportation_Facility.geojson': 'TRANSPORT',
+        'Green_Zone_Forest.geojson': 'PROTECTED',
+        'Kambalakonda_Eco_Sensitive_Zone_NAOB_Buffer_Zoological_Park.geojson': 'PROTECTED',
+        'Kambalakonda_WildLife_Sanctuary_Biodiversity_Area.geojson': 'PROTECTED',
         'Mixed_Use_Zone_1.geojson': 'MIXED_USE',
         'Mixed_Use_Zone_2_BAIA.geojson': 'MIXED_USE',
         'Mixed_Use_Zone_3_BAIA.geojson': 'MIXED_USE',
         'Mixed_Use_Zone_4_BAIA.geojson': 'MIXED_USE',
-        'Existing_Industrial_Area.geojson': 'INDUSTRIAL',
         'Proposed_Industrial_Use_Zone.geojson': 'INDUSTRIAL',
-        'Existing_Government_Semi_Government_Facilities.geojson': 'GOVERNMENT',
-        'Existing_Educational_Facilities.geojson': 'EDUCATION',
-        'Existing_Health_Facilities.geojson': 'HEALTHCARE',
-        'Existing_Religious_Facilities.geojson': 'CULTURAL',
-        'Green_Zone_Forest.geojson': 'PROTECTED',
-        'Blue_Zone_Water_Bodies.geojson': 'WATER_BODIES',
-        'Existing_Road_Railway_Line_Area.geojson': 'TRANSPORT',
-        'Proposed_Road_Network.geojson': 'TRANSPORT',
-        'Existing_Transportation_Facility.geojson': 'TRANSPORT',
-        'Proposed_Transportation_Facility_Use_Zone.geojson': 'TRANSPORT',
-        'Existing_Public_Utilities.geojson': 'UTILITIES',
-        'Proposed_Public_Utilities_Use_Zone.geojson': 'UTILITIES',
-        'Existing_Recreational_Playgrounds_Parks_Layout_OpenSpace.geojson': 'PARKS_GREEN',
-        'Proposed_Recreational_Use_Zone.geojson': 'PARKS_GREEN',
-        'Existing_Crematorium_Burial_Ground_Graveyard.geojson': 'CEMETERY',
-        'Kambalakonda_WildLife_Sanctuary_Biodiversity_Area.geojson': 'PROTECTED',
-        'Kambalakonda_Eco_Sensitive_Zone_NAOB_Buffer_Zoological_Park.geojson': 'PROTECTED',
-        'Sea_River_Accreted_Land.geojson': 'WATER_BODIES',
-        'Water_Body_Buffer.geojson': 'WATER_BODIES',
         'Proposed_PSP_Use_Zone.geojson': 'PUBLIC',
+        'Proposed_Public_Utilities_Use_Zone.geojson': 'UTILITIES',
+        'Proposed_Recreational_Use_Zone.geojson': 'PARKS_GREEN',
+        'Proposed_Road_Network.geojson': 'TRANSPORT',
+        'Proposed_Transportation_Facility_Use_Zone.geojson': 'TRANSPORT',
+        'Residential_Use_Zone.geojson': 'RESIDENTIAL',
+        'Sea_River_Accreted_Land.geojson': 'WATER_BODIES',
         'Special_Area_Use_Zone.geojson': 'SPECIAL',
+        'Water_Body_Buffer.geojson': 'WATER_BODIES',
     },
+    
+    # Attribute mappings to match your data structure
     'attribute_mappings': {
-        # Standard GeoJSON property mappings
-        'name': 'name',
-        'type': 'category_name',
-        'land_use': 'land_use_type',
-        'zone': 'zoning',
-        'area': 'source_area_value',
+        'FID': 'source_fid',
+        'Category': 'land_use_type',
+        'Category': 'category_name',
+        'MANDAL': 'mandal',
+        'DISTRICT': 'district',
+        'Village': 'village',
+        'Shape_Area': 'source_area_value',
+        'Shape_Length': 'source_length_value',
+        'RuleID': 'rule_id',
+        'Override': 'override_value',
     },
+    
+    # Complete category mappings - maps Category field values to standard categories
+    'category_mappings': {
+        'Agricultural Use Zone': 'AGRICULTURAL',
+        'Blue Zone (Water Bodies)': 'WATER_BODIES',
+        'Brown Zone (Hills)': 'HILLS',
+        'Commercial Use Zone': 'COMMERCIAL',
+        'Existing Crematorium / Burial Ground / Graveyard': 'CEMETERY',
+        'Existing Educational Facilities': 'EDUCATION',
+        'Existing Government & Semi Government Facilities': 'GOVERNMENT',
+        'Existing Health Facilities': 'HEALTHCARE',
+        'Existing Industrial Area': 'INDUSTRIAL',
+        'Existing Public Utilities': 'UTILITIES',
+        'Existing Recreational, Play grounds, Parks & Layout Open Space': 'PARKS_GREEN',
+        'Existing Religious Facilities': 'CULTURAL',
+        'Existing Road & Railway Line Area': 'TRANSPORT',
+        'Existing Transportation Facility': 'TRANSPORT',
+        'Green Zone (Forest)': 'PROTECTED',
+        'Kambalakonda Eco Sensitive Zone/ NAOB Buffer': 'PROTECTED',
+        'Kambalakonda WildLife Sanctuary & Biodiversity Area': 'PROTECTED',
+        'Mixed Use Zone - 1': 'MIXED_USE',
+        'Mixed Use Zone - 2 (BAIA)': 'MIXED_USE',
+        'Mixed Use Zone - 3 (BAIA)': 'MIXED_USE',
+        'Mixed Use Zone - 4 (BAIA)': 'MIXED_USE',
+        'Proposed Industrial Use Zone': 'INDUSTRIAL',
+        'Proposed PSP Use Zone': 'PUBLIC',
+        'Proposed Public Utilities Use Zone': 'UTILITIES',
+        'Proposed Recreational Use Zone': 'PARKS_GREEN',
+        'Proposed Road Network': 'TRANSPORT',
+        'Proposed Transportation Facility Use Zone': 'TRANSPORT',
+        'Residential Use Zone': 'RESIDENTIAL',
+        'Sea / River Accreted Land': 'WATER_BODIES',
+        'Special Area Use Zone': 'SPECIAL',
+        'Water Body Buffer': 'WATER_BODIES',
+    },
+    
+    # Colors based on your specifications (using solid fill colors)
     'colors': {
-        'RESIDENTIAL': '#8BC34A',    # Light Green
-        'COMMERCIAL': '#FF5722',     # Deep Orange  
-        'MIXED_USE': '#9C27B0',      # Purple
-        'INDUSTRIAL': '#607D8B',     # Blue Grey
-        'GOVERNMENT': '#F44336',     # Red
-        'EDUCATION': '#2196F3',      # Blue
-        'HEALTHCARE': '#00BCD4',     # Cyan
-        'CULTURAL': '#7E57C2',       # Deep Purple
-        'PROTECTED': '#4CAF50',      # Green
-        'WATER_BODIES': '#03A9F4',   # Light Blue
-        'TRANSPORT': '#9E9E9E',      # Grey
-        'UTILITIES': '#FF9800',      # Orange
-        'PARKS_GREEN': '#8BC34A',    # Light Green
-        'CEMETERY': '#757575',       # Grey
-        'SPECIAL': '#FFEE58',        # Yellow
+        'AGRICULTURAL': '#D3FFBE',       # Agricultural Use Zone
+        'WATER_BODIES': '#73FFDF',       # Blue Zone Water Bodies  
+        'HILLS': '#A87000',              # Brown Zone Hills
+        'COMMERCIAL': '#004DA8',         # Commercial Use Zone
+        'CEMETERY': '#FFFFFF',           # Existing Crematorium (solid fill)
+        'EDUCATION': '#FF0000',          # Existing Educational (solid fill)
+        'GOVERNMENT': '#FF0000',         # Existing Government Semi Government
+        'HEALTHCARE': '#FF0000',         # Existing Health (solid fill)
+        'INDUSTRIAL': '#C500FF',         # Existing Industrial Area
+        'UTILITIES': '#FF7F7F',          # Existing Public Utilities (solid fill)
+        'PARKS_GREEN': '#55FF00',        # Existing Recreational
+        'CULTURAL': '#FF0000',           # Existing Religious (solid fill)
+        'TRANSPORT': '#686868',          # Existing Transportation Facility
+        'PROTECTED': '#00734C',          # Green Zone Forest
+        'MIXED_USE': '#FFAA00',          # Mixed Use Zone 1
+        'PUBLIC': '#FF0000',             # Proposed PSP (hatch fill color)
+        'SPECIAL': '#FFFFFF',            # Special Area (solid fill)
+        'RESIDENTIAL': '#FFFF73',
+    },
+    
+    # Detailed colors for specific subcategories (optional - for future use)
+    'detailed_colors': {
+        'Agricultural Use Zone': '#D3FFBE',
+        'Blue Zone (Water Bodies)': '#73FFDF',
+        'Brown Zone (Hills)': '#A87000',
+        'Commercial Use Zone': '#004DA8',
+        'Existing Crematorium / Burial Ground / Graveyard': '#FFFFFF',
+        'Existing Educational Facilities': '#FF0000',
+        'Existing Government & Semi Government Facilities': '#FF0000',
+        'Existing Health Facilities': '#FF0000',
+        'Existing Industrial Area': '#C500FF',
+        'Existing Public Utilities': '#FF7F7F',
+        'Existing Recreational, Play grounds, Parks & Layout Open Space': '#55FF00',
+        'Existing Religious Facilities': '#FF0000',
+        'Existing Road & Railway Line Area': '#828282',
+        'Existing Transportation Facility': '#686868',
+        'Green Zone (Forest)': '#00734C',
+        'Kambalakonda Eco Sensitive Zone/ NAOB Buffer': '#D7C29E',
+        'Kambalakonda WildLife Sanctuary & Biodiversity Area': '#38A800',
+        'Mixed Use Zone - 1': '#FFAA00',
+        'Mixed Use Zone - 2 (BAIA)': '#FFD37F',
+        'Mixed Use Zone - 3 (BAIA)': '#E69800',
+        'Mixed Use Zone - 4 (BAIA)': '#FFAA00',
+        'Proposed Industrial Use Zone': '#C500FF',
+        'Proposed PSP Use Zone': '#FF0000',
+        'Proposed Public Utilities Use Zone': '#F57A7A',
+        'Proposed Recreational Use Zone': '#4C7300',
+        'Proposed Road Network': '#000000',
+        'Proposed Transportation Facility Use Zone': '#343434',
+        'Residential Use Zone': '#FFFF73',
+        'Sea / River Accreted Land': '#D7C29E',
+        'Special Area Use Zone': '#FFFFFF',
+        'Water Body Buffer': '#4CE600',
     }
 }
 

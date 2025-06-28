@@ -66,4 +66,8 @@ urlpatterns = [
     
     path('setup/cities/', 
          views.SetupCitiesView.as_view(), name='setup_cities'),
+
+     path('cities/<slug:city_slug>/progressive/',
+         views.CityProgressiveView.as_view(), name='city_progressive'),
+         
 ]

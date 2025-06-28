@@ -578,23 +578,65 @@ class DataImportService:
         }
 
     def _process_standard_attributes(self, attrs, layer):
-        """Process attributes for non-Bangalore cities"""
+        """Process attributes for non-Bangalore cities (FIXED for actual GeoFeature model)"""
         
+        city_config = get_city_config(layer.city.slug)
+        attribute_mapping = city_config.get('attribute_mappings', {}) if city_config else {}
+        category_mappings = city_config.get('category_mappings', {}) if city_config else {}
+        
+        # Map attributes using configuration
+        mapped_attrs = {}
+        for source_field, target_field in attribute_mapping.items():
+            if source_field in attrs:
+                mapped_attrs[target_field] = attrs[source_field]
+        
+        # Determine category - ENHANCED FOR VIZAG
+        derived_category = layer.category.code  # Default fallback
+        
+        # For Vizag, use the Category field to determine the actual category
+        if layer.city.slug == 'vizag' and 'Category' in attrs:
+            category_value = attrs['Category']
+            if category_value in category_mappings:
+                derived_category = category_mappings[category_value]
+                print(f"   ✅ Mapped Category '{category_value}' → {derived_category}")
+                
+                # Track category mapping for statistics
+                self.statistics['categories_assigned'][derived_category] += 1
+        
+        # Store Vizag-specific fields in source_attributes
+        enhanced_source_attrs = attrs.copy()
+        if 'RuleID' in attrs:
+            enhanced_source_attrs['rule_id'] = attrs['RuleID']
+        if 'Override' in attrs:
+            enhanced_source_attrs['override_value'] = attrs['Override']
+        
+        # Return only fields that exist in the GeoFeature model
         return {
-            'source_fid': attrs.get('fid'),
+            'source_fid': mapped_attrs.get('source_fid', attrs.get('FID')),
             'source_object_id': attrs.get('OBJECTID'),
-            'name': attrs.get('name', ''),
-            'category_name': attrs.get('type', ''),
-            'derived_category': layer.category.code,
-            'land_use_type': layer.category.code,
-            'source_area_value': attrs.get('area'),
-            'source_attributes': attrs,
+            'name': mapped_attrs.get('name', ''),
+            'category_name': attrs.get('Category', ''),
+            'derived_category': derived_category,
+            'land_use_type': attrs.get('Category', derived_category),
+            'zoning': mapped_attrs.get('zoning', ''),
+            
+            # Administrative info - Vizag specific
+            'district': attrs.get('DISTRICT', '').strip(),
+            'mandal': attrs.get('MANDAL', '').strip(),
+            'village': attrs.get('Village', '').strip(),
+            
+            # Measurements
+            'source_area_value': attrs.get('Shape_Area'),
+            'source_length_value': attrs.get('Shape_Length'),
+            
+            # Store ALL original attributes including Vizag-specific fields
+            'source_attributes': enhanced_source_attrs,
             'geometry_simplified': True,
         }
         
     def _import_geojson(self, file_path, layer):
-        """Import standard GeoJSON file (Vizag/Amaravati format)"""
-        print(f"🔧 Processing standard GeoJSON format")
+        """Import standard GeoJSON file (Vizag/Amaravati format) - FIXED"""
+        print(f"🔧 Processing standard GeoJSON format for {layer.city.slug}")
         
         with open(file_path, 'r', encoding='utf-8') as f:
             data = json.load(f)
@@ -602,7 +644,6 @@ class DataImportService:
         features = []
         city_config = get_city_config(layer.city.slug)
         coordinate_precision = city_config.get('coordinate_precision', 8)
-        attribute_mapping = get_attribute_mapping(layer.city.slug)
         
         feature_list = data.get('features', [])
         total_features = len(feature_list)
@@ -628,23 +669,14 @@ class DataImportService:
                 
                 geom = GEOSGeometry(json.dumps(geometry_data))
                 
-                # Map attributes using configuration
-                mapped_attrs = {}
-                for source_field, target_field in attribute_mapping.items():
-                    if source_field in properties:
-                        mapped_attrs[target_field] = properties[source_field]
+                # Process attributes with enhanced category mapping
+                processed_attrs = self._process_standard_attributes(properties, layer)
                 
+                # Create feature with ONLY valid model fields
                 feature = GeoFeature(
                     layer=layer,
-                    name=mapped_attrs.get('name', properties.get('name', '')),
-                    category_name=mapped_attrs.get('category_name', properties.get('type', '')),
-                    land_use_type=mapped_attrs.get('land_use_type', layer.category.code),
-                    zoning=mapped_attrs.get('zoning', properties.get('zone', '')),
-                    source_area_value=mapped_attrs.get('source_area_value', properties.get('area')),
-                    derived_category=layer.category.code,
                     geometry=geom,
-                    source_attributes=properties,
-                    geometry_simplified=coordinate_precision < 15
+                    **processed_attrs
                 )
                 
                 features.append(feature)
@@ -654,14 +686,24 @@ class DataImportService:
                 self.statistics['features_failed'] += 1
                 error_msg = f"Feature {i}: {str(e)}"
                 self.errors.append(error_msg)
+                print(f"   ⚠️  {error_msg}")
                 continue
         
         # Bulk create features
         if features:
             print(f"💾 Saving {len(features)} features to database...")
             GeoFeature.objects.bulk_create(features, batch_size=1000)
+            
+            # Update layer categorization method at the LAYER level (not individual features)
+            if layer.city.slug == 'vizag':
+                layer.categorization_method = 'ATTRIBUTE'  # Vizag uses Category field
+            else:
+                layer.categorization_method = 'FILENAME'   # Others use filename
+            layer.save()
         
         print(f"✅ Import completed: {len(features)} features saved")
+        print(f"📊 Category distribution: {dict(self.statistics['categories_assigned'])}")
+        
         return len(features)
     
     def _update_plu_mappings(self, city, import_results):

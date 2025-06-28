@@ -306,7 +306,7 @@ class CityLayersView(APIView):
         })
 
 class LayerFeaturesView(APIView):
-    """Enhanced layer features view with spatial and PLU filtering"""
+    """Enhanced layer features view with proper GeoJSON serialization"""
     
     def get(self, request, city_slug, layer_slug):
         layer = get_object_or_404(DataLayer, city__slug=city_slug, slug=layer_slug)
@@ -360,13 +360,53 @@ class LayerFeaturesView(APIView):
         total_count = features.count()
         paginated_features = features[start:end]
         
-        serializer = GeoFeatureSerializer(paginated_features, many=True)
+        # ✅ MANUAL GEOJSON CONVERSION for proper format
+        geojson_features = []
+        for feature in paginated_features:
+            try:
+                # Convert geometry to proper GeoJSON
+                geom_geojson = json.loads(feature.geometry.geojson)
+                
+                # Get feature color
+                color = self._get_feature_color(feature)
+                
+                geojson_feature = {
+                    "id": feature.id,
+                    "type": "Feature",
+                    "geometry": geom_geojson,  # ✅ Proper GeoJSON geometry
+                    "properties": {
+                        "layer_name": feature.layer.name,
+                        "city_name": feature.layer.city.name,
+                        "category_name": feature.layer.category.name if feature.layer.category else 'Unknown',
+                        "display_name": feature.get_display_name(),
+                        "source_fid": feature.source_fid,
+                        "name": feature.name or '',
+                        "derived_category": feature.derived_category,
+                        "land_use_type": feature.land_use_type or '',
+                        "plu_primary_code": feature.plu_primary_code or '',
+                        "plu_secondary_1": feature.plu_secondary_1 or '',
+                        "plu_secondary_2": feature.plu_secondary_2 or '',
+                        "plu_proposed_use": feature.plu_proposed_use or '',
+                        "plu_authority": feature.plu_authority or '',
+                        "calculated_area": float(feature.calculated_area) if feature.calculated_area else 0.0,
+                        "calculated_perimeter": float(feature.calculated_perimeter) if feature.calculated_perimeter else 0.0,
+                        "source_area_value": float(feature.source_area_value) if feature.source_area_value else 0.0,
+                        "is_valid": feature.is_valid,
+                        "geometry_simplified": feature.geometry_simplified,
+                        "color": color,  # ✅ Correct color
+                        "created_at": feature.created_at.isoformat(),
+                    }
+                }
+                geojson_features.append(geojson_feature)
+            except Exception as e:
+                print(f"Error serializing feature {feature.id}: {e}")
+                continue
         
         return Response({
             'layer': {
                 'name': layer.name,
                 'city': layer.city.name,
-                'category': layer.category.name
+                'category': layer.category.name if layer.category else 'Unknown'
             },
             'pagination': {
                 'page': page,
@@ -374,8 +414,35 @@ class LayerFeaturesView(APIView):
                 'total_count': total_count,
                 'total_pages': (total_count + page_size - 1) // page_size
             },
-            'features': serializer.data
+            'features': {
+                "type": "FeatureCollection",
+                "features": geojson_features  # ✅ Proper GeoJSON format
+            }
         })
+    
+    def _get_feature_color(self, feature):
+        """Get the correct color for this feature"""
+        from .config import get_city_config
+        
+        city_slug = feature.layer.city.slug
+        category_code = feature.derived_category
+        
+        # Get city-specific color
+        city_config = get_city_config(city_slug)
+        if city_config and 'colors' in city_config:
+            return city_config['colors'].get(category_code, '#666666')
+        
+        # Fallback to layer style
+        try:
+            style = feature.layer.get_style()
+            if isinstance(style, dict):
+                return style.get('fill_color', '#666666')
+            elif hasattr(style, 'fill_color'):
+                return style.fill_color
+        except:
+            pass
+        
+        return '#666666'
 
 class DataImportView(APIView):
     """Enhanced data import with ESRI and configuration support"""
@@ -634,10 +701,6 @@ class CombinedRasterTileView(APIView):
             renderer = TileRenderingService()
             return HttpResponse(renderer.create_empty_tile(), content_type='image/png', status=500)
 
-# -----------------------------------------------------------------------------
-# ADDED FOR DEBUGGING: Simplified Views to test core functionality directly
-# -----------------------------------------------------------------------------
-
 class SimpleVectorTileView(APIView):
     """A simplified view to directly test VectorTileService"""
     
@@ -708,10 +771,9 @@ class CityCompleteView(APIView):
     
     def get(self, request, city_slug):
         try:
-            # Get city
             city = get_object_or_404(City, slug=city_slug, is_active=True)
             
-            # Get all layers for this city
+            # Get layers and calculate total features
             layers = DataLayer.objects.filter(
                 city=city,
                 is_processed=True
@@ -723,15 +785,36 @@ class CityCompleteView(APIView):
                     'city': city_slug
                 }, status=404)
             
-            # Calculate total features to decide response strategy
             total_features = sum(layer.feature_count or 0 for layer in layers)
             
-            # DECISION: If too many features, return tile-based approach
-            if total_features > 100000:  # Configurable threshold
-                return self._get_tile_based_response(city, layers, total_features)
+            # 🚀 ENHANCED STRATEGY SELECTION
+            force_tiles = request.GET.get('force_tiles', 'false').lower() == 'true'
+            force_geojson = request.GET.get('force_geojson', 'false').lower() == 'true'
+            no_limits = request.GET.get('no_limits', 'false').lower() == 'true'
             
-            # OPTIMAL: Return complete GeoJSON with all layers
-            return self._get_complete_geojson_response(city, layers, total_features)
+            # Strategy thresholds
+            TILE_THRESHOLD = 100000    # Use tiles for 100k+ features
+            PROGRESSIVE_THRESHOLD = 5000  # Use progressive for 5k+ features
+            
+            print(f"🎯 Strategy selection for {city_slug}: {total_features} features")
+            print(f"   force_tiles={force_tiles}, force_geojson={force_geojson}")
+            
+            # Decision logic
+            if force_tiles or (total_features > TILE_THRESHOLD and not force_geojson):
+                print(f"✅ Using TILE strategy for {total_features} features")
+                return self._get_enhanced_tile_response(city, layers, total_features)
+                
+            elif force_geojson or no_limits:
+                print(f"✅ Using COMPLETE GEOJSON strategy (forced)")
+                return self._get_complete_geojson_response(city, layers, total_features, request)
+                
+            elif total_features > PROGRESSIVE_THRESHOLD:
+                print(f"✅ Using PROGRESSIVE strategy for {total_features} features")
+                return self._get_progressive_info_response(city, layers, total_features)
+                
+            else:
+                print(f"✅ Using COMPLETE strategy for {total_features} features")
+                return self._get_complete_geojson_response(city, layers, total_features, request)
             
         except Exception as e:
             print(f"Error in CityCompleteView: {e}")
@@ -739,12 +822,20 @@ class CityCompleteView(APIView):
                 'error': 'Failed to load city data',
                 'message': str(e)
             }, status=500)
-    
-    def _get_complete_geojson_response(self, city, layers, total_features):
-        """Return all city layers as one combined GeoJSON"""
         
-        # Define color mapping
-        color_map = self._get_color_mapping()
+    
+    
+    def _get_complete_geojson_response(self, city, layers, total_features, request=None):
+        """Return all city layers as one combined GeoJSON - ENHANCED with no limits"""
+        
+        # Check for no limits parameter
+        no_limits = request.GET.get('no_limits', 'false').lower() == 'true' if request else False
+        
+        if no_limits:
+            max_features_per_layer = None  # ✅ No limit when no_limits=true
+            print(f"🚨 NO LIMITS MODE: Loading ALL {total_features:,} features")
+        else:
+            max_features_per_layer = int(request.GET.get('max_per_layer', 5000)) if request else 5000
         
         all_features = []
         layer_metadata = []
@@ -752,13 +843,21 @@ class CityCompleteView(APIView):
         for layer in layers:
             try:
                 # Get features for this layer
-                features = GeoFeature.objects.filter(
+                features_query = GeoFeature.objects.filter(
                     layer=layer,
                     is_valid=True
                 ).select_related('layer__category')
                 
-                # Get layer color
-                layer_color = self._get_layer_color(layer, color_map)
+                # Apply limit only if not in no_limits mode
+                if max_features_per_layer is not None:
+                    features = features_query[:max_features_per_layer]
+                    layer_feature_count = min(features_query.count(), max_features_per_layer)
+                else:
+                    features = features_query.all()  # ✅ Get ALL features
+                    layer_feature_count = features_query.count()
+                
+                # Get layer color using enhanced method
+                layer_color = self._get_layer_color(layer)
                 
                 # Add layer metadata
                 layer_metadata.append({
@@ -767,7 +866,8 @@ class CityCompleteView(APIView):
                     'category': layer.category.name if layer.category else 'Unknown',
                     'category_code': layer.category.code if layer.category else None,
                     'color': layer_color,
-                    'feature_count': features.count(),
+                    'feature_count': layer_feature_count,
+                    'total_available': features_query.count(),  # ✅ Show total available
                     'bbox': {
                         'min_lng': layer.bbox_xmin,
                         'min_lat': layer.bbox_ymin,
@@ -776,9 +876,16 @@ class CityCompleteView(APIView):
                     } if all([layer.bbox_xmin, layer.bbox_ymin, layer.bbox_xmax, layer.bbox_ymax]) else None
                 })
                 
-                # Convert features to GeoJSON (limit per layer for safety)
-                for feature in features[:5000]:  # Limit per layer
+                print(f"   Processing {layer.name}: {layer_feature_count:,} features")
+                
+                # Convert features to GeoJSON
+                for i, feature in enumerate(features):
                     try:
+                        # Progress indicator for large datasets
+                        if no_limits and i % 10000 == 0 and i > 0:
+                            print(f"     Progress: {i:,}/{layer_feature_count:,} features")
+                        
+                        # ✅ PROPER GEOJSON CONVERSION
                         geometry = json.loads(feature.geometry.geojson)
                         
                         properties = {
@@ -791,7 +898,7 @@ class CityCompleteView(APIView):
                             'land_use': feature.land_use_type or '',
                             'plu_code': feature.plu_primary_code or '',
                             'area': float(feature.calculated_area) if feature.calculated_area else 0.0,
-                            'color': layer_color,  # Include color in each feature
+                            'color': layer_color,
                             'city': city.slug
                         }
                         
@@ -823,16 +930,19 @@ class CityCompleteView(APIView):
                 'total_features': len(all_features),
                 'total_layers': len(layer_metadata),
                 'layers': layer_metadata,
-                'color_scheme': color_map,
-                'bounds': self._calculate_city_bounds(layers)
+                'bounds': self._calculate_city_bounds(layers),
+                'no_limits_mode': no_limits,  # ✅ Indicate mode
+                'limited': not no_limits and len(all_features) < total_features,
+                'max_per_layer': max_features_per_layer
             }
         }
         
-        print(f"✅ Generated complete GeoJSON for {city.slug}: {len(all_features)} features, {len(layer_metadata)} layers")
+        print(f"✅ Generated complete GeoJSON for {city.slug}: {len(all_features):,} features, {len(layer_metadata)} layers")
         
-        # Cache for 30 minutes
+        # Longer cache for complete datasets
+        cache_time = 7200 if no_limits else 1800  # 2 hours vs 30 minutes
         response = Response(response_data)
-        response['Cache-Control'] = 'max-age=1800'
+        response['Cache-Control'] = f'max-age={cache_time}'
         response['Access-Control-Allow-Origin'] = '*'
         
         return response
@@ -884,46 +994,70 @@ class CityCompleteView(APIView):
             'DRAINS': '#4682B4'            # Steel Blue - Drains
         }
     
-    def _get_layer_color(self, layer, color_map):
-        """Get color for a specific layer"""
+    def _get_layer_color(self, layer, color_map=None):
+        """Get color for a specific layer - FIXED for Vizag"""
         
-        # Try category-based color first
-        if layer.category and layer.category.code:
+        from .config import get_city_config
+        
+        # Priority 1: Use city-specific config colors
+        city_config = get_city_config(layer.city.slug)
+        if city_config and 'colors' in city_config:
+            category_code = layer.category.code if layer.category else None
+            if category_code and category_code in city_config['colors']:
+                return city_config['colors'][category_code]
+        
+        # Priority 2: Try the passed color_map
+        if color_map and layer.category and layer.category.code:
             category_color = color_map.get(layer.category.code.upper())
             if category_color:
                 return category_color
         
-        # Try layer style
-        style = layer.get_style()
-        if isinstance(style, dict) and style.get('fill_color'):
-            return style['fill_color']
+        # Priority 3: Try layer style
+        try:
+            style = layer.get_style()
+            if isinstance(style, dict) and style.get('fill_color'):
+                return style['fill_color']
+            elif hasattr(style, 'fill_color'):
+                return style.fill_color
+        except:
+            pass
         
-        # Backup slug-based mapping (matches your frontend LAYER_COLORS)
-        slug_colors = {
-            'residential_main_': '#FFC400',
-            'residential_mixed': '#FFC400',
-            'commercial_central_': '#004DA8',
-            'commercial': '#004DA8',
-            'industrial': '#AA66B2',
-            'hightech': '#C29ED7',
-            'public_semipublic': '#E60000',
-            'defense': '#8B4513',
-            'stateforest_valley_protectedland_': '#228B22',
-            'parks_green': '#98E600',
-            'lake_tank': '#1E90FF',
-            'transport': '#808080',
-            'airport': '#808080',
-            'power_water_garbagefacility_treatmentplant': '#FF6347',
-            'agricultural_land': '#9ACD32',
-            'unclassified_use': '#D3D3D3',
-            'drains': '#4682B4'
-        }
+        # Priority 4: Category default color
+        if layer.category and layer.category.default_color:
+            return layer.category.default_color
         
-        if layer.slug in slug_colors:
-            return slug_colors[layer.slug]
-        
-        # Default gray
+        # Default fallback
         return '#666666'
+    
+    def _get_color_mapping(self):
+        """Return standardized color mapping for categories - INCLUDES VIZAG"""
+        return {
+            # Bangalore colors (existing)
+            'RESIDENTIAL': '#FFC400',      # Yellow - Residential
+            'COMMERCIAL': '#004DA8',       # Blue - Commercial  
+            'INDUSTRIAL': '#AA66B2',       # Purple - Industrial
+            'HIGH_TECH': '#C29ED7',        # Light Purple - High Tech
+            'PUBLIC': '#E60000',           # Red - Public/Semi Public
+            'DEFENSE': '#8B4513',          # Brown - Defense
+            'PROTECTED': '#228B22',        # Forest Green - State Forest/Protected
+            'PARKS_GREEN': '#98E600',      # Bright Green - Parks and Green Spaces
+            'WATER_BODIES': '#1E90FF',     # Dodger Blue - Lake/Tank
+            'TRANSPORT': '#808080',        # Gray - Road/Rail/Airport Transport
+            'UTILITIES': '#FF6347',        # Tomato - Power/Water/Utilities
+            'AGRICULTURAL': '#9ACD32',     # Yellow Green - Agricultural Land
+            'UNCLASSIFIED': '#D3D3D3',     # Light Gray - Unclassified Use
+            'DRAINS': '#4682B4',           # Steel Blue - Drains
+            
+            # ✅ VIZAG COLORS (from your specifications)
+            'MIXED_USE': '#FFAA00',        # Mixed Use Zone 1
+            'GOVERNMENT': '#FF0000',       # Government facilities
+            'EDUCATION': '#FF0000',        # Educational facilities  
+            'HEALTHCARE': '#FF0000',       # Health facilities
+            'CULTURAL': '#FF0000',         # Religious facilities
+            'CEMETERY': '#FFFFFF',         # Crematorium/Burial grounds
+            'HILLS': '#A87000',           # Brown Zone (Hills)
+            'SPECIAL': '#FFFFFF',          # Special Area Use Zone
+        }
     
     def _calculate_city_bounds(self, layers):
         """Calculate bounding box for all layers"""
@@ -1178,69 +1312,235 @@ class CoordinateSearchTestView(APIView):
     """Test version using GET parameters - FIXED VERSION"""
     
     def get(self, request, city_slug):
-        latitude = request.GET.get('lat')
-        longitude = request.GET.get('lng')
-        
-        if not latitude or not longitude:
-            return Response({
-                'error': 'Missing parameters',
-                'message': 'Provide lat and lng parameters',
-                'example': f'/api/cities/{city_slug}/search-coords-test/?lat=12.9716&lng=77.5946'
-            }, status=400)
-        
         try:
-            # Parse coordinates
-            lat_float = float(latitude)
-            lng_float = float(longitude)
-            
-            # Validate coordinates
-            if not (-90 <= lat_float <= 90) or not (-180 <= lng_float <= 180):
-                return Response({
-                    'error': 'Invalid coordinates',
-                    'message': 'Latitude must be between -90 and 90, longitude between -180 and 180'
-                }, status=400)
-            
             # Get city
             city = get_object_or_404(City, slug=city_slug, is_active=True)
             
-            # Create point geometry
-            search_point = Point(lng_float, lat_float, srid=4326)
+            # Get all layers for this city
+            layers = DataLayer.objects.filter(
+                city=city,
+                is_processed=True
+            ).select_related('category').order_by('category__display_order', 'name')
             
-            # Create an instance of the main search view to use its methods
-            search_view = CoordinateSearchView()
+            if not layers.exists():
+                return Response({
+                    'error': 'No layers found for this city',
+                    'city': city_slug
+                }, status=404)
             
-            # Find containing features
-            containing_features = search_view._find_containing_features(city, search_point)
+            # Calculate total features to decide response strategy
+            total_features = sum(layer.feature_count or 0 for layer in layers)
             
-            # Find nearby features if no exact match
-            nearby_features = []
-            if not containing_features:
-                nearby_features = search_view._find_nearby_features(city, search_point, radius_meters=100)
+            # ✅ CHECK FOR OVERRIDE PARAMETERS
+            force_geojson = request.GET.get('force_geojson', 'false').lower() == 'true'
+            max_features = int(request.GET.get('max_features', 100000))  # Configurable threshold
             
-            # Build response
-            response_data = {
-                'search_point': {
-                    'latitude': lat_float,
-                    'longitude': lng_float,
-                    'coordinates': [lng_float, lat_float]
-                },
-                'city': city_slug,
-                'found': len(containing_features) > 0,
-                'containing_features': containing_features,
-                'nearby_features': nearby_features[:5],
-                'summary': search_view._create_search_summary(containing_features, nearby_features)
-            }
+            # DECISION: Strategy based on dataset size and parameters
+            if not force_geojson and total_features > max_features:
+                return self._get_tile_based_response(city, layers, total_features)
             
-            return Response(response_data)
+            # Return complete GeoJSON (with size limits for safety)
+            return self._get_complete_geojson_response(city, layers, total_features, request)
             
-        except ValueError:
-            return Response({
-                'error': 'Invalid coordinate format',
-                'message': 'Coordinates must be valid numbers'
-            }, status=400)
         except Exception as e:
-            print(f"Error in CoordinateSearchTestView: {e}")
+            print(f"Error in CityCompleteView: {e}")
             return Response({
-                'error': 'Search failed',
+                'error': 'Failed to load city data',
                 'message': str(e)
             }, status=500)
+
+class CityProgressiveView(APIView):
+    """
+    🚀 PROGRESSIVE LOADING: Load city data in chunks
+    Perfect for handling large datasets (1GB+ JSON files)
+    """
+    
+    def get(self, request, city_slug):
+        try:
+            city = get_object_or_404(City, slug=city_slug, is_active=True)
+            
+            # Get pagination parameters
+            chunk_size = int(request.GET.get('chunk_size', 1000))
+            chunk_index = int(request.GET.get('chunk', 0))  # 0-based
+            layer_slug = request.GET.get('layer')  # Optional: specific layer
+            
+            # Calculate offset
+            offset = chunk_index * chunk_size
+            
+            print(f"🔄 Loading chunk {chunk_index}: features {offset}-{offset + chunk_size - 1}")
+            
+            # Get layers to process
+            if layer_slug:
+                layers = DataLayer.objects.filter(
+                    city=city, 
+                    slug=layer_slug,
+                    is_processed=True
+                )
+            else:
+                layers = DataLayer.objects.filter(
+                    city=city,
+                    is_processed=True
+                ).order_by('category__display_order', 'name')
+            
+            if not layers.exists():
+                return Response({
+                    'error': 'No layers found',
+                    'city': city_slug
+                }, status=404)
+            
+            # Progressive loading logic
+            chunk_data = self._load_progressive_chunk(
+                city, layers, offset, chunk_size, chunk_index
+            )
+            
+            return Response(chunk_data)
+            
+        except Exception as e:
+            print(f"Error in CityProgressiveView: {e}")
+            return Response({
+                'error': 'Failed to load chunk',
+                'message': str(e)
+            }, status=500)
+    
+    def _load_progressive_chunk(self, city, layers, offset, chunk_size, chunk_index):
+        """Load a specific chunk of features across all layers"""
+        
+        chunk_features = []
+        total_available = 0
+        layers_info = []
+        
+        # Get total count first (for progress calculation)
+        for layer in layers:
+            layer_total = GeoFeature.objects.filter(
+                layer=layer,
+                is_valid=True
+            ).count()
+            total_available += layer_total
+            
+            layers_info.append({
+                'slug': layer.slug,
+                'name': layer.name,
+                'total_features': layer_total,
+                'color': self._get_layer_color(layer, city.slug)
+            })
+        
+        # Load features for this chunk (across all layers)
+        features_query = GeoFeature.objects.filter(
+            layer__city=city,
+            layer__is_processed=True,
+            is_valid=True
+        ).select_related('layer', 'layer__category').order_by('id')
+        
+        # Apply pagination
+        chunk_features_data = features_query[offset:offset + chunk_size]
+        
+        # Convert to GeoJSON
+        for feature in chunk_features_data:
+            try:
+                geometry = json.loads(feature.geometry.geojson)
+                layer_color = self._get_layer_color(feature.layer, city.slug)
+                
+                properties = {
+                    'id': feature.id,
+                    'name': feature.name or '',
+                    'layer_slug': feature.layer.slug,
+                    'layer_name': feature.layer.name,
+                    'category': feature.layer.category.name if feature.layer.category else 'Unknown',
+                    'category_code': feature.layer.category.code if feature.layer.category else None,
+                    'land_use': feature.land_use_type or '',
+                    'plu_code': feature.plu_primary_code or '',
+                    'area': float(feature.calculated_area) if feature.calculated_area else 0.0,
+                    'color': layer_color,
+                    'city': city.slug
+                }
+                
+                chunk_features.append({
+                    'type': 'Feature',
+                    'geometry': geometry,
+                    'properties': properties
+                })
+                
+            except Exception as e:
+                print(f"Skipping feature {feature.id}: {e}")
+                continue
+        
+        # Calculate progress info
+        features_loaded = len(chunk_features)
+        is_last_chunk = (offset + chunk_size) >= total_available
+        progress_percentage = min(((chunk_index + 1) * chunk_size / total_available) * 100, 100)
+        
+        return {
+            'type': 'FeatureCollection',
+            'strategy': 'progressive_loading',
+            'chunk_info': {
+                'chunk_index': chunk_index,
+                'chunk_size': chunk_size,
+                'features_in_chunk': features_loaded,
+                'offset': offset,
+                'is_last_chunk': is_last_chunk,
+                'progress_percentage': round(progress_percentage, 1)
+            },
+            'city': {
+                'slug': city.slug,
+                'name': city.name,
+                'center': [city.center_lat, city.center_lng]
+            },
+            'features': chunk_features,
+            'metadata': {
+                'total_available_features': total_available,
+                'total_layers': len(layers_info),
+                'layers': layers_info,
+                'bounds': self._calculate_city_bounds(layers) if chunk_index == 0 else None
+            }
+        }
+    
+    def _get_layer_color(self, layer, city_slug):
+        """Get color for a layer using existing configuration system"""
+        try:
+            from .config import get_city_config
+            city_config = get_city_config(city_slug)
+            if city_config and 'colors' in city_config:
+                category_code = layer.category.code if layer.category else None
+                if category_code and category_code in city_config['colors']:
+                    return city_config['colors'][category_code]
+            
+            # Try city-specific style
+            try:
+                style = layer.get_style()
+                if isinstance(style, dict):
+                    return style.get('fill_color', '#666666')
+                elif hasattr(style, 'fill_color'):
+                    return style.fill_color
+            except:
+                pass
+            
+            # Fallback to category default
+            if layer.category:
+                return layer.category.default_color
+            
+            return '#666666'
+        except Exception as e:
+            print(f"Error getting layer color: {e}")
+            return '#666666'
+    
+    def _calculate_city_bounds(self, layers):
+        """Calculate city bounds from layers"""
+        bounds = {
+            'min_lng': float('inf'),
+            'min_lat': float('inf'), 
+            'max_lng': float('-inf'),
+            'max_lat': float('-inf')
+        }
+        
+        valid_bounds = False
+        
+        for layer in layers:
+            if all([layer.bbox_xmin, layer.bbox_ymin, layer.bbox_xmax, layer.bbox_ymax]):
+                bounds['min_lng'] = min(bounds['min_lng'], layer.bbox_xmin)
+                bounds['min_lat'] = min(bounds['min_lat'], layer.bbox_ymin)
+                bounds['max_lng'] = max(bounds['max_lng'], layer.bbox_xmax)
+                bounds['max_lat'] = max(bounds['max_lat'], layer.bbox_ymax)
+                valid_bounds = True
+        
+        return bounds if valid_bounds else None
+    

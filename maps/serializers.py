@@ -116,6 +116,7 @@ class GeoFeatureSerializer(GeoFeatureModelSerializer):
     category_name = serializers.CharField(source='layer.category.name', read_only=True)
     display_name = serializers.CharField(source='get_display_name', read_only=True)
     plu_description = serializers.CharField(source='get_plu_description', read_only=True)
+    color = serializers.SerializerMethodField()
     
     class Meta:
         model = GeoFeature
@@ -126,8 +127,33 @@ class GeoFeatureSerializer(GeoFeatureModelSerializer):
             'plu_primary_code', 'plu_secondary_1', 'plu_secondary_2',
             'plu_proposed_use', 'plu_authority', 'plu_description',
             'calculated_area', 'calculated_perimeter', 'source_area_value',
-            'is_valid', 'geometry_simplified', 'created_at'
+            'is_valid', 'geometry_simplified', 'created_at', 'color'
         ]
+    
+    def get_color(self, obj):
+        """Get the correct color for this feature based on city config"""
+        from .config import get_city_config
+        
+        city_slug = obj.layer.city.slug
+        category_code = obj.derived_category
+        
+        # Get city-specific color
+        city_config = get_city_config(city_slug)
+        if city_config and 'colors' in city_config:
+            return city_config['colors'].get(category_code, '#666666')
+        
+        # Fallback to layer style
+        try:
+            style = obj.layer.get_style()
+            if isinstance(style, dict):
+                return style.get('fill_color', '#666666')
+            elif hasattr(style, 'fill_color'):
+                return style.fill_color
+        except:
+            pass
+        
+        return '#666666'
+    
 
 class GeoFeatureListSerializer(serializers.ModelSerializer):
     """Lightweight serializer for listing features without geometry"""
