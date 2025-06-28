@@ -314,8 +314,6 @@ async function loadCityWithTiles(citySlug, layersData) {
     }
 }
 
-
-
 async function loadCityProgressiveOptimized(citySlug, chunkSize = 5000) {
     try {
         showLoadingOverlay(true);
@@ -456,92 +454,6 @@ function addChunkToMapOptimized(chunkData) {
     });
     
     progressiveLayerGroup.addLayer(chunkLayer);
-}
-
-async function loadTileBasedFallback(citySlug, layersData) {
-    console.log(`🗺️ Creating tile-based loading for ${citySlug}`);
-    
-    // Use combined tile URL
-    const combinedTileUrl = `${window.location.origin}${API_BASE}/tiles/${citySlug}/combined/{z}/{x}/{y}`;
-    
-    if (!usePNGFallback && typeof L !== 'undefined' && L.vectorGrid && L.vectorGrid.protobuf) {
-        // MVT tiles
-        const mvtUrl = combinedTileUrl + '.mvt';
-        const combinedLayer = L.vectorGrid.protobuf(mvtUrl, {
-            rendererFactory: L.svg.tile,
-            vectorTileLayerStyles: createCombinedStylesFromLayers(layersData.layers),
-            interactive: true,
-            getFeatureId: function(feature) {
-                return feature.properties.id;
-            }
-        });
-        
-        combinedLayer.addTo(map);
-        activeMVTLayers.set('combined_tiles', combinedLayer);
-        
-        // Add click handler
-        combinedLayer.on('click', function(e) {
-            if (e.layer && e.layer.properties) {
-                showEnhancedFeaturePopup(e.layer.properties, e.latlng);
-            }
-        });
-        
-    } else {
-        // PNG tiles fallback
-        const pngUrl = combinedTileUrl + '.png';
-        const pngLayer = L.tileLayer(pngUrl, { 
-            opacity: 0.8,
-            maxZoom: 16
-        });
-        pngLayer.addTo(map);
-        activeMVTLayers.set('combined_png', pngLayer);
-    }
-    
-    document.getElementById('tileType').textContent = 'COMBINED-TILES';
-}
-
-// Utility functions
-function createCombinedStylesFromLayers(layers) {
-    const styles = {};
-    layers.forEach(layer => {
-        const color = getLayerColorFromCategory(layer.category_name);
-        styles[layer.slug] = {
-            color: color,
-            fillColor: color,
-            fillOpacity: 0.7,
-            opacity: 0.9,
-            weight: 1
-        };
-    });
-    return styles;
-}
-
-function getLayerColorFromCategory(categoryName) {
-    const categoryKey = categoryName?.toUpperCase().replace(/\s+/g, '_');
-    return CATEGORY_COLORS[categoryKey] || '#666666';
-}
-
-function calculateBoundsFromLayers(layers) {
-    // Calculate bounds from layer data if available
-    const bounds = {
-        min_lng: Infinity,
-        min_lat: Infinity,
-        max_lng: -Infinity,
-        max_lat: -Infinity
-    };
-    
-    let hasBounds = false;
-    layers.forEach(layer => {
-        if (layer.bbox) {
-            bounds.min_lng = Math.min(bounds.min_lng, layer.bbox.min_lng);
-            bounds.min_lat = Math.min(bounds.min_lat, layer.bbox.min_lat);
-            bounds.max_lng = Math.max(bounds.max_lng, layer.bbox.max_lng);
-            bounds.max_lat = Math.max(bounds.max_lat, layer.bbox.max_lat);
-            hasBounds = true;
-        }
-    });
-    
-    return hasBounds ? bounds : null;
 }
 
 async function loadCityComplete(citySlug) {
