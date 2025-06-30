@@ -102,13 +102,16 @@
         groups: docker
         append: yes
 
-    - name: Stop and remove old Docker containers (quick)
+    - name: Stop old Docker containers (PRESERVE VOLUMES)
       shell: |
         cd {{ project_dir }} && docker-compose down --remove-orphans || true
-        docker system prune -f || true
+        # REMOVED: docker system prune -f (this was deleting volumes!)
+        # Only remove unused containers and images, NOT volumes
+        docker container prune -f || true
+        docker image prune -f || true
       ignore_errors: yes
 
-    - name: Remove old project directory (quick)
+    - name: Remove old project directory (but keep volumes)
       shell: rm -rf {{ project_dir }}
       ignore_errors: yes
 
@@ -159,7 +162,7 @@
       ignore_errors: yes
 
     - name: Setup cities (if management command exists)
-      shell: docker-compose exec -T web python manage.py setup_cities
+      shell: docker-compose exec -T web python manage.py setup_cities --with-plu
       args:
         chdir: "{{ project_dir }}"
       ignore_errors: yes
@@ -188,5 +191,6 @@
           - Check containers: cd {{ project_dir }} && docker-compose ps
           - View logs: cd {{ project_dir }} && docker-compose logs -f
           - Access shell: cd {{ project_dir }} && docker-compose exec web bash
+          - Check volumes: docker volume ls
           
           Project directory: {{ project_dir }}
