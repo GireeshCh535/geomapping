@@ -1,111 +1,60 @@
 #!/bin/bash
 
-# Configuration
+# Quick fix for docker-compose not found issue
 SSH_KEY="oneacre-prod.pem"
 SERVER_HOST="ec2-3-110-50-194.ap-south-1.compute.amazonaws.com"
 ANSIBLE_USER="ubuntu"
 
-echo "🚀 Starting GeoDjango deployment to AWS EC2..."
+echo "🔧 Quick fix for docker-compose issue..."
 
-# Check if SSH key exists
-if [ ! -f "$SSH_KEY" ]; then
-    echo "❌ SSH key not found: $SSH_KEY"
-    echo "Please ensure the SSH key file exists and has correct permissions."
-    exit 1
-fi
+# SSH to server and fix docker-compose
+ssh -i "$SSH_KEY" -o StrictHostKeyChecking=no "$ANSIBLE_USER@$SERVER_HOST" << 'EOF'
 
-# Set correct permissions for SSH key
-chmod 400 "$SSH_KEY"
-echo "✅ SSH key permissions set"
+echo "🐳 Installing docker-compose..."
 
-# Check if Ansible is installed
-if ! command -v ansible-playbook &> /dev/null; then
-    echo "📦 Ansible not found. Installing..."
-    pip3 install ansible
-    if [ $? -ne 0 ]; then
-        echo "❌ Failed to install Ansible. Please install manually:"
-        echo "   pip3 install ansible"
-        exit 1
-    fi
-fi
+# Download and install docker-compose
+sudo curl -L "https://github.com/docker/compose/releases/download/v2.20.2/docker-compose-linux-x86_64" -o /usr/local/bin/docker-compose
 
-echo "✅ Ansible is available"
+# Make it executable
+sudo chmod +x /usr/local/bin/docker-compose
 
-# Create temporary inventory file
-INVENTORY_FILE="/tmp/inventory_aws.ini"
-cat > "$INVENTORY_FILE" << EOF
-[aws_servers]
-geomapping-server ansible_host=$SERVER_HOST
+# Create symlink
+sudo ln -sf /usr/local/bin/docker-compose /usr/bin/docker-compose
 
-[aws_servers:vars]
-ansible_user=$ANSIBLE_USER
-ansible_ssh_private_key_file=$SSH_KEY
-ansible_ssh_common_args='-o StrictHostKeyChecking=no'
-ansible_python_interpreter=/usr/bin/python3
+# Verify installation
+echo "✅ Docker Compose version:"
+docker-compose --version
+
+# Now run the docker commands
+echo "🚀 Starting deployment..."
+cd /opt/geomapping
+
+# Build containers
+echo "🔧 Building containers..."
+docker-compose build --no-cache
+
+# Start containers
+echo "🏃 Starting containers..."
+docker-compose up -d
+
+# Wait a bit
+sleep 15
+
+# Run migrations
+echo "🗄️ Running migrations..."
+docker-compose exec -T web python manage.py migrate
+
+# Collect static files
+echo "📁 Collecting static files..."
+docker-compose exec -T web python manage.py collectstatic --noinput
+
+# Show status
+echo "📊 Container status:"
+docker-compose ps
+
+echo "✅ Deployment completed!"
+echo "🌐 Your app should be available at: http://ec2-3-110-50-194.ap-south-1.compute.amazonaws.com:8000"
+
 EOF
 
-echo "✅ Inventory file created"
-
-# Test SSH connection
-echo "🔐 Testing SSH connection..."
-ssh -i "$SSH_KEY" -o StrictHostKeyChecking=no -o ConnectTimeout=10 "$ANSIBLE_USER@$SERVER_HOST" "echo 'SSH connection successful'" 2>/dev/null
-if [ $? -ne 0 ]; then
-    echo "❌ SSH connection failed. Please check:"
-    echo "   1. SSH key path: $SSH_KEY"
-    echo "   2. Server hostname: $SERVER_HOST"
-    echo "   3. AWS Security Group allows SSH (port 22)"
-    echo "   4. Server is running"
-    exit 1
-fi
-
-echo "✅ SSH connection verified"
-
-# Check if deploy.yml exists
-if [ ! -f "deploy.yml" ]; then
-    echo "❌ deploy.yml not found in current directory"
-    echo "Please ensure deploy.yml is in the same directory as this script"
-    exit 1
-fi
-
-echo "✅ deploy.yml found"
-
-# Run the Ansible playbook
-echo "🚀 Running Ansible playbook..."
-echo "================================================"
-
-ansible-playbook -i "$INVENTORY_FILE" deploy.yml -v
-
-# Check if deployment was successful
-if [ $? -eq 0 ]; then
-    echo "================================================"
-    echo "🎉 Deployment completed successfully!"
-    echo ""
-    echo "🌐 Your application should be available at:"
-    echo "   http://$SERVER_HOST:8000"
-    echo ""
-    echo "📋 Useful commands to check your deployment:"
-    echo "   ssh -i \"$SSH_KEY\" $ANSIBLE_USER@$SERVER_HOST"
-    echo "   cd /opt/geomapping"
-    echo "   docker-compose ps"
-    echo "   docker-compose logs -f"
-    echo ""
-    echo "⚠️  Make sure your AWS Security Group allows inbound traffic on port 8000"
-else
-    echo "================================================"
-    echo "❌ Deployment failed!"
-    echo "Please check the error messages above and try again."
-    echo ""
-    echo "🔍 Common issues:"
-    echo "   1. AWS Security Group not allowing SSH (port 22)"
-    echo "   2. AWS Security Group not allowing HTTP (port 8000)"
-    echo "   3. SSH key permissions incorrect"
-    echo "   4. Server not responding"
-    echo ""
-    echo "📞 To debug manually:"
-    echo "   ssh -i \"$SSH_KEY\" $ANSIBLE_USER@$SERVER_HOST"
-fi
-
-# Clean up temporary inventory file
-rm -f "$INVENTORY_FILE"
-
-echo "🧹 Cleaned up temporary files"
+echo "🎉 Quick fix completed!"

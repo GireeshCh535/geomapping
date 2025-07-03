@@ -17,7 +17,6 @@
         state: absent
       delegate_to: localhost
       run_once: true
-      become: no
 
     - name: Clone repository to local machine
       git:
@@ -26,7 +25,6 @@
         depth: 1
       delegate_to: localhost
       run_once: true
-      become: no
 
     # Step 2: Zip the cloned repository
     - name: Create zip archive of the project
@@ -36,7 +34,6 @@
         format: zip
       delegate_to: localhost
       run_once: true
-      become: no
 
     # Step 3: Send zip file to server
     - name: Upload zip file to server
@@ -93,10 +90,19 @@
       when: docker_installed.rc != 0
 
     - name: Install Docker Compose standalone
-      pip:
-        name: docker-compose
-        state: present
+      get_url:
+        url: "https://github.com/docker/compose/releases/download/v2.20.2/docker-compose-linux-x86_64"
+        dest: /usr/local/bin/docker-compose
+        mode: '0755'
       when: docker_installed.rc != 0
+
+    - name: Create docker-compose symlink
+      file:
+        src: /usr/local/bin/docker-compose
+        dest: /usr/bin/docker-compose
+        state: link
+      when: docker_installed.rc != 0
+      ignore_errors: yes
 
     - name: Start and enable Docker service
       systemd:
@@ -110,12 +116,38 @@
         groups: docker
         append: yes
 
-    # Ensure unzip is installed for extracting archives
-    - name: Install unzip utility
-      apt:
-        name: unzip
-        state: present
-        update_cache: yes
+    # Check and install docker-compose if missing
+    - name: Check if docker-compose is available
+      command: which docker-compose
+      register: docker_compose_installed
+      ignore_errors: yes
+
+    - name: Install Docker Compose if not found
+      get_url:
+        url: "https://github.com/docker/compose/releases/download/v2.20.2/docker-compose-linux-x86_64"
+        dest: /usr/local/bin/docker-compose
+        mode: '0755'
+      when: docker_compose_installed.rc != 0
+
+    - name: Create docker-compose symlink if needed
+      file:
+        src: /usr/local/bin/docker-compose
+        dest: /usr/bin/docker-compose
+        state: link
+      when: docker_compose_installed.rc != 0
+      ignore_errors: yes
+
+    - name: Verify docker-compose installation
+      command: docker-compose --version
+      register: docker_compose_version
+
+    - name: Display docker-compose version
+      debug:
+        msg: "Docker Compose version: {{ docker_compose_version.stdout }}"
+
+    # Reset connection to apply group changes
+    - name: Reset ssh connection to allow user changes to affect ansible user
+      meta: reset_connection
 
     # Step 5: Check for existing docker processes and stop them (preserve data)
     - name: Check if project directory exists
@@ -150,17 +182,14 @@
         group: ubuntu
         mode: '0755'
 
-    - name: Unzip project files to temporary location
+    - name: Unzip project files to project directory
       unarchive:
         src: "/tmp/{{ zip_file }}"
-        dest: "/tmp"
+        dest: "{{ project_dir }}"
         remote_src: yes
-
-    - name: Move files from extracted directory to project directory
-      shell: |
-        cd /tmp/geomapping_deploy
-        cp -r . /opt/geomapping/
-        chown -R ubuntu:ubuntu /opt/geomapping
+        owner: ubuntu
+        group: ubuntu
+        extra_opts: [--strip-components=1]
 
     - name: Update Django ALLOWED_HOSTS setting
       lineinfile:
@@ -174,14 +203,12 @@
       args:
         chdir: "{{ project_dir }}"
       become_user: ubuntu
-      become: yes
 
     - name: Start Docker containers
       shell: docker-compose up -d
       args:
         chdir: "{{ project_dir }}"
       become_user: ubuntu
-      become: yes
 
     - name: Wait for containers to be ready
       wait_for:
@@ -189,7 +216,6 @@
         host: "0.0.0.0"
         delay: 20
         timeout: 300
-      become: no
 
     # Step 8: Run migrations
     - name: Run Django migrations
@@ -197,14 +223,12 @@
       args:
         chdir: "{{ project_dir }}"
       become_user: ubuntu
-      become: yes
 
     - name: Collect static files
       shell: docker-compose exec -T web python manage.py collectstatic --noinput
       args:
         chdir: "{{ project_dir }}"
       become_user: ubuntu
-      become: yes
       ignore_errors: yes
 
     # Step 9: PostGIS extensions (handled by init-db.sql in docker)
@@ -213,7 +237,6 @@
       args:
         chdir: "{{ project_dir }}"
       become_user: ubuntu
-      become: yes
       register: postgis_check
 
     - name: Display PostGIS extensions
@@ -232,7 +255,6 @@
         state: absent
       delegate_to: localhost
       run_once: true
-      become: no
 
     - name: Clean up local zip file
       file:
@@ -240,7 +262,6 @@
         state: absent
       delegate_to: localhost
       run_once: true
-      become: no
 
     # Final status
     - name: Display deployment status
@@ -263,7 +284,6 @@
       args:
         chdir: "{{ project_dir }}"
       become_user: ubuntu
-      become: yes
       register: container_status
 
     - name: Display container status
