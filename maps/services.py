@@ -578,7 +578,7 @@ class DataImportService:
         }
 
     def _process_standard_attributes(self, attrs, layer):
-        """Process attributes for non-Bangalore cities (FIXED for actual GeoFeature model)"""
+        """Process attributes for non-Bangalore cities (ENHANCED for Amaravati and Vizag)"""
         
         city_config = get_city_config(layer.city.slug)
         attribute_mapping = city_config.get('attribute_mappings', {}) if city_config else {}
@@ -590,46 +590,84 @@ class DataImportService:
             if source_field in attrs:
                 mapped_attrs[target_field] = attrs[source_field]
         
-        # Determine category - ENHANCED FOR VIZAG
+        # Determine category - ENHANCED FOR BOTH VIZAG AND AMARAVATI
         derived_category = layer.category.code  # Default fallback
+        categorization_method = 'FILENAME'  # Default method
         
-        # For Vizag, use the Category field to determine the actual category
-        if layer.city.slug == 'vizag' and 'Category' in attrs:
-            category_value = attrs['Category']
-            if category_value in category_mappings:
-                derived_category = category_mappings[category_value]
-                print(f"   ✅ Mapped Category '{category_value}' → {derived_category}")
+        # ✅ AMARAVATI: Use 'symbology' field for categorization
+        if layer.city.slug == 'amaravati' and 'symbology' in attrs:
+            symbology_value = attrs['symbology']
+            if symbology_value in category_mappings:
+                derived_category = category_mappings[symbology_value]
+                categorization_method = 'ATTRIBUTE'
+                print(f"   ✅ Amaravati: Mapped symbology '{symbology_value}' → {derived_category}")
                 
                 # Track category mapping for statistics
                 self.statistics['categories_assigned'][derived_category] += 1
+            else:
+                print(f"   ⚠️  Amaravati: Unknown symbology '{symbology_value}', using filename category")
         
-        # Store Vizag-specific fields in source_attributes
+        # ✅ VIZAG: Use 'Category' field for categorization (existing logic)
+        elif layer.city.slug == 'vizag' and 'Category' in attrs:
+            category_value = attrs['Category']
+            if category_value in category_mappings:
+                derived_category = category_mappings[category_value]
+                categorization_method = 'ATTRIBUTE'
+                print(f"   ✅ Vizag: Mapped Category '{category_value}' → {derived_category}")
+                
+                # Track category mapping for statistics
+                self.statistics['categories_assigned'][derived_category] += 1
+            else:
+                print(f"   ⚠️  Vizag: Unknown category '{category_value}', using filename category")
+        
+        # Store city-specific fields in source_attributes
         enhanced_source_attrs = attrs.copy()
-        if 'RuleID' in attrs:
-            enhanced_source_attrs['rule_id'] = attrs['RuleID']
-        if 'Override' in attrs:
-            enhanced_source_attrs['override_value'] = attrs['Override']
+        
+        # ✅ AMARAVATI-specific field handling
+        if layer.city.slug == 'amaravati':
+            if 'plot_code' in attrs:
+                enhanced_source_attrs['plot_code'] = attrs['plot_code']
+            if 'symbology' in attrs:
+                enhanced_source_attrs['symbology'] = attrs['symbology']
+            if 'plot_categ' in attrs:
+                enhanced_source_attrs['plot_category'] = attrs['plot_categ']
+            if 'township' in attrs:
+                enhanced_source_attrs['township'] = attrs['township']
+            if 'sector' in attrs:
+                enhanced_source_attrs['sector'] = attrs['sector']
+            if 'colony' in attrs:
+                enhanced_source_attrs['colony'] = attrs['colony']
+        
+        # ✅ VIZAG-specific field handling (existing)
+        elif layer.city.slug == 'vizag':
+            if 'RuleID' in attrs:
+                enhanced_source_attrs['rule_id'] = attrs['RuleID']
+            if 'Override' in attrs:
+                enhanced_source_attrs['override_value'] = attrs['Override']
         
         # Return only fields that exist in the GeoFeature model
         return {
             'source_fid': mapped_attrs.get('source_fid', attrs.get('FID')),
-            'source_object_id': attrs.get('OBJECTID'),
-            'name': mapped_attrs.get('name', ''),
-            'category_name': attrs.get('Category', ''),
+            'source_object_id': mapped_attrs.get('source_object_id', attrs.get('OBJECTID')),
+            'name': mapped_attrs.get('name', attrs.get('plot_code', '')),  # Use plot_code as name for Amaravati
+            'category_name': attrs.get('symbology', attrs.get('Category', '')),  # symbology for Amaravati, Category for Vizag
             'derived_category': derived_category,
-            'land_use_type': attrs.get('Category', derived_category),
+            'land_use_type': attrs.get('symbology', attrs.get('Category', derived_category)),
             'zoning': mapped_attrs.get('zoning', ''),
             
-            # Administrative info - Vizag specific
+            # Administrative info
             'district': attrs.get('DISTRICT', '').strip(),
             'mandal': attrs.get('MANDAL', '').strip(),
-            'village': attrs.get('Village', '').strip(),
+            'village': attrs.get('Village', attrs.get('lpsvillage', '')).strip(),
+            
+            # Amaravati-specific fields
+            'state': 'Andhra Pradesh' if layer.city.slug in ['amaravati', 'vizag'] else '',
             
             # Measurements
-            'source_area_value': attrs.get('Shape_Area'),
-            'source_length_value': attrs.get('Shape_Length'),
+            'source_area_value': mapped_attrs.get('source_area_value', attrs.get('Shape_Area', attrs.get('alloted_ex'))),
+            'source_length_value': mapped_attrs.get('source_length_value', attrs.get('Shape_Length')),
             
-            # Store ALL original attributes including Vizag-specific fields
+            # Store ALL original attributes including city-specific fields
             'source_attributes': enhanced_source_attrs,
             'geometry_simplified': True,
         }

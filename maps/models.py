@@ -222,6 +222,12 @@ class GeoFeature(models.Model):
     district = models.CharField(max_length=50, blank=True)
     mandal = models.CharField(max_length=50, blank=True)
     village = models.CharField(max_length=100, blank=True)
+
+    township = models.CharField(max_length=50, blank=True)      # Amaravati township
+    sector = models.CharField(max_length=50, blank=True)        # Amaravati sector
+    colony = models.CharField(max_length=100, blank=True)       # Amaravati colony
+    plot_number = models.CharField(max_length=50, blank=True)
+    plot_category = models.CharField(max_length=100, blank=True)
     
     # Enhanced PLU fields (Bangalore-specific but flexible)
     plu_primary_code = models.CharField(max_length=10, blank=True)          # E, M, D, P, Q, I, C, R
@@ -275,6 +281,9 @@ class GeoFeature(models.Model):
             models.Index(fields=['source_fid']),
             models.Index(fields=['is_valid']),
             models.Index(fields=['plu_authority']),
+            models.Index(fields=['township', 'sector']),
+            models.Index(fields=['plot_category']),
+            models.Index(fields=['colony']),
         ]
     
     def save(self, *args, **kwargs):

@@ -503,7 +503,6 @@ VIZAG_CONFIG = {
     }
 }
 
-# Amaravati Configuration (Standard GeoJSON)
 AMARAVATI_CONFIG = {
     'city_info': {
         'name': 'Amaravati',
@@ -514,49 +513,126 @@ AMARAVATI_CONFIG = {
     },
     'data_format': 'GEOJSON',
     'coordinate_precision': 8,
+    
+    'category_mappings': {
+        'C1 -Mixed use zone': 'MIXED_USE',                    # 16 features
+        'C2- General commercial zone': 'COMMERCIAL',          # 29801 features
+        'C3-Neighbourhood centre zone': 'COMMERCIAL',         # 121 features
+        'C4-Town centre zone': 'COMMERCIAL',                  # 24 features
+        'C5-Regional centre zone': 'COMMERCIAL',              # 13 features
+        'C6-Central business district zone': 'COMMERCIAL',    # 13 features
+        'Commercial Vacant': 'COMMERCIAL',                    # 2710 features
+        
+        'I1-Business park zone': 'INDUSTRIAL',                # 4 features
+        'I2-Logistics zone': 'INDUSTRIAL',                    # 5 features
+        'I3-Non polluting industry zone': 'INDUSTRIAL',       # 12 features
+        
+        'R1-Village planning zone': 'RESIDENTIAL',            # 187 features (Note: different from your list!)
+        'R3-Medium to high density zone': 'RESIDENTIAL',      # 43874 features
+        'R4-High density zone': 'RESIDENTIAL',                # 7 features
+        'RAA': 'RESIDENTIAL',                                  # 39 features
+        'Residential Vacant': 'RESIDENTIAL',                  # 5323 features
+        'SR2 Low Density Housing': 'RESIDENTIAL',             # 6 features
+        'SR4 - High Density Private': 'RESIDENTIAL',          # 11 features
+        
+        'P1-Passive zone': 'PROTECTED',                       # 757 features
+        'P2-Active zone': 'PROTECTED',                        # 1144 features
+        'P3-Protected zone': 'PROTECTED',                     # 210 features
+        'P3-Protected zone Hills': 'PROTECTED',               # 6 features
+        'SP1- Passive Zone': 'PROTECTED',                     # 33 features
+        'SP2- Active Zone': 'PROTECTED',                      # 54 features
+        'SP3-Protected Zone': 'PROTECTED',                    # 7 features
+        'PGN-G': 'PARKS_GREEN',                               # 1090 features
+        'PGN-V': 'PARKS_GREEN',                               # 658 features
+        
+        'SS1 - Government Zone': 'GOVERNMENT',                # 13 features
+        'SS2a- Education Zone': 'EDUCATION',                  # 17 features
+        'SS2b Cultural Zone': 'CULTURAL',                     # 19 features
+        'SS2c Health Zone': 'HEALTHCARE',                     # 2 features
+        'S2-Education zone': 'EDUCATION',                     # 400 features
+        'SS3 - Special Zone': 'SPECIAL',                      # 10 features
+        'S3-Special zone': 'SPECIAL',                         # 167 features
+        
+        'SC1a-Mixed Use': 'MIXED_USE',                        # 80 features
+        'SC1b - Mixed Use': 'MIXED_USE',                      # 20 features
+        
+        'SU1-Reserve Zone': 'UTILITIES',                      # 27 features
+        'SU2 - Road Network': 'TRANSPORT',                    # 13 features
+        'U1-Reserve zone': 'UTILITIES',                       # 548 features
+        'U2- Road reserve zone': 'TRANSPORT',                 # 3160 features
+        
+        'Burial Ground': 'CEMETERY',                          # 4 features
+    },
+    
     'file_mappings': {
-        'C1__Mixed_use_zone.geojson': 'MIXED_USE',
-        'C2__General_commercial_zone.geojson': 'COMMERCIAL',
+        'C1_Mixed_use_zone.geojson': 'MIXED_USE',
+        'C2_General_commercial_zone.geojson': 'COMMERCIAL',
         'C3_Neighbourhood_centre_zone.geojson': 'COMMERCIAL',
         'C4_Town_centre_zone.geojson': 'COMMERCIAL',
         'C5_Regional_centre_zone.geojson': 'COMMERCIAL',
         'C6_Central_business_district_zone.geojson': 'COMMERCIAL',
+        
         'I1_Business_park_zone.geojson': 'INDUSTRIAL',
         'I2_Logistics_zone.geojson': 'INDUSTRIAL',
         'I3_Non_polluting_industry_zone.geojson': 'INDUSTRIAL',
+        
         'R1_Village_planning_zone.geojson': 'RESIDENTIAL',
         'R3_Medium_to_high_density_zone.geojson': 'RESIDENTIAL',
         'R4_High_density_zone.geojson': 'RESIDENTIAL',
-        'SS1___Government_Zone.geojson': 'GOVERNMENT',
-        'SS2a__Education_Zone.geojson': 'EDUCATION',
+        
+        'SS1_Government_Zone.geojson': 'GOVERNMENT',
+        'SS2a_Education_Zone.geojson': 'EDUCATION',
         'SS2b_Cultural_Zone.geojson': 'CULTURAL',
         'SS2c_Health_Zone.geojson': 'HEALTHCARE',
-        'SU2___Road_Network.geojson': 'TRANSPORT',
-        'U2__Road_reserve_zone.geojson': 'TRANSPORT',
+        'SU2_Road_Network.geojson': 'TRANSPORT',
+        'U2_Road_reserve_zone.geojson': 'TRANSPORT',
         'Burial_Ground.geojson': 'CEMETERY',
+        
+        # Protected zones
         'P1_Passive_zone.geojson': 'PROTECTED',
         'P2_Active_zone.geojson': 'PROTECTED',
         'P3_Protected_zone.geojson': 'PROTECTED',
     },
+    
     'attribute_mappings': {
-        'name': 'name',
-        'zone_type': 'zoning',
-        'area': 'source_area_value',
+        'OBJECTID': 'source_object_id',
+        'plot_code': 'name',
+        'symbology': 'land_use_type',  # Key field for categorization
+        'alloted_ex': 'source_area_value',
+        'plot_no': 'plot_number',
+        'plot_categ': 'plot_category',
+        'township': 'township',
+        'sector': 'sector',
+        'colony': 'colony',
+        'Shape_Length': 'source_length_value',
+        'Shape_Area': 'calculated_area',
     },
+    
+    # Color scheme for Amaravati
     'colors': {
-        'RESIDENTIAL': '#66BB6A',    # Medium Green
-        'COMMERCIAL': '#FFA726',     # Amber
-        'MIXED_USE': '#AB47BC',      # Purple
-        'INDUSTRIAL': '#8D6E63',     # Brown
-        'GOVERNMENT': '#EF5350',     # Red
-        'EDUCATION': '#42A5F5',      # Light Blue
-        'HEALTHCARE': '#26A69A',     # Teal
-        'CULTURAL': '#7E57C2',       # Deep Purple
-        'TRANSPORT': '#29B6F6',      # Sky Blue
-        'UTILITIES': '#FF7043',      # Deep Orange
-        'PROTECTED': '#388E3C',      # Forest Green
-        'CEMETERY': '#757575',       # Grey
-        'SPECIAL': '#FFEE58',        # Yellow
+        'RESIDENTIAL': '#8BC34A',      # Light Green
+        
+        'COMMERCIAL': '#2196F3',       # Blue
+        'MIXED_USE': '#9C27B0',        # Purple
+        
+        'INDUSTRIAL': '#FF9800',       # Orange
+        
+        'GOVERNMENT': '#F44336',       # Red
+        'PUBLIC': '#E91E63',           # Pink
+        'EDUCATION': '#3F51B5',        # Indigo
+        'HEALTHCARE': '#009688',       # Teal
+        'CULTURAL': '#673AB7',         # Deep Purple
+        
+        'TRANSPORT': '#607D8B',        # Blue Grey
+        'UTILITIES': '#795548',        # Brown
+        
+        'PROTECTED': '#4CAF50',        # Green
+        'PARKS_GREEN': '#8BC34A',      # Light Green
+        'WATER_BODIES': '#03A9F4',     # Light Blue
+        
+        'CEMETERY': '#9E9E9E',         # Grey
+        'SPECIAL': '#FFEB3B',          # Yellow
+        'UNCLASSIFIED': '#CFD8DC',     # Light Blue Grey
     }
 }
 

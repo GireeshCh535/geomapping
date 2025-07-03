@@ -19,7 +19,7 @@ services:
   web:
     build: .
     ports:
-      - "8000:8000"
+      - "80:8000"
     environment:
       - DJANGO_DB_HOST=db
       - DJANGO_DB_NAME=geo_mapping_db
