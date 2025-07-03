@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Configuration
-SSH_KEY="/oneacre-prod.pem"
+SSH_KEY="oneacre-prod.pem"
 SERVER_HOST="ec2-3-110-50-194.ap-south-1.compute.amazonaws.com"
 ANSIBLE_USER="ubuntu"
 
