@@ -150,14 +150,17 @@
         group: ubuntu
         mode: '0755'
 
-    - name: Unzip project files to project directory
+    - name: Unzip project files to temporary location
       unarchive:
         src: "/tmp/{{ zip_file }}"
-        dest: "{{ project_dir }}"
+        dest: "/tmp"
         remote_src: yes
-        owner: ubuntu
-        group: ubuntu
-        extra_opts: [--strip-components=1]
+
+    - name: Move files from extracted directory to project directory
+      shell: |
+        cd /tmp/geomapping_deploy
+        cp -r . /opt/geomapping/
+        chown -R ubuntu:ubuntu /opt/geomapping
 
     - name: Update Django ALLOWED_HOSTS setting
       lineinfile:
