@@ -316,7 +316,7 @@
           🚀 Deployment completed successfully!
           
           Application URL: http://{{ ansible_default_ipv4.address }}
-          Application URL: http://ec2-3-110-50-194.ap-south-1.compute.amazonaws.com
+          Application URL: http://13.233.120.111
           
           Container Status:
           {{ container_status.stdout }}
