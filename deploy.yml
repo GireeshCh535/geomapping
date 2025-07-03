@@ -64,7 +64,6 @@
           - gnupg
           - lsb-release
           - software-properties-common
-          - python3-pip
           - unzip
         state: present
       when: docker_installed.rc != 0
@@ -120,20 +119,20 @@
         groups: docker
         append: yes
 
-    # Install Docker Compose
+    # Check and install docker-compose if missing
     - name: Check if docker-compose is available
       command: which docker-compose
       register: docker_compose_installed
       ignore_errors: yes
 
-    - name: Download Docker Compose
+    - name: Install Docker Compose if not found
       get_url:
         url: "https://github.com/docker/compose/releases/download/v2.20.2/docker-compose-linux-x86_64"
         dest: /usr/local/bin/docker-compose
         mode: '0755'
       when: docker_compose_installed.rc != 0
 
-    - name: Create docker-compose symlink
+    - name: Create docker-compose symlink if needed
       file:
         src: /usr/local/bin/docker-compose
         dest: /usr/bin/docker-compose
@@ -150,16 +149,16 @@
         msg: "Docker Compose version: {{ docker_compose_version.stdout }}"
 
     # Reset connection to apply group changes
-    - name: Reset ssh connection
+    - name: Reset ssh connection to allow user changes to affect ansible user
       meta: reset_connection
 
-    # Step 5: Stop existing containers (preserve data)
+    # Step 5: Check for existing docker processes and stop them (preserve data)
     - name: Check if project directory exists
       stat:
         path: "{{ project_dir }}"
       register: project_exists
 
-    - name: Stop existing Docker containers
+    - name: Stop existing Docker containers (preserve volumes)
       shell: |
         cd {{ project_dir }}
         docker-compose down --remove-orphans
@@ -167,32 +166,64 @@
       ignore_errors: yes
       become_user: ubuntu
 
-    - name: Wait for containers to stop
+    - name: Wait for containers to stop completely
       pause:
         seconds: 10
       when: project_exists.stat.exists
 
-    # Step 6: Delete old directory and create new one
-    - name: Force remove old project directory
-      shell: rm -rf {{ project_dir }}
+    - name: Clean up unused containers and images (preserve volumes)
+      shell: |
+        docker container prune -f
+        docker image prune -f
       ignore_errors: yes
 
-    - name: Create project directory
-      file:
-        path: "{{ project_dir }}"
-        state: directory
-        owner: ubuntu
-        group: ubuntu
-        mode: '0755'
+    # Step 6: Force delete and recreate directory
+    - name: Force remove old project directory
+      shell: |
+        rm -rf {{ project_dir }}
+        mkdir -p {{ project_dir }}
+        chown ubuntu:ubuntu {{ project_dir }}
 
-    - name: Unzip project files to project directory
+    - name: Verify directory is clean
+      shell: ls -la {{ project_dir }}
+      register: dir_contents
+
+    - name: Display directory contents (should be empty)
+      debug:
+        msg: "Directory contents: {{ dir_contents.stdout }}"
+
+    # Extract ZIP file properly (without --strip-components)
+    - name: Extract zip file to temporary location
       unarchive:
         src: "/tmp/{{ zip_file }}"
-        dest: "{{ project_dir }}"
+        dest: "/tmp"
         remote_src: yes
-        owner: ubuntu
-        group: ubuntu
-        extra_opts: [--strip-components=1]
+
+    - name: Find extracted directory and move contents
+      shell: |
+        # Find the extracted directory (it will be named something like geomapping_deploy)
+        EXTRACTED_DIR=$(find /tmp -maxdepth 1 -name "{{ project_name }}_deploy*" -type d | head -1)
+        if [ -n "$EXTRACTED_DIR" ]; then
+          # Move all contents from extracted directory to project directory
+          mv "$EXTRACTED_DIR"/* {{ project_dir }}/
+          # Also move hidden files if any
+          mv "$EXTRACTED_DIR"/.* {{ project_dir }}/ 2>/dev/null || true
+          # Remove the empty extracted directory
+          rm -rf "$EXTRACTED_DIR"
+          # Set proper ownership
+          chown -R ubuntu:ubuntu {{ project_dir }}
+        else
+          echo "No extracted directory found"
+          exit 1
+        fi
+
+    - name: Verify new deployment files
+      shell: ls -la {{ project_dir }}
+      register: new_dir_contents
+
+    - name: Display new directory contents
+      debug:
+        msg: "New deployment files: {{ new_dir_contents.stdout }}"
 
     - name: Update Django ALLOWED_HOSTS setting
       lineinfile:
@@ -200,7 +231,7 @@
         regexp: '^ALLOWED_HOSTS\s*='
         line: "ALLOWED_HOSTS = ['*']"
 
-    # Step 7: Build and start containers
+    # Step 7: Run docker-compose
     - name: Build Docker containers
       shell: docker-compose build --no-cache
       args:
@@ -235,8 +266,8 @@
       become_user: ubuntu
       ignore_errors: yes
 
-    # Step 9: Verify PostGIS extensions
-    - name: Verify PostGIS extensions
+    # Step 9: PostGIS extensions (handled by init-db.sql in docker)
+    - name: Verify PostGIS extensions are installed
       shell: docker-compose exec -T db psql -U postgres -d geo_mapping_db -c "SELECT extname FROM pg_extension WHERE extname LIKE '%postgis%';"
       args:
         chdir: "{{ project_dir }}"
@@ -246,7 +277,7 @@
 
     - name: Display PostGIS extensions
       debug:
-        msg: "PostGIS extensions: {{ postgis_check.stdout }}"
+        msg: "PostGIS extensions installed: {{ postgis_check.stdout }}"
       when: postgis_check.stdout is defined
 
     # Cleanup
@@ -294,3 +325,5 @@
           - Check containers: cd {{ project_dir }} && docker-compose ps
           - View logs: cd {{ project_dir }} && docker-compose logs -f
           - Access container: cd {{ project_dir }} && docker-compose exec web bash
+          
+          Project directory: {{ project_dir }}
