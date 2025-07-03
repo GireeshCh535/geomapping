@@ -212,7 +212,7 @@
 
     - name: Wait for containers to be ready
       wait_for:
-        port: 8000
+        port: 80
         host: "0.0.0.0"
         delay: 20
         timeout: 300
@@ -269,8 +269,8 @@
         msg: |
           🚀 Deployment completed successfully!
           
-          Application URL: http://{{ ansible_default_ipv4.address }}:8000
-          Application URL: http://ec2-3-110-50-194.ap-south-1.compute.amazonaws.com:8000
+          Application URL: http://{{ ansible_default_ipv4.address }}
+          Application URL: http://ec2-3-110-50-194.ap-south-1.compute.amazonaws.com
           
           Useful commands:
           - Check containers: cd {{ project_dir }} && docker-compose ps
