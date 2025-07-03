@@ -1,59 +1,58 @@
 ---
 - name: Deploy GeoMapping Application
-  hosts: all
+  hosts: aws_servers
   become: yes
-  remote_user: root
   vars:
     repo_url: "https://gitlab.com/rohit.boni/geomapping.git"
     project_name: "geomapping"
     project_dir: "/opt/{{ project_name }}"
-    temp_dir: "/tmp/{{ project_name }}_{{ ansible_date_time.epoch }}"
-    archive_name: "{{ project_name }}_{{ ansible_date_time.epoch }}.tar.gz"
-    container_prefix: "geomapping"
+    temp_dir: "/tmp/{{ project_name }}_deploy"
+    zip_file: "{{ project_name }}.zip"
 
   tasks:
-    - name: Clean up old temp files quickly
-      shell: |
-        rm -rf /tmp/geomapping* || true
-        rm -rf /tmp/geomapping_*.tar.gz || true
-      delegate_to: localhost
-      run_once: true
-      ignore_errors: yes
-
-    - name: Install git on localhost
-      package:
-        name: git
-        state: present
-      delegate_to: localhost
-      run_once: true
-      ignore_errors: yes
-
-    - name: Clone the GitLab repository (shallow clone for speed)
-      shell: |
-        cd /tmp
-        rm -rf {{ temp_dir }}
-        git clone --depth 1 {{ repo_url }} {{ temp_dir }}
+    # Step 1: Clone from git to local machine
+    - name: Clean up old temp files on local machine
+      file:
+        path: "{{ temp_dir }}"
+        state: absent
       delegate_to: localhost
       run_once: true
 
-    - name: Create .tar.gz archive of the cloned repository
-      shell: |
-        cd /tmp
-        tar -czf {{ archive_name }} -C {{ temp_dir }} .
+    - name: Clone repository to local machine
+      git:
+        repo: "{{ repo_url }}"
+        dest: "{{ temp_dir }}"
+        depth: 1
       delegate_to: localhost
       run_once: true
 
-    - name: Send archive to remote server
+    # Step 2: Zip the cloned repository
+    - name: Create zip archive of the project
+      archive:
+        path: "{{ temp_dir }}"
+        dest: "/tmp/{{ zip_file }}"
+        format: zip
+      delegate_to: localhost
+      run_once: true
+
+    # Step 3: Send zip file to server
+    - name: Upload zip file to server
       copy:
-        src: "/tmp/{{ archive_name }}"
-        dest: "/tmp/{{ archive_name }}"
+        src: "/tmp/{{ zip_file }}"
+        dest: "/tmp/{{ zip_file }}"
 
-    - name: Update apt package cache
+    # Step 4: Check if docker is installed, install if not
+    - name: Check if Docker is installed
+      command: which docker
+      register: docker_installed
+      ignore_errors: yes
+
+    - name: Update apt cache
       apt:
         update_cache: yes
-        cache_valid_time: 3600
+      when: docker_installed.rc != 0
 
-    - name: Install required packages
+    - name: Install required packages for Docker
       apt:
         name:
           - apt-transport-https
@@ -61,20 +60,23 @@
           - curl
           - gnupg
           - lsb-release
-          - python3-pip
+          - software-properties-common
         state: present
+      when: docker_installed.rc != 0
 
     - name: Add Docker GPG key
       apt_key:
         url: https://download.docker.com/linux/ubuntu/gpg
         state: present
+      when: docker_installed.rc != 0
 
     - name: Add Docker repository
       apt_repository:
         repo: "deb [arch=amd64] https://download.docker.com/linux/ubuntu {{ ansible_distribution_release }} stable"
         state: present
+      when: docker_installed.rc != 0
 
-    - name: Install Docker and Docker Compose
+    - name: Install Docker
       apt:
         name:
           - docker-ce
@@ -84,11 +86,13 @@
           - docker-compose-plugin
         state: present
         update_cache: yes
+      when: docker_installed.rc != 0
 
-    - name: Install Docker Compose (standalone)
+    - name: Install Docker Compose standalone
       pip:
         name: docker-compose
         state: present
+      when: docker_installed.rc != 0
 
     - name: Start and enable Docker service
       systemd:
@@ -96,101 +100,149 @@
         state: started
         enabled: yes
 
-    - name: Add user to docker group
+    - name: Add ubuntu user to docker group
       user:
-        name: "{{ ansible_user }}"
+        name: ubuntu
         groups: docker
         append: yes
 
-    - name: Stop old Docker containers (PRESERVE VOLUMES)
+    # Step 5: Check for existing docker processes and stop them (preserve data)
+    - name: Check if project directory exists
+      stat:
+        path: "{{ project_dir }}"
+      register: project_exists
+
+    - name: Stop existing Docker containers (preserve volumes)
       shell: |
-        cd {{ project_dir }} && docker-compose down --remove-orphans || true
-        # REMOVED: docker system prune -f (this was deleting volumes!)
-        # Only remove unused containers and images, NOT volumes
-        docker container prune -f || true
-        docker image prune -f || true
+        cd {{ project_dir }}
+        docker-compose down --remove-orphans
+      when: project_exists.stat.exists
       ignore_errors: yes
 
-    - name: Remove old project directory (but keep volumes)
-      shell: rm -rf {{ project_dir }}
+    - name: Clean up unused containers and images (preserve volumes)
+      shell: |
+        docker container prune -f
+        docker image prune -f
       ignore_errors: yes
 
-    - name: Re-create project directory
+    # Step 6: Unzip the uploaded file
+    - name: Remove old project directory
+      file:
+        path: "{{ project_dir }}"
+        state: absent
+
+    - name: Create project directory
       file:
         path: "{{ project_dir }}"
         state: directory
+        owner: ubuntu
+        group: ubuntu
         mode: '0755'
 
-    - name: Unarchive new code
+    - name: Unzip project files to project directory
       unarchive:
-        src: "/tmp/{{ archive_name }}"
+        src: "/tmp/{{ zip_file }}"
         dest: "{{ project_dir }}"
         remote_src: yes
+        owner: ubuntu
+        group: ubuntu
+        extra_opts: [--strip-components=1]
 
-    - name: Update Django ALLOWED_HOSTS in settings.py
+    - name: Update Django ALLOWED_HOSTS setting
       lineinfile:
         path: "{{ project_dir }}/geo_mapping/settings.py"
         regexp: '^ALLOWED_HOSTS\s*='
         line: "ALLOWED_HOSTS = ['*']"
 
+    # Step 7: Run docker-compose
     - name: Build Docker containers
       shell: docker-compose build --no-cache
       args:
         chdir: "{{ project_dir }}"
+      become_user: ubuntu
 
-    - name: Start Docker containers in background
+    - name: Start Docker containers
       shell: docker-compose up -d
       args:
         chdir: "{{ project_dir }}"
+      become_user: ubuntu
 
     - name: Wait for containers to be ready
       wait_for:
         port: 8000
         host: "0.0.0.0"
-        delay: 30
+        delay: 20
         timeout: 300
 
+    # Step 8: Run migrations
     - name: Run Django migrations
       shell: docker-compose exec -T web python manage.py migrate
       args:
         chdir: "{{ project_dir }}"
+      become_user: ubuntu
 
     - name: Collect static files
       shell: docker-compose exec -T web python manage.py collectstatic --noinput
       args:
         chdir: "{{ project_dir }}"
+      become_user: ubuntu
       ignore_errors: yes
 
-    - name: Setup cities (if management command exists)
-      shell: docker-compose exec -T web python manage.py setup_cities --with-plu
+    # Step 9: PostGIS extensions (handled by init-db.sql in docker)
+    - name: Verify PostGIS extensions are installed
+      shell: docker-compose exec -T db psql -U postgres -d geo_mapping_db -c "SELECT extname FROM pg_extension WHERE extname LIKE '%postgis%';"
       args:
         chdir: "{{ project_dir }}"
-      ignore_errors: yes
+      become_user: ubuntu
+      register: postgis_check
 
-    - name: Delete transferred archive file from remote
+    - name: Display PostGIS extensions
+      debug:
+        msg: "PostGIS extensions installed: {{ postgis_check.stdout }}"
+
+    # Cleanup
+    - name: Remove uploaded zip file
       file:
-        path: "/tmp/{{ archive_name }}"
+        path: "/tmp/{{ zip_file }}"
         state: absent
 
-    - name: Clean up localhost temp files (quick)
-      shell: |
-        rm -rf {{ temp_dir }} || true
-        rm -f /tmp/{{ archive_name }} || true
+    - name: Clean up local temp files
+      file:
+        path: "{{ temp_dir }}"
+        state: absent
       delegate_to: localhost
       run_once: true
-      ignore_errors: yes
 
-    - name: Display deployment information
+    - name: Clean up local zip file
+      file:
+        path: "/tmp/{{ zip_file }}"
+        state: absent
+      delegate_to: localhost
+      run_once: true
+
+    # Final status
+    - name: Display deployment status
       debug:
         msg: |
           🚀 Deployment completed successfully!
           
           Application URL: http://{{ ansible_default_ipv4.address }}:8000
+          Application URL: http://ec2-3-110-50-194.ap-south-1.compute.amazonaws.com:8000
           
           Useful commands:
           - Check containers: cd {{ project_dir }} && docker-compose ps
           - View logs: cd {{ project_dir }} && docker-compose logs -f
-          - Access shell: cd {{ project_dir }} && docker-compose exec web bash
-          - Check volumes: docker volume ls
+          - Access container: cd {{ project_dir }} && docker-compose exec web bash
           
           Project directory: {{ project_dir }}
+
+    - name: Show container status
+      shell: docker-compose ps
+      args:
+        chdir: "{{ project_dir }}"
+      become_user: ubuntu
+      register: container_status
+
+    - name: Display container status
+      debug:
+        msg: "{{ container_status.stdout }}"

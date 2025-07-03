@@ -1,78 +1,111 @@
 #!/bin/bash
 
-SERVER_IP="134.122.116.219"
-SERVER_PASSWORD="clustering@1Acre"
-REPO_URL="https://gitlab.com/rohit.boni/geomapping.git"
+# Configuration
+SSH_KEY="/oneacre-prod.pem"
+SERVER_HOST="ec2-3-110-50-194.ap-south-1.compute.amazonaws.com"
+ANSIBLE_USER="ubuntu"
 
-echo "🚀 Manual deployment starting..."
+echo "🚀 Starting GeoDjango deployment to AWS EC2..."
 
-# Step 1: Clone locally (you're already authenticated)
-echo "📥 Cloning repository locally..."
-rm -rf /tmp/geomapping_deploy
-git clone $REPO_URL /tmp/geomapping_deploy
-
-# Step 2: Create archive
-echo "📦 Creating archive..."
-cd /tmp
-tar -czf geomapping.tar.gz -C geomapping_deploy .
-
-# Step 3: Upload to server
-echo "⬆️  Uploading to server..."
-sshpass -p "$SERVER_PASSWORD" scp -o StrictHostKeyChecking=no geomapping.tar.gz root@$SERVER_IP:/tmp/
-
-# Step 4: Deploy on server
-echo "🚀 Deploying on server..."
-sshpass -p "$SERVER_PASSWORD" ssh -o StrictHostKeyChecking=no root@$SERVER_IP << 'EOF'
-
-# Install Docker if not installed
-if ! command -v docker &> /dev/null; then
-    apt update
-    apt install -y docker.io docker-compose git
-    systemctl start docker
-    systemctl enable docker
+# Check if SSH key exists
+if [ ! -f "$SSH_KEY" ]; then
+    echo "❌ SSH key not found: $SSH_KEY"
+    echo "Please ensure the SSH key file exists and has correct permissions."
+    exit 1
 fi
 
-# Setup project
-cd /opt
-rm -rf geomapping
-mkdir -p geomapping
-cd geomapping
+# Set correct permissions for SSH key
+chmod 400 "$SSH_KEY"
+echo "✅ SSH key permissions set"
 
-# Extract uploaded code
-tar -xzf /tmp/geomapping.tar.gz
+# Check if Ansible is installed
+if ! command -v ansible-playbook &> /dev/null; then
+    echo "📦 Ansible not found. Installing..."
+    pip3 install ansible
+    if [ $? -ne 0 ]; then
+        echo "❌ Failed to install Ansible. Please install manually:"
+        echo "   pip3 install ansible"
+        exit 1
+    fi
+fi
 
-# Update Django settings for server access
-sed -i "s/ALLOWED_HOSTS = \[\]/ALLOWED_HOSTS = ['*']/" geo_mapping/settings.py || true
-sed -i "s/ALLOWED_HOSTS = \[.*\]/ALLOWED_HOSTS = ['*']/" geo_mapping/settings.py || true
+echo "✅ Ansible is available"
 
-# Stop old containers
-docker-compose down 2>/dev/null || true
+# Create temporary inventory file
+INVENTORY_FILE="/tmp/inventory_aws.ini"
+cat > "$INVENTORY_FILE" << EOF
+[aws_servers]
+geomapping-server ansible_host=$SERVER_HOST
 
-# Build and start
-echo "🔧 Building containers..."
-docker-compose build
-
-echo "🚀 Starting containers..."
-docker-compose up -d
-
-# Wait a bit for containers to start
-sleep 15
-
-# Run migrations
-echo "🗄️  Running migrations..."
-docker-compose exec -T web python manage.py migrate 2>/dev/null || echo "Migrations skipped"
-
-# Clean up
-rm -f /tmp/geomapping.tar.gz
-
-echo "✅ Deployment completed!"
-echo "🌐 Application should be available at: http://134.122.116.219:8000"
-
+[aws_servers:vars]
+ansible_user=$ANSIBLE_USER
+ansible_ssh_private_key_file=$SSH_KEY
+ansible_ssh_common_args='-o StrictHostKeyChecking=no'
+ansible_python_interpreter=/usr/bin/python3
 EOF
 
-# Clean up local files
-rm -rf /tmp/geomapping_deploy
-rm -f /tmp/geomapping.tar.gz
+echo "✅ Inventory file created"
 
-echo "🎉 Manual deployment completed!"
-echo "🌐 Check: http://$SERVER_IP:8000"
+# Test SSH connection
+echo "🔐 Testing SSH connection..."
+ssh -i "$SSH_KEY" -o StrictHostKeyChecking=no -o ConnectTimeout=10 "$ANSIBLE_USER@$SERVER_HOST" "echo 'SSH connection successful'" 2>/dev/null
+if [ $? -ne 0 ]; then
+    echo "❌ SSH connection failed. Please check:"
+    echo "   1. SSH key path: $SSH_KEY"
+    echo "   2. Server hostname: $SERVER_HOST"
+    echo "   3. AWS Security Group allows SSH (port 22)"
+    echo "   4. Server is running"
+    exit 1
+fi
+
+echo "✅ SSH connection verified"
+
+# Check if deploy.yml exists
+if [ ! -f "deploy.yml" ]; then
+    echo "❌ deploy.yml not found in current directory"
+    echo "Please ensure deploy.yml is in the same directory as this script"
+    exit 1
+fi
+
+echo "✅ deploy.yml found"
+
+# Run the Ansible playbook
+echo "🚀 Running Ansible playbook..."
+echo "================================================"
+
+ansible-playbook -i "$INVENTORY_FILE" deploy.yml -v
+
+# Check if deployment was successful
+if [ $? -eq 0 ]; then
+    echo "================================================"
+    echo "🎉 Deployment completed successfully!"
+    echo ""
+    echo "🌐 Your application should be available at:"
+    echo "   http://$SERVER_HOST:8000"
+    echo ""
+    echo "📋 Useful commands to check your deployment:"
+    echo "   ssh -i \"$SSH_KEY\" $ANSIBLE_USER@$SERVER_HOST"
+    echo "   cd /opt/geomapping"
+    echo "   docker-compose ps"
+    echo "   docker-compose logs -f"
+    echo ""
+    echo "⚠️  Make sure your AWS Security Group allows inbound traffic on port 8000"
+else
+    echo "================================================"
+    echo "❌ Deployment failed!"
+    echo "Please check the error messages above and try again."
+    echo ""
+    echo "🔍 Common issues:"
+    echo "   1. AWS Security Group not allowing SSH (port 22)"
+    echo "   2. AWS Security Group not allowing HTTP (port 8000)"
+    echo "   3. SSH key permissions incorrect"
+    echo "   4. Server not responding"
+    echo ""
+    echo "📞 To debug manually:"
+    echo "   ssh -i \"$SSH_KEY\" $ANSIBLE_USER@$SERVER_HOST"
+fi
+
+# Clean up temporary inventory file
+rm -f "$INVENTORY_FILE"
+
+echo "🧹 Cleaned up temporary files"
