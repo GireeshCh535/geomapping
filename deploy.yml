@@ -64,6 +64,7 @@
           - gnupg
           - lsb-release
           - software-properties-common
+          - python3-pip
         state: present
       when: docker_installed.rc != 0
 
@@ -108,6 +109,13 @@
         name: ubuntu
         groups: docker
         append: yes
+
+    # Ensure unzip is installed for extracting archives
+    - name: Install unzip utility
+      apt:
+        name: unzip
+        state: present
+        update_cache: yes
 
     # Step 5: Check for existing docker processes and stop them (preserve data)
     - name: Check if project directory exists
