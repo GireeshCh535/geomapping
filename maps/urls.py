@@ -70,4 +70,17 @@ urlpatterns = [
      path('cities/<slug:city_slug>/progressive/',
          views.CityProgressiveView.as_view(), name='city_progressive'),
          
+    # Cached endpoints (add these)
+    path('cities/<slug:city_slug>/complete-cached/',
+         views.CachedCityCompleteView.as_view(), name='city_complete_cached'),
+
+    path('cities/<slug:city_slug>/progressive-cached/',
+         views.CachedProgressiveView.as_view(), name='city_progressive_cached'),
+
+    path('cache/manage/<slug:city_slug>/',
+         views.CacheManagementView.as_view(), name='cache_management'),
+
+    path('cache/stats/',
+         views.CacheManagementView.as_view(), name='cache_stats'),
+
 ]

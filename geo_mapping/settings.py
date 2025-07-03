@@ -202,3 +202,57 @@ MEDIA_ROOT = BASE_DIR / 'media'
 DATA_DIR = BASE_DIR / 'data'
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+GIS_CACHE_TIMEOUT = 86400 * 7 
+GIS_CACHE_COMPRESSION = True   
+
+REDIS_URL = os.getenv('REDIS_URL', 'redis://127.0.0.1:6379/1')
+
+CACHES = {
+    'default': {
+        'BACKEND': 'django_redis.cache.RedisCache',
+        'LOCATION': REDIS_URL,  
+        'OPTIONS': {
+            'CLIENT_CLASS': 'django_redis.client.DefaultClient',
+            'COMPRESSOR': 'django_redis.compressors.zlib.ZlibCompressor',
+            'CONNECTION_POOL_KWARGS': {
+                'max_connections': 50,
+                'retry_on_timeout': True,
+                'socket_timeout': 5,      
+                'socket_connect_timeout': 5,
+            }
+        },
+        'KEY_PREFIX': 'gis_cache',
+        'TIMEOUT': GIS_CACHE_TIMEOUT,
+    }
+}
+
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'formatters': {
+        'verbose': {
+            'format': '{levelname} {asctime} {module} {message}',
+            'style': '{',
+        },
+    },
+    'handlers': {
+        'console': {
+            'level': 'INFO',
+            'class': 'logging.StreamHandler',
+            'formatter': 'verbose',
+        },
+    },
+    'loggers': {
+        'maps.caching': {
+            'handlers': ['console'],
+            'level': 'INFO',
+            'propagate': True,
+        },
+        'django_redis': {  
+            'handlers': ['console'],
+            'level': 'INFO',
+            'propagate': True,
+        },
+    },
+}

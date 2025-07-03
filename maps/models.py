@@ -51,7 +51,7 @@ class LayerCategory(models.Model):
         ('AGRICULTURAL', 'Agricultural'),
         ('CEMETERY', 'Cemetery'),
         ('DRAINS', 'Drains'),
-        ('HILLS', 'Hills/Topographic'),  # ✅ ADD THIS LINE
+        ('HILLS', 'Hills/Topographic'),
         ('SPECIAL', 'Special Use'),
         ('UNCLASSIFIED', 'Unclassified'),
     ]

@@ -18,6 +18,10 @@ import mapbox_vector_tile
 from django.contrib.gis.geos import Point
 from django.contrib.gis.measure import Distance
 from .config import get_city_config
+import logging
+from .caching import gis_cache, cache_gis_response
+import time
+from django.utils import timezone
 
 from .models import (
     City, LayerCategory, DataLayer, GeoFeature, VectorTileLayer, 
@@ -29,6 +33,7 @@ from .serializers import (
 )
 from .services import DataImportService, VectorTileService
 from .config import get_city_config, get_plu_mapping
+logger = logging.getLogger(__name__)
 
 class CityViewSet(viewsets.ReadOnlyModelViewSet):
     """Enhanced city viewset with PLU information"""
@@ -1544,3 +1549,451 @@ class CityProgressiveView(APIView):
         
         return bounds if valid_bounds else None
     
+
+
+class CachedCityCompleteView(APIView):
+    """
+    🚀 CACHED VERSION: Complete city data with intelligent caching
+    - First load: Generates and caches data (may take time)
+    - Subsequent loads: Instant from cache
+    """
+    
+    def get(self, request, city_slug):
+        start_time = time.time()
+        
+        try:
+            city = get_object_or_404(City, slug=city_slug, is_active=True)
+            
+            # Extract cache parameters
+            cache_params = {
+                'no_limits': request.GET.get('no_limits', 'false').lower() == 'true',
+                'max_per_layer': request.GET.get('max_per_layer', '5000'),
+                'force_geojson': request.GET.get('force_geojson', 'false').lower() == 'true',
+                'force_tiles': request.GET.get('force_tiles', 'false').lower() == 'true'
+            }
+            
+            # 🚀 CACHE CHECK: Try to get from cache first
+            logger.info(f"🔍 Checking cache for {city_slug} with params: {cache_params}")
+            cached_data = gis_cache.get_city_complete(city_slug, **cache_params)
+            
+            if cached_data:
+                # ⚡ CACHE HIT: Return instantly
+                cache_time = time.time() - start_time
+                logger.info(f"⚡ CACHE HIT! Loaded {city_slug} in {cache_time:.3f}s")
+                
+                # Add cache metadata to response
+                cached_data['cache_info'] = {
+                    'cache_hit': True,
+                    'load_time_seconds': round(cache_time, 3),
+                    'loaded_from': 'cache'
+                }
+                
+                response = Response(cached_data)
+                response['X-Cache-Status'] = 'HIT'
+                response['X-Load-Time'] = str(cache_time)
+                return response
+            
+            # 💾 CACHE MISS: Generate data and cache it
+            logger.info(f"💾 CACHE MISS for {city_slug}. Generating data...")
+            
+            # Get layers and calculate total features
+            layers = DataLayer.objects.filter(
+                city=city,
+                is_processed=True
+            ).select_related('category').order_by('category__display_order', 'name')
+            
+            if not layers.exists():
+                return Response({
+                    'error': 'No layers found for this city',
+                    'city': city_slug
+                }, status=404)
+            
+            total_features = sum(layer.feature_count or 0 for layer in layers)
+            
+            # 📊 STRATEGY SELECTION (same as original but with caching)
+            TILE_THRESHOLD = 100000
+            PROGRESSIVE_THRESHOLD = 5000
+            
+            logger.info(f"📊 Strategy selection: {total_features} features")
+            
+            if (cache_params['force_tiles'] or 
+                (total_features > TILE_THRESHOLD and not cache_params['force_geojson'])):
+                
+                # Return tile-based response (no caching needed - tiles are cached separately)
+                response_data = self._get_tile_based_response(city, layers, total_features)
+                
+            elif (cache_params['force_geojson'] or cache_params['no_limits'] or 
+                  total_features <= PROGRESSIVE_THRESHOLD):
+                
+                # Generate complete GeoJSON and cache it
+                response_data = self._get_complete_geojson_response(
+                    city, layers, total_features, request
+                )
+                
+                # 🔥 CACHE THE RESPONSE for future requests
+                generation_time = time.time() - start_time
+                logger.info(f"📦 Caching complete data for {city_slug} (took {generation_time:.1f}s)")
+                
+                cache_success = gis_cache.cache_city_complete(city_slug, response_data, **cache_params)
+                
+                response_data['cache_info'] = {
+                    'cache_hit': False,
+                    'load_time_seconds': round(generation_time, 3),
+                    'loaded_from': 'database',
+                    'cached_for_future': cache_success
+                }
+                
+            else:
+                # Progressive loading info
+                response_data = self._get_progressive_info_response(city, layers, total_features)
+            
+            total_time = time.time() - start_time
+            response = Response(response_data)
+            response['X-Cache-Status'] = 'MISS'
+            response['X-Load-Time'] = str(total_time)
+            
+            return response
+            
+        except Exception as e:
+            logger.error(f"❌ Error in CachedCityCompleteView: {e}")
+            return Response({
+                'error': 'Failed to load city data',
+                'message': str(e)
+            }, status=500)
+    
+    def _get_complete_geojson_response(self, city, layers, total_features, request):
+        """Generate complete GeoJSON response (same as original but optimized)"""
+        # This is the same logic as your original CityCompleteView._get_complete_geojson_response
+        # but I'll add some optimizations
+        
+        no_limits = request.GET.get('no_limits', 'false').lower() == 'true'
+        max_features_per_layer = None if no_limits else int(request.GET.get('max_per_layer', 5000))
+        
+        all_features = []
+        layer_metadata = []
+        
+        logger.info(f"🔄 Processing {len(layers)} layers...")
+        
+        for i, layer in enumerate(layers):
+            logger.info(f"   📂 [{i+1}/{len(layers)}] Processing {layer.name}...")
+            
+            try:
+                # Get features for this layer
+                features_query = GeoFeature.objects.filter(
+                    layer=layer,
+                    is_valid=True
+                ).select_related('layer__category')
+                
+                if max_features_per_layer is not None:
+                    features = features_query[:max_features_per_layer]
+                    layer_feature_count = min(features_query.count(), max_features_per_layer)
+                else:
+                    features = features_query.all()
+                    layer_feature_count = features_query.count()
+                
+                # Get layer color
+                layer_color = self._get_layer_color(layer)
+                
+                # Add layer metadata
+                layer_metadata.append({
+                    'slug': layer.slug,
+                    'name': layer.name,
+                    'category': layer.category.name if layer.category else 'Unknown',
+                    'category_code': layer.category.code if layer.category else None,
+                    'color': layer_color,
+                    'feature_count': layer_feature_count,
+                    'total_available': features_query.count(),
+                })
+                
+                # Convert features to GeoJSON with batch processing
+                batch_size = 1000
+                for batch_start in range(0, len(features), batch_size):
+                    batch_features = features[batch_start:batch_start + batch_size]
+                    
+                    for feature in batch_features:
+                        try:
+                            import json
+                            geometry = json.loads(feature.geometry.geojson)
+                            
+                            properties = {
+                                'id': feature.id,
+                                'name': feature.name or '',
+                                'layer_slug': layer.slug,
+                                'layer_name': layer.name,
+                                'category': layer.category.name if layer.category else 'Unknown',
+                                'category_code': layer.category.code if layer.category else None,
+                                'land_use': feature.land_use_type or '',
+                                'plu_code': feature.plu_primary_code or '',
+                                'area': float(feature.calculated_area) if feature.calculated_area else 0.0,
+                                'color': layer_color,
+                                'city': city.slug
+                            }
+                            
+                            all_features.append({
+                                'type': 'Feature',
+                                'geometry': geometry,
+                                'properties': properties
+                            })
+                            
+                        except Exception as e:
+                            logger.warning(f"Skipping feature {feature.id}: {e}")
+                            continue
+                
+                logger.info(f"   ✅ Processed {layer_feature_count:,} features")
+                
+            except Exception as e:
+                logger.error(f"❌ Error processing layer {layer.slug}: {e}")
+                continue
+        
+        # Build response
+        response_data = {
+            'type': 'FeatureCollection',
+            'strategy': 'complete_geojson_cached',
+            'city': {
+                'slug': city.slug,
+                'name': city.name,
+                'center': [city.center_lat, city.center_lng]
+            },
+            'features': all_features,
+            'metadata': {
+                'total_features': len(all_features),
+                'total_layers': len(layer_metadata),
+                'layers': layer_metadata,
+                'no_limits_mode': no_limits,
+                'max_per_layer': max_features_per_layer,
+                'generated_at': timezone.now().isoformat()
+            }
+        }
+        
+        logger.info(f"✅ Generated complete GeoJSON: {len(all_features):,} features, {len(layer_metadata)} layers")
+        
+        return response_data
+    
+    def _get_tile_based_response(self, city, layers, total_features):
+        """Return tile-based response for large datasets"""
+        layer_info = []
+        
+        for layer in layers:
+            layer_info.append({
+                'slug': layer.slug,
+                'name': layer.name,
+                'category': layer.category.name if layer.category else 'Unknown',
+                'color': self._get_layer_color(layer),
+                'feature_count': layer.feature_count,
+                'tile_url': f'/api/tiles/{city.slug}/{layer.slug}/{{z}}/{{x}}/{{y}}.mvt'
+            })
+        
+        return {
+            'strategy': 'tile_based',
+            'reason': f'Large dataset ({total_features:,} features)',
+            'city': city.slug,
+            'combined_tile_url': f'/api/tiles/{city.slug}/combined/{{z}}/{{x}}/{{y}}.mvt',
+            'layers': layer_info,
+            'recommended_zoom': {'min': 10, 'max': 16},
+        }
+    
+    def _get_progressive_info_response(self, city, layers, total_features):
+        """Return progressive loading info"""
+        return {
+            'strategy': 'progressive_loading',
+            'reason': f'Medium dataset ({total_features:,} features)',
+            'city': city.slug,
+            'total_features': total_features,
+            'recommended_chunk_size': 1000,
+            'progressive_url': f'/api/cities/{city.slug}/progressive/',
+            'layers': [{'slug': l.slug, 'name': l.name, 'feature_count': l.feature_count} for l in layers]
+        }
+    
+    def _get_layer_color(self, layer):
+        """Get color for a layer"""
+        try:
+            from .config import get_city_config
+            city_config = get_city_config(layer.city.slug)
+            if city_config and 'colors' in city_config:
+                category_code = layer.category.code if layer.category else None
+                if category_code and category_code in city_config['colors']:
+                    return city_config['colors'][category_code]
+            
+            if layer.category:
+                return layer.category.default_color
+            return '#666666'
+        except:
+            return '#666666'
+
+class CachedProgressiveView(APIView):
+    """
+    🚀 CACHED VERSION: Progressive loading with chunk-level caching
+    """
+    
+    def get(self, request, city_slug):
+        try:
+            city = get_object_or_404(City, slug=city_slug, is_active=True)
+            
+            # Get pagination parameters
+            chunk_size = int(request.GET.get('chunk_size', 1000))
+            chunk_index = int(request.GET.get('chunk', 0))
+            layer_slug = request.GET.get('layer')
+            
+            cache_params = {
+                'chunk_size': chunk_size,
+                'layer_slug': layer_slug or 'all'
+            }
+            
+            # 🚀 CACHE CHECK: Try to get chunk from cache
+            cached_chunk = gis_cache.get_progressive_chunk(city_slug, chunk_index, **cache_params)
+            
+            if cached_chunk:
+                logger.info(f"⚡ CACHE HIT for chunk {chunk_index} of {city_slug}")
+                cached_chunk['cache_info'] = {
+                    'cache_hit': True,
+                    'chunk_index': chunk_index
+                }
+                response = Response(cached_chunk)
+                response['X-Cache-Status'] = 'HIT'
+                return response
+            
+            # 💾 CACHE MISS: Generate chunk
+            logger.info(f"💾 CACHE MISS for chunk {chunk_index} of {city_slug}")
+            
+            # Generate chunk data (use existing logic)
+            chunk_data = self._load_progressive_chunk(city, chunk_index, chunk_size, layer_slug)
+            
+            # 🔥 CACHE THE CHUNK
+            cache_success = gis_cache.cache_progressive_chunk(city_slug, chunk_index, chunk_data, **cache_params)
+            
+            chunk_data['cache_info'] = {
+                'cache_hit': False,
+                'chunk_index': chunk_index,
+                'cached_for_future': cache_success
+            }
+            
+            response = Response(chunk_data)
+            response['X-Cache-Status'] = 'MISS'
+            return response
+            
+        except Exception as e:
+            logger.error(f"❌ Error in CachedProgressiveView: {e}")
+            return Response({
+                'error': 'Failed to load chunk',
+                'message': str(e)
+            }, status=500)
+    
+    def _load_progressive_chunk(self, city, chunk_index, chunk_size, layer_slug=None):
+        """Load a specific chunk (same as original logic)"""
+        # Implementation here matches your existing CityProgressiveView._load_progressive_chunk
+        # but with optimizations
+        
+        offset = chunk_index * chunk_size
+        
+        # Get layers to process
+        layers = DataLayer.objects.filter(city=city, is_processed=True)
+        if layer_slug:
+            layers = layers.filter(slug=layer_slug)
+        
+        chunk_features = []
+        total_available = 0
+        
+        # Get features for this chunk
+        features_query = GeoFeature.objects.filter(
+            layer__city=city,
+            layer__is_processed=True,
+            is_valid=True
+        ).select_related('layer', 'layer__category').order_by('id')
+        
+        total_available = features_query.count()
+        chunk_features_data = features_query[offset:offset + chunk_size]
+        
+        # Convert to GeoJSON
+        for feature in chunk_features_data:
+            try:
+                import json
+                geometry = json.loads(feature.geometry.geojson)
+                
+                properties = {
+                    'id': feature.id,
+                    'name': feature.name or '',
+                    'layer_slug': feature.layer.slug,
+                    'category': feature.layer.category.name if feature.layer.category else 'Unknown',
+                    'land_use': feature.land_use_type or '',
+                    'area': float(feature.calculated_area) if feature.calculated_area else 0.0,
+                    'city': city.slug
+                }
+                
+                chunk_features.append({
+                    'type': 'Feature',
+                    'geometry': geometry,
+                    'properties': properties
+                })
+                
+            except Exception as e:
+                logger.warning(f"Skipping feature {feature.id}: {e}")
+                continue
+        
+        is_last_chunk = (offset + chunk_size) >= total_available
+        progress_percentage = min(((chunk_index + 1) * chunk_size / total_available) * 100, 100)
+        
+        return {
+            'type': 'FeatureCollection',
+            'strategy': 'progressive_loading_cached',
+            'chunk_info': {
+                'chunk_index': chunk_index,
+                'chunk_size': chunk_size,
+                'features_in_chunk': len(chunk_features),
+                'offset': offset,
+                'is_last_chunk': is_last_chunk,
+                'progress_percentage': round(progress_percentage, 1)
+            },
+            'city': {
+                'slug': city.slug,
+                'name': city.name,
+            },
+            'features': chunk_features,
+            'metadata': {
+                'total_available_features': total_available,
+                'generated_at': timezone.now().isoformat()
+            }
+        }
+
+class CacheManagementView(APIView):
+    """
+    🛠️ Cache Management API
+    """
+    
+    def get(self, request, city_slug=None):
+        """Get cache statistics"""
+        if city_slug:
+            stats = gis_cache.get_cache_stats(city_slug)
+        else:
+            # Get stats for all cities
+            from .models import City
+            cities = City.objects.filter(is_active=True)
+            stats = {}
+            for city in cities:
+                stats[city.slug] = gis_cache.get_cache_stats(city.slug)
+        
+        return Response(stats)
+    
+    def post(self, request, city_slug):
+        """Cache management operations"""
+        action = request.data.get('action')
+        
+        if action == 'warm':
+            # Warm cache for city
+            force = request.data.get('force', False)
+            result = gis_cache.warm_cache(city_slug, force=force)
+            return Response(result)
+            
+        elif action == 'invalidate':
+            # Invalidate cache for city
+            deleted_count = gis_cache.invalidate_city_cache(city_slug)
+            return Response({
+                'status': 'success',
+                'deleted_entries': deleted_count,
+                'city': city_slug
+            })
+            
+        else:
+            return Response({
+                'error': 'Invalid action',
+                'valid_actions': ['warm', 'invalidate']
+            }, status=400)

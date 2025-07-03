@@ -15,3 +15,4 @@ mapbox-vector-tile==2.0.1
 # Environment management
 python-decouple==3.8
 Pillow>=10.0.0
+django-redis==6.0.0
