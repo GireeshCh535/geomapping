@@ -922,8 +922,7 @@ class VectorTileService:
     
     def _features_to_mvt(self, features, layer_name, z, x, y):
         """
-        CORRECTED - Convert features to MVT format
-        This is the critical fix for mapbox-vector-tile==2.0.1
+        Convert features to MVT format with proper coordinate transformation
         """
         
         if not features:
@@ -950,10 +949,12 @@ class VectorTileService:
                         'id': feature.id
                     }
                     
-                    mvt_features.append({
+                    mvt_feature = {
                         'geometry': geom_dict,
                         'properties': properties
-                    })
+                    }
+                    
+                    mvt_features.append(mvt_feature)
                     
                 except Exception as e:
                     print(f"Skipping feature {feature.id} due to processing error: {e}")
@@ -962,12 +963,41 @@ class VectorTileService:
             if not mvt_features:
                 return None
             
-            # CRITICAL FIX: Format for mapbox-vector-tile==2.0.1
-            # It expects a LIST of layer dictionaries
+            # Format for mapbox-vector-tile==2.0.1
             layer_data = [{
-                'name': layer_name,  # This must match the source-layer in frontend
-                'features': mvt_features
+                'name': layer_name,
+                'features': mvt_features,
+                'version': 2,
+                'extent': 4096
             }]
+            
+            # Get tile bounds for coordinate transformation
+            import mercantile
+            bounds = mercantile.bounds(x, y, z)
+            
+            # Transform coordinates from WGS84 to tile coordinates (0-4096)
+            transformed_features = []
+            for feature in mvt_features:
+                transformed_feature = feature.copy()
+                geom = feature['geometry']
+                
+                if geom['type'] == 'Polygon' and 'coordinates' in geom:
+                    transformed_coords = []
+                    for ring in geom['coordinates']:
+                        transformed_ring = []
+                        for coord in ring:
+                            # Transform from WGS84 to tile coordinates
+                            tile_x = int((coord[0] - bounds.west) / (bounds.east - bounds.west) * 4096)
+                            tile_y = int((bounds.north - coord[1]) / (bounds.north - bounds.south) * 4096)
+                            transformed_ring.append([tile_x, tile_y])
+                        transformed_coords.append(transformed_ring)
+                    
+                    transformed_feature['geometry']['coordinates'] = transformed_coords
+                
+                transformed_features.append(transformed_feature)
+            
+            # Update layer data with transformed features
+            layer_data[0]['features'] = transformed_features
             
             # Encode the MVT
             mvt_tile = mapbox_vector_tile.encode(layer_data)
