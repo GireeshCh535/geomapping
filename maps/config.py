@@ -427,7 +427,7 @@ VIZAG_CONFIG = {
         'Existing Road & Railway Line Area': 'TRANSPORT',
         'Existing Transportation Facility': 'TRANSPORT',
         'Green Zone (Forest)': 'PROTECTED',
-        'Kambalakonda Eco Sensitive Zone/ NAOB Buffer': 'PROTECTED',
+        'Kambalakonda Eco Sensitive Zone/ NAOB Buffer, Zoological Park': 'PROTECTED',
         'Kambalakonda WildLife Sanctuary & Biodiversity Area': 'PROTECTED',
         'Mixed Use Zone - 1': 'MIXED_USE',
         'Mixed Use Zone - 2 (BAIA)': 'MIXED_USE',
@@ -565,12 +565,14 @@ AMARAVATI_CONFIG = {
     },
     
     'file_mappings': {
+        # Commercial zones
         'C1__Mixed_use_zone.geojson': 'MIXED_USE',
         'C2__General_commercial_zone.geojson': 'COMMERCIAL',
         'C3_Neighbourhood_centre_zone.geojson': 'COMMERCIAL',
         'C4_Town_centre_zone.geojson': 'COMMERCIAL',
         'C5_Regional_centre_zone.geojson': 'COMMERCIAL',
         'C6_Central_business_district_zone.geojson': 'COMMERCIAL',
+        'Commercial_Vacant.geojson': 'COMMERCIAL',
         
         'I1_Business_park_zone.geojson': 'INDUSTRIAL',
         'I2_Logistics_zone.geojson': 'INDUSTRIAL',
@@ -579,19 +581,38 @@ AMARAVATI_CONFIG = {
         'R1_Village_planning_zone.geojson': 'RESIDENTIAL',
         'R3_Medium_to_high_density_zone.geojson': 'RESIDENTIAL',
         'R4_High_density_zone.geojson': 'RESIDENTIAL',
+        'RAA.geojson': 'RESIDENTIAL',
+        'Residential_Vacant.geojson': 'RESIDENTIAL',
+        'SR2_Low_Density_Housing.geojson': 'RESIDENTIAL',
+        'SR4___High_Density_Private.geojson': 'RESIDENTIAL',
+        
+        'P1_Passive_zone.geojson': 'PROTECTED',
+        'P2_Active_zone.geojson': 'PROTECTED',
+        'P3_Protected_zone.geojson': 'PROTECTED',
+        'P3_Protected_zone_Hills.geojson': 'HILLS',
+        'SP1__Passive_Zone.geojson': 'PROTECTED',
+        'SP2__Active_Zone.geojson': 'PROTECTED',
+        'SP3_Protected_Zone.geojson': 'PROTECTED',
+        'PGN_G.geojson': 'PARKS_GREEN',
+        'PGN_V.geojson': 'PARKS_GREEN',
         
         'SS1___Government_Zone.geojson': 'GOVERNMENT',
         'SS2a__Education_Zone.geojson': 'EDUCATION',
         'SS2b_Cultural_Zone.geojson': 'CULTURAL',
         'SS2c_Health_Zone.geojson': 'HEALTHCARE',
-        'SU2___Road_Network.geojson': 'TRANSPORT',
-        'U2__Road_reserve_zone.geojson': 'TRANSPORT',
-        'Burial_Ground.geojson': 'CEMETERY',
+        'S2_Education_zone.geojson': 'EDUCATION',
+        'SS3___Special_Zone.geojson': 'SPECIAL',
+        'S3_Special_zone.geojson': 'SPECIAL',
         
-        # Protected zones
-        'P1_Passive_zone.geojson': 'PROTECTED',
-        'P2_Active_zone.geojson': 'PROTECTED',
-        'P3_Protected_zone.geojson': 'PROTECTED',
+        'SC1a_Mixed_Use.geojson': 'MIXED_USE',
+        'SC1b___Mixed_Use.geojson': 'MIXED_USE',
+        
+        'SU1_Reserve_Zone.geojson': 'UTILITIES',
+        'SU2___Road_Network.geojson': 'TRANSPORT',
+        'U1_Reserve_zone.geojson': 'UTILITIES',
+        'U2__Road_reserve_zone.geojson': 'TRANSPORT',
+        
+        'Burial_Ground.geojson': 'CEMETERY',
     },
     
     'attribute_mappings': {
