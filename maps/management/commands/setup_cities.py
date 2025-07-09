@@ -94,6 +94,7 @@ class Command(BaseCommand):
             ('Agricultural', 'AGRICULTURAL'),
             ('Cemetery', 'CEMETERY'),
             ('Drains', 'DRAINS'),
+            ('Hills/Topographic', 'HILLS'),
             ('Special Use', 'SPECIAL'),
             ('Unclassified', 'UNCLASSIFIED'),
         ]

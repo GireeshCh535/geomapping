@@ -565,8 +565,8 @@ AMARAVATI_CONFIG = {
     },
     
     'file_mappings': {
-        'C1_Mixed_use_zone.geojson': 'MIXED_USE',
-        'C2_General_commercial_zone.geojson': 'COMMERCIAL',
+        'C1__Mixed_use_zone.geojson': 'MIXED_USE',
+        'C2__General_commercial_zone.geojson': 'COMMERCIAL',
         'C3_Neighbourhood_centre_zone.geojson': 'COMMERCIAL',
         'C4_Town_centre_zone.geojson': 'COMMERCIAL',
         'C5_Regional_centre_zone.geojson': 'COMMERCIAL',
@@ -580,12 +580,12 @@ AMARAVATI_CONFIG = {
         'R3_Medium_to_high_density_zone.geojson': 'RESIDENTIAL',
         'R4_High_density_zone.geojson': 'RESIDENTIAL',
         
-        'SS1_Government_Zone.geojson': 'GOVERNMENT',
-        'SS2a_Education_Zone.geojson': 'EDUCATION',
+        'SS1___Government_Zone.geojson': 'GOVERNMENT',
+        'SS2a__Education_Zone.geojson': 'EDUCATION',
         'SS2b_Cultural_Zone.geojson': 'CULTURAL',
         'SS2c_Health_Zone.geojson': 'HEALTHCARE',
-        'SU2_Road_Network.geojson': 'TRANSPORT',
-        'U2_Road_reserve_zone.geojson': 'TRANSPORT',
+        'SU2___Road_Network.geojson': 'TRANSPORT',
+        'U2__Road_reserve_zone.geojson': 'TRANSPORT',
         'Burial_Ground.geojson': 'CEMETERY',
         
         # Protected zones

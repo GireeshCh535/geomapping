@@ -2,7 +2,7 @@
 
 # Configuration
 SSH_KEY="oneacre-prod.pem"
-SERVER_HOST="13.233.120.111"
+SERVER_HOST="43.204.148.243"
 ANSIBLE_USER="ubuntu"
 
 echo "🚀 Starting GeoDjango deployment to AWS EC2..."
