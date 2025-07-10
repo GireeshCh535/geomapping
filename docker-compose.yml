@@ -46,8 +46,8 @@ services:
 
   web:
     build: .
-    ports:
-      - "80:8000"
+    expose:
+      - "8000"
     environment:
       - DJANGO_DB_HOST=db
       - DJANGO_DB_NAME=geo_mapping_db
@@ -59,11 +59,31 @@ services:
       - redis
     volumes:
       - .:/app
-    command: sh -c "sleep 15 && python manage.py migrate && python manage.py runserver 0.0.0.0:8000"
+      - static_volume:/app/static
+      - media_volume:/app/media
+    command: sh -c "sleep 15 && python manage.py migrate && python manage.py collectstatic --noinput && python manage.py runserver 0.0.0.0:8000"
+    restart: unless-stopped
+
+  nginx:
+    image: nginx:1.24-alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/conf.d:/etc/nginx/conf.d
+      - /etc/letsencrypt:/etc/letsencrypt:ro
+      - static_volume:/app/static
+      - media_volume:/app/media
+    depends_on:
+      - web
     restart: unless-stopped
 
 volumes:
   postgres_data:
     driver: local
   redis_data:
+    driver: local
+  static_volume:
+    driver: local
+  media_volume:
     driver: local

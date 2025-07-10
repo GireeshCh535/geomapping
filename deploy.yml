@@ -8,6 +8,7 @@
     project_dir: "/opt/{{ project_name }}"
     temp_dir: "/tmp/{{ project_name }}_deploy"
     zip_file: "{{ project_name }}.zip"
+    domain: "gis-portal.1acre.in"
 
   tasks:
     # Step 1: Clone from git to local machine
@@ -231,7 +232,44 @@
         regexp: '^ALLOWED_HOSTS\s*='
         line: "ALLOWED_HOSTS = ['*']"
 
-    # Step 7: Run docker-compose
+    # SSL Certificate Check and Installation
+    - name: Check if SSL certificate exists
+      stat:
+        path: "/etc/letsencrypt/live/{{ domain }}/fullchain.pem"
+      register: ssl_cert
+
+    - name: Install certbot and nginx plugin
+      apt:
+        name:
+          - certbot
+          - python3-certbot-nginx
+        state: present
+      when: not ssl_cert.stat.exists
+
+    - name: Stop nginx if running (for certbot)
+      systemd:
+        name: nginx
+        state: stopped
+      ignore_errors: yes
+      when: not ssl_cert.stat.exists
+
+    - name: Generate SSL certificate
+      shell: |
+        certbot certonly --standalone \
+          --non-interactive \
+          --agree-tos \
+          --email admin@1acre.in \
+          -d {{ domain }}
+      when: not ssl_cert.stat.exists
+
+    # Step 7: Run docker-compose with proper permissions
+    - name: Ensure SSL certificate permissions
+      file:
+        path: /etc/letsencrypt
+        state: directory
+        mode: '0755'
+        recurse: yes
+
     - name: Build Docker containers
       shell: docker-compose build --no-cache
       args:
@@ -244,9 +282,18 @@
         chdir: "{{ project_dir }}"
       become_user: ubuntu
 
+    # Add SSL auto-renewal
+    - name: Add SSL renewal cron job
+      cron:
+        name: "SSL renewal"
+        job: "certbot renew --quiet --deploy-hook 'docker restart {{ project_name }}_nginx_1'"
+        minute: "0"
+        hour: "3"
+        weekday: "1"
+
     - name: Wait for containers to be ready
       wait_for:
-        port: 80
+        port: 443
         host: "0.0.0.0"
         delay: 20
         timeout: 300
