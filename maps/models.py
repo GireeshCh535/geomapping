@@ -364,7 +364,7 @@ class PLUCodeMapping(models.Model):
 
 class VectorTileLayer(models.Model):
     """Vector tile cache management"""
-    layer = models.OneToOneField(DataLayer, on_delete=models.CASCADE, related_name='vector_tiles')
+    layer = models.OneToOneField(DataLayer, on_delete=models.CASCADE, related_name='vector_tiles', null=True, blank=True)
     
     # Tile configuration
     min_zoom = models.IntegerField(default=8)
@@ -387,7 +387,7 @@ class VectorTileLayer(models.Model):
         db_table = 'vector_tile_layers'
     
     def __str__(self):
-        return f"Tiles: {self.layer.name}"
+        return f"Tiles for {self.layer.name if self.layer else 'Combined Layer'}"
 
 class ImportJob(models.Model):
     """Track data import processes with enhanced logging"""
