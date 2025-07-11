@@ -249,8 +249,8 @@
     <!-- Scripts -->
     <!-- Leaflet JS -->
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <!-- Leaflet Vector Grid Plugin for MVT -->
-    <script src="https://unpkg.com/leaflet-vectorgrid@1.3.0/dist/Leaflet.VectorGrid.bundled.js"></script>
+    <!-- Leaflet Vector Grid Plugin for MVT (local static file) -->
+    <script src="{% static 'maps/js/Leaflet.VectorGrid.bundled.min.js' %}"></script>
     
     <!-- Custom JavaScript -->
     <script>
@@ -258,6 +258,6 @@
         window.API_BASE = "{{ api_base_url|default:'/api' }}";
         window.PAGE_TITLE = "{{ page_title|default:'Geo Mapping Interface' }}";
     </script>
-    <script src="{% load static %}{% static 'maps/js/map.js' %}"></script>
+    <script src="{% static 'maps/js/map.js' %}"></script>
 </body>
 </html>
