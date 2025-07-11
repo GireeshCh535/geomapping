@@ -2,6 +2,7 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 from . import views
+from .views import SimpleMapView
 
 # Create router for viewsets
 router = DefaultRouter()
@@ -82,5 +83,14 @@ urlpatterns = [
 
     path('cache/stats/',
          views.CacheManagementView.as_view(), name='cache_stats'),
+
+    # 🚀 NEW: City tile generation endpoint
+    path('cities/<slug:city_slug>/generate-tiles/',
+         views.CityTileGenerationView.as_view(), name='city_tile_generation'),
+
+    path('maps/simple/', SimpleMapView.as_view(), name='simple_map'),
+    
+    # 🏙️ NEW: Masterplan viewer page
+    path('maps/masterplan/', views.MasterplanViewerView.as_view(), name='masterplan_viewer'),
 
 ]

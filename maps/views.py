@@ -22,6 +22,8 @@ import logging
 from .caching import gis_cache, cache_gis_response
 import time
 from django.utils import timezone
+from django.http import FileResponse
+import os
 
 from .models import (
     City, LayerCategory, DataLayer, GeoFeature, VectorTileLayer, 
@@ -246,6 +248,7 @@ class CombinedVectorTileView(APIView):
     """RESTORED - Original combined vector tiles"""
     
     def get(self, request, city_slug, z, x, y):
+        print(f"[DEBUG] CombinedVectorTileView called for city={city_slug}, z={z}, x={x}, y={y}")
         try:
             # Get all layers for city
             layers = DataLayer.objects.filter(
@@ -253,29 +256,42 @@ class CombinedVectorTileView(APIView):
                 is_processed=True
             ).select_related('category')
             
+            print(f"[DEBUG] Found {layers.count()} processed layers for {city_slug}")
+            
             # Filter layers if specified
             layer_slugs = request.GET.getlist('layers')
             if layer_slugs:
                 layers = layers.filter(slug__in=layer_slugs)
+                print(f"[DEBUG] Filtered to {layers.count()} layers by slugs: {layer_slugs}")
             
             categories = request.GET.getlist('categories')
             if categories:
                 layers = layers.filter(category__code__in=categories)
+                print(f"[DEBUG] Filtered to {layers.count()} layers by categories: {categories}")
+            
+            # Print layer details
+            for layer in layers:
+                print(f"[DEBUG] Layer: {layer.slug} ({layer.name}) - {layer.feature_count} features")
             
             # Generate combined tile
             tile_service = VectorTileService()
+            print(f"[DEBUG] Calling generate_combined_tile with {len(layers)} layers")
             mvt_data = tile_service.generate_combined_tile(layers, z, x, y)
             
             if mvt_data:
+                print(f"[DEBUG] ✅ Combined tile generated successfully: {len(mvt_data)} bytes")
                 response = HttpResponse(mvt_data, content_type='application/vnd.mapbox-vector-tile')
                 response['Cache-Control'] = 'max-age=3600'
                 response['Access-Control-Allow-Origin'] = '*'
                 return response
             
+            print(f"[DEBUG] ❌ No MVT data generated - returning empty tile")
             return HttpResponse(b'', content_type='application/vnd.mapbox-vector-tile')
             
         except Exception as e:
-            print(f"Error in CombinedVectorTileView: {e}")
+            print(f"❌ Error in CombinedVectorTileView: {e}")
+            import traceback
+            traceback.print_exc()
             return HttpResponse(b'', content_type='application/vnd.mapbox-vector-tile', status=500)
 
 class CityLayersView(APIView):
@@ -676,15 +692,18 @@ class CombinedRasterTileView(APIView):
     
     def get(self, request, city_slug, z, x, y):
         """Handle request and return combined PNG"""
-        
         try:
-            # Get layers for city
+            # Check for pre-generated PNG
+            png_path = os.path.join('static', 'tiles_png', city_slug, 'combined', f'{z}_{x}_{y}.png')
+            if os.path.exists(png_path):
+                return FileResponse(open(png_path, 'rb'), content_type='image/png')
+            
+            # Fallback: generate on the fly
             layers = DataLayer.objects.filter(
                 city__slug=city_slug, 
                 is_processed=True
             ).select_related('category')
             
-            # Use VectorTileService to get combined MVT
             vector_service = VectorTileService()
             mvt_data = vector_service.generate_combined_tile(layers, z, x, y)
             
@@ -692,11 +711,9 @@ class CombinedRasterTileView(APIView):
                 renderer = TileRenderingService()
                 return HttpResponse(renderer.create_empty_tile(), content_type='image/png')
             
-            # Use TileRenderingService to convert MVT to PNG
             renderer = TileRenderingService()
             png_data = renderer.combined_mvt_to_png(mvt_data, layers, z, x, y)
             
-            # Return PNG response
             response = HttpResponse(png_data, content_type='image/png')
             response['Cache-Control'] = 'max-age=3600'
             return response
@@ -807,7 +824,7 @@ class CityCompleteView(APIView):
             # Decision logic
             if force_tiles or (total_features > TILE_THRESHOLD and not force_geojson):
                 print(f"✅ Using TILE strategy for {total_features} features")
-                return self._get_enhanced_tile_response(city, layers, total_features)
+                return self._get_tile_based_response(city, layers, total_features)
                 
             elif force_geojson or no_limits:
                 print(f"✅ Using COMPLETE GEOJSON strategy (forced)")
@@ -981,12 +998,11 @@ class CityCompleteView(APIView):
     def _get_color_mapping(self):
         """Return standardized color mapping for categories - matches your frontend"""
         return {
+            # Bangalore colors (existing)
             'RESIDENTIAL': '#FFC400',      # Yellow - Residential
             'COMMERCIAL': '#004DA8',       # Blue - Commercial  
-            'MIXED_USE': '#F7931E',        # Orange - Mixed Use
             'INDUSTRIAL': '#AA66B2',       # Purple - Industrial
             'HIGH_TECH': '#C29ED7',        # Light Purple - High Tech
-            'GOVERNMENT': '#E60000',       # Red - Government
             'PUBLIC': '#E60000',           # Red - Public/Semi Public
             'DEFENSE': '#8B4513',          # Brown - Defense
             'PROTECTED': '#228B22',        # Forest Green - State Forest/Protected
@@ -996,7 +1012,17 @@ class CityCompleteView(APIView):
             'UTILITIES': '#FF6347',        # Tomato - Power/Water/Utilities
             'AGRICULTURAL': '#9ACD32',     # Yellow Green - Agricultural Land
             'UNCLASSIFIED': '#D3D3D3',     # Light Gray - Unclassified Use
-            'DRAINS': '#4682B4'            # Steel Blue - Drains
+            'DRAINS': '#4682B4',           # Steel Blue - Drains
+            
+            # ✅ VIZAG COLORS (from your specifications)
+            'MIXED_USE': '#FFAA00',        # Mixed Use Zone 1
+            'GOVERNMENT': '#FF0000',       # Government facilities
+            'EDUCATION': '#FF0000',        # Educational facilities  
+            'HEALTHCARE': '#FF0000',       # Health facilities
+            'CULTURAL': '#FF0000',         # Religious facilities
+            'CEMETERY': '#FFFFFF',         # Crematorium/Burial grounds
+            'HILLS': '#A87000',           # Brown Zone (Hills)
+            'SPECIAL': '#FFFFFF',          # Special Area Use Zone
         }
     
     def _get_layer_color(self, layer, color_map=None):
@@ -1034,35 +1060,7 @@ class CityCompleteView(APIView):
         # Default fallback
         return '#666666'
     
-    def _get_color_mapping(self):
-        """Return standardized color mapping for categories - INCLUDES VIZAG"""
-        return {
-            # Bangalore colors (existing)
-            'RESIDENTIAL': '#FFC400',      # Yellow - Residential
-            'COMMERCIAL': '#004DA8',       # Blue - Commercial  
-            'INDUSTRIAL': '#AA66B2',       # Purple - Industrial
-            'HIGH_TECH': '#C29ED7',        # Light Purple - High Tech
-            'PUBLIC': '#E60000',           # Red - Public/Semi Public
-            'DEFENSE': '#8B4513',          # Brown - Defense
-            'PROTECTED': '#228B22',        # Forest Green - State Forest/Protected
-            'PARKS_GREEN': '#98E600',      # Bright Green - Parks and Green Spaces
-            'WATER_BODIES': '#1E90FF',     # Dodger Blue - Lake/Tank
-            'TRANSPORT': '#808080',        # Gray - Road/Rail/Airport Transport
-            'UTILITIES': '#FF6347',        # Tomato - Power/Water/Utilities
-            'AGRICULTURAL': '#9ACD32',     # Yellow Green - Agricultural Land
-            'UNCLASSIFIED': '#D3D3D3',     # Light Gray - Unclassified Use
-            'DRAINS': '#4682B4',           # Steel Blue - Drains
-            
-            # ✅ VIZAG COLORS (from your specifications)
-            'MIXED_USE': '#FFAA00',        # Mixed Use Zone 1
-            'GOVERNMENT': '#FF0000',       # Government facilities
-            'EDUCATION': '#FF0000',        # Educational facilities  
-            'HEALTHCARE': '#FF0000',       # Health facilities
-            'CULTURAL': '#FF0000',         # Religious facilities
-            'CEMETERY': '#FFFFFF',         # Crematorium/Burial grounds
-            'HILLS': '#A87000',           # Brown Zone (Hills)
-            'SPECIAL': '#FFFFFF',          # Special Area Use Zone
-        }
+
     
     def _calculate_city_bounds(self, layers):
         """Calculate bounding box for all layers"""
@@ -1084,6 +1082,18 @@ class CityCompleteView(APIView):
                 valid_bounds = True
         
         return bounds if valid_bounds else None
+    
+    def _get_progressive_info_response(self, city, layers, total_features):
+        """Return progressive loading info"""
+        return Response({
+            'strategy': 'progressive_loading',
+            'reason': f'Medium dataset ({total_features:,} features)',
+            'city': city.slug,
+            'total_features': total_features,
+            'recommended_chunk_size': 1000,
+            'progressive_url': f'/api/cities/{city.slug}/progressive/',
+            'layers': [{'slug': l.slug, 'name': l.name, 'feature_count': l.feature_count} for l in layers]
+        })
     
 class CoordinateSearchView(APIView):
     """
@@ -1997,3 +2007,247 @@ class CacheManagementView(APIView):
                 'error': 'Invalid action',
                 'valid_actions': ['warm', 'invalidate']
             }, status=400)
+
+class SimpleMapView(TemplateView):
+    template_name = 'maps/simple_map.html'
+
+class MasterplanViewerView(TemplateView):
+    """Masterplan viewer page with combined PNG tiles"""
+    template_name = 'maps/masterplan_viewer.html'
+    
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context.update({
+            'page_title': 'Bangalore Masterplan Viewer',
+            'api_base_url': '/api'
+        })
+        return context
+
+class CityTileGenerationView(APIView):
+    """
+    🚀 Generate tiles for all layers of a city
+    Provides sample URLs for testing after generation
+    """
+    
+    def post(self, request, city_slug):
+        try:
+            # Get city
+            city = get_object_or_404(City, slug=city_slug, is_active=True)
+            
+            # Get parameters
+            min_zoom = int(request.data.get('min_zoom', 8))
+            max_zoom = int(request.data.get('max_zoom', 14))
+            force_regenerate = request.data.get('force', False)
+            validate_after = request.data.get('validate', False)
+            
+            # Validate zoom levels
+            if min_zoom < 0 or max_zoom > 18 or min_zoom > max_zoom:
+                return Response({
+                    'error': 'Invalid zoom levels',
+                    'message': 'Zoom levels must be between 0-18 and min_zoom <= max_zoom'
+                }, status=400)
+            
+            # Get layers to process
+            layers = DataLayer.objects.filter(
+                city=city,
+                is_processed=True
+            ).select_related('category')
+            
+            if not layers.exists():
+                return Response({
+                    'error': 'No processed layers found',
+                    'city': city_slug
+                }, status=404)
+            
+            # Initialize tile service
+            tile_service = VectorTileService()
+            
+            # Process each layer
+            results = []
+            total_tiles_generated = 0
+            successful_layers = 0
+            failed_layers = 0
+            
+            start_time = time.time()
+            
+            for layer in layers:
+                layer_result = {
+                    'layer_slug': layer.slug,
+                    'layer_name': layer.name,
+                    'feature_count': layer.feature_count,
+                    'status': 'pending'
+                }
+                
+                try:
+                    # Check if tiles already exist
+                    try:
+                        vector_tile_layer = VectorTileLayer.objects.get(layer=layer)
+                        if vector_tile_layer.is_generated and not force_regenerate:
+                            layer_result.update({
+                                'status': 'existing',
+                                'tiles_generated': vector_tile_layer.total_tiles,
+                                'message': 'Tiles already exist'
+                            })
+                            successful_layers += 1
+                            results.append(layer_result)
+                            continue
+                    except VectorTileLayer.DoesNotExist:
+                        vector_tile_layer = None
+                    
+                    # Generate tiles
+                    layer_start_time = time.time()
+                    result = tile_service.generate_layer_tiles(layer, min_zoom, max_zoom)
+                    layer_duration = time.time() - layer_start_time
+                    
+                    tiles_count = result.get('tiles_generated', 0)
+                    
+                    # Update or create vector tile layer record
+                    if vector_tile_layer:
+                        vector_tile_layer.min_zoom = min_zoom
+                        vector_tile_layer.max_zoom = max_zoom
+                        vector_tile_layer.is_generated = True
+                        vector_tile_layer.total_tiles = tiles_count
+                        vector_tile_layer.generated_at = timezone.now()
+                        vector_tile_layer.save()
+                    else:
+                        VectorTileLayer.objects.create(
+                            layer=layer,
+                            min_zoom=min_zoom,
+                            max_zoom=max_zoom,
+                            is_generated=True,
+                            total_tiles=tiles_count,
+                            generated_at=timezone.now()
+                        )
+                    
+                    # Update layer status
+                    layer.tiles_generated = True
+                    layer.save()
+                    
+                    layer_result.update({
+                        'status': 'generated',
+                        'tiles_generated': tiles_count,
+                        'duration_seconds': round(layer_duration, 2),
+                        'performance_tiles_per_second': round(tiles_count / layer_duration, 2) if layer_duration > 0 else 0
+                    })
+                    
+                    total_tiles_generated += tiles_count
+                    successful_layers += 1
+                    
+                except Exception as e:
+                    failed_layers += 1
+                    layer_result.update({
+                        'status': 'failed',
+                        'error': str(e),
+                        'tiles_generated': 0
+                    })
+                
+                results.append(layer_result)
+            
+            # Calculate total time
+            total_duration = time.time() - start_time
+            
+            # Generate sample URLs
+            sample_urls = self._generate_sample_urls(city_slug, results, min_zoom, max_zoom)
+            
+            # Build response
+            response_data = {
+                'city': {
+                    'slug': city_slug,
+                    'name': city.name
+                },
+                'generation_config': {
+                    'min_zoom': min_zoom,
+                    'max_zoom': max_zoom,
+                    'force_regenerate': force_regenerate
+                },
+                'summary': {
+                    'total_layers': len(results),
+                    'successful_layers': successful_layers,
+                    'failed_layers': failed_layers,
+                    'total_tiles_generated': total_tiles_generated,
+                    'total_duration_seconds': round(total_duration, 2),
+                    'average_tiles_per_second': round(total_tiles_generated / total_duration, 2) if total_duration > 0 else 0
+                },
+                'layer_results': results,
+                'sample_urls': sample_urls,
+                'next_steps': [
+                    f'Test individual tiles: GET /api/tiles/{city_slug}/{{layer}}/{{z}}/{{x}}/{{y}}.mvt',
+                    f'Test combined tiles: GET /api/tiles/{city_slug}/combined/{{z}}/{{x}}/{{y}}.mvt',
+                    f'View city layers: GET /api/cities/{city_slug}/layers/',
+                    f'Get complete city data: GET /api/cities/{city_slug}/complete/'
+                ]
+            }
+            
+            return Response(response_data, status=status.HTTP_200_OK)
+            
+        except Exception as e:
+            return Response({
+                'error': 'Tile generation failed',
+                'message': str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
+    def _generate_sample_urls(self, city_slug, layer_results, min_zoom, max_zoom):
+        """Generate sample URLs for testing the generated tiles"""
+        
+        # Get city center coordinates
+        try:
+            city = City.objects.get(slug=city_slug)
+            if city.center_lat and city.center_lng:
+                center_lat, center_lng = city.center_lat, city.center_lng
+            else:
+                # Fallback coordinates
+                center_lat, center_lng = 12.9716, 77.5946
+        except:
+            center_lat, center_lng = 12.9716, 77.5946
+        
+        # Generate sample tile coordinates
+        sample_zooms = [min_zoom, (min_zoom + max_zoom) // 2, max_zoom]
+        sample_urls = {
+            'individual_layers': {},
+            'combined_tiles': [],
+            'test_coordinates': []
+        }
+        
+        for zoom in sample_zooms:
+            # Get tile coordinates for the center point
+            tile = mercantile.tile(center_lng, center_lat, zoom)
+            
+            # Individual layer tiles
+            for result in layer_results:
+                if result['status'] in ['generated', 'existing'] and result['tiles_generated'] > 0:
+                    layer_slug = result['layer_slug']
+                    if layer_slug not in sample_urls['individual_layers']:
+                        sample_urls['individual_layers'][layer_slug] = []
+                    
+                    sample_urls['individual_layers'][layer_slug].append({
+                        'zoom': zoom,
+                        'coordinates': f'{tile.z}/{tile.x}/{tile.y}',
+                        'url': f'/api/tiles/{city_slug}/{layer_slug}/{tile.z}/{tile.x}/{tile.y}.mvt',
+                        'png_url': f'/api/tiles/{city_slug}/{layer_slug}/{tile.z}/{tile.x}/{tile.y}.png'
+                    })
+            
+            # Combined tiles
+            sample_urls['combined_tiles'].append({
+                'zoom': zoom,
+                'coordinates': f'{tile.z}/{tile.x}/{tile.y}',
+                'mvt_url': f'/api/tiles/{city_slug}/combined/{tile.z}/{tile.x}/{tile.y}.mvt',
+                'png_url': f'/api/tiles/{city_slug}/combined/{tile.z}/{tile.x}/{tile.y}.png'
+            })
+        
+        # Additional test coordinates
+        additional_coords = [
+            (12.9716, 77.5946, 12),  # Bangalore center
+            (12.9716, 77.5946, 10),  # Lower zoom
+            (12.9716, 77.5946, 14),  # Higher zoom
+        ]
+        
+        for lat, lng, z in additional_coords:
+            tile = mercantile.tile(lng, lat, z)
+            sample_urls['test_coordinates'].append({
+                'lat': lat,
+                'lng': lng,
+                'zoom': z,
+                'tile_coordinates': f'{z}/{tile.x}/{tile.y}'
+            })
+        
+        return sample_urls

@@ -1022,46 +1022,57 @@ class VectorTileService:
             # Prepare list of layer dictionaries for encoding
             layers_list = []
             
+            first_layer = True
             for layer_slug, features in layer_data.items():
                 mvt_features = []
-                
-                for feature in features:
-                    try:
-                        # Simplify geometry based on zoom
-                        simplified_geom = feature.geometry.simplify(
-                            tolerance=self._get_simplify_tolerance(z), 
-                            preserve_topology=True
-                        )
-                        
-                        # Convert to GeoJSON
-                        geom_dict = json.loads(simplified_geom.geojson)
-                        
-                        # Prepare properties
-                        properties = {
-                            'name': feature.name or '',
-                            'category': feature.layer.category.name if feature.layer.category else 'Unknown',
-                            'land_use': feature.land_use_type or '',
-                            'plu_code': feature.plu_primary_code or '',
-                            'area': float(feature.calculated_area) if feature.calculated_area else 0.0,
-                            'id': feature.id,
-                            'layer': layer_slug  # Add layer identifier
-                        }
-                        
-                        mvt_features.append({
-                            'geometry': geom_dict,
-                            'properties': properties
+                try:
+                    for i, feature in enumerate(features):
+                        try:
+                            simplified_geom = feature.geometry.simplify(
+                                tolerance=self._get_simplify_tolerance(z), 
+                                preserve_topology=True
+                            )
+                            geom_dict = json.loads(simplified_geom.geojson)
+                            import mercantile
+                            bounds = mercantile.bounds(x, y, z)
+                            if first_layer and i == 0:
+                                try:
+                                    print(f"[DEBUG] TILE BOUNDS for {layer_slug} at z={z}, x={x}, y={y}: west={bounds.west}, south={bounds.south}, east={bounds.east}, north={bounds.north}")
+                                    if geom_dict['type'] == 'Polygon' and geom_dict['coordinates']:
+                                        sample_pt = geom_dict['coordinates'][0][0]
+                                        print(f"[DEBUG] Sample input WGS84 coordinate: {sample_pt}")
+                                        tile_pt = self._wgs84_to_tile_coords(sample_pt, bounds)
+                                        print(f"[DEBUG] Sample output tile coordinate: {tile_pt}")
+                                except Exception as e:
+                                    print(f"[DEBUG] Exception during debug print: {e}")
+                            transformed_geom = self._transform_geometry_to_tile(geom_dict, bounds)
+                            if first_layer and i == 0:
+                                print(f"[DEBUG] COMBINED TILE: First feature transformed geometry for {layer_slug}: {json.dumps(transformed_geom)[:500]}")
+                            properties = {
+                                'name': feature.name or '',
+                                'category': feature.layer.category.name if feature.layer.category else 'Unknown',
+                                'land_use': feature.land_use_type or '',
+                                'plu_code': feature.plu_primary_code or '',
+                                'area': float(feature.calculated_area) if feature.calculated_area else 0.0,
+                                'id': feature.id,
+                                'layer': layer_slug
+                            }
+                            mvt_features.append({
+                                'geometry': transformed_geom,
+                                'properties': properties
+                            })
+                        except Exception as e:
+                            print(f"[DEBUG] ❌ Skipping feature {feature.id}: {e}")
+                            continue
+                    first_layer = False
+                    if mvt_features:
+                        layers_list.append({
+                            'name': layer_slug,
+                            'features': mvt_features
                         })
-                        
-                    except Exception as e:
-                        print(f"Skipping feature {feature.id}: {e}")
-                        continue
-                
-                if mvt_features:
-                    # CRITICAL: Use layer_slug as the name
-                    layers_list.append({
-                        'name': layer_slug,  # This must match frontend source-layer
-                        'features': mvt_features
-                    })
+                except Exception as e:
+                    print(f"[DEBUG] Exception in layer {layer_slug}: {e}")
+                    continue
             
             if not layers_list:
                 return None
@@ -1148,3 +1159,42 @@ class VectorTileService:
             'zoom_range': {'min': min_zoom, 'max': max_zoom},
             'bounds': bounds
         }   
+
+    def _wgs84_to_tile_coords(self, coords, bounds):
+        # Helper to convert [lng, lat] to tile coordinates (0-4096) with correct Y inversion
+        lng, lat = coords[0], coords[1]
+        tile_x = int((lng - bounds.west) / (bounds.east - bounds.west) * 4096)
+        tile_y = int((bounds.north - lat) / (bounds.north - bounds.south) * 4096)
+        return [tile_x, tile_y]
+
+    def _transform_geometry_to_tile(self, geom_dict, bounds):
+        """
+        Helper to transform a single geometry (GeoJSON dict) from WGS84 to tile coordinates.
+        This is needed because the coordinate transformation for MVT is different from
+        the standard GeoJSON to tile transformation.
+        """
+        if geom_dict['type'] == 'Polygon' and 'coordinates' in geom_dict:
+            transformed_coords = []
+            for ring in geom_dict['coordinates']:
+                transformed_ring = []
+                for coord in ring:
+                    # Transform from WGS84 to tile coordinates
+                    tile_x = int((coord[0] - bounds.west) / (bounds.east - bounds.west) * 4096)
+                    tile_y = int((bounds.north - coord[1]) / (bounds.north - bounds.south) * 4096)
+                    transformed_ring.append([tile_x, tile_y])
+                transformed_coords.append(transformed_ring)
+            geom_dict['coordinates'] = transformed_coords
+        elif geom_dict['type'] == 'MultiPolygon' and 'coordinates' in geom_dict:
+            transformed_coords = []
+            for polygon in geom_dict['coordinates']:
+                transformed_polygon = []
+                for ring in polygon:
+                    transformed_ring = []
+                    for coord in ring:
+                        tile_x = int((coord[0] - bounds.west) / (bounds.east - bounds.west) * 4096)
+                        tile_y = int((bounds.north - coord[1]) / (bounds.north - bounds.south) * 4096)
+                        transformed_ring.append([tile_x, tile_y])
+                    transformed_polygon.append(transformed_ring)
+                transformed_coords.append(transformed_polygon)
+            geom_dict['coordinates'] = transformed_coords
+        return geom_dict 

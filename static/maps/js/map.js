@@ -29,6 +29,13 @@ const CATEGORY_COLORS = {
     'SPECIAL': '#FFFFFF'           // Special
 };
 
+// Add this function to fix ReferenceError
+function getLayerColorFromCategory(categoryName) {
+    if (!categoryName) return '#666666';
+    const key = categoryName.toUpperCase().replace(/\s+/g, '_');
+    return CATEGORY_COLORS[key] || '#666666';
+}
+
 // Global state variables
 let map;
 let currentLayers = [];
@@ -52,7 +59,7 @@ let searchResults = [];
 
 // Vector grid state
 let vectorGridAttempts = 0;
-let usePNGFallback = false;
+let usePNGFallback = false; // Always use vector tiles
 
 /* ==========================================================================
    Application Initialization
@@ -237,24 +244,26 @@ async function loadCityLayers(citySlug) {
         console.log(`📊 ${citySlug} has ${totalFeatures} total features`);
         
         // 🚀 OPTIMIZED LOADING STRATEGY
-        if (totalFeatures > 100000) {
-            // Large datasets (100k+) - Use vector tiles for instant loading
-            console.log(`🗺️ Using VECTOR TILES for large dataset (${totalFeatures} features)`);
-            document.getElementById('loadingMode').textContent = 'Vector Tiles';
-            await loadCityWithTiles(citySlug, layersData);
-            
-        } else if (totalFeatures > 5000) {
-            // Medium datasets (5k-100k) - Use optimized progressive loading
-            console.log(`🚀 Using OPTIMIZED PROGRESSIVE for medium dataset (${totalFeatures} features)`);
-            document.getElementById('loadingMode').textContent = 'Progressive+';
-            await loadCityProgressiveOptimized(citySlug, Math.min(2000, totalFeatures / 10));
-            
-        } else {
-            // Small datasets (<5k) - Load everything at once
-            console.log(`📦 Using COMPLETE loading for small dataset (${totalFeatures} features)`);
-            document.getElementById('loadingMode').textContent = 'Complete';
-            await loadCityComplete(citySlug);
-        }
+        // Always use vector tiles for all dataset sizes
+        console.log(`🗺️ Forcing VECTOR TILES for all dataset sizes (${totalFeatures} features)`);
+        document.getElementById('loadingMode').textContent = 'Vector Tiles';
+        await loadCityWithTiles(citySlug, layersData);
+        // if (totalFeatures > 100000) {
+        //     // Large datasets (100k+) - Use vector tiles for instant loading
+        //     console.log(`🗺️ Using VECTOR TILES for large dataset (${totalFeatures} features)`);
+        //     document.getElementById('loadingMode').textContent = 'Vector Tiles';
+        //     await loadCityWithTiles(citySlug, layersData);
+        // } else if (totalFeatures > 5000) {
+        //     // Medium datasets (5k-100k) - Use optimized progressive loading
+        //     console.log(`🚀 Using OPTIMIZED PROGRESSIVE for medium dataset (${totalFeatures} features)`);
+        //     document.getElementById('loadingMode').textContent = 'Progressive+';
+        //     await loadCityProgressiveOptimized(citySlug, Math.min(2000, totalFeatures / 10));
+        // } else {
+        //     // Small datasets (<5k) - Load everything at once
+        //     console.log(`📦 Using COMPLETE loading for small dataset (${totalFeatures} features)`);
+        //     document.getElementById('loadingMode').textContent = 'Complete';
+        //     await loadCityComplete(citySlug);
+        // }
         
     } catch (error) {
         console.error('Error loading city:', error);
@@ -473,11 +482,11 @@ async function loadCityComplete(citySlug) {
         console.log(`✅ Complete city data loaded:`, completeData);
 
         // Handle response based on strategy
-        if (completeData.strategy === 'complete_geojson') {
-            await loadCompleteGeoJSON(completeData);
-        } else {
+        // if (completeData.strategy === 'complete_geojson') {
+        //     await loadCompleteGeoJSON(completeData);
+        // } else {
             await loadTileBased(completeData);
-        }
+        // }
 
         // Setup UI
         if (completeData.metadata?.layers) {
@@ -813,28 +822,33 @@ async function loadCompleteGeoJSON(completeData) {
     console.log(`✅ Complete city loaded as single layer`);
 }
 
+// Overwrite loadTileBased to ONLY use combined vector tile
 async function loadTileBased(tileData) {
-    console.log(`🗺️ Loading city using tiles (large dataset)`);
-    
+    console.log(`🗺️ Loading city using combined vector tile (all features)`);
+
     const combinedTileUrl = tileData.combined_tile_url.replace('{z}', '{z}').replace('{x}', '{x}').replace('{y}', '{y}');
-    
-    if (!usePNGFallback && typeof L !== 'undefined' && L.vectorGrid && L.vectorGrid.protobuf) {
+
+    if (typeof L !== 'undefined' && L.vectorGrid && L.vectorGrid.protobuf) {
         const combinedLayer = L.vectorGrid.protobuf(combinedTileUrl, {
             rendererFactory: L.svg.tile,
             vectorTileLayerStyles: createCombinedStyles(tileData.layers),
             interactive: true
         });
-        
+
+        combinedLayer.on('click', function(e) {
+            if (e.layer && e.layer.properties) {
+                showFeaturePopup(e.layer.properties, e.latlng, e.layer.properties.layer_name);
+            }
+        });
+
         combinedLayer.addTo(map);
         activeMVTLayers.set('combined_tiles', combinedLayer);
-        
     } else {
-        const pngTileUrl = combinedTileUrl.replace('.mvt', '.png');
-        const pngLayer = L.tileLayer(pngTileUrl, { opacity: 0.8 });
-        pngLayer.addTo(map);
-        activeMVTLayers.set('combined_png', pngLayer);
+        // If VectorGrid is not available, show an error
+        updateStatus('VectorGrid is not loaded. Cannot display vector tiles.', 'error');
+        console.error('VectorGrid is not loaded.');
     }
-    
+
     document.getElementById('tileType').textContent = 'COMBINED-TILES';
 }
 
@@ -855,33 +869,10 @@ function createCombinedStyles(layers) {
 /* ==========================================================================
    Layer UI Management
    ========================================================================== */
+// Disable or hide layer toggles in the sidebar (optional, for true all-layers-on experience)
 function renderLayersList(layers) {
     const layersList = document.getElementById('layersList');
-    layersList.innerHTML = '';
-
-    layers.forEach(layer => {
-        const layerItem = document.createElement('div');
-        layerItem.className = 'layer-item';
-        layerItem.dataset.layerId = layer.slug;
-
-        const color = getLayerColor(layer);
-
-        layerItem.innerHTML = `
-            <div class="layer-color" style="background-color: ${color}"></div>
-            <div class="layer-info">
-                <div class="layer-name">${layer.name}</div>
-                <div class="layer-details">
-                    ${layer.category_name} • ${layer.feature_count.toLocaleString()} features
-                </div>
-            </div>
-            <div class="layer-status" id="status-${layer.slug}">Ready</div>
-        `;
-
-        layerItem.addEventListener('click', () => toggleLayer(layer));
-        layersList.appendChild(layerItem);
-    });
-
-    console.log(`Rendered ${layers.length} layers in sidebar`);
+    layersList.innerHTML = '<div class="loading-placeholder">All layers are always visible (combined vector tile)</div>';
 }
 
 function markAllLayersAsLoading() {
@@ -1725,26 +1716,7 @@ function loadCategories(layers) {
 }
 
 function filterLayersByCategory(categoryName) {
-    const layerItems = document.querySelectorAll('.layer-item');
-    let visibleCount = 0;
-    
-    layerItems.forEach(item => {
-        const layerId = item.dataset.layerId;
-        const layer = currentLayers.find(l => l.slug === layerId);
-        
-        if (!categoryName || layer?.category_name === categoryName) {
-            item.style.display = 'flex';
-            visibleCount++;
-        } else {
-            item.style.display = 'none';
-            if (activeMVTLayers.has(layerId)) {
-                removeLayer(layer);
-                item.classList.remove('active');
-            }
-        }
-    });
-
-    console.log(`🏷️ Category filter applied: showing ${visibleCount} layers`);
+    // No-op: all layers are always visible
 }
 
 function clearLayers() {
@@ -1768,3 +1740,19 @@ function clearLayers() {
    ========================================================================== */
 console.log('🗺️ Geo Mapping Interface JavaScript loaded successfully');
 updateStatus('JavaScript initialized - ready to load map', 'success');
+
+// Utility function to calculate bounds from layers
+function calculateBoundsFromLayers(layers) {
+    if (!layers || !layers.length) return null;
+    let minLat = Infinity, minLng = Infinity, maxLat = -Infinity, maxLng = -Infinity;
+    layers.forEach(layer => {
+        if (layer.bbox) {
+            minLat = Math.min(minLat, layer.bbox.min_lat);
+            minLng = Math.min(minLng, layer.bbox.min_lng);
+            maxLat = Math.max(maxLat, layer.bbox.max_lat);
+            maxLng = Math.max(maxLng, layer.bbox.max_lng);
+        }
+    });
+    if (minLat === Infinity) return null;
+    return { min_lat: minLat, min_lng: minLng, max_lat: maxLat, max_lng: maxLng };
+}
