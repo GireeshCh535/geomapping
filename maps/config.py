@@ -259,7 +259,7 @@ BANGALORE_CONFIG = {
     'plu_mapping': BANGALORE_PLU_MAPPING,
     'file_mappings': {
         # Updated with your actual files
-        'Agricultural_land.json': 'AGRICULTURAL',
+        'Agricultural_Land.json': 'AGRICULTURAL',
         'Commercial_Business_.json': 'COMMERCIAL',
         'Commercial_Central_.json': 'COMMERCIAL', 
         'Defense.json': 'DEFENSE',
