@@ -2,7 +2,7 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 from . import views
-from .views import SimpleMapView
+from .views import *
 
 # Create router for viewsets
 router = DefaultRouter()
@@ -92,5 +92,6 @@ urlpatterns = [
     
     # 🏙️ NEW: Masterplan viewer page
     path('maps/masterplan/', views.MasterplanViewerView.as_view(), name='masterplan_viewer'),
+    path('api/static-tiles/<slug:city_slug>/<slug:layer_slug>/<int:z>/<int:x>/<int:y>.mvt', StaticVectorTileView.as_view(), name='static-vector-tile'),
 
 ]
