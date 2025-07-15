@@ -7,6 +7,7 @@ import mapbox_vector_tile
 from PIL import Image, ImageDraw
 import io
 import logging
+from .config import get_city_config
 
 logger = logging.getLogger(__name__)
 
@@ -77,41 +78,38 @@ class TileRenderingService:
             return self.create_empty_tile()
     
     def combined_mvt_to_png(self, mvt_data, layers, z, x, y):
-        """FIXED - Convert combined layers MVT to PNG image"""
-        
+        """Convert combined layers MVT to PNG image with correct per-layer color."""
         try:
             decoded_data = mapbox_vector_tile.decode(mvt_data)
-            
             if not decoded_data:
                 return self.create_empty_tile()
-            
-            # Create blank image
             img = Image.new('RGBA', (self.tile_size, self.tile_size), self.background_color)
             draw = ImageDraw.Draw(img)
-            
-            # Create layer color mapping - SIMPLIFIED
+            # Build a mapping from MVT layer name (slug) to color
+            if layers:
+                city_slug = layers[0].city.slug
+            else:
+                city_slug = None
             layer_colors = {}
             for layer in layers:
-                layer_colors[layer.slug] = self._hex_to_rgb(self._get_layer_color_simple(layer))
-            
+                layer_colors[layer.slug] = self._get_layer_color_simple(layer)
+            # Also allow fallback for any slug in decoded_data
+            for layer_name in decoded_data.keys():
+                if layer_name not in layer_colors:
+                    layer_colors[layer_name] = self._get_layer_color_simple(layer_name, city_slug)
             features_drawn = 0
-            
-            # Render each layer in the MVT
             for layer_name, layer_data in decoded_data.items():
                 features = layer_data.get('features', [])
-                rgb_color = layer_colors.get(layer_name, (102, 102, 102))  # Default gray
-                
+                rgb_color = layer_colors.get(layer_name, (102, 102, 102))
+                if isinstance(rgb_color, str):
+                    rgb_color = self._hex_to_rgb(rgb_color)
                 for feature in features:
                     if self._draw_feature_simple(draw, feature, rgb_color):
                         features_drawn += 1
-            
             logger.info(f"Drew {features_drawn} features for combined tile at {z}/{x}/{y}")
-            
-            # Convert to PNG bytes
             img_buffer = io.BytesIO()
             img.save(img_buffer, format='PNG', optimize=True)
             return img_buffer.getvalue()
-            
         except Exception as e:
             logger.error(f"Error rendering combined MVT to PNG: {e}")
             return self.create_empty_tile()
@@ -179,15 +177,53 @@ class TileRenderingService:
             
         return False
     
-    def _get_layer_color_simple(self, layer):
-        """SIMPLIFIED - Get color for a layer"""
-        
+    def _get_layer_color_simple(self, layer_or_slug, city_slug=None):
+        """Get color for a layer or slug: prefer per-layer color from config using slug or file, else category color, else fallback."""
         try:
-            # Try to get category code
-            category_code = layer.category.code
-            return self.category_colors.get(category_code, '#FF0000')  # Default to red for visibility
-        except:
-            return '#FF0000'  # Bright red fallback
+            # Accept either a DataLayer or a slug string
+            if hasattr(layer_or_slug, 'slug'):
+                slug = layer_or_slug.slug
+                city_slug = layer_or_slug.city.slug
+                category_code = layer_or_slug.category.code
+                original_filename = getattr(layer_or_slug, 'original_filename', None)
+            else:
+                slug = str(layer_or_slug)
+                original_filename = None
+                # city_slug must be provided if only slug is given
+                if not city_slug:
+                    return '#FF0000'
+                # Find the DataLayer for this slug and city
+                from maps.models import DataLayer, City
+                city = City.objects.get(slug=city_slug)
+                layer = DataLayer.objects.filter(city=city, slug=slug).first()
+                category_code = layer.category.code if layer else None
+                if layer:
+                    original_filename = getattr(layer, 'original_filename', None)
+            config = get_city_config(city_slug)
+            # Try per-layer color by matching slug or file
+            if config and 'layer_groups' in config:
+                for group in config['layer_groups'].values():
+                    for lyr in group.get('layers', {}).values():
+                        # Match by slug, or by file (case-insensitive)
+                        if (
+                            lyr.get('slug') == slug or
+                            (original_filename and lyr.get('file', '').lower() == original_filename.lower()) or
+                            slug == lyr.get('file', '').replace('.geojson','').replace('.shp','').lower()
+                        ):
+                            color = lyr.get('color')
+                            if color:
+                                return color
+            # Fallback to category color from config
+            if config and 'colors' in config and category_code:
+                color = config['colors'].get(category_code)
+                if color:
+                    return color
+            # Fallback to hardcoded category colors
+            if category_code:
+                return self.category_colors.get(category_code, '#FF0000')
+            return '#FF0000'
+        except Exception as e:
+            return '#FF0000'
     
     def _hex_to_rgb(self, hex_color):
         """Convert hex color to RGB tuple"""

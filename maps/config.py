@@ -657,11 +657,100 @@ AMARAVATI_CONFIG = {
     }
 }
 
+HYDERABAD_CONFIG = {
+    'city_info': {
+        'name': 'Hyderabad',
+        'slug': 'hyderabad',
+        'state': 'Telangana',
+        'center_lat': 17.385044,
+        'center_lng': 78.486671,
+    },
+    'data_format': 'MIXED',  # We have both GeoJSON and Shapefiles
+    'coordinate_precision': 8,
+    
+    # Layer Groups configuration
+    'layer_groups': {
+        'transport': {
+            'name': 'Transportation',
+            'slug': 'transport',
+            'category': 'TRANSPORT',
+            'description': 'Transportation infrastructure including metro and highways',
+            'directory_path': 'data/hyderabad',
+            'default_color': '#607D8B',  # Blue Grey
+            'layers': {
+                'metro_stations': {
+                    'file': 'Hyd_metro_stations_ph1&2.geojson',
+                    'name': 'Metro Stations',
+                    'color': '#F44336'  # Red
+                },
+                'metro_lines': {
+                    'file': 'Hyd_metro_lines_ph_1&2_Final.geojson',
+                    'name': 'Metro Lines',
+                    'color': '#4CAF50'  # Green
+                },
+                'highways': {
+                    'file': 'hyd_highways_merged.geojson',
+                    'name': 'Highways',
+                    'color': '#2196F3'  # Blue
+                }
+            }
+        },
+        'economic': {
+            'name': 'Economic Zones',
+            'slug': 'economic',
+            'category': 'INDUSTRIAL',
+            'description': 'Special Economic Zones and industrial areas',
+            'directory_path': 'data/hyderabad',
+            'default_color': '#FF9800',  # Orange
+            'layers': {
+                'sez': {
+                    'file': 'Hyd_SEZs_Final.geojson',
+                    'name': 'Special Economic Zones',
+                    'color': '#FF9800'  # Orange
+                }
+            }
+        },
+        'administrative': {
+            'name': 'Administrative Boundaries',
+            'slug': 'administrative',
+            'category': 'GOVERNMENT',
+            'description': 'City boundaries and administrative zones',
+            'directory_path': 'data/FutureCityHyderabad_Boundary',
+            'default_color': '#F44336',  # Red
+            'layers': {
+                'future_city': {
+                    'file': 'FutureCityHyderabad_Boundary.shp',
+                    'name': 'Future City Boundary',
+                    'color': '#2196F3'  # Blue
+                }
+            }
+        }
+    },
+    
+    # Colors for different categories
+    'colors': {
+        'TRANSPORT': '#607D8B',      # Blue Grey
+        'INDUSTRIAL': '#FF9800',     # Orange
+        'GOVERNMENT': '#F44336',     # Red
+        'COMMERCIAL': '#2196F3',     # Blue
+        'RESIDENTIAL': '#8BC34A',    # Light Green
+        'SPECIAL': '#9C27B0',        # Purple
+    },
+    'file_mappings': {
+        'Hyd_metro_stations_ph1&2.geojson': 'TRANSPORT',
+        'Hyd_metro_lines_ph_1&2_Final.geojson': 'TRANSPORT',
+        'hyd_highways_merged.geojson': 'TRANSPORT',
+        'Hyd_SEZs_Final.geojson': 'INDUSTRIAL',
+        'FutureCityHyderabad_Boundary.shp': 'GOVERNMENT',
+    },
+}
+
 # Master configuration dictionary
 CITY_CONFIGS = {
     'bangalore': BANGALORE_CONFIG,
     'vizag': VIZAG_CONFIG,
     'amaravati': AMARAVATI_CONFIG,
+    'hyderabad': HYDERABAD_CONFIG,
 }
 
 def get_city_config(city_slug):

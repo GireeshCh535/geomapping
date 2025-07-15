@@ -6,8 +6,10 @@ from .views import SimpleMapView
 
 # Create router for viewsets
 router = DefaultRouter()
+router.register(r'states', views.StateViewSet)
 router.register(r'cities', views.CityViewSet)
 router.register(r'categories', views.LayerCategoryViewSet)
+router.register(r'layer-groups', views.LayerGroupViewSet)
 router.register(r'layers', views.DataLayerViewSet)
 router.register(r'features', views.GeoFeatureViewSet)
 router.register(r'import-jobs', views.ImportJobViewSet)
@@ -92,5 +94,15 @@ urlpatterns = [
     
     # 🏙️ NEW: Masterplan viewer page
     path('maps/masterplan/', views.MasterplanViewerView.as_view(), name='masterplan_viewer'),
+
+    # Add new endpoints
+    path('states/<slug:state_slug>/cities/',
+         views.StateCitiesView.as_view(), name='state_cities'),
+    
+    path('cities/<slug:city_slug>/layer-groups/',
+         views.CityLayerGroupsView.as_view(), name='city_layer_groups'),
+    
+    path('layer-groups/<slug:group_slug>/layers/',
+         views.LayerGroupLayersView.as_view(), name='layer_group_layers'),
 
 ]

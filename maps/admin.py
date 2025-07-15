@@ -1,12 +1,29 @@
 from django.contrib import admin
 from django.contrib.gis.admin import OSMGeoAdmin
-from .models import City, LayerCategory, DataLayer, GeoFeature, VectorTileLayer
+from .models import (
+    State, City, LayerCategory, DataLayer, GeoFeature, 
+    VectorTileLayer, LayerGroup
+)
+
+@admin.register(State)
+class StateAdmin(admin.ModelAdmin):
+    list_display = ['name', 'code', 'is_active', 'created_at']
+    list_filter = ['is_active']
+    search_fields = ['name', 'code']
+    prepopulated_fields = {'slug': ('name',)}
 
 @admin.register(City)
 class CityAdmin(admin.ModelAdmin):
-    list_display = ['name', 'slug', 'state', 'is_active', 'created_at']
-    list_filter = ['state', 'is_active']
+    list_display = ['name', 'slug', 'state_ref', 'is_active', 'created_at']
+    list_filter = ['state_ref', 'is_active']
     search_fields = ['name', 'slug']
+    prepopulated_fields = {'slug': ('name',)}
+
+@admin.register(LayerGroup)
+class LayerGroupAdmin(admin.ModelAdmin):
+    list_display = ['name', 'city', 'category', 'is_visible', 'display_order']
+    list_filter = ['city', 'category', 'is_visible']
+    search_fields = ['name', 'description']
     prepopulated_fields = {'slug': ('name',)}
 
 @admin.register(LayerCategory)

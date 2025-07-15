@@ -27,24 +27,69 @@ import os
 
 from .models import (
     City, LayerCategory, DataLayer, GeoFeature, VectorTileLayer, 
-    PLUCodeMapping, ImportJob
+    PLUCodeMapping, ImportJob, State, LayerGroup
 )
 from .serializers import (
     CitySerializer, LayerCategorySerializer, DataLayerSerializer, 
-    GeoFeatureSerializer, PLUCodeMappingSerializer, ImportJobSerializer
+    GeoFeatureSerializer, PLUCodeMappingSerializer, ImportJobSerializer,
+    StateSerializer, LayerGroupSerializer
 )
 from .services import DataImportService, VectorTileService
 from .config import get_city_config, get_plu_mapping
 logger = logging.getLogger(__name__)
 
+class StateViewSet(viewsets.ReadOnlyModelViewSet):
+    """State viewset with cities and statistics"""
+    queryset = State.objects.annotate(
+        city_count=Count('cities')
+    ).filter(is_active=True)
+    serializer_class = StateSerializer
+    lookup_field = 'slug'
+    
+    @action(detail=True)
+    def statistics(self, request, slug=None):
+        state = self.get_object()
+        cities = City.objects.filter(state_ref=state)
+        
+        return Response({
+            'total_cities': cities.count(),
+            'active_cities': cities.filter(is_active=True).count(),
+            'total_layers': DataLayer.objects.filter(city__state_ref=state).count(),
+            'total_features': GeoFeature.objects.filter(
+                layer__city__state_ref=state
+            ).count(),
+        })
+
+class LayerGroupViewSet(viewsets.ReadOnlyModelViewSet):
+    """Layer group viewset"""
+    queryset = LayerGroup.objects.annotate(
+        layer_count=Count('layers')
+    )
+    serializer_class = LayerGroupSerializer
+    filterset_fields = ['city__slug', 'category__code']
+    
+    @action(detail=True)
+    def layers(self, request, pk=None):
+        group = self.get_object()
+        layers = DataLayer.objects.filter(layer_group=group)
+        return Response(DataLayerSerializer(layers, many=True).data)
+
 class CityViewSet(viewsets.ReadOnlyModelViewSet):
-    """Enhanced city viewset with PLU information"""
+    """Enhanced city viewset with state and layer groups"""
     queryset = City.objects.annotate(
         layer_count=Count('layers'),
         total_features=Count('layers__features')
     ).filter(is_active=True)
     serializer_class = CitySerializer
     lookup_field = 'slug'
+    
+    @action(detail=True)
+    def layer_groups(self, request, slug=None):
+        city = self.get_object()
+        groups = LayerGroup.objects.filter(city=city).annotate(
+            layer_count=Count('layers')
+        )
+        return Response(LayerGroupSerializer(groups, many=True).data)
 
     @action(detail=True, methods=['get'])
     def statistics(self, request, slug=None):  # Keep as 'slug'
@@ -295,7 +340,7 @@ class CombinedVectorTileView(APIView):
             return HttpResponse(b'', content_type='application/vnd.mapbox-vector-tile', status=500)
 
 class CityLayersView(APIView):
-    """Enhanced city layers view with filtering"""
+    """Enhanced city layers view with group support"""
     
     def get(self, request, city_slug):
         layers = DataLayer.objects.filter(
@@ -317,6 +362,11 @@ class CityLayersView(APIView):
         has_plu = request.GET.get('has_plu')
         if has_plu and has_plu.lower() == 'true':
             layers = layers.filter(categorization_method='PLU_CODE')
+        
+        # Add group filter
+        group_slug = request.GET.get('group')
+        if group_slug:
+            layers = layers.filter(layer_group__slug=group_slug)
         
         serializer = DataLayerSerializer(layers, many=True)
         
@@ -2251,3 +2301,59 @@ class CityTileGenerationView(APIView):
             })
         
         return sample_urls
+
+class StateCitiesView(APIView):
+    """Get all cities for a specific state"""
+    
+    def get(self, request, state_slug):
+        try:
+            state = State.objects.get(slug=state_slug)
+            cities = City.objects.filter(state_ref=state).annotate(
+                layer_count=Count('layers'),
+                total_features=Count('layers__features')
+            )
+            return Response({
+                'state': StateSerializer(state).data,
+                'cities': CitySerializer(cities, many=True).data
+            })
+        except State.DoesNotExist:
+            return Response(
+                {'error': f'State not found: {state_slug}'}, 
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+class CityLayerGroupsView(APIView):
+    """Get all layer groups for a specific city"""
+    
+    def get(self, request, city_slug):
+        try:
+            city = City.objects.get(slug=city_slug)
+            groups = LayerGroup.objects.filter(city=city).annotate(
+                layer_count=Count('layers')
+            )
+            return Response({
+                'city': CitySerializer(city).data,
+                'layer_groups': LayerGroupSerializer(groups, many=True).data
+            })
+        except City.DoesNotExist:
+            return Response(
+                {'error': f'City not found: {city_slug}'}, 
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+class LayerGroupLayersView(APIView):
+    """Get all layers in a specific layer group"""
+    
+    def get(self, request, group_slug):
+        try:
+            group = LayerGroup.objects.get(slug=group_slug)
+            layers = DataLayer.objects.filter(layer_group=group)
+            return Response({
+                'group': LayerGroupSerializer(group).data,
+                'layers': DataLayerSerializer(layers, many=True).data
+            })
+        except LayerGroup.DoesNotExist:
+            return Response(
+                {'error': f'Layer group not found: {group_slug}'}, 
+                status=status.HTTP_404_NOT_FOUND
+            )
