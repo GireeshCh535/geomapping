@@ -24,6 +24,9 @@ import time
 from django.utils import timezone
 from django.http import FileResponse
 import os
+from rest_framework.decorators import api_view
+from rest_framework.permissions import AllowAny
+from django.urls import path
 
 from .models import (
     City, LayerCategory, DataLayer, GeoFeature, VectorTileLayer, 
@@ -2357,3 +2360,12 @@ class LayerGroupLayersView(APIView):
                 {'error': f'Layer group not found: {group_slug}'}, 
                 status=status.HTTP_404_NOT_FOUND
             )
+class StaticVectorTileView(APIView):
+    """Serve pre-generated MVT files from disk only."""
+    permission_classes = [AllowAny]
+
+    def get(self, request, city_slug, layer_slug, z, x, y):
+        tile_path = os.path.join('media', 'tiles', city_slug, layer_slug, str(z), str(x), f'{y}.mvt')
+        if os.path.exists(tile_path):
+            return FileResponse(open(tile_path, 'rb'), content_type='application/vnd.mapbox-vector-tile')
+        return Response({'error': 'Pre-generated tile not found', 'path': tile_path}, status=status.HTTP_404_NOT_FOUND)
