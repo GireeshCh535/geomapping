@@ -15,9 +15,16 @@ class StateAdmin(admin.ModelAdmin):
 
 @admin.register(City)
 class CityAdmin(admin.ModelAdmin):
-    list_display = ['name', 'slug', 'state', 'is_active', 'created_at']
-    list_filter = ['state', 'is_active']
+    list_display = ['name', 'slug', 'state_ref', 'is_active', 'created_at']
+    list_filter = ['state_ref', 'is_active']
     search_fields = ['name', 'slug']
+    prepopulated_fields = {'slug': ('name',)}
+
+@admin.register(LayerGroup)
+class LayerGroupAdmin(admin.ModelAdmin):
+    list_display = ['name', 'city', 'category', 'is_visible', 'display_order']
+    list_filter = ['city', 'category', 'is_visible']
+    search_fields = ['name', 'description']
     prepopulated_fields = {'slug': ('name',)}
 
 @admin.register(LayerCategory)

@@ -3,21 +3,47 @@
 from rest_framework import serializers
 from rest_framework_gis.serializers import GeoFeatureModelSerializer
 from .models import (
-    City, LayerCategory, DataLayer, GeoFeature, VectorTileLayer, 
-    PLUCodeMapping, ImportJob, CityLayerStyle
+    State, City, LayerCategory, DataLayer, GeoFeature, VectorTileLayer, 
+    PLUCodeMapping, ImportJob, CityLayerStyle, LayerGroup
 )
 
+class StateSerializer(serializers.ModelSerializer):
+    city_count = serializers.IntegerField(read_only=True)
+    
+    class Meta:
+        model = State
+        fields = [
+            'id', 'name', 'slug', 'code', 'center_lat', 'center_lng',
+            'default_zoom', 'is_active', 'city_count', 'created_at'
+        ]
+
+class LayerGroupSerializer(serializers.ModelSerializer):
+    category_name = serializers.CharField(source='category.name', read_only=True)
+    layer_count = serializers.IntegerField(read_only=True)
+    
+    class Meta:
+        model = LayerGroup
+        fields = [
+            'id', 'name', 'slug', 'description', 'category_name',
+            'directory_path', 'default_color', 'default_stroke',
+            'default_opacity', 'display_order', 'is_visible',
+            'min_zoom', 'max_zoom', 'layer_count'
+        ]
+
 class CitySerializer(serializers.ModelSerializer):
+    state_name = serializers.CharField(source='state_ref.name', read_only=True)
+    state_code = serializers.CharField(source='state_ref.code', read_only=True)
     layer_count = serializers.IntegerField(read_only=True)
     total_features = serializers.IntegerField(read_only=True)
-    has_plu_data = serializers.SerializerMethodField()
+    layer_groups = LayerGroupSerializer(many=True, read_only=True)
     
     class Meta:
         model = City
         fields = [
-            'name', 'slug', 'state', 'center_lat', 'center_lng', 
-            'min_zoom', 'max_zoom', 'is_active', 'layer_count', 
-            'total_features', 'has_plu_data', 'created_at'
+            'id', 'name', 'slug', 'state_name', 'state_code',
+            'center_lat', 'center_lng', 'min_zoom', 'max_zoom',
+            'is_active', 'layer_count', 'total_features',
+            'layer_groups', 'created_at'
         ]
     
     def get_has_plu_data(self, obj):
@@ -57,6 +83,7 @@ class DataLayerSerializer(serializers.ModelSerializer):
     bbox = serializers.SerializerMethodField()
     has_tiles = serializers.BooleanField(source='tiles_generated', read_only=True)
     plu_codes_summary = serializers.SerializerMethodField()
+    layer_group_name = serializers.CharField(source='layer_group.name', read_only=True)
     
     class Meta:
         model = DataLayer
@@ -64,7 +91,9 @@ class DataLayerSerializer(serializers.ModelSerializer):
             'id', 'name', 'slug', 'city_name', 'category_name', 'category_code',
             'description', 'file_format', 'categorization_method', 'geometry_type',
             'feature_count', 'is_processed', 'has_tiles', 'primary_plu_codes',
-            'plu_codes_summary', 'bbox', 'style', 'data_source', 'created_at'
+            'plu_codes_summary', 'bbox', 'style', 'data_source', 'created_at',
+            'layer_group', 'layer_group_name',
+            'is_directory', 'file_pattern'
         ]
     
     def get_style(self, obj):

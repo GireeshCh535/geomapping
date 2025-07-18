@@ -5,11 +5,42 @@ from django.contrib.gis.geos import GEOSGeometry
 import uuid
 import json
 
+class State(models.Model):
+    """State model to organize cities"""
+    name = models.CharField(max_length=100, unique=True)
+    slug = models.SlugField(max_length=100, unique=True)
+    code = models.CharField(max_length=2, unique=True)  # State code like TS, AP
+    
+    # Map center for state-level view
+    center_lat = models.FloatField(null=True, blank=True)
+    center_lng = models.FloatField(null=True, blank=True)
+    default_zoom = models.IntegerField(default=7)
+    
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    
+    class Meta:
+        db_table = 'states'
+        ordering = ['name']
+    
+    def __str__(self):
+        return self.name
+
+# Update existing City model to link to State
 class City(models.Model):
     """Universal city model"""
     name = models.CharField(max_length=100, unique=True)
     slug = models.SlugField(max_length=100, unique=True)
+    # Keep the existing state field
     state = models.CharField(max_length=50)
+    # Add new state relationship field
+    state_ref = models.ForeignKey(
+        'State',
+        on_delete=models.CASCADE,
+        related_name='cities',
+        null=True,  # Allow null temporarily during migration
+        blank=True
+    )
     
     # Map center
     center_lat = models.FloatField()
@@ -101,6 +132,40 @@ class CityLayerStyle(models.Model):
     def __str__(self):
         return f"{self.city.name} - {self.category.name}"
 
+class LayerGroup(models.Model):
+    """Group of related layers (e.g., all lakes, all masterplan files)"""
+    name = models.CharField(max_length=200)
+    slug = models.SlugField(max_length=200)
+    description = models.TextField(blank=True)
+    
+    city = models.ForeignKey(City, on_delete=models.CASCADE, related_name='layer_groups')
+    category = models.ForeignKey(LayerCategory, on_delete=models.CASCADE, related_name='layer_groups')
+    
+    # Directory path for this group's files
+    directory_path = models.CharField(max_length=500)
+    
+    # Group-level styling (can be overridden by individual layers)
+    default_color = models.CharField(max_length=7, default='#666666')
+    default_stroke = models.CharField(max_length=7, default='#333333')
+    default_opacity = models.FloatField(default=0.7)
+    
+    # Display settings
+    display_order = models.IntegerField(default=0)
+    is_visible = models.BooleanField(default=True)
+    min_zoom = models.IntegerField(null=True, blank=True)
+    max_zoom = models.IntegerField(null=True, blank=True)
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        db_table = 'layer_groups'
+        unique_together = ('city', 'slug')
+        ordering = ['display_order', 'name']
+    
+    def __str__(self):
+        return f"{self.city.name} - {self.name}"
+
 class DataLayer(models.Model):
     """Universal data layer model"""
     GEOMETRY_TYPES = [
@@ -166,6 +231,23 @@ class DataLayer(models.Model):
     data_source = models.CharField(max_length=200, blank=True)
     last_updated = models.DateTimeField(null=True, blank=True)
     
+    # Add link to LayerGroup (optional, for backward compatibility)
+    layer_group = models.ForeignKey(
+        LayerGroup, 
+        on_delete=models.SET_NULL,  # Don't delete layer if group is deleted
+        related_name='layers',
+        null=True,
+        blank=True
+    )
+    
+    # Update file_path to handle both files and directories
+    is_directory = models.BooleanField(default=False)
+    file_pattern = models.CharField(
+        max_length=100, 
+        blank=True, 
+        help_text="Pattern to match files in directory (e.g., *.shp)"
+    )
+    
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     
@@ -198,6 +280,17 @@ class DataLayer(models.Model):
                 'stroke_color': self.category.default_stroke,
                 'opacity': self.category.default_opacity
             }
+    
+    def get_files(self):
+        """Get all files for this layer"""
+        if not self.is_directory:
+            return [self.file_path] if self.file_path else []
+            
+        import glob
+        import os
+        
+        pattern = os.path.join(self.file_path, self.file_pattern or '*')
+        return glob.glob(pattern)
     
     def __str__(self):
         return f"{self.city.name} - {self.name}"
