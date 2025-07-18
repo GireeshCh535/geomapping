@@ -24,10 +24,14 @@ import time
 from django.utils import timezone
 from django.http import FileResponse
 import os
+from rest_framework.decorators import api_view
+from rest_framework.permissions import AllowAny
+from django.db.models import Prefetch
+from django.urls import path
 
 from .models import (
     City, LayerCategory, DataLayer, GeoFeature, VectorTileLayer, 
-    PLUCodeMapping, ImportJob
+    PLUCodeMapping, ImportJob, State, LayerGroup, LayerConfig
 )
 from .serializers import (
     CitySerializer, LayerCategorySerializer, DataLayerSerializer, 
@@ -2251,3 +2255,275 @@ class CityTileGenerationView(APIView):
             })
         
         return sample_urls
+
+class StateCitiesView(APIView):
+    """Get all cities for a specific state"""
+    
+    def get(self, request, state_slug):
+        try:
+            state = State.objects.get(slug=state_slug)
+            cities = City.objects.filter(state_ref=state).annotate(
+                layer_count=Count('layers'),
+                total_features=Count('layers__features')
+            )
+            return Response({
+                'state': StateSerializer(state).data,
+                'cities': CitySerializer(cities, many=True).data
+            })
+        except State.DoesNotExist:
+            return Response(
+                {'error': f'State not found: {state_slug}'}, 
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+class CityLayerGroupsView(APIView):
+    """Get all layer groups for a specific city"""
+    
+    def get(self, request, city_slug):
+        try:
+            city = City.objects.get(slug=city_slug)
+            groups = LayerGroup.objects.filter(city=city).annotate(
+                layer_count=Count('layers')
+            )
+            return Response({
+                'city': CitySerializer(city).data,
+                'layer_groups': LayerGroupSerializer(groups, many=True).data
+            })
+        except City.DoesNotExist:
+            return Response(
+                {'error': f'City not found: {city_slug}'}, 
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+class LayerGroupLayersView(APIView):
+    """Get all layers in a specific layer group"""
+    
+    def get(self, request, group_slug):
+        try:
+            group = LayerGroup.objects.get(slug=group_slug)
+            layers = DataLayer.objects.filter(layer_group=group)
+            return Response({
+                'group': LayerGroupSerializer(group).data,
+                'layers': DataLayerSerializer(layers, many=True).data
+            })
+        except LayerGroup.DoesNotExist:
+            return Response(
+                {'error': f'Layer group not found: {group_slug}'}, 
+                status=status.HTTP_404_NOT_FOUND
+            )
+class StaticVectorTileView(APIView):
+    """Serve pre-generated MVT files from disk only."""
+    permission_classes = [AllowAny]
+
+    def get(self, request, city_slug, layer_slug, z, x, y):
+        tile_path = os.path.join('media', 'tiles', city_slug, layer_slug, str(z), str(x), f'{y}.mvt')
+        if os.path.exists(tile_path):
+            return FileResponse(open(tile_path, 'rb'), content_type='application/vnd.mapbox-vector-tile')
+        return Response({'error': 'Pre-generated tile not found', 'path': tile_path}, status=status.HTTP_404_NOT_FOUND)
+
+
+class LayerConfigAPIView(APIView):
+    """
+    API endpoint that returns the exact structure you specified
+    URL: /api/layer-config/
+    """
+    
+    def get(self, request):
+        # Get all active states with their layer configs and cities
+        states = State.objects.filter(
+            is_active=True
+        ).prefetch_related(
+            # Prefetch state-level layers
+            Prefetch(
+                'layer_configs',
+                queryset=LayerConfig.objects.filter(
+                    scope='state',
+                    is_active=True
+                ).order_by('sort_order', 'title'),
+                to_attr='state_layers'
+            ),
+            # Prefetch cities with their layers
+            Prefetch(
+                'cities',
+                queryset=City.objects.filter(
+                    is_active=True
+                ).prefetch_related(
+                    Prefetch(
+                        'layer_configs',
+                        queryset=LayerConfig.objects.filter(
+                            scope='urban_area',
+                            is_active=True
+                        ).order_by('sort_order', 'title'),
+                        to_attr='urban_layers'
+                    )
+                ),
+                to_attr='urban_areas'
+            )
+        ).order_by('name')
+        
+        # Build the response data
+        states_data = []
+        
+        for state in states:
+            # State-level layers
+            state_layers = [layer.to_api_format() for layer in state.state_layers]
+            
+            # Urban areas with their layers
+            urban_areas = []
+            for city in state.urban_areas:
+                if hasattr(city, 'urban_layers') and city.urban_layers:
+                    urban_areas.append({
+                        'id': city.id,
+                        'name': city.name,
+                        'slug': city.slug,
+                        'layers': [layer.to_api_format() for layer in city.urban_layers]
+                    })
+            
+            # Only include states that have either state_layers or urban_areas with layers
+            if state_layers or urban_areas:
+                state_data = {
+                    'id': state.id,
+                    'name': state.name,
+                    'slug': state.slug,
+                    'state_layers': state_layers,
+                    'urban_areas': urban_areas
+                }
+                states_data.append(state_data)
+        
+        return Response({
+            'data': {
+                'states': states_data
+            }
+        })
+
+
+class StateLayerConfigView(APIView):
+    """
+    Get layer configuration for a specific state
+    URL: /api/states/{state_slug}/layer-config/
+    """
+    
+    def get(self, request, state_slug):
+        try:
+            state = State.objects.get(slug=state_slug, is_active=True)
+        except State.DoesNotExist:
+            return Response({'error': 'State not found'}, status=404)
+        
+        # Get state-level layers
+        state_layers = LayerConfig.objects.filter(
+            state=state,
+            scope='state',
+            is_active=True
+        ).order_by('sort_order', 'title')
+        
+        # Get urban areas with layers
+        cities = City.objects.filter(
+            state_ref=state,
+            is_active=True
+        ).prefetch_related(
+            Prefetch(
+                'layer_configs',
+                queryset=LayerConfig.objects.filter(
+                    scope='urban_area',
+                    is_active=True
+                ).order_by('sort_order', 'title'),
+                to_attr='urban_layers'
+            )
+        )
+        
+        urban_areas = []
+        for city in cities:
+            if hasattr(city, 'urban_layers') and city.urban_layers:
+                urban_areas.append({
+                    'id': city.id,
+                    'name': city.name,
+                    'slug': city.slug,
+                    'layers': [layer.to_api_format() for layer in city.urban_layers]
+                })
+        
+        return Response({
+            'id': state.id,
+            'name': state.name,
+            'slug': state.slug,
+            'state_layers': [layer.to_api_format() for layer in state_layers],
+            'urban_areas': urban_areas
+        })
+
+
+class CityLayerConfigView(APIView):
+    """
+    Get layer configuration for a specific city
+    URL: /api/cities/{city_slug}/layer-config/
+    """
+    
+    def get(self, request, city_slug):
+        try:
+            city = City.objects.select_related('state_ref').get(
+                slug=city_slug, 
+                is_active=True
+            )
+        except City.DoesNotExist:
+            return Response({'error': 'City not found'}, status=404)
+        
+        # Get city-specific layers
+        layers = LayerConfig.objects.filter(
+            city=city,
+            scope='urban_area',
+            is_active=True
+        ).order_by('sort_order', 'title')
+        
+        return Response({
+            'id': city.id,
+            'name': city.name,
+            'slug': city.slug,
+            'state': {
+                'id': city.state_ref.id,
+                'name': city.state_ref.name,
+                'slug': city.state_ref.slug
+            },
+            'layers': [layer.to_api_format() for layer in layers]
+        })
+
+
+class LayerConfigDetailView(APIView):
+    """
+    Get details for a specific layer configuration
+    URL: /api/layer-config/{layer_slug}/
+    """
+    
+    def get(self, request, layer_slug):
+        try:
+            layer = LayerConfig.objects.select_related(
+                'state', 'city', 'data_layer'
+            ).get(slug=layer_slug, is_active=True)
+        except LayerConfig.DoesNotExist:
+            return Response({'error': 'Layer configuration not found'}, status=404)
+        
+        data = layer.to_api_format()
+        
+        # Add additional details
+        data.update({
+            'state': {
+                'id': layer.state.id,
+                'name': layer.state.name,
+                'slug': layer.state.slug
+            }
+        })
+        
+        if layer.city:
+            data['city'] = {
+                'id': layer.city.id,
+                'name': layer.city.name,
+                'slug': layer.city.slug
+            }
+        
+        if layer.data_layer:
+            data['data_layer'] = {
+                'id': layer.data_layer.id,
+                'name': layer.data_layer.name,
+                'slug': layer.data_layer.slug,
+                'feature_count': layer.data_layer.feature_count,
+                'is_processed': layer.data_layer.is_processed
+            }
+        
+        return Response(data)

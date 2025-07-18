@@ -444,3 +444,124 @@ class ImportJob(models.Model):
     
     def __str__(self):
         return f"{self.city.name} - {self.filename} ({self.status})"
+    
+class LayerConfig(models.Model):
+    """
+    Frontend layer configuration - matches your API structure exactly
+    """
+    
+    STATUS_CHOICES = [
+        ('live', 'Live'),
+        ('upcoming', 'Upcoming'),
+        ('maintenance', 'Under Maintenance'),
+    ]
+    
+    ACCESS_CHOICES = [
+        ('free', 'Free'),
+        ('premium', 'Premium'),
+        ('enterprise', 'Enterprise'),
+    ]
+    
+    SCOPE_CHOICES = [
+        ('state', 'State Level'),
+        ('urban_area', 'Urban Area Level'),
+    ]
+    
+    # Basic Info
+    title = models.CharField(max_length=200, help_text="Layer title shown in frontend")
+    slug = models.SlugField(max_length=200, unique=True)
+    description = models.TextField(help_text="Layer description")
+    
+    # Classification
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='live')
+    access = models.CharField(max_length=20, choices=ACCESS_CHOICES, default='free')
+    scope = models.CharField(max_length=20, choices=SCOPE_CHOICES, default='urban_area')
+    
+    # Relationships
+    state = models.ForeignKey(State, on_delete=models.CASCADE, related_name='layer_configs')
+    city = models.ForeignKey(City, on_delete=models.CASCADE, null=True, blank=True, 
+                           related_name='layer_configs',
+                           help_text="Required if scope is 'urban_area'")
+    
+    # Optional: Link to actual data layer
+    data_layer = models.OneToOneField(DataLayer, on_delete=models.SET_NULL, 
+                                    null=True, blank=True,
+                                    related_name='frontend_config')
+    
+    # Display Settings
+    sort_order = models.IntegerField(default=1, help_text="Display order in frontend")
+    is_active = models.BooleanField(default=True)
+    
+    # Info Popup Data
+    data_accuracy = models.TextField(blank=True, help_text="Data accuracy information")
+    information_use = models.TextField(blank=True, help_text="Usage guidelines")
+    source_name = models.CharField(max_length=200, blank=True, help_text="Source name (e.g., 'hmda.gov')")
+    source_url = models.URLField(blank=True, help_text="Source URL (optional)")
+    
+    # Metadata
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        db_table = 'layer_configs'
+        ordering = ['state__name', 'scope', 'sort_order', 'title']
+        indexes = [
+            models.Index(fields=['state', 'scope', 'is_active']),
+            models.Index(fields=['city', 'is_active']),
+            models.Index(fields=['status', 'access']),
+        ]
+        constraints = [
+            models.CheckConstraint(
+                check=models.Q(scope='state') | models.Q(city__isnull=False),
+                name='city_required_for_urban_area'
+            )
+        ]
+    
+    def __str__(self):
+        if self.scope == 'state':
+            return f"{self.state.name} (State) - {self.title}"
+        else:
+            city_name = self.city.name if self.city else "No City"
+            return f"{self.state.name} > {city_name} - {self.title}"
+    
+    def clean(self):
+        """Validate that city is provided for urban_area scope"""
+        from django.core.exceptions import ValidationError
+        if self.scope == 'urban_area' and not self.city:
+            raise ValidationError("City is required when scope is 'urban_area'")
+        if self.scope == 'state' and self.city:
+            raise ValidationError("City should not be set when scope is 'state'")
+    
+    def get_info_popup(self):
+        """Generate info_popup structure for API"""
+        popup = {}
+        
+        if self.data_accuracy:
+            popup['data_accuracy'] = self.data_accuracy
+        
+        if self.information_use:
+            popup['information_use'] = self.information_use
+        
+        if self.source_name and self.source_url:
+            popup['source'] = {
+                'title': self.source_name,
+                'url': self.source_url
+            }
+        elif self.source_name:
+            popup['source'] = self.source_name
+        
+        return popup
+    
+    def to_api_format(self):
+        """Convert to API format"""
+        return {
+            'id': self.id,
+            'title': self.title,
+            'slug': self.slug,
+            'description': self.description,
+            'status': self.status,
+            'access': self.access,
+            'scope': self.scope,
+            'sort_order': self.sort_order,
+            'info_popup': self.get_info_popup(),
+        }
