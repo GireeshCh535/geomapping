@@ -667,32 +667,82 @@ HYDERABAD_CONFIG = {
     },
     'data_format': 'MIXED',  # We have both GeoJSON and Shapefiles
     'coordinate_precision': 8,
-    
+
     # Layer Groups configuration
     'layer_groups': {
         'transport': {
             'name': 'Transportation',
             'slug': 'transport',
             'category': 'TRANSPORT',
-            'description': 'Transportation infrastructure including metro and highways',
+            'description': 'Transportation infrastructure including metro, highways, RRR, and masterplan roads',
             'directory_path': 'data/hyderabad',
             'default_color': '#607D8B',  # Blue Grey
             'layers': {
-                'metro_stations': {
+                'hyd_metro_stations_ph1&2': {
                     'file': 'Hyd_metro_stations_ph1&2.geojson',
                     'name': 'Metro Stations',
-                    'color': '#F44336'  # Red
+                    'color': '#F44336',  # Red
+                    'metadata': {
+                        'lines': [
+                            {'name': 'Metro Phase 1 Existing Green Line', 'status': 'Existing', 'color': 'Green', 'from': 'JBS Parade Ground', 'to': 'MG Bus Station'},
+                            {'name': 'Metro Phase 1 Existing Blue Line', 'status': 'Existing', 'color': 'Blue', 'from': 'Nagole', 'to': 'Raidurg'},
+                            {'name': 'Metro Phase 1 Existing Red Line', 'status': 'Existing', 'color': 'Red', 'from': 'Miyapur', 'to': 'L.B. Nagar'},
+                            {'name': 'Metro Phase 2 A Upcoming Green Line', 'status': 'Upcoming', 'color': 'Green', 'from': 'MG Bus Station', 'to': 'Chandrayangutta'},
+                            {'name': 'Metro Phase 2 A Upcoming Purple Line', 'status': 'Upcoming', 'color': 'Purple', 'from': 'Nagole', 'to': 'RGIA Shamshabad'},
+                            {'name': 'Metro Phase 2 B Upcoming Future City Line', 'status': 'Upcoming', 'color': 'Future City', 'from': 'RGIA Shamshabad', 'to': 'Future City'},
+                            {'name': 'Metro Phase 2 B Upcoming Blue Line', 'status': 'Upcoming', 'color': 'Blue', 'from': 'JBS Parade Ground', 'to': 'Shamirpet'},
+                            {'name': 'Metro Phase 2 B Upcoming Green Line', 'status': 'Upcoming', 'color': 'Green', 'from': 'Paradise', 'to': 'Medchal'},
+                        ]
+                    }
                 },
-                'metro_lines': {
+                'hyd_metro_lines_ph_1&2_final': {
                     'file': 'Hyd_metro_lines_ph_1&2_Final.geojson',
                     'name': 'Metro Lines',
-                    'color': '#4CAF50'  # Green
+                    'color': '#4CAF50',  # Green
                 },
-                'highways': {
+                'hyd_highways_merged': {
                     'file': 'hyd_highways_merged.geojson',
                     'name': 'Highways',
-                    'color': '#2196F3'  # Blue
-                }
+                    'color': '#2196F3',  # Blue
+                    'metadata': {
+                        'highways': [
+                            {'name': 'Mumbai Highway', 'notation': 'NH 65 (West)', 'endpoints': 'Hyderabad to Mumbai', 'width': '4 Lane'},
+                            {'name': 'Bangalore Highway', 'notation': 'NH 44 (South)', 'endpoints': 'Hyderabad to Bangalore', 'width': '4 Lane'},
+                            {'name': 'Srisailam Highway', 'notation': 'NH 765 (South)', 'endpoints': 'Hyderabad to Srisailam', 'width': '2 Lane'},
+                            {'name': 'Medak Highway', 'notation': 'NH 765D (North)', 'endpoints': 'Hyderabad to Medak', 'width': '2 Lane'},
+                            {'name': 'Vijaywada Highway', 'notation': 'NH65 (East)', 'endpoints': 'Hyderabad to Vijaywada', 'width': '4 Lane'},
+                            {'name': 'Warangal Highway', 'notation': 'NH 163 (East)', 'endpoints': 'Hyderabad to Warangal', 'width': '4 Lane'},
+                            {'name': 'Chevella Highway', 'notation': 'NH 163 (West)', 'endpoints': 'Hyderabad to Chevella', 'width': '2 Lane'},
+                            {'name': 'Nagpur Highway', 'notation': 'NH 44 (North)', 'endpoints': 'Hyderabad to Nagpur', 'width': '4 Lane'},
+                            {'name': 'Karimnagar Highway', 'notation': 'SH 1', 'endpoints': 'Hyderabad to Karimnagar', 'width': '4 Lane'},
+                            {'name': 'Nagarjuna Sagar Highway', 'notation': 'SH 19', 'endpoints': 'Hyderabad to Nagarjuna Sagar', 'width': '2 Lane'},
+                        ]
+                    }
+                },
+                'rrr_final': {
+                    'file': 'RRR_Final.geojson',
+                    'name': 'Regional Ring Road',
+                    'color': '#9C27B0',  # Purple
+                    'metadata': {
+                        'rrr': [
+                            {'name': 'Proposed Hyderabad Regional Ring Road - Northern Part', 'notation': 'RRR North', 'alignment': 'Finalised', 'status': 'Finalised', 'width': '6 Lane'},
+                            {'name': 'Proposed Hyderabad Regional Ring Road - Southern Part', 'notation': 'RRR South', 'alignment': 'Yet to be finalised', 'status': 'Yet to be finalised', 'width': '6 Lane'},
+                        ]
+                    }
+                },
+                'hmda_masterplan_roads_merged': {
+                    'file': 'HMDA_masterplan_roads_merged.geojson',
+                    'name': 'HMDA Masterplan Roads',
+                    'color': '#FF9800',  # Orange
+                    'metadata': {
+                        'roads': [
+                            {'name': 'Proposed Masterplan Road', 'width_m': 18},
+                            {'name': 'Proposed Masterplan Road', 'width_m': 30},
+                            {'name': 'Proposed Masterplan Road', 'width_m': 45},
+                            {'name': 'Proposed Masterplan Road', 'width_m': 90},
+                        ]
+                    }
+                },
             }
         },
         'economic': {
@@ -703,10 +753,27 @@ HYDERABAD_CONFIG = {
             'directory_path': 'data/hyderabad',
             'default_color': '#FF9800',  # Orange
             'layers': {
-                'sez': {
+                'hyd_sezs_final': {
                     'file': 'Hyd_SEZs_Final.geojson',
                     'name': 'Special Economic Zones',
-                    'color': '#FF9800'  # Orange
+                    'color': '#FF9800',  # Orange
+                    'metadata': {
+                        'sezs': [
+                            {'name': 'Adibatla Aerospace Park', 'industry': 'Aerospace & Precision Engineering', 'employment_type': 'White Collar', 'employees': 5000, 'size': '339 acres', 'polluting': 'No'},
+                            {'name': 'Adibatla Aerospace SEZ', 'industry': 'Aerospace & Precision Engineering', 'employment_type': 'White Collar', 'employees': 27000, 'size': '500 acres', 'polluting': 'No'},
+                            {'name': 'Industrial Park Nadergul', 'industry': 'Aerospace & Precision Engineering', 'employment_type': 'Blue Collar', 'employees': 35000, 'size': '602 acres', 'polluting': 'No'},
+                            {'name': 'Industrial Park Ramachandrapuram', 'industry': 'Automobile', 'employment_type': 'Blue Collar', 'employees': '2000 - 4000', 'size': '', 'polluting': 'No'},
+                            {'name': 'Auto Nagar Hyderabad', 'industry': 'Automobile', 'employment_type': 'Blue Collar', 'employees': '', 'size': '54 acres', 'polluting': 'No'},
+                            {'name': 'Industrial Park Banda Mailaram', 'industry': 'Seed Processing Industry', 'employment_type': 'Blue Collar', 'employees': '', 'size': '370 acres', 'polluting': 'No'},
+                            {'name': 'Industrial Park Banda Thimmapur', 'industry': 'Food processing & FMCG', 'employment_type': 'Blue Collar', 'employees': 410, 'size': '49 acres', 'polluting': 'No'},
+                            {'name': 'Industrial Park Toopran', 'industry': 'Multi - Industry', 'employment_type': 'Blue Collar', 'employees': '50000 - 60000', 'size': '737.3 acres', 'polluting': 'Yes'},
+                            {'name': 'Chandanvelly Industrial Park SEZ', 'industry': 'Multi - Industry', 'employment_type': 'Blue Collar', 'employees': 12000, 'size': '1569.89 acres', 'polluting': 'Yes'},
+                            {'name': 'Chandulal Baradari Industrial Park', 'industry': 'Multi - Industry', 'employment_type': 'Blue Collar', 'employees': 250, 'size': '25.82 acres', 'polluting': 'Yes'},
+                            {'name': 'Cherlapally Industrial Area', 'industry': 'Multi - Industry', 'employment_type': 'Blue Collar', 'employees': '40000+', 'size': '120 acres', 'polluting': 'Yes'},
+                            {'name': 'Green Industrial Park Dandumalkapur', 'industry': 'Multi - Industry', 'employment_type': 'Blue Collar', 'employees': 35000, 'size': '2000 acres', 'polluting': 'No'},
+                            {'name': 'Electronic City SEZ', 'industry': 'Electronics', 'employment_type': 'White Collar', 'employees': 2500, 'size': '1000 acres', 'polluting': 'No'},
+                        ]
+                    }
                 }
             }
         },
@@ -715,18 +782,38 @@ HYDERABAD_CONFIG = {
             'slug': 'administrative',
             'category': 'GOVERNMENT',
             'description': 'City boundaries and administrative zones',
-            'directory_path': 'data/FutureCityHyderabad_Boundary',
+            'directory_path': 'data/hyderabad/FutureCityHyderabad_Boundary',
             'default_color': '#F44336',  # Red
             'layers': {
                 'future_city': {
                     'file': 'FutureCityHyderabad_Boundary.shp',
                     'name': 'Future City Boundary',
-                    'color': '#2196F3'  # Blue
+                    'color': '#2196F3',  # Blue
+                }
+            }
+        },
+        'villages': {
+            'name': 'Village Boundaries',
+            'slug': 'villages',
+            'category': 'GOVERNMENT',
+            'description': 'HMDA boundary and village boundaries',
+            'directory_path': 'data/hyderabad/FCDA_Boundary_Villages',
+            'default_color': '#8BC34A',  # Light Green
+            'layers': {
+                'hmda_boundary': {
+                    'file': 'HMDA_Boundary.geojson',
+                    'name': 'HMDA Boundary',
+                    'color': '#388E3C',  # Dark Green
+                },
+                'hmda_villages_clip': {
+                    'file': 'HMDA_Villages_Clip.geojson',
+                    'name': 'HMDA Villages',
+                    'color': '#C8E6C9',  # Light Green
                 }
             }
         }
     },
-    
+
     # Colors for different categories
     'colors': {
         'TRANSPORT': '#607D8B',      # Blue Grey
@@ -740,8 +827,52 @@ HYDERABAD_CONFIG = {
         'Hyd_metro_stations_ph1&2.geojson': 'TRANSPORT',
         'Hyd_metro_lines_ph_1&2_Final.geojson': 'TRANSPORT',
         'hyd_highways_merged.geojson': 'TRANSPORT',
+        'RRR_Final.geojson': 'TRANSPORT',
+        'HMDA_masterplan_roads_merged.geojson': 'TRANSPORT',
         'Hyd_SEZs_Final.geojson': 'INDUSTRIAL',
         'FutureCityHyderabad_Boundary.shp': 'GOVERNMENT',
+        'HMDA_Boundary.geojson': 'GOVERNMENT',
+        'HMDA_Villages_Clip.geojson': 'GOVERNMENT',
+    },
+    # Attribute mappings for key layers (can be expanded as needed)
+    'attribute_mappings': {
+        # Highways
+        'highways': {
+            'Name': 'name',
+            'Notation': 'notation',
+            'End to End points': 'endpoints',
+            'Width': 'width',
+        },
+        # RRR
+        'rrr': {
+            'Name': 'name',
+            'Notation': 'notation',
+            'Alignment': 'alignment',
+            'Status': 'status',
+            'Width': 'width',
+        },
+        # HMDA Roads
+        'hmda_roads': {
+            'Name': 'name',
+            'Road width ( in meters )': 'width_m',
+        },
+        # Metro
+        'metro': {
+            'Name': 'name',
+            'Status': 'status',
+            'Line Colour': 'color',
+            'From Junction': 'from',
+            'To Junction': 'to',
+        },
+        # SEZs
+        'sez': {
+            'Name': 'name',
+            'Industry': 'industry',
+            'Primary Employment Type': 'employment_type',
+            'No. of Employees': 'employees',
+            'Size': 'size',
+            'Polluting': 'polluting',
+        },
     },
 }
 
