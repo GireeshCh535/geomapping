@@ -5,19 +5,22 @@ from django.contrib.gis.geos import GEOSGeometry
 import uuid
 import json
 
+# -----------------------------
+# State: Organizes cities by state
+# -----------------------------
 class State(models.Model):
-    """State model to organize cities"""
-    name = models.CharField(max_length=100, unique=True)
-    slug = models.SlugField(max_length=100, unique=True)
-    code = models.CharField(max_length=2, unique=True)  # State code like TS, AP
+    """State model to organize cities (e.g., Telangana, Andhra Pradesh)"""
+    name = models.CharField(max_length=100, unique=True)  # State name
+    slug = models.SlugField(max_length=100, unique=True)  # URL-friendly identifier
+    code = models.CharField(max_length=2, unique=True)    # State code like TS, AP
     
     # Map center for state-level view
     center_lat = models.FloatField(null=True, blank=True)
     center_lng = models.FloatField(null=True, blank=True)
     default_zoom = models.IntegerField(default=7)
     
-    is_active = models.BooleanField(default=True)
-    created_at = models.DateTimeField(auto_now_add=True)
+    is_active = models.BooleanField(default=True)         # Is this state active?
+    created_at = models.DateTimeField(auto_now_add=True)   # Creation timestamp
     
     class Meta:
         db_table = 'states'
@@ -26,14 +29,14 @@ class State(models.Model):
     def __str__(self):
         return self.name
 
-# Update existing City model to link to State
+# -----------------------------
+# City: Represents a city and its metadata
+# -----------------------------
 class City(models.Model):
-    """Universal city model"""
-    name = models.CharField(max_length=100, unique=True)
-    slug = models.SlugField(max_length=100, unique=True)
-    # Keep the existing state field
-    state = models.CharField(max_length=50)
-    # Add new state relationship field
+    """Universal city model (e.g., Hyderabad, Bangalore)"""
+    name = models.CharField(max_length=100, unique=True)   # City name
+    slug = models.SlugField(max_length=100, unique=True)   # URL-friendly identifier
+    state = models.CharField(max_length=50)                # State name (legacy)
     state_ref = models.ForeignKey(
         'State',
         on_delete=models.CASCADE,
@@ -41,17 +44,14 @@ class City(models.Model):
         null=True,  # Allow null temporarily during migration
         blank=True
     )
-    
-    # Map center
+    # Map center for city-level view
     center_lat = models.FloatField()
     center_lng = models.FloatField()
-    
-    # Zoom levels
+    # Zoom levels for map
     min_zoom = models.IntegerField(default=8)
     max_zoom = models.IntegerField(default=18)
-    
-    is_active = models.BooleanField(default=True)
-    created_at = models.DateTimeField(auto_now_add=True)
+    is_active = models.BooleanField(default=True)          # Is this city active?
+    created_at = models.DateTimeField(auto_now_add=True)   # Creation timestamp
     
     class Meta:
         db_table = 'cities'
@@ -60,8 +60,11 @@ class City(models.Model):
     def __str__(self):
         return self.name
 
+# -----------------------------
+# LayerCategory: Universal land use/feature categories
+# -----------------------------
 class LayerCategory(models.Model):
-    """Universal categories that work across all cities"""
+    """Universal categories that work across all cities (e.g., Residential, Commercial)"""
     CATEGORY_TYPES = [
         ('RESIDENTIAL', 'Residential'),
         ('COMMERCIAL', 'Commercial'),
@@ -87,15 +90,13 @@ class LayerCategory(models.Model):
         ('UNCLASSIFIED', 'Unclassified'),
     ]
     
-    name = models.CharField(max_length=100)
-    code = models.CharField(max_length=30, choices=CATEGORY_TYPES, unique=True)
-    description = models.TextField(blank=True)
-    
+    name = models.CharField(max_length=100)                # Human-readable name
+    code = models.CharField(max_length=30, choices=CATEGORY_TYPES, unique=True)  # Unique code
+    description = models.TextField(blank=True)             # Description of the category
     # Default styling (can be overridden per city)
     default_color = models.CharField(max_length=7, default='#666666')
     default_stroke = models.CharField(max_length=7, default='#333333')
     default_opacity = models.FloatField(default=0.7)
-    
     # Display properties
     min_zoom = models.IntegerField(default=8)
     max_zoom = models.IntegerField(default=18)
@@ -109,17 +110,18 @@ class LayerCategory(models.Model):
     def __str__(self):
         return self.name
 
+# -----------------------------
+# CityLayerStyle: Per-city, per-category style overrides
+# -----------------------------
 class CityLayerStyle(models.Model):
-    """City-specific colors and styling"""
+    """City-specific colors and styling for each category"""
     city = models.ForeignKey(City, on_delete=models.CASCADE, related_name='layer_styles')
     category = models.ForeignKey(LayerCategory, on_delete=models.CASCADE, related_name='city_styles')
-    
-    # City-specific styling
-    fill_color = models.CharField(max_length=7)
+    # Style fields
+    fill_color = models.CharField(max_length=7)            # Fill color (hex)
     stroke_color = models.CharField(max_length=7, default='#333333')
     opacity = models.FloatField(default=0.7)
     stroke_width = models.IntegerField(default=1)
-    
     # Visibility controls
     is_visible = models.BooleanField(default=True)
     min_zoom = models.IntegerField(null=True, blank=True)
@@ -132,29 +134,26 @@ class CityLayerStyle(models.Model):
     def __str__(self):
         return f"{self.city.name} - {self.category.name}"
 
+# -----------------------------
+# LayerGroup: Groups related layers (e.g., all lakes, all masterplan files)
+# -----------------------------
 class LayerGroup(models.Model):
     """Group of related layers (e.g., all lakes, all masterplan files)"""
-    name = models.CharField(max_length=200)
-    slug = models.SlugField(max_length=200)
-    description = models.TextField(blank=True)
-    
+    name = models.CharField(max_length=200)                # Group name
+    slug = models.SlugField(max_length=200)                # URL-friendly identifier
+    description = models.TextField(blank=True)             # Description
     city = models.ForeignKey(City, on_delete=models.CASCADE, related_name='layer_groups')
     category = models.ForeignKey(LayerCategory, on_delete=models.CASCADE, related_name='layer_groups')
-    
-    # Directory path for this group's files
-    directory_path = models.CharField(max_length=500)
-    
-    # Group-level styling (can be overridden by individual layers)
+    directory_path = models.CharField(max_length=500)      # Directory for this group's files
+    # Group-level styling
     default_color = models.CharField(max_length=7, default='#666666')
     default_stroke = models.CharField(max_length=7, default='#333333')
     default_opacity = models.FloatField(default=0.7)
-    
     # Display settings
     display_order = models.IntegerField(default=0)
     is_visible = models.BooleanField(default=True)
     min_zoom = models.IntegerField(null=True, blank=True)
     max_zoom = models.IntegerField(null=True, blank=True)
-    
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     
@@ -166,8 +165,11 @@ class LayerGroup(models.Model):
     def __str__(self):
         return f"{self.city.name} - {self.name}"
 
+# -----------------------------
+# DataLayer: Represents a single data layer (e.g., a GeoJSON file)
+# -----------------------------
 class DataLayer(models.Model):
-    """Universal data layer model"""
+    """Universal data layer model (e.g., a GeoJSON file, Shapefile, etc.)"""
     GEOMETRY_TYPES = [
         ('POLYGON', 'Polygon'),
         ('MULTIPOLYGON', 'MultiPolygon'),
@@ -175,7 +177,6 @@ class DataLayer(models.Model):
         ('LINESTRING', 'LineString'),
         ('MULTILINESTRING', 'MultiLineString'),
     ]
-    
     FILE_FORMATS = [
         ('JSON', 'JSON'),
         ('GEOJSON', 'GeoJSON'),
@@ -184,53 +185,42 @@ class DataLayer(models.Model):
         ('KML', 'KML'),
         ('CSV', 'CSV'),
     ]
-    
     CATEGORIZATION_METHODS = [
         ('FILENAME', 'Filename-based'),
         ('PLU_CODE', 'PLU Code-based'),
         ('ATTRIBUTE', 'Attribute-based'),
         ('MANUAL', 'Manual'),
     ]
-    
-    city = models.ForeignKey(City, on_delete=models.CASCADE, related_name='layers')
-    category = models.ForeignKey(LayerCategory, on_delete=models.CASCADE, related_name='layers')
-    
+    city = models.ForeignKey(City, on_delete=models.CASCADE, related_name='layers')  # Which city this layer belongs to
+    category = models.ForeignKey(LayerCategory, on_delete=models.CASCADE, related_name='layers')  # Category
     # Basic info
-    name = models.CharField(max_length=200)
-    slug = models.SlugField(max_length=200)
-    description = models.TextField(blank=True)
-    
+    name = models.CharField(max_length=200)                   # Human-readable name
+    slug = models.SlugField(max_length=200)                   # Unique slug
+    description = models.TextField(blank=True)                # Description
     # File info
-    original_filename = models.CharField(max_length=300)
-    file_format = models.CharField(max_length=20, choices=FILE_FORMATS)
-    file_path = models.CharField(max_length=500, blank=True)
-    
+    original_filename = models.CharField(max_length=300)      # Original file name
+    file_format = models.CharField(max_length=20, choices=FILE_FORMATS)  # File format
+    file_path = models.CharField(max_length=500, blank=True)  # Path to file
     # Categorization info
     categorization_method = models.CharField(max_length=20, choices=CATEGORIZATION_METHODS, default='FILENAME')
     primary_plu_codes = models.JSONField(default=list, blank=True)  # Store detected PLU codes
-    
     # Geometry info
     geometry_type = models.CharField(max_length=20, choices=GEOMETRY_TYPES, null=True, blank=True)
-    
     # Bounding box for performance
     bbox_xmin = models.FloatField(null=True, blank=True)
     bbox_ymin = models.FloatField(null=True, blank=True)
     bbox_xmax = models.FloatField(null=True, blank=True)
     bbox_ymax = models.FloatField(null=True, blank=True)
-    
     # Processing status
-    is_processed = models.BooleanField(default=False)
-    feature_count = models.IntegerField(default=0)
-    processing_errors = models.TextField(blank=True)
-    
+    is_processed = models.BooleanField(default=False)         # Has this layer been processed?
+    feature_count = models.IntegerField(default=0)            # Number of features
+    processing_errors = models.TextField(blank=True)          # Any errors during processing
     # Vector tiles
-    tiles_generated = models.BooleanField(default=False)
-    tile_cache_size = models.BigIntegerField(default=0)  # Size in bytes
-    
+    tiles_generated = models.BooleanField(default=False)      # Have tiles been generated?
+    tile_cache_size = models.BigIntegerField(default=0)       # Size in bytes
     # Metadata
     data_source = models.CharField(max_length=200, blank=True)
     last_updated = models.DateTimeField(null=True, blank=True)
-    
     # Add link to LayerGroup (optional, for backward compatibility)
     layer_group = models.ForeignKey(
         LayerGroup, 
@@ -239,7 +229,6 @@ class DataLayer(models.Model):
         null=True,
         blank=True
     )
-    
     # Update file_path to handle both files and directories
     is_directory = models.BooleanField(default=False)
     file_pattern = models.CharField(
@@ -247,7 +236,6 @@ class DataLayer(models.Model):
         blank=True, 
         help_text="Pattern to match files in directory (e.g., *.shp)"
     )
-    
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     

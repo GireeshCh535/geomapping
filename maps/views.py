@@ -43,7 +43,11 @@ from .config import get_city_config, get_plu_mapping
 logger = logging.getLogger(__name__)
 
 class StateViewSet(viewsets.ReadOnlyModelViewSet):
-    """State viewset with cities and statistics"""
+    """
+    API endpoint for viewing states and their statistics.
+    - Lists all active states.
+    - Provides statistics for each state (number of cities, layers, features).
+    """
     queryset = State.objects.annotate(
         city_count=Count('cities')
     ).filter(is_active=True)
@@ -52,6 +56,13 @@ class StateViewSet(viewsets.ReadOnlyModelViewSet):
     
     @action(detail=True)
     def statistics(self, request, slug=None):
+        """
+        Returns statistics for a given state, including:
+        - Total cities
+        - Active cities
+        - Total layers
+        - Total features
+        """
         state = self.get_object()
         cities = City.objects.filter(state_ref=state)
         
@@ -65,7 +76,11 @@ class StateViewSet(viewsets.ReadOnlyModelViewSet):
         })
 
 class LayerGroupViewSet(viewsets.ReadOnlyModelViewSet):
-    """Layer group viewset"""
+    """
+    API endpoint for viewing layer groups.
+    - Lists all layer groups.
+    - Provides the layers within a group.
+    """
     queryset = LayerGroup.objects.annotate(
         layer_count=Count('layers')
     )
@@ -74,12 +89,19 @@ class LayerGroupViewSet(viewsets.ReadOnlyModelViewSet):
     
     @action(detail=True)
     def layers(self, request, pk=None):
+        """
+        Returns all layers in a given group.
+        """
         group = self.get_object()
         layers = DataLayer.objects.filter(layer_group=group)
         return Response(DataLayerSerializer(layers, many=True).data)
 
 class CityViewSet(viewsets.ReadOnlyModelViewSet):
-    """Enhanced city viewset with state and layer groups"""
+    """
+    API endpoint for viewing cities.
+    - Lists all active cities.
+    - Provides layer groups and statistics for each city.
+    """
     queryset = City.objects.annotate(
         layer_count=Count('layers'),
         total_features=Count('layers__features')
@@ -89,6 +111,9 @@ class CityViewSet(viewsets.ReadOnlyModelViewSet):
     
     @action(detail=True)
     def layer_groups(self, request, slug=None):
+        """
+        Returns all layer groups for a city.
+        """
         city = self.get_object()
         groups = LayerGroup.objects.filter(city=city).annotate(
             layer_count=Count('layers')
@@ -97,10 +122,18 @@ class CityViewSet(viewsets.ReadOnlyModelViewSet):
 
     @action(detail=True, methods=['get'])
     def statistics(self, request, slug=None):  # Keep as 'slug'
-        """Get detailed city statistics"""
+        """
+        Returns detailed statistics for a city, including:
+        - Number of layers
+        - Number of processed layers
+        - Number of layers with tiles
+        - Feature statistics (total, valid, with PLU)
+        - PLU statistics (for Bangalore)
+        - Area statistics
+        """
         city = self.get_object()  # This works with DRF router
         
-        # Rest of your method stays the same...
+        # Gather layer statistics
         layers = DataLayer.objects.filter(city=city)
         layer_stats = {
             'total_layers': layers.count(),
@@ -108,6 +141,7 @@ class CityViewSet(viewsets.ReadOnlyModelViewSet):
             'layers_with_tiles': layers.filter(tiles_generated=True).count(),
         }
         
+        # Gather feature statistics
         features = GeoFeature.objects.filter(layer__city=city)
         feature_stats = {
             'total_features': features.count(),
@@ -117,6 +151,7 @@ class CityViewSet(viewsets.ReadOnlyModelViewSet):
             ).count(),
         }
         
+        # PLU statistics (Bangalore only)
         plu_stats = {}
         if city.slug == 'bangalore':
             plu_codes = features.exclude(
@@ -131,6 +166,7 @@ class CityViewSet(viewsets.ReadOnlyModelViewSet):
                 'plu_mappings': PLUCodeMapping.objects.filter(city=city).count()
             }
         
+        # Area statistics
         area_stats = features.aggregate(
             total_area=Sum('calculated_area'),
             avg_area=Avg('calculated_area'),
@@ -152,7 +188,9 @@ class CityViewSet(viewsets.ReadOnlyModelViewSet):
 
     @action(detail=True, methods=['get'])
     def plu_mappings(self, request, slug=None):  # Keep as 'slug'
-        """Get PLU mappings for a city"""
+        """
+        Returns PLU mappings for a city (Bangalore only).
+        """
         city = self.get_object()  # This works with DRF router
         
         mappings = PLUCodeMapping.objects.filter(city=city).select_related('mapped_category')
@@ -164,14 +202,21 @@ class CityViewSet(viewsets.ReadOnlyModelViewSet):
             'mappings': serializer.data
         })
 
-
 class LayerCategoryViewSet(viewsets.ReadOnlyModelViewSet):
+    """
+    API endpoint for viewing layer categories.
+    - Lists all active categories.
+    """
     queryset = LayerCategory.objects.filter(is_active=True)
     serializer_class = LayerCategorySerializer
     lookup_field = 'code'
 
 class DataLayerViewSet(viewsets.ReadOnlyModelViewSet):
-    """Enhanced data layer viewset"""
+    """
+    API endpoint for viewing data layers.
+    - Lists all processed data layers.
+    - Provides PLU analysis and tile generation for each layer.
+    """
     queryset = DataLayer.objects.select_related('city', 'category').filter(
         is_processed=True
     )
@@ -180,7 +225,11 @@ class DataLayerViewSet(viewsets.ReadOnlyModelViewSet):
 
     @action(detail=True, methods=['get'])
     def plu_analysis(self, request, pk=None):
-        """Get PLU code analysis for a layer"""
+        """
+        Returns PLU code analysis for a layer (Bangalore only).
+        - PLU code distribution
+        - Category mapping accuracy
+        """
         layer = self.get_object()
         
         if layer.city.slug != 'bangalore':
@@ -214,7 +263,9 @@ class DataLayerViewSet(viewsets.ReadOnlyModelViewSet):
 
     @action(detail=True, methods=['post'])
     def generate_tiles(self, request, pk=None):
-        """Generate vector tiles for this layer"""
+        """
+        Generates vector tiles for this layer and updates its status.
+        """
         layer = self.get_object()
         
         min_zoom = request.data.get('min_zoom', 8)
@@ -237,7 +288,11 @@ class DataLayerViewSet(viewsets.ReadOnlyModelViewSet):
             )
 
 class GeoFeatureViewSet(viewsets.ReadOnlyModelViewSet):
-    """Enhanced geo feature viewset with PLU support"""
+    """
+    API endpoint for viewing geo features.
+    - Lists all features with filtering.
+    - Supports PLU code and category filtering.
+    """
     queryset = GeoFeature.objects.select_related('layer', 'layer__city', 'layer__category')
     serializer_class = GeoFeatureSerializer
     filterset_fields = [
@@ -246,13 +301,12 @@ class GeoFeatureViewSet(viewsets.ReadOnlyModelViewSet):
     ]
 
     def get_queryset(self):
+        # Optionally override to add custom filtering logic
         queryset = super().get_queryset()
-        
         # Add PLU filtering for Bangalore
         plu_code = self.request.query_params.get('plu_code')
         if plu_code:
             queryset = queryset.filter(plu_primary_code=plu_code)
-        
         # Area filtering
         min_area = self.request.query_params.get('min_area')
         max_area = self.request.query_params.get('max_area')
@@ -260,83 +314,74 @@ class GeoFeatureViewSet(viewsets.ReadOnlyModelViewSet):
             queryset = queryset.filter(calculated_area__gte=float(min_area))
         if max_area:
             queryset = queryset.filter(calculated_area__lte=float(max_area))
-        
         return queryset
 
 class VectorTileView(APIView):
-    """RESTORED - Original vector tile serving (should work without errors)"""
-    
+    """
+    API endpoint to serve a single vector tile (MVT) for a given layer and tile coordinates.
+    Used by the frontend for fast map rendering.
+    """
     def get(self, request, city_slug, layer_slug, z, x, y):
         try:
-            # Get layer
+            # Get the requested layer
             layer = get_object_or_404(
                 DataLayer, 
                 city__slug=city_slug, 
                 slug=layer_slug,
                 is_processed=True
             )
-            
-            # Generate tile using your existing service
+            # Generate the MVT tile
             tile_service = VectorTileService()
             mvt_data = tile_service.generate_tile(layer, z, x, y)
-            
             if mvt_data:
                 response = HttpResponse(mvt_data, content_type='application/vnd.mapbox-vector-tile')
                 response['Cache-Control'] = 'max-age=3600'
                 response['Access-Control-Allow-Origin'] = '*'
                 return response
-            
             # Return empty tile if no data
             return HttpResponse(b'', content_type='application/vnd.mapbox-vector-tile')
-            
         except Exception as e:
             print(f"Error in VectorTileView: {e}")
             return HttpResponse(b'', content_type='application/vnd.mapbox-vector-tile', status=500)
 
 class CombinedVectorTileView(APIView):
-    """RESTORED - Original combined vector tiles"""
-    
+    """
+    API endpoint to serve a combined vector tile (MVT) for all or selected layers in a city.
+    Supports filtering by layer slug or category.
+    """
     def get(self, request, city_slug, z, x, y):
         print(f"[DEBUG] CombinedVectorTileView called for city={city_slug}, z={z}, x={x}, y={y}")
         try:
-            # Get all layers for city
+            # Get all processed layers for the city
             layers = DataLayer.objects.filter(
                 city__slug=city_slug,
                 is_processed=True
             ).select_related('category')
-            
-            print(f"[DEBUG] Found {layers.count()} processed layers for {city_slug}")
-            
-            # Filter layers if specified
+            # Optional: filter by layer slugs
             layer_slugs = request.GET.getlist('layers')
             if layer_slugs:
                 layers = layers.filter(slug__in=layer_slugs)
                 print(f"[DEBUG] Filtered to {layers.count()} layers by slugs: {layer_slugs}")
-            
+            # Optional: filter by categories
             categories = request.GET.getlist('categories')
             if categories:
                 layers = layers.filter(category__code__in=categories)
                 print(f"[DEBUG] Filtered to {layers.count()} layers by categories: {categories}")
-            
-            # Print layer details
+            # Print layer details for debugging
             for layer in layers:
                 print(f"[DEBUG] Layer: {layer.slug} ({layer.name}) - {layer.feature_count} features")
-            
-            # Generate combined tile
+            # Generate the combined MVT tile
             tile_service = VectorTileService()
             print(f"[DEBUG] Calling generate_combined_tile with {len(layers)} layers")
             mvt_data = tile_service.generate_combined_tile(layers, z, x, y)
-            
             if mvt_data:
                 print(f"[DEBUG] ✅ Combined tile generated successfully: {len(mvt_data)} bytes")
                 response = HttpResponse(mvt_data, content_type='application/vnd.mapbox-vector-tile')
                 response['Cache-Control'] = 'max-age=3600'
                 response['Access-Control-Allow-Origin'] = '*'
                 return response
-            
             print(f"[DEBUG] ❌ No MVT data generated - returning empty tile")
             return HttpResponse(b'', content_type='application/vnd.mapbox-vector-tile')
-            
         except Exception as e:
             print(f"❌ Error in CombinedVectorTileView: {e}")
             import traceback
@@ -344,36 +389,32 @@ class CombinedVectorTileView(APIView):
             return HttpResponse(b'', content_type='application/vnd.mapbox-vector-tile', status=500)
 
 class CityLayersView(APIView):
-    """Enhanced city layers view with group support"""
-    
+    """
+    API endpoint to list all layers for a city, with optional filtering by category, format, group, or PLU.
+    Used by the frontend to populate layer lists.
+    """
     def get(self, request, city_slug):
         layers = DataLayer.objects.filter(
             city__slug=city_slug,
             is_processed=True
         ).select_related('city', 'category')
-        
         # Filter by category
         category = request.GET.get('category')
         if category:
             layers = layers.filter(category__code=category)
-        
         # Filter by file format
         file_format = request.GET.get('format')
         if file_format:
             layers = layers.filter(file_format=file_format)
-        
         # Filter by PLU availability (Bangalore)
         has_plu = request.GET.get('has_plu')
         if has_plu and has_plu.lower() == 'true':
             layers = layers.filter(categorization_method='PLU_CODE')
-        
         # Add group filter
         group_slug = request.GET.get('group')
         if group_slug:
             layers = layers.filter(layer_group__slug=group_slug)
-        
         serializer = DataLayerSerializer(layers, many=True)
-        
         return Response({
             'city': city_slug,
             'total_layers': layers.count(),
@@ -381,13 +422,13 @@ class CityLayersView(APIView):
         })
 
 class LayerFeaturesView(APIView):
-    """Enhanced layer features view with proper GeoJSON serialization"""
-    
+    """
+    API endpoint to list all features for a given layer, with filtering and paginated GeoJSON output.
+    Supports spatial, PLU, category, and area filtering.
+    """
     def get(self, request, city_slug, layer_slug):
         layer = get_object_or_404(DataLayer, city__slug=city_slug, slug=layer_slug)
-        
         features = GeoFeature.objects.filter(layer=layer)
-        
         # Spatial filtering by bounding box
         bbox = request.GET.get('bbox')
         if bbox:
@@ -398,26 +439,21 @@ class LayerFeaturesView(APIView):
                     features = features.filter(geometry__intersects=bbox_geom)
             except (ValueError, TypeError):
                 pass
-        
         # PLU filtering
         plu_code = request.GET.get('plu_code')
         if plu_code:
             features = features.filter(plu_primary_code=plu_code)
-        
         plu_authority = request.GET.get('plu_authority')
         if plu_authority:
             features = features.filter(plu_authority=plu_authority)
-        
         # Category filtering
         category = request.GET.get('category')
         if category:
             features = features.filter(derived_category=category)
-        
         # Land use filtering
         land_use = request.GET.get('land_use')
         if land_use:
             features = features.filter(land_use_type__icontains=land_use)
-        
         # Area filtering
         min_area = request.GET.get('min_area')
         max_area = request.GET.get('max_area')
@@ -425,26 +461,21 @@ class LayerFeaturesView(APIView):
             features = features.filter(calculated_area__gte=float(min_area))
         if max_area:
             features = features.filter(calculated_area__lte=float(max_area))
-        
         # Pagination
         page_size = min(int(request.GET.get('page_size', 100)), 1000)  # Max 1000
         page = int(request.GET.get('page', 1))
         start = (page - 1) * page_size
         end = start + page_size
-        
         total_count = features.count()
         paginated_features = features[start:end]
-        
         # ✅ MANUAL GEOJSON CONVERSION for proper format
         geojson_features = []
         for feature in paginated_features:
             try:
                 # Convert geometry to proper GeoJSON
                 geom_geojson = json.loads(feature.geometry.geojson)
-                
                 # Get feature color
                 color = self._get_feature_color(feature)
-                
                 geojson_feature = {
                     "id": feature.id,
                     "type": "Feature",
@@ -476,7 +507,6 @@ class LayerFeaturesView(APIView):
             except Exception as e:
                 print(f"Error serializing feature {feature.id}: {e}")
                 continue
-        
         return Response({
             'layer': {
                 'name': layer.name,
@@ -494,19 +524,15 @@ class LayerFeaturesView(APIView):
                 "features": geojson_features  # ✅ Proper GeoJSON format
             }
         })
-    
     def _get_feature_color(self, feature):
         """Get the correct color for this feature"""
         from .config import get_city_config
-        
         city_slug = feature.layer.city.slug
         category_code = feature.derived_category
-        
         # Get city-specific color
         city_config = get_city_config(city_slug)
         if city_config and 'colors' in city_config:
             return city_config['colors'].get(category_code, '#666666')
-        
         # Fallback to layer style
         try:
             style = feature.layer.get_style()
@@ -516,7 +542,6 @@ class LayerFeaturesView(APIView):
                 return style.fill_color
         except:
             pass
-        
         return '#666666'
 
 class DataImportView(APIView):

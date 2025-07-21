@@ -24,11 +24,18 @@ from .config import (
     convert_esri_to_geojson_geometry, CITY_CONFIGS
 )
 
-
+# -----------------------------
+# DataImportService: Handles all data import logic for city layers
+# -----------------------------
 class DataImportService:
-    """Enhanced service for importing geographic data with ESRI and PLU support"""
-    
+    """
+    Service for importing geographic data into the system.
+    - Handles ESRI JSON, GeoJSON, and config-driven imports.
+    - Supports PLU code mapping and statistics.
+    - Used by management commands and API endpoints for bulk and single-file import.
+    """
     def __init__(self):
+        # Track the current import job and statistics
         self.import_job = None
         self.errors = []
         self.statistics = {
@@ -43,60 +50,56 @@ class DataImportService:
         }
     
     def import_file_with_config(self, file_path, city_slug):
-        """Import file using city configuration for automatic mapping"""
-        
+        """
+        Import a file using the city configuration for automatic category mapping.
+        - Looks up the file in the config's file_mappings.
+        - Creates the city and category if needed.
+        - Calls import_file for the actual import.
+        """
         config = get_city_config(city_slug)
         if not config:
             raise ValueError(f"No configuration found for city: {city_slug}")
-        
         filename = os.path.basename(file_path)
-        
         # Find category mapping from filename
         category_code = None
         for file_pattern, cat_code in config['file_mappings'].items():
             if filename == file_pattern:
                 category_code = cat_code
                 break
-        
         if not category_code:
             raise ValueError(f"No category mapping found for file: {filename}")
-        
         # Get or create city
         city, created = City.objects.get_or_create(
             slug=city_slug,
             defaults=config['city_info']
         )
-        
         # Get category
         category = LayerCategory.objects.get(code=category_code)
-        
         # Import the file
         with open(file_path, 'rb') as f:
             from django.core.files import File
             django_file = File(f)
             django_file.name = filename
-            
             return self.import_file(django_file, city, category)
     
     def bulk_import_city(self, city_slug, data_directory):
-        """Import all files for a city from a directory with enhanced processing"""
-        
+        """
+        Import all files for a city from a directory using the config's file_mappings.
+        - Loops through all expected files and imports them.
+        - Tracks results and statistics for each file.
+        """
         config = get_city_config(city_slug)
         if not config:
             raise ValueError(f"No configuration found for city: {city_slug}")
-        
         results = []
         data_path = Path(data_directory)
-        
         if not data_path.exists():
             raise ValueError(f"Directory not found: {data_directory}")
-        
         # Get or create city
         city, created = City.objects.get_or_create(
             slug=city_slug,
             defaults=config['city_info']
         )
-        
         print(f"\n🏙️  Processing {city.name} data from {data_directory}")
         print(f"📁 Expected files: {len(config['file_mappings'])}")
         

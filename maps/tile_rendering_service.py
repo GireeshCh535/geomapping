@@ -1,6 +1,7 @@
 # maps/tile_rendering_service.py - CORRECTED VERSION
 """
-Fixed Convert MVT tiles to PNG images
+TileRenderingService: Converts Mapbox Vector Tiles (MVT) to PNG images for raster map rendering.
+Handles per-layer and per-category color assignment, and supports combined tiles for multiple layers.
 """
 
 import mapbox_vector_tile
@@ -12,13 +13,15 @@ from .config import get_city_config
 logger = logging.getLogger(__name__)
 
 class TileRenderingService:
-    """FIXED - Convert MVT vector tiles to PNG raster images"""
-    
+    """
+    Service for rendering vector tiles (MVT) as PNG raster images.
+    - Used for anti-scraping, static tile generation, and fallback rendering.
+    - Handles both single-layer and combined multi-layer tiles.
+    """
     def __init__(self):
-        self.tile_size = 256
-        self.background_color = (255, 255, 255, 0)  # Transparent
-        
-        # Simplified color mapping - use bright colors for visibility
+        self.tile_size = 256  # Standard tile size in pixels
+        self.background_color = (255, 255, 255, 0)  # Transparent background
+        # Default color mapping for categories (used as fallback)
         self.category_colors = {
             'RESIDENTIAL': '#FFC400',      # Yellow
             'COMMERCIAL': '#004DA8',       # Blue
@@ -37,48 +40,47 @@ class TileRenderingService:
         }
     
     def mvt_to_png(self, mvt_data, layer, z, x, y):
-        """FIXED - Convert single layer MVT to PNG image"""
-        
+        """
+        Convert a single-layer MVT tile to a PNG image.
+        - Decodes the MVT data.
+        - Draws all features using the layer's color.
+        - Returns PNG bytes.
+        """
         try:
             # Decode MVT data
             decoded_data = mapbox_vector_tile.decode(mvt_data)
-            
             if not decoded_data:
                 logger.warning(f"No decoded data for {layer.slug} at {z}/{x}/{y}")
                 return self.create_empty_tile()
-            
             # Create blank image
             img = Image.new('RGBA', (self.tile_size, self.tile_size), self.background_color)
             draw = ImageDraw.Draw(img)
-            
-            # Get layer color - SIMPLIFIED
+            # Get layer color
             layer_color = self._get_layer_color_simple(layer)
             rgb_color = self._hex_to_rgb(layer_color)
-            
-            # Count features drawn
             features_drawn = 0
-            
-            # Render each layer in the MVT
+            # Render each feature in the MVT
             for layer_name, layer_data in decoded_data.items():
                 features = layer_data.get('features', [])
-                
                 for feature in features:
                     if self._draw_feature_simple(draw, feature, rgb_color):
                         features_drawn += 1
-            
             logger.info(f"Drew {features_drawn} features for {layer.slug} at {z}/{x}/{y}")
-            
             # Convert to PNG bytes
             img_buffer = io.BytesIO()
             img.save(img_buffer, format='PNG', optimize=True)
             return img_buffer.getvalue()
-            
         except Exception as e:
             logger.error(f"Error rendering MVT to PNG: {e}")
             return self.create_empty_tile()
     
     def combined_mvt_to_png(self, mvt_data, layers, z, x, y):
-        """Convert combined layers MVT to PNG image with correct per-layer color."""
+        """
+        Convert a combined MVT tile (multiple layers) to a PNG image.
+        - Assigns a unique color to each layer based on config or fallback.
+        - Draws all features for all layers.
+        - Returns PNG bytes.
+        """
         try:
             decoded_data = mapbox_vector_tile.decode(mvt_data)
             if not decoded_data:
