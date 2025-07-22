@@ -13,6 +13,8 @@ router.register(r'layer-groups', views.LayerGroupViewSet)
 router.register(r'layers', views.DataLayerViewSet)
 router.register(r'features', views.GeoFeatureViewSet)
 router.register(r'import-jobs', views.ImportJobViewSet)
+router.register(r'plots', PlotViewSet)
+router.register(r'lands', LandViewSet)
 
 urlpatterns = [
     path('map/', views.MapVisualizationView.as_view(), name='map_visualization'),
@@ -111,4 +113,21 @@ urlpatterns = [
      path('cities/<slug:city_slug>/layer-config/', views.CityLayerConfigView.as_view(), name='city_layer_config'),
      path('layer-config/<slug:layer_slug>/', views.LayerConfigDetailView.as_view(), name='layer_config_detail'),
 
+     path('real-estate-tiles/<str:tile_type>/<int:z>/<int:x>/<int:y>.mvt',
+         RealEstateVectorTileView.as_view(), name='real_estate_vector_tile'),
+    
+     path('real-estate-tiles/<str:tile_type>/<int:z>/<int:x>/<int:y>.png',
+         RealEstateRasterTileView.as_view(), name='real_estate_raster_tile'),
+
 ]
+# Plots APIs:
+
+# GET /api/plots/ - All plots
+# GET /api/plots/in_bbox/?bbox=77.0,17.0,78.0,18.0 - Plots in bounding box
+# GET /api/plots/near_point/?lat=17.31&lng=77.91&radius_km=5 - Plots near point
+
+# Lands APIs:
+
+# GET /api/lands/ - All lands
+# GET /api/lands/in_bbox/?bbox=77.0,17.0,78.0,18.0 - Lands in bounding box
+# GET /api/lands/near_point/?lat=18.01&lng=78.41&radius_km=10 - Lands near poin

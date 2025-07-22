@@ -2,10 +2,7 @@
 
 from rest_framework import serializers
 from rest_framework_gis.serializers import GeoFeatureModelSerializer
-from .models import (
-    State, City, LayerCategory, DataLayer, GeoFeature, VectorTileLayer, 
-    PLUCodeMapping, ImportJob, CityLayerStyle, LayerGroup
-)
+from .models import *
 
 class StateSerializer(serializers.ModelSerializer):
     city_count = serializers.IntegerField(read_only=True)
@@ -343,3 +340,25 @@ class CityConfigDetailSerializer(serializers.Serializer):
     data_format = serializers.CharField()
     coordinate_precision = serializers.IntegerField()
     plu_mapping = serializers.DictField(required=False)
+
+class PlotSerializer(GeoFeatureModelSerializer):
+    """GeoJSON serializer for Plot data"""
+    
+    class Meta:
+        model = Plot
+        geo_field = 'location'
+        fields = [
+            'plot_id', 'area_sq_yards', 'price_per_sq_yard', 'total_price',
+            'marker_title', 'marker_id', 'is_active'
+        ]
+
+class LandSerializer(GeoFeatureModelSerializer):
+    """GeoJSON serializer for Land data"""
+    
+    class Meta:
+        model = Land
+        geo_field = 'location'
+        fields = [
+            'land_id', 'area_text', 'price_text', 
+            'marker_title', 'marker_id', 'is_active'
+        ]

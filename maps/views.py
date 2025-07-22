@@ -1,5 +1,4 @@
 from django.shortcuts import get_object_or_404
-from django.http import HttpResponse
 from django.db.models import Count, Q, Avg, Max, Min, Sum
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
@@ -22,22 +21,18 @@ import logging
 from .caching import gis_cache, cache_gis_response
 import time
 from django.utils import timezone
-from django.http import FileResponse
+from django.http import FileResponse, HttpResponse
 import os
 from rest_framework.decorators import api_view
 from rest_framework.permissions import AllowAny
 from django.db.models import Prefetch
 from django.urls import path
+from PIL import Image, ImageDraw
+import io
+from maps.models import Plot, Land
 
-from .models import (
-    City, LayerCategory, DataLayer, GeoFeature, VectorTileLayer, 
-    PLUCodeMapping, ImportJob, State, LayerGroup, LayerConfig
-)
-from .serializers import (
-    CitySerializer, LayerCategorySerializer, DataLayerSerializer, 
-    GeoFeatureSerializer, PLUCodeMappingSerializer, ImportJobSerializer,
-    StateSerializer, LayerGroupSerializer
-)
+from .models import *
+from .serializers import *
 from .services import DataImportService, VectorTileService
 from .config import get_city_config, get_plu_mapping
 logger = logging.getLogger(__name__)
@@ -2601,3 +2596,534 @@ class LayerConfigDetailView(APIView):
             }
         
         return Response(data)
+
+class PlotViewSet(viewsets.ReadOnlyModelViewSet):
+    """
+    API endpoint for Plot data
+    - GET /api/plots/ - List all plots
+    - GET /api/plots/{id}/ - Get specific plot
+    - GET /api/plots/in_bbox/ - Get plots in bounding box
+    """
+    queryset = Plot.objects.filter(is_active=True)
+    serializer_class = PlotSerializer
+    
+    @action(detail=False, methods=['get'])
+    def in_bbox(self, request):
+        """Get plots within bounding box: ?bbox=west,south,east,north"""
+        bbox = request.query_params.get('bbox')
+        
+        if not bbox:
+            return Response({'error': 'bbox parameter required'}, status=400)
+        
+        try:
+            west, south, east, north = map(float, bbox.split(','))
+            bbox_polygon = Polygon.from_bbox((west, south, east, north))
+            
+            plots = self.queryset.filter(location__within=bbox_polygon)
+            serializer = self.get_serializer(plots, many=True)
+            
+            return Response({
+                'type': 'FeatureCollection',
+                'features': serializer.data,
+                'count': plots.count()
+            })
+            
+        except (ValueError, TypeError):
+            return Response({'error': 'Invalid bbox format'}, status=400)
+    
+    @action(detail=False, methods=['get'])
+    def near_point(self, request):
+        """Get plots near a point: ?lat=17.123&lng=77.456&radius_km=10"""
+        lat = request.query_params.get('lat')
+        lng = request.query_params.get('lng')
+        radius_km = float(request.query_params.get('radius_km', 10))
+        
+        if not lat or not lng:
+            return Response({'error': 'lat and lng parameters required'}, status=400)
+        
+        try:
+            from django.contrib.gis.geos import Point
+            point = Point(float(lng), float(lat))
+            
+            plots = self.queryset.filter(
+                location__distance_lte=(point, Distance(km=radius_km))
+            )
+            
+            serializer = self.get_serializer(plots, many=True)
+            
+            return Response({
+                'type': 'FeatureCollection',
+                'features': serializer.data,
+                'count': plots.count(),
+                'search_center': {'lat': float(lat), 'lng': float(lng)},
+                'radius_km': radius_km
+            })
+            
+        except (ValueError, TypeError):
+            return Response({'error': 'Invalid coordinates'}, status=400)
+
+class LandViewSet(viewsets.ReadOnlyModelViewSet):
+    """
+    API endpoint for Land data
+    - GET /api/lands/ - List all lands
+    - GET /api/lands/{id}/ - Get specific land
+    - GET /api/lands/in_bbox/ - Get lands in bounding box
+    """
+    queryset = Land.objects.filter(is_active=True)
+    serializer_class = LandSerializer
+    
+    @action(detail=False, methods=['get'])
+    def in_bbox(self, request):
+        """Get lands within bounding box: ?bbox=west,south,east,north"""
+        bbox = request.query_params.get('bbox')
+        
+        if not bbox:
+            return Response({'error': 'bbox parameter required'}, status=400)
+        
+        try:
+            west, south, east, north = map(float, bbox.split(','))
+            bbox_polygon = Polygon.from_bbox((west, south, east, north))
+            
+            lands = self.queryset.filter(location__within=bbox_polygon)
+            serializer = self.get_serializer(lands, many=True)
+            
+            return Response({
+                'type': 'FeatureCollection',
+                'features': serializer.data,
+                'count': lands.count()
+            })
+            
+        except (ValueError, TypeError):
+            return Response({'error': 'Invalid bbox format'}, status=400)
+    
+    @action(detail=False, methods=['get'])
+    def near_point(self, request):
+        """Get lands near a point: ?lat=17.123&lng=77.456&radius_km=10"""
+        lat = request.query_params.get('lat')
+        lng = request.query_params.get('lng')
+        radius_km = float(request.query_params.get('radius_km', 10))
+        
+        if not lat or not lng:
+            return Response({'error': 'lat and lng parameters required'}, status=400)
+        
+        try:
+            from django.contrib.gis.geos import Point
+            point = Point(float(lng), float(lat))
+            
+            lands = self.queryset.filter(
+                location__distance_lte=(point, Distance(km=radius_km))
+            )
+            
+            serializer = self.get_serializer(lands, many=True)
+            
+            return Response({
+                'type': 'FeatureCollection',
+                'features': serializer.data,
+                'count': lands.count(),
+                'search_center': {'lat': float(lat), 'lng': float(lng)},
+                'radius_km': radius_km
+            })
+            
+        except (ValueError, TypeError):
+            return Response({'error': 'Invalid coordinates'}, status=400)
+        
+
+class RealEstateVectorTileView(APIView):
+    """
+    Serve MVT tiles for real estate data
+    URL: /api/real-estate-tiles/{type}/{z}/{x}/{y}.mvt
+    type: plots, lands, or combined
+    """
+    
+    def get(self, request, tile_type, z, x, y):
+        try:
+            z, x, y = int(z), int(x), int(y)
+            
+            # Try to serve pre-generated tile first
+            tile_path = Path('media/real_estate_tiles') / tile_type / str(z) / str(x) / f'{y}.mvt'
+            
+            if tile_path.exists():
+                return FileResponse(
+                    open(tile_path, 'rb'), 
+                    content_type='application/vnd.mapbox-vector-tile'
+                )
+            
+            # Generate tile on-the-fly if not pre-generated
+            if tile_type == 'plots':
+                mvt_data = self.generate_plot_mvt_tile(z, x, y)
+            elif tile_type == 'lands':
+                mvt_data = self.generate_land_mvt_tile(z, x, y)
+            elif tile_type == 'combined':
+                mvt_data = self.generate_combined_mvt_tile(z, x, y)
+            else:
+                return HttpResponse('Invalid tile type', status=404)
+            
+            if mvt_data:
+                response = HttpResponse(mvt_data, content_type='application/vnd.mapbox-vector-tile')
+                response['Cache-Control'] = 'max-age=3600'
+                response['Access-Control-Allow-Origin'] = '*'
+                return response
+            
+            # Return empty tile if no data
+            return HttpResponse(b'', content_type='application/vnd.mapbox-vector-tile')
+            
+        except Exception as e:
+            print(f"Error in RealEstateVectorTileView: {e}")
+            return HttpResponse(b'', content_type='application/vnd.mapbox-vector-tile', status=500)
+
+    def generate_plot_mvt_tile(self, z, x, y):
+        """Generate MVT tile for plots"""
+        tile_bounds = self.get_tile_bounds(z, x, y)
+        
+        plots = Plot.objects.filter(
+            location__intersects=tile_bounds,
+            is_active=True
+        )
+        
+        if not plots.exists():
+            return None
+        
+        # Limit features at low zoom
+        max_features = 100 if z < 12 else 500
+        plots = plots[:max_features]
+        
+        return self.features_to_mvt(plots, 'plots', Plot)
+
+    def generate_land_mvt_tile(self, z, x, y):
+        """Generate MVT tile for lands"""
+        tile_bounds = self.get_tile_bounds(z, x, y)
+        
+        lands = Land.objects.filter(
+            location__intersects=tile_bounds,
+            is_active=True
+        )
+        
+        if not lands.exists():
+            return None
+        
+        # Limit features at low zoom
+        max_features = 100 if z < 12 else 500
+        lands = lands[:max_features]
+        
+        return self.features_to_mvt(lands, 'lands', Land)
+
+    def generate_combined_mvt_tile(self, z, x, y):
+        """Generate combined MVT tile"""
+        tile_bounds = self.get_tile_bounds(z, x, y)
+        
+        plots = Plot.objects.filter(
+            location__intersects=tile_bounds,
+            is_active=True
+        )
+        
+        lands = Land.objects.filter(
+            location__intersects=tile_bounds,
+            is_active=True
+        )
+        
+        if not plots.exists() and not lands.exists():
+            return None
+        
+        # Limit features
+        max_features = 50 if z < 12 else 250
+        plots = plots[:max_features]
+        lands = lands[:max_features]
+        
+        # Create MVT layers
+        mvt_layers = {}
+        
+        if plots.exists():
+            mvt_layers['plots'] = self.prepare_features_for_mvt(plots, Plot)
+        
+        if lands.exists():
+            mvt_layers['lands'] = self.prepare_features_for_mvt(lands, Land)
+        
+        if mvt_layers:
+            return mapbox_vector_tile.encode(mvt_layers)
+        
+        return None
+
+    def features_to_mvt(self, features, layer_name, model):
+        """Convert features to MVT"""
+        mvt_features = self.prepare_features_for_mvt(features, model)
+        
+        if mvt_features:
+            mvt_layers = {layer_name: mvt_features}
+            return mapbox_vector_tile.encode(mvt_layers)
+        
+        return None
+
+    def prepare_features_for_mvt(self, features, model):
+        """Prepare features for MVT encoding"""
+        mvt_features = []
+        
+        for feature in features:
+            try:
+                coords = [feature.location.x, feature.location.y]
+                
+                if model == Plot:
+                    properties = {
+                        'id': feature.plot_id,
+                        'title': feature.marker_title,
+                        'marker_id': feature.marker_id,
+                        'area_sq_yards': feature.area_sq_yards or 0,
+                        'price_per_sq_yard': feature.price_per_sq_yard or 0,
+                        'total_price': feature.total_price or 0,
+                        'type': 'plot'
+                    }
+                else:  # Land
+                    properties = {
+                        'id': feature.land_id,
+                        'title': feature.marker_title,
+                        'marker_id': feature.marker_id,
+                        'area_text': feature.area_text,
+                        'price_text': feature.price_text,
+                        'type': 'land'
+                    }
+                
+                mvt_feature = {
+                    'geometry': {
+                        'type': 'Point',
+                        'coordinates': coords
+                    },
+                    'properties': properties
+                }
+                
+                mvt_features.append(mvt_feature)
+                
+            except Exception:
+                continue
+        
+        return {
+            'features': mvt_features,
+            'extent': 4096,
+            'version': 2
+        }
+
+    def get_tile_bounds(self, z, x, y):
+        """Get tile bounding box as Polygon"""
+        bounds = mercantile.bounds(x, y, z)
+        return Polygon.from_bbox([
+            bounds.west, bounds.south,
+            bounds.east, bounds.north
+        ])
+
+class RealEstateRasterTileView(APIView):
+    """
+    Serve PNG tiles for real estate data
+    URL: /api/real-estate-tiles/{type}/{z}/{x}/{y}.png
+    type: plots, lands, or combined
+    """
+    
+    def get(self, request, tile_type, z, x, y):
+        try:
+            z, x, y = int(z), int(x), int(y)
+            
+            # Try to serve pre-generated tile first
+            tile_path = Path('media/real_estate_tiles_png') / tile_type / str(z) / str(x) / f'{y}.png'
+            
+            if tile_path.exists():
+                return FileResponse(
+                    open(tile_path, 'rb'), 
+                    content_type='image/png'
+                )
+            
+            # Generate tile on-the-fly if not pre-generated
+            if tile_type == 'plots':
+                png_data = self.generate_plot_png_tile(z, x, y)
+            elif tile_type == 'lands':
+                png_data = self.generate_land_png_tile(z, x, y)
+            elif tile_type == 'combined':
+                png_data = self.generate_combined_png_tile(z, x, y)
+            else:
+                return HttpResponse('Invalid tile type', status=404)
+            
+            if png_data:
+                response = HttpResponse(png_data, content_type='image/png')
+                response['Cache-Control'] = 'max-age=3600'
+                response['Access-Control-Allow-Origin'] = '*'
+                return response
+            
+            # Return empty tile
+            return HttpResponse(self.create_empty_tile(), content_type='image/png')
+            
+        except Exception as e:
+            print(f"Error in RealEstateRasterTileView: {e}")
+            return HttpResponse(self.create_empty_tile(), content_type='image/png', status=500)
+
+    def generate_plot_png_tile(self, z, x, y):
+        """Generate PNG tile for plots"""
+        tile_bounds = self.get_tile_bounds(z, x, y)
+        
+        plots = Plot.objects.filter(
+            location__intersects=tile_bounds,
+            is_active=True
+        )
+        
+        if not plots.exists():
+            return self.create_empty_tile()
+        
+        max_features = 50 if z < 10 else 200 if z < 12 else 1000
+        plots = plots[:max_features]
+        
+        return self.render_features_to_png(plots, Plot, z, x, y)
+
+    def generate_land_png_tile(self, z, x, y):
+        """Generate PNG tile for lands"""
+        tile_bounds = self.get_tile_bounds(z, x, y)
+        
+        lands = Land.objects.filter(
+            location__intersects=tile_bounds,
+            is_active=True
+        )
+        
+        if not lands.exists():
+            return self.create_empty_tile()
+        
+        max_features = 50 if z < 10 else 200 if z < 12 else 1000
+        lands = lands[:max_features]
+        
+        return self.render_features_to_png(lands, Land, z, x, y)
+
+    def generate_combined_png_tile(self, z, x, y):
+        """Generate combined PNG tile"""
+        tile_bounds = self.get_tile_bounds(z, x, y)
+        
+        plots = Plot.objects.filter(
+            location__intersects=tile_bounds,
+            is_active=True
+        )
+        
+        lands = Land.objects.filter(
+            location__intersects=tile_bounds,
+            is_active=True
+        )
+        
+        if not plots.exists() and not lands.exists():
+            return self.create_empty_tile()
+        
+        max_features = 25 if z < 10 else 100 if z < 12 else 500
+        plots = plots[:max_features]
+        lands = lands[:max_features]
+        
+        return self.render_combined_features_to_png(plots, lands, z, x, y)
+
+    def render_features_to_png(self, features, model, z, x, y):
+        """Render features to PNG image"""
+        tile_size = 256
+        img = Image.new('RGBA', (tile_size, tile_size), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(img)
+        
+        bounds = mercantile.bounds(x, y, z)
+        
+        # Define colors
+        if model == Plot:
+            color = (255, 120, 0, 200)  # Orange
+            outline_color = (255, 120, 0, 255)
+        else:  # Land
+            color = (0, 255, 0, 200)   # Green
+            outline_color = (0, 255, 0, 255)
+        
+        # Draw features
+        for feature in features:
+            try:
+                pixel_x, pixel_y = self.latlng_to_pixel(
+                    feature.location.y, feature.location.x,
+                    bounds, tile_size
+                )
+                
+                radius = 6 if z < 12 else 8 if z < 14 else 10
+                
+                draw.ellipse(
+                    [pixel_x - radius, pixel_y - radius, 
+                     pixel_x + radius, pixel_y + radius],
+                    fill=color,
+                    outline=outline_color,
+                    width=2
+                )
+                
+            except Exception:
+                continue
+        
+        buffer = io.BytesIO()
+        img.save(buffer, format='PNG', optimize=True)
+        return buffer.getvalue()
+
+    def render_combined_features_to_png(self, plots, lands, z, x, y):
+        """Render combined features to PNG"""
+        tile_size = 256
+        img = Image.new('RGBA', (tile_size, tile_size), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(img)
+        
+        bounds = mercantile.bounds(x, y, z)
+        
+        # Draw lands first (background)
+        for land in lands:
+            try:
+                pixel_x, pixel_y = self.latlng_to_pixel(
+                    land.location.y, land.location.x,
+                    bounds, tile_size
+                )
+                
+                radius = 8 if z < 12 else 10 if z < 14 else 12
+                
+                draw.ellipse(
+                    [pixel_x - radius, pixel_y - radius, 
+                     pixel_x + radius, pixel_y + radius],
+                    fill=(0, 255, 0, 180),
+                    outline=(0, 180, 0, 255),
+                    width=2
+                )
+                
+            except Exception:
+                continue
+        
+        # Draw plots on top
+        for plot in plots:
+            try:
+                pixel_x, pixel_y = self.latlng_to_pixel(
+                    plot.location.y, plot.location.x,
+                    bounds, tile_size
+                )
+                
+                radius = 6 if z < 12 else 8 if z < 14 else 10
+                
+                draw.ellipse(
+                    [pixel_x - radius, pixel_y - radius, 
+                     pixel_x + radius, pixel_y + radius],
+                    fill=(255, 120, 0, 200),
+                    outline=(255, 120, 0, 255),
+                    width=2
+                )
+                
+            except Exception:
+                continue
+        
+        buffer = io.BytesIO()
+        img.save(buffer, format='PNG', optimize=True)
+        return buffer.getvalue()
+
+    def latlng_to_pixel(self, lat, lng, bounds, tile_size):
+        """Convert lat/lng to pixel coordinates"""
+        x_ratio = (lng - bounds.west) / (bounds.east - bounds.west)
+        y_ratio = (bounds.north - lat) / (bounds.north - bounds.south)
+        
+        pixel_x = int(x_ratio * tile_size)
+        pixel_y = int(y_ratio * tile_size)
+        
+        return pixel_x, pixel_y
+
+    def create_empty_tile(self):
+        """Create transparent empty tile"""
+        img = Image.new('RGBA', (256, 256), (0, 0, 0, 0))
+        buffer = io.BytesIO()
+        img.save(buffer, format='PNG', optimize=True)
+        return buffer.getvalue()
+
+    def get_tile_bounds(self, z, x, y):
+        """Get tile bounding box as Polygon"""
+        bounds = mercantile.bounds(x, y, z)
+        return Polygon.from_bbox([
+            bounds.west, bounds.south,
+            bounds.east, bounds.north
+        ])

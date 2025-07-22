@@ -87,3 +87,5 @@ logs/
 *.log
 /data/
 
+/static/
+data.zip

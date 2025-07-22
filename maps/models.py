@@ -646,3 +646,59 @@ class LayerConfig(models.Model):
             'sort_order': self.sort_order,
             'info_popup': self.get_info_popup(),
         }
+
+class Plot(models.Model):
+    """Plot data - independent of city layers"""
+    plot_id = models.IntegerField(unique=True)
+    location = models.PointField()  # Point geometry
+    
+    # Pricing info
+    area_sq_yards = models.IntegerField(null=True, blank=True)
+    price_per_sq_yard = models.IntegerField(null=True, blank=True)
+    total_price = models.BigIntegerField(null=True, blank=True)  # Calculated
+    
+    # Display info
+    marker_title = models.CharField(max_length=200)
+    marker_id = models.CharField(max_length=100)
+    
+    # Metadata
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        db_table = 'plots'
+        indexes = [
+            models.Index(fields=['plot_id']),
+            models.Index(fields=['is_active']),
+        ]
+    
+    def __str__(self):
+        return f"Plot {self.plot_id}: {self.marker_title}"
+
+class Land(models.Model):
+    """Land data - independent of city layers"""
+    land_id = models.IntegerField(unique=True)
+    location = models.PointField()  # Point geometry
+    
+    area_text = models.CharField(max_length=100)  # "12 Acres", "1 Acre 27 Guntas"
+    price_text = models.CharField(max_length=100)  # "₹80 Lakhs/Acre", "₹1.6 Cr/Acre"
+    
+    # Display info
+    marker_title = models.CharField(max_length=200)
+    marker_id = models.CharField(max_length=100)
+    
+    # Metadata
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        db_table = 'lands'
+        indexes = [
+            models.Index(fields=['land_id']),
+            models.Index(fields=['is_active']),
+        ]
+    
+    def __str__(self):
+        return f"Land {self.land_id}: {self.marker_title}"
