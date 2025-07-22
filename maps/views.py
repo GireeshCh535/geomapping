@@ -29,7 +29,7 @@ from django.db.models import Prefetch
 from django.urls import path
 from PIL import Image, ImageDraw
 import io
-from maps.models import Plot, Land
+from pathlib import Path
 
 from .models import *
 from .serializers import *
@@ -2739,7 +2739,7 @@ class RealEstateVectorTileView(APIView):
         try:
             z, x, y = int(z), int(x), int(y)
             
-            # Try to serve pre-generated tile first
+            # Try to serve pre-generated tile first (matching management command output)
             tile_path = Path('media/real_estate_tiles') / tile_type / str(z) / str(x) / f'{y}.mvt'
             
             if tile_path.exists():
@@ -2829,76 +2829,148 @@ class RealEstateVectorTileView(APIView):
         plots = plots[:max_features]
         lands = lands[:max_features]
         
-        # Create MVT layers
-        mvt_layers = {}
-        
-        if plots.exists():
-            mvt_layers['plots'] = self.prepare_features_for_mvt(plots, Plot)
-        
-        if lands.exists():
-            mvt_layers['lands'] = self.prepare_features_for_mvt(lands, Land)
-        
-        if mvt_layers:
-            return mapbox_vector_tile.encode(mvt_layers)
-        
-        return None
+        return self.features_to_combined_mvt(plots, lands)
 
     def features_to_mvt(self, features, layer_name, model):
-        """Convert features to MVT"""
-        mvt_features = self.prepare_features_for_mvt(features, model)
-        
-        if mvt_features:
-            mvt_layers = {layer_name: mvt_features}
-            return mapbox_vector_tile.encode(mvt_layers)
-        
-        return None
+        """Convert features to MVT format (matching management command logic)"""
+        try:
+            mvt_features = []
+            
+            for feature in features:
+                try:
+                    # Prepare properties based on model type
+                    if model == Plot:
+                        properties = {
+                            'id': feature.plot_id,
+                            'name': feature.marker_title or '',
+                            'title': feature.marker_title or '',
+                            'marker_id': feature.marker_id or '',
+                            'area_sq_yards': feature.area_sq_yards or 0,
+                            'price_per_sq_yard': feature.price_per_sq_yard or 0,
+                            'total_price': feature.total_price or 0,
+                            'type': 'plot',
+                            'category': 'Real Estate'
+                        }
+                    else:  # Land
+                        properties = {
+                            'id': feature.land_id,
+                            'name': feature.marker_title or '',
+                            'title': feature.marker_title or '',
+                            'marker_id': feature.marker_id or '',
+                            'area_text': feature.area_text or '',
+                            'price_text': feature.price_text or '',
+                            'type': 'land',
+                            'category': 'Real Estate'
+                        }
+                    
+                    mvt_feature = {
+                        'geometry': {
+                            'type': 'Point',
+                            'coordinates': [feature.location.x, feature.location.y]
+                        },
+                        'properties': properties
+                    }
+                    
+                    mvt_features.append(mvt_feature)
+                    
+                except Exception:
+                    continue
+            
+            if not mvt_features:
+                return None
+            
+            # Encode MVT (matching management command)
+            layer_data = [{
+                'name': layer_name,
+                'features': mvt_features,
+                'version': 2,
+                'extent': 4096
+            }]
+            
+            return mapbox_vector_tile.encode(layer_data)
+            
+        except Exception as e:
+            print(f"Error encoding MVT for {layer_name}: {e}")
+            return None
 
-    def prepare_features_for_mvt(self, features, model):
-        """Prepare features for MVT encoding"""
-        mvt_features = []
-        
-        for feature in features:
-            try:
-                coords = [feature.location.x, feature.location.y]
+    def features_to_combined_mvt(self, plots, lands):
+        """Convert combined features to MVT format"""
+        try:
+            layers_list = []
+            
+            # Add plots layer
+            if plots.exists():
+                plot_features = []
+                for plot in plots:
+                    try:
+                        plot_features.append({
+                            'geometry': {
+                                'type': 'Point',
+                                'coordinates': [plot.location.x, plot.location.y]
+                            },
+                            'properties': {
+                                'id': plot.plot_id,
+                                'name': plot.marker_title or '',
+                                'title': plot.marker_title or '',
+                                'marker_id': plot.marker_id or '',
+                                'area_sq_yards': plot.area_sq_yards or 0,
+                                'price_per_sq_yard': plot.price_per_sq_yard or 0,
+                                'total_price': plot.total_price or 0,
+                                'type': 'plot',
+                                'category': 'Real Estate'
+                            }
+                        })
+                    except Exception:
+                        continue
                 
-                if model == Plot:
-                    properties = {
-                        'id': feature.plot_id,
-                        'title': feature.marker_title,
-                        'marker_id': feature.marker_id,
-                        'area_sq_yards': feature.area_sq_yards or 0,
-                        'price_per_sq_yard': feature.price_per_sq_yard or 0,
-                        'total_price': feature.total_price or 0,
-                        'type': 'plot'
-                    }
-                else:  # Land
-                    properties = {
-                        'id': feature.land_id,
-                        'title': feature.marker_title,
-                        'marker_id': feature.marker_id,
-                        'area_text': feature.area_text,
-                        'price_text': feature.price_text,
-                        'type': 'land'
-                    }
+                if plot_features:
+                    layers_list.append({
+                        'name': 'plots',
+                        'features': plot_features,
+                        'version': 2,
+                        'extent': 4096
+                    })
+            
+            # Add lands layer
+            if lands.exists():
+                land_features = []
+                for land in lands:
+                    try:
+                        land_features.append({
+                            'geometry': {
+                                'type': 'Point',
+                                'coordinates': [land.location.x, land.location.y]
+                            },
+                            'properties': {
+                                'id': land.land_id,
+                                'name': land.marker_title or '',
+                                'title': land.marker_title or '',
+                                'marker_id': land.marker_id or '',
+                                'area_text': land.area_text or '',
+                                'price_text': land.price_text or '',
+                                'type': 'land',
+                                'category': 'Real Estate'
+                            }
+                        })
+                    except Exception:
+                        continue
                 
-                mvt_feature = {
-                    'geometry': {
-                        'type': 'Point',
-                        'coordinates': coords
-                    },
-                    'properties': properties
-                }
-                
-                mvt_features.append(mvt_feature)
-                
-            except Exception:
-                continue
-        
-        return {
-            'features': mvt_features,
-            'extent': 4096,
-            'version': 2
-        }
+                if land_features:
+                    layers_list.append({
+                        'name': 'lands',
+                        'features': land_features,
+                        'version': 2,
+                        'extent': 4096
+                    })
+            
+            if not layers_list:
+                return None
+            
+            return mapbox_vector_tile.encode(layers_list)
+            
+        except Exception as e:
+            print(f"Error encoding combined MVT: {e}")
+            return None
 
     def get_tile_bounds(self, z, x, y):
         """Get tile bounding box as Polygon"""
@@ -2919,7 +2991,7 @@ class RealEstateRasterTileView(APIView):
         try:
             z, x, y = int(z), int(x), int(y)
             
-            # Try to serve pre-generated tile first
+            # Try to serve pre-generated tile first (matching management command output)
             tile_path = Path('media/real_estate_tiles_png') / tile_type / str(z) / str(x) / f'{y}.png'
             
             if tile_path.exists():
@@ -3011,20 +3083,21 @@ class RealEstateRasterTileView(APIView):
     def render_features_to_png(self, features, model, z, x, y):
         """Render features to PNG image"""
         tile_size = 256
-        img = Image.new('RGBA', (tile_size, tile_size), (0, 0, 0, 0))
+        img = Image.new('RGBA', (tile_size, tile_size), (0, 0, 0, 0))  # Transparent background
         draw = ImageDraw.Draw(img)
         
         bounds = mercantile.bounds(x, y, z)
         
-        # Define colors
+        # Define colors based on model type
         if model == Plot:
-            color = (255, 120, 0, 200)  # Orange
+            color = (255, 120, 0, 200)      # Orange for plots
             outline_color = (255, 120, 0, 255)
         else:  # Land
-            color = (0, 255, 0, 200)   # Green
-            outline_color = (0, 255, 0, 255)
+            color = (0, 200, 0, 200)       # Green for lands
+            outline_color = (0, 200, 0, 255)
         
         # Draw features
+        features_drawn = 0
         for feature in features:
             try:
                 pixel_x, pixel_y = self.latlng_to_pixel(
@@ -3032,18 +3105,25 @@ class RealEstateRasterTileView(APIView):
                     bounds, tile_size
                 )
                 
-                radius = 6 if z < 12 else 8 if z < 14 else 10
-                
-                draw.ellipse(
-                    [pixel_x - radius, pixel_y - radius, 
-                     pixel_x + radius, pixel_y + radius],
-                    fill=color,
-                    outline=outline_color,
-                    width=2
-                )
-                
+                # Ensure coordinates are within tile bounds
+                if 0 <= pixel_x <= tile_size and 0 <= pixel_y <= tile_size:
+                    radius = max(3, min(10, z - 4))  # Scale radius with zoom
+                    
+                    draw.ellipse(
+                        [pixel_x - radius, pixel_y - radius, 
+                         pixel_x + radius, pixel_y + radius],
+                        fill=color,
+                        outline=outline_color,
+                        width=1
+                    )
+                    features_drawn += 1
+                    
             except Exception:
                 continue
+        
+        # Return empty tile if no features were drawn
+        if features_drawn == 0:
+            return self.create_empty_tile()
         
         buffer = io.BytesIO()
         img.save(buffer, format='PNG', optimize=True)
@@ -3052,10 +3132,11 @@ class RealEstateRasterTileView(APIView):
     def render_combined_features_to_png(self, plots, lands, z, x, y):
         """Render combined features to PNG"""
         tile_size = 256
-        img = Image.new('RGBA', (tile_size, tile_size), (0, 0, 0, 0))
+        img = Image.new('RGBA', (tile_size, tile_size), (0, 0, 0, 0))  # Transparent background
         draw = ImageDraw.Draw(img)
         
         bounds = mercantile.bounds(x, y, z)
+        features_drawn = 0
         
         # Draw lands first (background)
         for land in lands:
@@ -3065,16 +3146,18 @@ class RealEstateRasterTileView(APIView):
                     bounds, tile_size
                 )
                 
-                radius = 8 if z < 12 else 10 if z < 14 else 12
-                
-                draw.ellipse(
-                    [pixel_x - radius, pixel_y - radius, 
-                     pixel_x + radius, pixel_y + radius],
-                    fill=(0, 255, 0, 180),
-                    outline=(0, 180, 0, 255),
-                    width=2
-                )
-                
+                if 0 <= pixel_x <= tile_size and 0 <= pixel_y <= tile_size:
+                    radius = max(4, min(12, z - 3))
+                    
+                    draw.ellipse(
+                        [pixel_x - radius, pixel_y - radius, 
+                         pixel_x + radius, pixel_y + radius],
+                        fill=(0, 200, 0, 180),      # Green for lands
+                        outline=(0, 200, 0, 255),
+                        width=1
+                    )
+                    features_drawn += 1
+                    
             except Exception:
                 continue
         
@@ -3086,25 +3169,31 @@ class RealEstateRasterTileView(APIView):
                     bounds, tile_size
                 )
                 
-                radius = 6 if z < 12 else 8 if z < 14 else 10
-                
-                draw.ellipse(
-                    [pixel_x - radius, pixel_y - radius, 
-                     pixel_x + radius, pixel_y + radius],
-                    fill=(255, 120, 0, 200),
-                    outline=(255, 120, 0, 255),
-                    width=2
-                )
-                
+                if 0 <= pixel_x <= tile_size and 0 <= pixel_y <= tile_size:
+                    radius = max(3, min(10, z - 4))
+                    
+                    draw.ellipse(
+                        [pixel_x - radius, pixel_y - radius, 
+                         pixel_x + radius, pixel_y + radius],
+                        fill=(255, 120, 0, 200),    # Orange for plots
+                        outline=(255, 120, 0, 255),
+                        width=1
+                    )
+                    features_drawn += 1
+                    
             except Exception:
                 continue
+        
+        # Return empty tile if no features were drawn
+        if features_drawn == 0:
+            return self.create_empty_tile()
         
         buffer = io.BytesIO()
         img.save(buffer, format='PNG', optimize=True)
         return buffer.getvalue()
 
     def latlng_to_pixel(self, lat, lng, bounds, tile_size):
-        """Convert lat/lng to pixel coordinates"""
+        """Convert lat/lng to pixel coordinates within tile"""
         x_ratio = (lng - bounds.west) / (bounds.east - bounds.west)
         y_ratio = (bounds.north - lat) / (bounds.north - bounds.south)
         
@@ -3114,7 +3203,7 @@ class RealEstateRasterTileView(APIView):
         return pixel_x, pixel_y
 
     def create_empty_tile(self):
-        """Create transparent empty tile"""
+        """Create transparent empty PNG tile"""
         img = Image.new('RGBA', (256, 256), (0, 0, 0, 0))
         buffer = io.BytesIO()
         img.save(buffer, format='PNG', optimize=True)

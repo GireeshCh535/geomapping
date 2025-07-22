@@ -115,7 +115,7 @@ urlpatterns = [
 
      path('real-estate-tiles/<str:tile_type>/<int:z>/<int:x>/<int:y>.mvt',
          RealEstateVectorTileView.as_view(), name='real_estate_vector_tile'),
-    
+         
      path('real-estate-tiles/<str:tile_type>/<int:z>/<int:x>/<int:y>.png',
          RealEstateRasterTileView.as_view(), name='real_estate_raster_tile'),
 

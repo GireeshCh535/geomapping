@@ -5,393 +5,103 @@ import time
 from pathlib import Path
 from django.core.management.base import BaseCommand
 from django.contrib.gis.db.models import Extent
+from django.contrib.gis.geos import Polygon
 from maps.models import Plot, Land
 import mercantile
+import mapbox_vector_tile
+from PIL import Image, ImageDraw
+import io
 
 class Command(BaseCommand):
-    help = 'Generate PNG tiles for real estate data (plots and lands) - Matching existing patterns'
+    help = 'Generate and validate PNG tiles for real estate data (plots and lands)'
 
     def add_arguments(self, parser):
         parser.add_argument('--min-zoom', type=int, default=8, help='Minimum zoom level')
         parser.add_argument('--max-zoom', type=int, default=14, help='Maximum zoom level')
-        parser.add_argument('--overwrite', action='store_true', help='Overwrite existing tiles')
-        parser.add_argument('--output-dir', type=str, default='static/real_estate_tiles_png', help='Output directory')
+        parser.add_argument('--force', action='store_true', help='Force regeneration of existing tiles')
+        parser.add_argument('--output-dir', type=str, default='media/real_estate_tiles_png', help='Output directory')
         parser.add_argument('--type', choices=['plots', 'lands', 'combined'], default='combined', help='Data type to generate')
+        parser.add_argument('--mvt-source-dir', type=str, default='media/real_estate_tiles', help='Source directory for MVT tiles')
 
-    def handle(self, *args, **options):
-        self.stdout.write(self.style.SUCCESS('🏡 Starting Real Estate PNG Tile Generation'))
-        
-        min_zoom = options['min_zoom']
-        max_zoom = options['max_zoom']
-        overwrite = options['overwrite']
-        output_dir = options['output_dir']
-        data_type = options['type']
-        
-        self.stdout.write(f'📊 Configuration:')
-        self.stdout.write(f'   Zoom levels: {min_zoom} to {max_zoom}')
-        self.stdout.write(f'   Data type: {data_type}')
-        self.stdout.write(f'   Output: {output_dir}')
-        self.stdout.write(f'   Overwrite existing: {overwrite}')
-        
-        # Get data bounds
-        bounds = self.get_real_estate_bounds(data_type)
-        if not bounds:
-            self.stdout.write(self.style.ERROR('❌ No real estate data found'))
-            return
-        
-        self.stdout.write(f'📊 Data bounds: {bounds}')
-        
-        # Import services (matching existing pattern)
-        from maps.services import VectorTileService
-        from maps.tile_rendering_service import TileRenderingService
-        
-        # Create services
-        vector_service = VectorTileService()
-        render_service = TileRenderingService()
-        
-        # Create output directory
-        out_dir = os.path.join(output_dir, data_type)
-        os.makedirs(out_dir, exist_ok=True)
-        
-        # Generate tiles for each zoom level
-        total_tiles = 0
-        generated_tiles = 0
-        skipped_tiles = 0
-        
-        for zoom in range(min_zoom, max_zoom + 1):
-            tiles = list(mercantile.tiles(
-                bounds['west'], bounds['south'],
-                bounds['east'], bounds['north'],
-                zoom
-            ))
+    def validate_png_tile(self, png_data):
+        """
+        Validate a PNG tile
+        Returns (is_valid, details) tuple
+        """
+        try:
+            if not png_data or len(png_data) == 0:
+                return False, "Empty PNG data"
             
-            self.stdout.write(f"Zoom {zoom}: {len(tiles)} tiles")
+            # Try to load as image
+            img = Image.open(io.BytesIO(png_data))
             
-            for tile in tiles:
-                png_path = os.path.join(out_dir, f"{tile.z}_{tile.x}_{tile.y}.png")
-                total_tiles += 1
-                
-                # Skip if exists and not overwriting
-                if os.path.exists(png_path) and not overwrite:
-                    skipped_tiles += 1
-                    continue
-                
-                try:
-                    # Generate MVT data first (matching existing pattern)
-                    mvt_data = self.generate_real_estate_mvt(data_type, tile.z, tile.x, tile.y, zoom)
-                    
-                    if not mvt_data:
-                        # Save empty/transparent PNG
-                        png_data = render_service.create_empty_tile()
-                    else:
-                        # Convert MVT to PNG using existing service
-                        png_data = self.mvt_to_png_real_estate(render_service, mvt_data, data_type, tile.z, tile.x, tile.y)
-                    
-                    # Save PNG file
-                    with open(png_path, 'wb') as f:
-                        f.write(png_data)
-                    
-                    generated_tiles += 1
-                    
-                    # Progress update (matching existing pattern)
-                    if generated_tiles % 100 == 0:
-                        self.stdout.write(f"   Generated {generated_tiles} PNGs so far...")
-                        
-                except Exception as e:
-                    self.stdout.write(f'   ❌ Error generating PNG tile {tile.z}/{tile.x}/{tile.y}: {e}')
-                    # Create empty tile on error
-                    try:
-                        png_data = render_service.create_empty_tile()
-                        with open(png_path, 'wb') as f:
-                            f.write(png_data)
-                        generated_tiles += 1
-                    except:
-                        pass
-        
-        # Final summary (matching existing pattern)
-        self.stdout.write(self.style.SUCCESS(f"\n✅ PNG tile generation complete!"))
-        self.stdout.write(f"   Total tiles: {total_tiles}")
-        self.stdout.write(f"   Generated: {generated_tiles}")
-        self.stdout.write(f"   Skipped (already existed): {skipped_tiles}")
-        self.stdout.write(f"   Output folder: {out_dir}")
-        
-        # Generate sample URLs
-        self.generate_sample_urls(data_type, min_zoom, max_zoom, bounds)
+            # Check dimensions
+            if img.size != (256, 256):
+                return False, f"Invalid tile size: {img.size} (expected 256x256)"
+            
+            # Check mode
+            if img.mode not in ['RGBA', 'RGB', 'L']:
+                return False, f"Invalid image mode: {img.mode}"
+            
+            return True, f"Valid PNG tile ({img.mode}, {img.size})"
+            
+        except Exception as e:
+            return False, f"PNG validation error: {str(e)}"
 
-    def get_real_estate_bounds(self, data_type):
-        """Get bounding box for real estate data (matching existing pattern)"""
-        
-        bounds = None
-        
-        if data_type in ['plots', 'combined']:
+    def get_data_bounds(self, data_type):
+        """Get bounding box for the specified data type"""
+        if data_type == 'plots':
+            extent = Plot.objects.filter(is_active=True).aggregate(
+                extent=Extent('location')
+            )['extent']
+        elif data_type == 'lands':
+            extent = Land.objects.filter(is_active=True).aggregate(
+                extent=Extent('location')
+            )['extent']
+        else:  # combined
+            # Get combined extent from both models
             plot_extent = Plot.objects.filter(is_active=True).aggregate(
                 extent=Extent('location')
             )['extent']
-            
-            if plot_extent:
-                bounds = {
-                    'west': plot_extent[0],
-                    'south': plot_extent[1],
-                    'east': plot_extent[2],
-                    'north': plot_extent[3]
-                }
-        
-        if data_type in ['lands', 'combined']:
             land_extent = Land.objects.filter(is_active=True).aggregate(
                 extent=Extent('location')
             )['extent']
             
-            if land_extent:
-                if bounds:
-                    # Expand bounds to include both
-                    bounds['west'] = min(bounds['west'], land_extent[0])
-                    bounds['south'] = min(bounds['south'], land_extent[1])
-                    bounds['east'] = max(bounds['east'], land_extent[2])
-                    bounds['north'] = max(bounds['north'], land_extent[3])
-                else:
-                    bounds = {
-                        'west': land_extent[0],
-                        'south': land_extent[1],
-                        'east': land_extent[2],
-                        'north': land_extent[3]
-                    }
+            if plot_extent and land_extent:
+                extent = [
+                    min(plot_extent[0], land_extent[0]),  # west
+                    min(plot_extent[1], land_extent[1]),  # south
+                    max(plot_extent[2], land_extent[2]),  # east
+                    max(plot_extent[3], land_extent[3])   # north
+                ]
+            else:
+                extent = plot_extent or land_extent
         
-        return bounds
+        if extent:
+            return {
+                'west': extent[0],
+                'south': extent[1],
+                'east': extent[2],
+                'north': extent[3]
+            }
+        return None
 
-    def generate_real_estate_mvt(self, data_type, z, x, y, zoom_level):
-        """Generate MVT data for real estate (matching existing pattern)"""
-        
-        from django.contrib.gis.geos import Polygon
-        
-        # Get tile bounds
-        bounds = mercantile.bounds(x, y, z)
-        tile_bounds = Polygon.from_bbox([
-            bounds.west, bounds.south,
-            bounds.east, bounds.north
-        ])
-        
-        try:
-            if data_type == 'plots':
-                return self.generate_plots_mvt(tile_bounds, z, x, y, zoom_level)
-            elif data_type == 'lands':
-                return self.generate_lands_mvt(tile_bounds, z, x, y, zoom_level)
-            else:  # combined
-                return self.generate_combined_real_estate_mvt(tile_bounds, z, x, y, zoom_level)
-                
-        except Exception as e:
-            return None
+    def create_empty_tile(self):
+        """Create a transparent empty tile"""
+        img = Image.new('RGBA', (256, 256), (255, 255, 255, 0))
+        img_buffer = io.BytesIO()
+        img.save(img_buffer, format='PNG', optimize=True)
+        return img_buffer.getvalue()
 
-    def generate_plots_mvt(self, tile_bounds, z, x, y, zoom_level):
-        """Generate MVT for plots only"""
-        
-        import mapbox_vector_tile
-        
-        # Query plots in tile
-        plots = Plot.objects.filter(
-            location__intersects=tile_bounds,
-            is_active=True
-        )
-        
-        if not plots.exists():
-            return None
-        
-        # Limit features at low zoom levels
-        max_features = 50 if zoom_level < 10 else 200 if zoom_level < 12 else 1000
-        plots = plots[:max_features]
-        
-        # Create MVT features
-        plot_features = []
-        for plot in plots:
-            try:
-                plot_features.append({
-                    'geometry': {
-                        'type': 'Point',
-                        'coordinates': [plot.location.x, plot.location.y]
-                    },
-                    'properties': {
-                        'id': plot.plot_id,
-                        'name': plot.marker_title or '',
-                        'title': plot.marker_title or '',
-                        'marker_id': plot.marker_id or '',
-                        'area_sq_yards': plot.area_sq_yards or 0,
-                        'price_per_sq_yard': plot.price_per_sq_yard or 0,
-                        'total_price': plot.total_price or 0,
-                        'type': 'plot',
-                        'category': 'Real Estate'
-                    }
-                })
-            except Exception:
-                continue
-        
-        if not plot_features:
-            return None
-        
-        # Encode MVT (matching existing pattern)
-        layer_data = [{
-            'name': 'plots',
-            'features': plot_features,
-            'version': 2,
-            'extent': 4096
-        }]
-        
-        return mapbox_vector_tile.encode(layer_data)
-
-    def generate_lands_mvt(self, tile_bounds, z, x, y, zoom_level):
-        """Generate MVT for lands only"""
-        
-        import mapbox_vector_tile
-        
-        # Query lands in tile
-        lands = Land.objects.filter(
-            location__intersects=tile_bounds,
-            is_active=True
-        )
-        
-        if not lands.exists():
-            return None
-        
-        # Limit features at low zoom levels
-        max_features = 50 if zoom_level < 10 else 200 if zoom_level < 12 else 1000
-        lands = lands[:max_features]
-        
-        # Create MVT features
-        land_features = []
-        for land in lands:
-            try:
-                land_features.append({
-                    'geometry': {
-                        'type': 'Point',
-                        'coordinates': [land.location.x, land.location.y]
-                    },
-                    'properties': {
-                        'id': land.land_id,
-                        'name': land.marker_title or '',
-                        'title': land.marker_title or '',
-                        'marker_id': land.marker_id or '',
-                        'area_text': land.area_text or '',
-                        'price_text': land.price_text or '',
-                        'type': 'land',
-                        'category': 'Real Estate'
-                    }
-                })
-            except Exception:
-                continue
-        
-        if not land_features:
-            return None
-        
-        # Encode MVT
-        layer_data = [{
-            'name': 'lands',
-            'features': land_features,
-            'version': 2,
-            'extent': 4096
-        }]
-        
-        return mapbox_vector_tile.encode(layer_data)
-
-    def generate_combined_real_estate_mvt(self, tile_bounds, z, x, y, zoom_level):
-        """Generate combined MVT with both plots and lands"""
-        
-        import mapbox_vector_tile
-        
-        # Get both plots and lands
-        plots = Plot.objects.filter(
-            location__intersects=tile_bounds,
-            is_active=True
-        )
-        
-        lands = Land.objects.filter(
-            location__intersects=tile_bounds,
-            is_active=True
-        )
-        
-        if not plots.exists() and not lands.exists():
-            return None
-        
-        # Limit features
-        max_features = 25 if zoom_level < 10 else 100 if zoom_level < 12 else 500
-        plots = plots[:max_features]
-        lands = lands[:max_features]
-        
-        # Create layers list
-        layers_list = []
-        
-        # Add plots layer
-        if plots.exists():
-            plot_features = []
-            for plot in plots:
-                try:
-                    plot_features.append({
-                        'geometry': {
-                            'type': 'Point',
-                            'coordinates': [plot.location.x, plot.location.y]
-                        },
-                        'properties': {
-                            'id': plot.plot_id,
-                            'name': plot.marker_title or '',
-                            'title': plot.marker_title or '',
-                            'type': 'plot'
-                        }
-                    })
-                except Exception:
-                    continue
-            
-            if plot_features:
-                layers_list.append({
-                    'name': 'plots',
-                    'features': plot_features,
-                    'version': 2,
-                    'extent': 4096
-                })
-        
-        # Add lands layer
-        if lands.exists():
-            land_features = []
-            for land in lands:
-                try:
-                    land_features.append({
-                        'geometry': {
-                            'type': 'Point',
-                            'coordinates': [land.location.x, land.location.y]
-                        },
-                        'properties': {
-                            'id': land.land_id,
-                            'name': land.marker_title or '',
-                            'title': land.marker_title or '',
-                            'type': 'land'
-                        }
-                    })
-                except Exception:
-                    continue
-            
-            if land_features:
-                layers_list.append({
-                    'name': 'lands',
-                    'features': land_features,
-                    'version': 2,
-                    'extent': 4096
-                })
-        
-        if not layers_list:
-            return None
-        
-        return mapbox_vector_tile.encode(layers_list)
-
-    def mvt_to_png_real_estate(self, render_service, mvt_data, data_type, z, x, y):
-        """Convert real estate MVT to PNG using existing TileRenderingService patterns"""
-        
-        import mapbox_vector_tile
-        from PIL import Image, ImageDraw
-        import io
-        
+    def mvt_to_png(self, mvt_data, data_type, z):
+        """Convert MVT data to PNG"""
         try:
             # Decode MVT data
             decoded_data = mapbox_vector_tile.decode(mvt_data)
             if not decoded_data:
-                return render_service.create_empty_tile()
+                return self.create_empty_tile()
             
-            # Create blank image (matching existing pattern)
+            # Create blank image
             img = Image.new('RGBA', (256, 256), (255, 255, 255, 0))  # Transparent background
             draw = ImageDraw.Draw(img)
             
@@ -406,25 +116,28 @@ class Command(BaseCommand):
                     color = (255, 120, 0, 200)      # Orange for plots
                     outline_color = (255, 120, 0, 255)
                 else:  # lands
-                    color = (0, 255, 0, 200)       # Green for lands
-                    outline_color = (0, 255, 0, 255)
+                    color = (0, 200, 0, 200)       # Green for lands
+                    outline_color = (0, 200, 0, 255)
                 
                 # Draw each feature
                 for feature in features:
                     if self.draw_point_feature(draw, feature, color, outline_color, z):
                         features_drawn += 1
             
-            # Convert to PNG bytes (matching existing pattern)
+            # If no features drawn, return empty tile
+            if features_drawn == 0:
+                return self.create_empty_tile()
+            
+            # Convert to PNG bytes
             img_buffer = io.BytesIO()
             img.save(img_buffer, format='PNG', optimize=True)
             return img_buffer.getvalue()
             
         except Exception as e:
-            return render_service.create_empty_tile()
+            return self.create_empty_tile()
 
-    def draw_point_feature(self, draw, feature, fill_color, outline_color, zoom):
+    def draw_point_feature(self, draw, feature, color, outline_color, zoom):
         """Draw a point feature on the image"""
-        
         try:
             geometry = feature.get('geometry', {})
             if geometry.get('type') != 'Point':
@@ -434,46 +147,295 @@ class Command(BaseCommand):
             if len(coordinates) != 2:
                 return False
             
-            # Convert coordinates to pixel position
-            # For MVT, coordinates are already in tile space (0-4096)
-            # Convert to image space (0-256)
-            pixel_x = int((coordinates[0] / 4096.0) * 256)
-            pixel_y = int((coordinates[1] / 4096.0) * 256)
+            # Convert geographic coordinates to tile pixel coordinates
+            # This is a simplified conversion - for production use proper projection
+            x_pixel = int((coordinates[0] + 180) / 360 * 256)
+            y_pixel = int((90 - coordinates[1]) / 180 * 256)
             
-            # Adjust radius based on zoom level
-            radius = 4 if zoom < 10 else 6 if zoom < 12 else 8 if zoom < 14 else 10
+            # Ensure coordinates are within tile bounds
+            if 0 <= x_pixel <= 256 and 0 <= y_pixel <= 256:
+                # Draw point size based on zoom level
+                radius = max(2, min(8, zoom - 5))
+                
+                # Draw filled circle
+                draw.ellipse(
+                    [(x_pixel - radius, y_pixel - radius), 
+                     (x_pixel + radius, y_pixel + radius)],
+                    fill=color,
+                    outline=outline_color
+                )
+                return True
             
-            # Draw circle marker (matching existing point rendering)
-            draw.ellipse(
-                [pixel_x - radius, pixel_y - radius, 
-                 pixel_x + radius, pixel_y + radius],
-                fill=fill_color,
-                outline=outline_color,
-                width=1
-            )
-            
-            return True
+            return False
             
         except Exception:
             return False
 
-    def generate_sample_urls(self, data_type, min_zoom, max_zoom, bounds):
-        """Generate sample URLs for testing (matching existing pattern)"""
+    def generate_png_from_mvt(self, mvt_path, data_type, z, x, y):
+        """Generate PNG from existing MVT file"""
+        try:
+            if not mvt_path.exists():
+                return None
+            
+            with open(mvt_path, 'rb') as f:
+                mvt_data = f.read()
+            
+            return self.mvt_to_png(mvt_data, data_type, z)
+            
+        except Exception as e:
+            return None
+
+    def generate_png_directly(self, data_type, z, x, y):
+        """Generate PNG directly from database (fallback if no MVT)"""
+        try:
+            # Get tile bounds
+            bounds = mercantile.bounds(x, y, z)
+            tile_bounds = Polygon.from_bbox([
+                bounds.west, bounds.south,
+                bounds.east, bounds.north
+            ])
+            
+            # Query data
+            if data_type == 'plots':
+                features = Plot.objects.filter(
+                    location__intersects=tile_bounds,
+                    is_active=True
+                )[:100]  # Limit features
+            elif data_type == 'lands':
+                features = Land.objects.filter(
+                    location__intersects=tile_bounds,
+                    is_active=True
+                )[:100]  # Limit features
+            else:  # combined
+                plot_features = Plot.objects.filter(
+                    location__intersects=tile_bounds,
+                    is_active=True
+                )[:50]
+                land_features = Land.objects.filter(
+                    location__intersects=tile_bounds,
+                    is_active=True
+                )[:50]
+                features = list(plot_features) + list(land_features)
+            
+            if not features:
+                return self.create_empty_tile()
+            
+            # Create image
+            img = Image.new('RGBA', (256, 256), (255, 255, 255, 0))
+            draw = ImageDraw.Draw(img)
+            
+            for feature in features:
+                # Convert world coordinates to tile pixel coordinates
+                lat, lng = feature.location.y, feature.location.x
+                
+                # Simple tile coordinate conversion
+                x_pixel = int((lng - bounds.west) / (bounds.east - bounds.west) * 256)
+                y_pixel = int((bounds.north - lat) / (bounds.north - bounds.south) * 256)
+                
+                if 0 <= x_pixel <= 256 and 0 <= y_pixel <= 256:
+                    # Set color based on feature type
+                    if isinstance(feature, Plot):
+                        color = (255, 120, 0, 200)      # Orange for plots
+                        outline_color = (255, 120, 0, 255)
+                    else:  # Land
+                        color = (0, 200, 0, 200)       # Green for lands
+                        outline_color = (0, 200, 0, 255)
+                    
+                    radius = max(2, min(8, z - 5))
+                    
+                    draw.ellipse(
+                        [(x_pixel - radius, y_pixel - radius), 
+                         (x_pixel + radius, y_pixel + radius)],
+                        fill=color,
+                        outline=outline_color
+                    )
+            
+            # Convert to PNG bytes
+            img_buffer = io.BytesIO()
+            img.save(img_buffer, format='PNG', optimize=True)
+            return img_buffer.getvalue()
+            
+        except Exception as e:
+            return self.create_empty_tile()
+
+    def generate_and_validate_png_tiles(self, data_type, min_zoom, max_zoom, output_dir, mvt_source_dir, force):
+        """Generate and validate all PNG tiles for the specified data type within zoom range"""
         
-        self.stdout.write(f"\n🔗 Sample PNG Tile URLs:")
+        bounds = self.get_data_bounds(data_type)
+        if not bounds:
+            return {'error': f'No bounds available for {data_type}'}
         
-        # Generate center coordinates
-        center_lat = (bounds['north'] + bounds['south']) / 2
-        center_lng = (bounds['east'] + bounds['west']) / 2
+        self.stdout.write(f"📊 Data bounds: {bounds}")
         
-        # Test different zoom levels
-        test_zooms = [min_zoom, (min_zoom + max_zoom) // 2, max_zoom]
+        total_tiles = 0
+        validated_tiles = 0
+        failed_tiles = 0
+        validation_errors = []
         
-        for zoom in test_zooms:
-            tile = mercantile.tile(center_lng, center_lat, zoom)
-            self.stdout.write(f"   Zoom {zoom}: /api/real-estate-tiles/{data_type}/{tile.z}/{tile.x}/{tile.y}.png")
+        mvt_source_path = Path(mvt_source_dir)
         
-        self.stdout.write(f"\n🧪 Test coordinates:")
-        for zoom in test_zooms:
-            tile = mercantile.tile(center_lng, center_lat, zoom)
-            self.stdout.write(f"   {zoom}/{tile.x}/{tile.y} (lat: {center_lat:.4f}, lng: {center_lng:.4f})")
+        for zoom in range(min_zoom, max_zoom + 1):
+            # Get tiles that intersect with data bounds
+            tiles = list(mercantile.tiles(
+                bounds['west'], bounds['south'],
+                bounds['east'], bounds['north'],
+                zoom
+            ))
+            
+            self.stdout.write(f"   🖼️  Zoom {zoom}: Processing {len(tiles)} PNG tiles")
+            zoom_tiles = 0
+            
+            for tile in tiles:
+                try:
+                    # Check if PNG tile already exists and force is not set
+                    png_dir = output_dir / data_type / str(tile.z) / str(tile.x)
+                    png_path = png_dir / f'{tile.y}.png'
+                    
+                    if png_path.exists() and not force:
+                        continue
+                    
+                    # Try to generate from MVT first
+                    mvt_path = mvt_source_path / data_type / str(tile.z) / str(tile.x) / f'{tile.y}.mvt'
+                    
+                    if mvt_path.exists():
+                        png_data = self.generate_png_from_mvt(mvt_path, data_type, tile.z, tile.x, tile.y)
+                    else:
+                        # Fallback: generate directly from database
+                        png_data = self.generate_png_directly(data_type, tile.z, tile.x, tile.y)
+                    
+                    if not png_data:
+                        continue
+                    
+                    total_tiles += 1
+                    zoom_tiles += 1
+                    
+                    # Validate PNG
+                    is_valid, validation_msg = self.validate_png_tile(png_data)
+                    if not is_valid:
+                        failed_tiles += 1
+                        validation_errors.append(f"z{tile.z}/{tile.x}/{tile.y}: {validation_msg}")
+                        continue
+                    
+                    validated_tiles += 1
+                    
+                    # Save valid PNG tile
+                    png_dir.mkdir(parents=True, exist_ok=True)
+                    
+                    with open(png_path, 'wb') as f:
+                        f.write(png_data)
+                    
+                    # Log progress every 50 tiles
+                    if zoom_tiles % 50 == 0:
+                        self.stdout.write(f"      Generated {zoom_tiles} PNG tiles...")
+                    
+                except Exception as e:
+                    failed_tiles += 1
+                    validation_errors.append(f"z{tile.z}/{tile.x}/{tile.y}: Generation error - {str(e)}")
+            
+            if zoom_tiles > 0:
+                self.stdout.write(f"      ✅ Zoom {zoom}: Generated {zoom_tiles} PNG tiles")
+        
+        return {
+            'data_type': data_type,
+            'tiles_generated': total_tiles,
+            'tiles_validated': validated_tiles,
+            'tiles_failed': failed_tiles,
+            'validation_errors': validation_errors[:10],  # First 10 errors
+            'status': 'success' if total_tiles > 0 else 'no_tiles',
+            'zoom_range': {'min': min_zoom, 'max': max_zoom},
+            'bounds': bounds
+        }
+
+    def handle(self, *args, **options):
+        min_zoom = options['min_zoom']
+        max_zoom = options['max_zoom']
+        force = options['force']
+        output_dir = Path(options['output_dir'])
+        data_type = options['type']
+        mvt_source_dir = Path(options['mvt_source_dir'])
+        
+        # Validate zoom levels
+        if min_zoom < 0 or max_zoom > 20 or min_zoom > max_zoom:
+            self.stdout.write(self.style.ERROR('❌ Invalid zoom levels'))
+            return
+        
+        self.stdout.write(self.style.SUCCESS('🖼️  Starting Real Estate PNG Tile Generation with Validation'))
+        self.stdout.write(f'📊 Configuration:')
+        self.stdout.write(f'   Data type: {data_type}')
+        self.stdout.write(f'   Zoom levels: {min_zoom} to {max_zoom}')
+        self.stdout.write(f'   Output: {output_dir}')
+        self.stdout.write(f'   MVT source: {mvt_source_dir}')
+        self.stdout.write(f'   Force overwrite: {force}')
+        
+        # Create output directory
+        output_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Check data availability
+        plot_count = Plot.objects.filter(is_active=True).count()
+        land_count = Land.objects.filter(is_active=True).count()
+        
+        self.stdout.write(f'\n📊 Data availability:')
+        self.stdout.write(f'   Plots: {plot_count:,}')
+        self.stdout.write(f'   Lands: {land_count:,}')
+        
+        if plot_count == 0 and land_count == 0:
+            self.stdout.write(self.style.ERROR('❌ No real estate data found. Import data first.'))
+            return
+        
+        # Check MVT source directory
+        if mvt_source_dir.exists():
+            self.stdout.write(f'✅ MVT source directory found: {mvt_source_dir}')
+        else:
+            self.stdout.write(f'⚠️  MVT source directory not found: {mvt_source_dir}')
+            self.stdout.write(f'   Will generate PNG tiles directly from database')
+        
+        # Statistics
+        total_tiles_generated = 0
+        total_tiles_validated = 0
+        total_tiles_failed = 0
+        all_validation_errors = []
+        
+        start_time = time.time()
+        
+        # Generate PNG tiles
+        self.stdout.write(f"\n🖼️  Generating PNG tiles for: {data_type}")
+        result = self.generate_and_validate_png_tiles(
+            data_type, min_zoom, max_zoom, output_dir, mvt_source_dir, force
+        )
+        
+        total_tiles_generated += result['tiles_generated']
+        total_tiles_validated += result['tiles_validated']
+        total_tiles_failed += result['tiles_failed']
+        all_validation_errors.extend(result['validation_errors'])
+        
+        # Final statistics
+        end_time = time.time()
+        duration = end_time - start_time
+        
+        self.stdout.write(f'\n📊 PNG GENERATION SUMMARY')
+        self.stdout.write('=' * 50)
+        self.stdout.write(f'✅ PNG tiles generated: {total_tiles_generated:,}')
+        self.stdout.write(f'✅ PNG tiles validated: {total_tiles_validated:,}')
+        self.stdout.write(f'❌ PNG tiles failed: {total_tiles_failed:,}')
+        self.stdout.write(f'⏱️  Duration: {duration:.2f} seconds')
+        
+        if total_tiles_generated > 0:
+            self.stdout.write(f'🚀 Speed: {total_tiles_generated / duration:.1f} PNG tiles/second')
+        
+        # Show validation errors (first 5)
+        if all_validation_errors:
+            self.stdout.write(f'\n❌ VALIDATION ERRORS (showing first 5):')
+            for i, error in enumerate(all_validation_errors[:5], 1):
+                self.stdout.write(f'   {i}. {error}')
+            
+            if len(all_validation_errors) > 5:
+                self.stdout.write(f'   ... and {len(all_validation_errors) - 5} more errors')
+        
+        if total_tiles_generated > 0:
+            self.stdout.write(self.style.SUCCESS('\n✅ Real Estate PNG tile generation completed successfully!'))
+            
+            # Sample URLs
+            self.stdout.write(f'\n🔗 Sample PNG tile URLs:')
+            self.stdout.write(f'   /api/real-estate-tiles/{data_type}/10/512/512.png')
+        else:
+            self.stdout.write(self.style.WARNING('\n⚠️  No PNG tiles were generated. Check your data and bounds.'))
