@@ -106,4 +106,9 @@ urlpatterns = [
     path('layer-groups/<slug:group_slug>/layers/',
          views.LayerGroupLayersView.as_view(), name='layer_group_layers'),
 
+     path('layer-config/', views.LayerConfigAPIView.as_view(), name='layer_config'),
+     path('states/<slug:state_slug>/layer-config/', views.StateLayerConfigView.as_view(), name='state_layer_config'),
+     path('cities/<slug:city_slug>/layer-config/', views.CityLayerConfigView.as_view(), name='city_layer_config'),
+     path('layer-config/<slug:layer_slug>/', views.LayerConfigDetailView.as_view(), name='layer_config_detail'),
+
 ]
