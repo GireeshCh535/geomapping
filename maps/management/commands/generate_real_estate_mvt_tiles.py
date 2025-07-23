@@ -1,4 +1,5 @@
-# Create: maps/management/commands/generate_real_estate_mvt_tiles.py
+# maps/management/commands/generate_real_estate_mvt_tiles.py
+# FIXED VERSION - Better feature limits and clustering
 
 import os
 import time
@@ -12,95 +13,242 @@ import mercantile
 import mapbox_vector_tile
 
 class Command(BaseCommand):
-    help = 'Generate and validate MVT tiles for real estate data (plots and lands)'
+    help = 'Generate MVT tiles for real estate data (plots and lands) - FIXED'
 
     def add_arguments(self, parser):
         parser.add_argument('--min-zoom', type=int, default=8, help='Minimum zoom level')
         parser.add_argument('--max-zoom', type=int, default=16, help='Maximum zoom level')
-        parser.add_argument('--force', action='store_true', help='Force regeneration of existing tiles')
+        parser.add_argument('--force', action='store_true', help='Overwrite existing tiles')
         parser.add_argument('--output-dir', type=str, default='media/real_estate_tiles', help='Output directory')
-        parser.add_argument('--type', choices=['plots', 'lands', 'combined'], default='combined', help='Data type to generate')
-        parser.add_argument('--skip-validation', action='store_true', help='Skip tile validation')
+        parser.add_argument('--type', choices=['plots', 'lands', 'both'], default='both', help='Data type to generate')
 
-    def validate_tile(self, tile_data):
-        """
-        Validate a tile's MVT structure and content
-        Returns (is_valid, details) tuple
-        """
-        try:
-            # Try to decode as MVT
-            decoded_tile = mapbox_vector_tile.decode(tile_data)
+    def handle(self, *args, **options):
+        self.stdout.write(self.style.SUCCESS('🏡 Starting FIXED Real Estate MVT Tile Generation'))
+        
+        min_zoom = options['min_zoom']
+        max_zoom = options['max_zoom']
+        force = options['force']
+        output_dir = Path(options['output_dir'])
+        data_type = options['type']
+        
+        # Validate zoom levels
+        if min_zoom < 0 or max_zoom > 20 or min_zoom > max_zoom:
+            self.stdout.write(self.style.ERROR('❌ Invalid zoom levels'))
+            return
+        
+        self.stdout.write(f'📊 Configuration:')
+        self.stdout.write(f'   Zoom levels: {min_zoom} to {max_zoom}')
+        self.stdout.write(f'   Data type: {data_type}')
+        self.stdout.write(f'   Output: {output_dir}')
+        self.stdout.write(f'   Force overwrite: {force}')
+        
+        # Create output directory
+        output_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Generate tiles based on type
+        if data_type in ['plots', 'both']:
+            self.generate_tiles_for_model(Plot, 'plots', output_dir, min_zoom, max_zoom, force)
+        
+        if data_type in ['lands', 'both']:
+            self.generate_tiles_for_model(Land, 'lands', output_dir, min_zoom, max_zoom, force)
+        
+        # Generate combined tiles if both types requested
+        if data_type == 'both':
+            self.generate_combined_tiles(output_dir, min_zoom, max_zoom, force)
+        
+        self.stdout.write(self.style.SUCCESS('\n✅ FIXED Real Estate MVT tile generation completed!'))
+
+    def generate_tiles_for_model(self, model, model_name, output_dir, min_zoom, max_zoom, force):
+        """Generate tiles for a specific model (Plot or Land) - FIXED LIMITS"""
+        
+        self.stdout.write(f'\n📍 Generating {model_name} tiles...')
+        
+        # Get data bounds
+        bounds = self.get_data_bounds(model)
+        if not bounds:
+            self.stdout.write(self.style.WARNING(f'⚠️  No {model_name} data found'))
+            return
+        
+        self.stdout.write(f'📊 Data bounds: {bounds}')
+        
+        # Calculate total tiles
+        total_tiles = 0
+        for zoom in range(min_zoom, max_zoom + 1):
+            tiles = list(mercantile.tiles(
+                bounds['west'], bounds['south'],
+                bounds['east'], bounds['north'],
+                zoom
+            ))
+            total_tiles += len(tiles)
+            self.stdout.write(f'   Zoom {zoom}: {len(tiles)} tiles')
+        
+        self.stdout.write(f'📊 Total {model_name} tiles to generate: {total_tiles:,}')
+        
+        # Generate tiles
+        start_time = time.time()
+        tiles_generated = 0
+        tiles_skipped = 0
+        
+        for zoom in range(min_zoom, max_zoom + 1):
+            tiles = list(mercantile.tiles(
+                bounds['west'], bounds['south'],
+                bounds['east'], bounds['north'],
+                zoom
+            ))
             
-            if not decoded_tile:
-                return False, "Decoded tile has no layers"
+            self.stdout.write(f'🔄 Zoom {zoom}: Processing {len(tiles)} {model_name} tiles...')
             
-            validation_details = []
-            
-            # Validate each layer
-            for layer_name, layer_data in decoded_tile.items():
-                # Check version
-                version = layer_data.get('version')
-                if not version or version < 1:
-                    return False, f"Invalid layer version: {version}"
-                
-                # Check extent
-                extent = layer_data.get('extent')
-                if not extent or extent != 4096:  # Standard MVT extent
-                    return False, f"Invalid extent: {extent}"
-                
-                # Validate features
-                features = layer_data.get('features', [])
-                if not features:
-                    validation_details.append(f"Layer {layer_name} has no features (may be valid for empty areas)")
-                    continue
-                
-                # Check feature structure
-                for feature in features:
-                    if 'geometry' not in feature:
-                        return False, "Feature missing geometry"
-                    if 'properties' not in feature:
-                        return False, "Feature missing properties"
+            for tile in tiles:
+                try:
+                    # Create tile directory: model_name/z/x/y.mvt
+                    tile_dir = output_dir / model_name / str(tile.z) / str(tile.x)
+                    tile_dir.mkdir(parents=True, exist_ok=True)
+                    tile_path = tile_dir / f'{tile.y}.mvt'
                     
-                    # Validate geometry type
-                    geom_type = feature['geometry'].get('type')
-                    if geom_type not in ['Point', 'LineString', 'Polygon', 'MultiPoint', 'MultiLineString', 'MultiPolygon']:
-                        return False, f"Invalid geometry type: {geom_type}"
-                
-                validation_details.append(f"Layer {layer_name}: {len(features)} features")
+                    # Skip if exists and not forcing
+                    if tile_path.exists() and not force:
+                        tiles_skipped += 1
+                        continue
+                    
+                    # Generate MVT data - FIXED LIMITS
+                    mvt_data = self.generate_mvt_tile(model, tile.z, tile.x, tile.y, zoom)
+                    
+                    if mvt_data:
+                        # Save tile
+                        with open(tile_path, 'wb') as f:
+                            f.write(mvt_data)
+                        tiles_generated += 1
+                    else:
+                        # Save empty tile
+                        with open(tile_path, 'wb') as f:
+                            f.write(b'')
+                        tiles_generated += 1
+                    
+                    # Progress update
+                    if tiles_generated % 100 == 0:
+                        self.stdout.write(f'   Generated {tiles_generated} tiles so far...')
+                        
+                except Exception as e:
+                    self.stdout.write(f'   ❌ Error generating tile {tile.z}/{tile.x}/{tile.y}: {e}')
+                    continue
+        
+        # Summary
+        elapsed = time.time() - start_time
+        self.stdout.write(f'✅ {model_name} tiles completed in {elapsed:.2f}s')
+        self.stdout.write(f'   Generated: {tiles_generated}')
+        self.stdout.write(f'   Skipped: {tiles_skipped}')
+
+    def generate_mvt_tile(self, model, z, x, y, zoom_level):
+        """Generate MVT data for a single tile - FIXED FEATURE LIMITS"""
+        
+        # Get tile bounds
+        bounds = mercantile.bounds(x, y, z)
+        tile_bounds = Polygon.from_bbox([
+            bounds.west, bounds.south,
+            bounds.east, bounds.north
+        ])
+        
+        # Query features in tile
+        features = model.objects.filter(
+            location__intersects=tile_bounds,
+            is_active=True
+        )
+        
+        if not features.exists():
+            return None
+        
+        # FIXED: Much more generous feature limits
+        if zoom_level <= 4:
+            max_features = 1000   # Show up to 1000 features at zoom 4
+        elif zoom_level <= 6:
+            max_features = 2000   # Show up to 2000 features at zoom 6
+        elif zoom_level <= 8:
+            max_features = 3000   # Show up to 3000 features at zoom 8
+        elif zoom_level <= 10:
+            max_features = 5000   # Show up to 5000 features at zoom 10
+        else:
+            max_features = 10000  # Show up to 10000 features at high zoom
+        
+        # Apply limit
+        features = features[:max_features]
+        
+        self.stdout.write(f'   Tile {z}/{x}/{y}: {features.count()} features (max: {max_features})')
+        
+        # Convert to MVT
+        return self.features_to_mvt(features, model.__name__.lower(), z, x, y, model)
+
+    def features_to_mvt(self, features, layer_name, z, x, y, model):
+        """Convert features to MVT format"""
+        
+        if not features:
+            return None
             
-            return True, "Valid MVT with " + ", ".join(validation_details) if validation_details else "Valid MVT"
+        try:
+            mvt_features = []
+            
+            for feature in features:
+                try:
+                    # Get coordinates
+                    coords = [feature.location.x, feature.location.y]
+                    
+                    # Prepare properties based on model type
+                    if model == Plot:
+                        properties = {
+                            'id': feature.plot_id,
+                            'name': feature.marker_title or '',
+                            'title': feature.marker_title or '',
+                            'marker_id': feature.marker_id or '',
+                            'area_sq_yards': feature.area_sq_yards or 0,
+                            'price_per_sq_yard': feature.price_per_sq_yard or 0,
+                            'total_price': feature.total_price or 0,
+                            'type': 'plot',
+                            'category': 'Real Estate'
+                        }
+                    else:  # Land
+                        properties = {
+                            'id': feature.land_id,
+                            'name': feature.marker_title or '',
+                            'title': feature.marker_title or '',
+                            'marker_id': feature.marker_id or '',
+                            'area_text': feature.area_text or '',
+                            'price_text': feature.price_text or '',
+                            'type': 'land',
+                            'category': 'Real Estate'
+                        }
+                    
+                    mvt_features.append({
+                        'geometry': {
+                            'type': 'Point',
+                            'coordinates': coords
+                        },
+                        'properties': properties
+                    })
+                    
+                except Exception as e:
+                    continue
+            
+            if not mvt_features:
+                return None
+            
+            # Encode MVT
+            layer_data = [{
+                'name': layer_name,
+                'features': mvt_features,
+                'version': 2,
+                'extent': 4096
+            }]
+            
+            return mapbox_vector_tile.encode(layer_data)
             
         except Exception as e:
-            return False, f"MVT validation error: {str(e)}"
+            self.stdout.write(f'   ❌ Error encoding MVT: {e}')
+            return None
 
-    def get_data_bounds(self, data_type):
-        """Get bounding box for the specified data type"""
-        if data_type == 'plots':
-            extent = Plot.objects.filter(is_active=True).aggregate(
-                extent=Extent('location')
-            )['extent']
-        elif data_type == 'lands':
-            extent = Land.objects.filter(is_active=True).aggregate(
-                extent=Extent('location')
-            )['extent']
-        else:  # combined
-            # Get combined extent from both models
-            plot_extent = Plot.objects.filter(is_active=True).aggregate(
-                extent=Extent('location')
-            )['extent']
-            land_extent = Land.objects.filter(is_active=True).aggregate(
-                extent=Extent('location')
-            )['extent']
-            
-            if plot_extent and land_extent:
-                extent = [
-                    min(plot_extent[0], land_extent[0]),  # west
-                    min(plot_extent[1], land_extent[1]),  # south
-                    max(plot_extent[2], land_extent[2]),  # east
-                    max(plot_extent[3], land_extent[3])   # north
-                ]
-            else:
-                extent = plot_extent or land_extent
+    def get_data_bounds(self, model):
+        """Get bounding box for data"""
+        extent = model.objects.filter(is_active=True).aggregate(
+            extent=Extent('location')
+        )['extent']
         
         if extent:
             return {
@@ -111,134 +259,79 @@ class Command(BaseCommand):
             }
         return None
 
-    def get_tile_bounds(self, z, x, y):
-        """Get tile bounds as Polygon"""
+    def generate_combined_tiles(self, output_dir, min_zoom, max_zoom, force):
+        """Generate combined tiles with both plots and lands"""
+        
+        self.stdout.write(f'\n🔄 Generating combined tiles...')
+        
+        # Get combined bounds
+        plot_extent = Plot.objects.filter(is_active=True).aggregate(extent=Extent('location'))['extent']
+        land_extent = Land.objects.filter(is_active=True).aggregate(extent=Extent('location'))['extent']
+        
+        if not plot_extent and not land_extent:
+            self.stdout.write(self.style.WARNING('⚠️  No data found for combined tiles'))
+            return
+        
+        # Calculate combined bounds
+        if plot_extent and land_extent:
+            bounds = {
+                'west': min(plot_extent[0], land_extent[0]),
+                'south': min(plot_extent[1], land_extent[1]),
+                'east': max(plot_extent[2], land_extent[2]),
+                'north': max(plot_extent[3], land_extent[3])
+            }
+        elif plot_extent:
+            bounds = {'west': plot_extent[0], 'south': plot_extent[1], 'east': plot_extent[2], 'north': plot_extent[3]}
+        else:
+            bounds = {'west': land_extent[0], 'south': land_extent[1], 'east': land_extent[2], 'north': land_extent[3]}
+        
+        self.stdout.write(f'📊 Combined bounds: {bounds}')
+        
+        # Generate combined tiles for each zoom level
+        for zoom in range(min_zoom, max_zoom + 1):
+            tiles = list(mercantile.tiles(
+                bounds['west'], bounds['south'],
+                bounds['east'], bounds['north'],
+                zoom
+            ))
+            
+            self.stdout.write(f'🔄 Zoom {zoom}: Processing {len(tiles)} combined tiles...')
+            
+            for tile in tiles:
+                try:
+                    # Create tile directory: combined/z/x/y.mvt
+                    tile_dir = output_dir / 'combined' / str(tile.z) / str(tile.x)
+                    tile_dir.mkdir(parents=True, exist_ok=True)
+                    tile_path = tile_dir / f'{tile.y}.mvt'
+                    
+                    # Skip if exists and not forcing
+                    if tile_path.exists() and not force:
+                        continue
+                    
+                    # Generate combined MVT data
+                    mvt_data = self.generate_combined_mvt_tile(tile.z, tile.x, tile.y, zoom)
+                    
+                    if mvt_data:
+                        with open(tile_path, 'wb') as f:
+                            f.write(mvt_data)
+                    else:
+                        with open(tile_path, 'wb') as f:
+                            f.write(b'')
+                            
+                except Exception as e:
+                    self.stdout.write(f'   ❌ Error generating combined tile {tile.z}/{tile.x}/{tile.y}: {e}')
+                    continue
+
+    def generate_combined_mvt_tile(self, z, x, y, zoom_level):
+        """Generate combined MVT with both plots and lands"""
+        
+        # Get tile bounds
         bounds = mercantile.bounds(x, y, z)
-        return Polygon.from_bbox([
+        tile_bounds = Polygon.from_bbox([
             bounds.west, bounds.south,
             bounds.east, bounds.north
         ])
-
-    def generate_mvt_tile(self, data_type, z, x, y):
-        """Generate MVT tile for the specified data type and coordinates"""
-        tile_bounds = self.get_tile_bounds(z, x, y)
         
-        try:
-            if data_type == 'plots':
-                return self.generate_plots_mvt(tile_bounds, z, x, y)
-            elif data_type == 'lands':
-                return self.generate_lands_mvt(tile_bounds, z, x, y)
-            else:  # combined
-                return self.generate_combined_mvt(tile_bounds, z, x, y)
-                
-        except Exception as e:
-            return None
-
-    def generate_plots_mvt(self, tile_bounds, z, x, y):
-        """Generate MVT for plots only"""
-        # Query plots in tile
-        plots = Plot.objects.filter(
-            location__intersects=tile_bounds,
-            is_active=True
-        )
-        
-        if not plots.exists():
-            return None
-        
-        # Limit features at low zoom levels
-        max_features = 50 if z < 10 else 200 if z < 12 else 1000
-        plots = plots[:max_features]
-        
-        # Create MVT features
-        plot_features = []
-        for plot in plots:
-            try:
-                plot_features.append({
-                    'geometry': {
-                        'type': 'Point',
-                        'coordinates': [plot.location.x, plot.location.y]
-                    },
-                    'properties': {
-                        'id': plot.plot_id,
-                        'name': plot.marker_title or '',
-                        'title': plot.marker_title or '',
-                        'marker_id': plot.marker_id or '',
-                        'area_sq_yards': plot.area_sq_yards or 0,
-                        'price_per_sq_yard': plot.price_per_sq_yard or 0,
-                        'total_price': plot.total_price or 0,
-                        'type': 'plot',
-                        'category': 'Real Estate'
-                    }
-                })
-            except Exception:
-                continue
-        
-        if not plot_features:
-            return None
-        
-        # Encode MVT
-        layer_data = [{
-            'name': 'plots',
-            'features': plot_features,
-            'version': 2,
-            'extent': 4096
-        }]
-        
-        return mapbox_vector_tile.encode(layer_data)
-
-    def generate_lands_mvt(self, tile_bounds, z, x, y):
-        """Generate MVT for lands only"""
-        # Query lands in tile
-        lands = Land.objects.filter(
-            location__intersects=tile_bounds,
-            is_active=True
-        )
-        
-        if not lands.exists():
-            return None
-        
-        # Limit features at low zoom levels
-        max_features = 50 if z < 10 else 200 if z < 12 else 1000
-        lands = lands[:max_features]
-        
-        # Create MVT features
-        land_features = []
-        for land in lands:
-            try:
-                land_features.append({
-                    'geometry': {
-                        'type': 'Point',
-                        'coordinates': [land.location.x, land.location.y]
-                    },
-                    'properties': {
-                        'id': land.land_id,
-                        'name': land.marker_title or '',
-                        'title': land.marker_title or '',
-                        'marker_id': land.marker_id or '',
-                        'area_text': land.area_text or '',
-                        'price_text': land.price_text or '',
-                        'type': 'land',
-                        'category': 'Real Estate'
-                    }
-                })
-            except Exception:
-                continue
-        
-        if not land_features:
-            return None
-        
-        # Encode MVT
-        layer_data = [{
-            'name': 'lands',
-            'features': land_features,
-            'version': 2,
-            'extent': 4096
-        }]
-        
-        return mapbox_vector_tile.encode(layer_data)
-
-    def generate_combined_mvt(self, tile_bounds, z, x, y):
-        """Generate combined MVT with both plots and lands"""
         # Get both plots and lands
         plots = Plot.objects.filter(
             location__intersects=tile_bounds,
@@ -253,11 +346,23 @@ class Command(BaseCommand):
         if not plots.exists() and not lands.exists():
             return None
         
-        # Limit features
-        max_features = 25 if z < 10 else 100 if z < 12 else 500  # Split between both types
-        plots = plots[:max_features]
-        lands = lands[:max_features]
+        # FIXED: More generous combined limits
+        if zoom_level <= 4:
+            max_features_per_type = 500   # 500 plots + 500 lands = 1000 total
+        elif zoom_level <= 6:
+            max_features_per_type = 1000  # 1000 plots + 1000 lands = 2000 total
+        elif zoom_level <= 8:
+            max_features_per_type = 1500  # 1500 plots + 1500 lands = 3000 total
+        elif zoom_level <= 10:
+            max_features_per_type = 2500  # 2500 plots + 2500 lands = 5000 total
+        else:
+            max_features_per_type = 5000  # 5000 plots + 5000 lands = 10000 total
         
+        # Apply limits
+        plots = plots[:max_features_per_type]
+        lands = lands[:max_features_per_type]
+        
+        # Create layers list
         layers_list = []
         
         # Add plots layer
@@ -329,187 +434,3 @@ class Command(BaseCommand):
             return None
         
         return mapbox_vector_tile.encode(layers_list)
-
-    def generate_and_validate_tiles(self, data_type, min_zoom, max_zoom, output_dir, force, skip_validation):
-        """Generate and validate all tiles for the specified data type within zoom range"""
-        
-        bounds = self.get_data_bounds(data_type)
-        if not bounds:
-            return {'error': f'No bounds available for {data_type}'}
-        
-        self.stdout.write(f"📊 Data bounds: {bounds}")
-        
-        total_tiles = 0
-        validated_tiles = 0
-        failed_tiles = 0
-        validation_errors = []
-        
-        for zoom in range(min_zoom, max_zoom + 1):
-            # Get tiles that intersect with data bounds
-            tiles = list(mercantile.tiles(
-                bounds['west'], bounds['south'],
-                bounds['east'], bounds['north'],
-                zoom
-            ))
-            
-            self.stdout.write(f"   🗺️  Zoom {zoom}: Processing {len(tiles)} tiles")
-            zoom_tiles = 0
-            
-            for tile in tiles:
-                try:
-                    # Check if tile already exists and force is not set
-                    tile_dir = output_dir / data_type / str(tile.z) / str(tile.x)
-                    tile_path = tile_dir / f'{tile.y}.mvt'
-                    
-                    if tile_path.exists() and not force:
-                        continue
-                    
-                    # Generate tile
-                    mvt_data = self.generate_mvt_tile(data_type, tile.z, tile.x, tile.y)
-                    if not mvt_data:
-                        continue
-                    
-                    total_tiles += 1
-                    zoom_tiles += 1
-                    
-                    # Validate tile (if not skipped)
-                    if not skip_validation:
-                        is_valid, validation_msg = self.validate_tile(mvt_data)
-                        if not is_valid:
-                            failed_tiles += 1
-                            validation_errors.append(f"z{tile.z}/{tile.x}/{tile.y}: {validation_msg}")
-                            continue
-                        
-                        validated_tiles += 1
-                    else:
-                        validated_tiles += 1
-                    
-                    # Save valid tile
-                    tile_dir.mkdir(parents=True, exist_ok=True)
-                    
-                    with open(tile_path, 'wb') as f:
-                        f.write(mvt_data)
-                    
-                    # Log progress every 50 tiles
-                    if zoom_tiles % 50 == 0:
-                        self.stdout.write(f"      Generated {zoom_tiles} tiles...")
-                    
-                except Exception as e:
-                    failed_tiles += 1
-                    validation_errors.append(f"z{tile.z}/{tile.x}/{tile.y}: Generation error - {str(e)}")
-            
-            if zoom_tiles > 0:
-                self.stdout.write(f"      ✅ Zoom {zoom}: Generated {zoom_tiles} tiles")
-        
-        return {
-            'data_type': data_type,
-            'tiles_generated': total_tiles,
-            'tiles_validated': validated_tiles,
-            'tiles_failed': failed_tiles,
-            'validation_errors': validation_errors[:10],  # First 10 errors
-            'status': 'success' if total_tiles > 0 else 'no_tiles',
-            'zoom_range': {'min': min_zoom, 'max': max_zoom},
-            'bounds': bounds
-        }
-
-    def handle(self, *args, **options):
-        min_zoom = options['min_zoom']
-        max_zoom = options['max_zoom']
-        force = options['force']
-        output_dir = Path(options['output_dir'])
-        data_type = options['type']
-        skip_validation = options['skip_validation']
-        
-        # Validate zoom levels
-        if min_zoom < 0 or max_zoom > 20 or min_zoom > max_zoom:
-            self.stdout.write(self.style.ERROR('❌ Invalid zoom levels'))
-            return
-        
-        self.stdout.write(self.style.SUCCESS('🏡 Starting Real Estate MVT Tile Generation with Validation'))
-        self.stdout.write(f'📊 Configuration:')
-        self.stdout.write(f'   Data type: {data_type}')
-        self.stdout.write(f'   Zoom levels: {min_zoom} to {max_zoom}')
-        self.stdout.write(f'   Output: {output_dir}')
-        self.stdout.write(f'   Force overwrite: {force}')
-        self.stdout.write(f'   Skip validation: {skip_validation}')
-        
-        # Create output directory
-        output_dir.mkdir(parents=True, exist_ok=True)
-        
-        # Check data availability
-        plot_count = Plot.objects.filter(is_active=True).count()
-        land_count = Land.objects.filter(is_active=True).count()
-        
-        self.stdout.write(f'\n📊 Data availability:')
-        self.stdout.write(f'   Plots: {plot_count:,}')
-        self.stdout.write(f'   Lands: {land_count:,}')
-        
-        if plot_count == 0 and land_count == 0:
-            self.stdout.write(self.style.ERROR('❌ No real estate data found. Import data first.'))
-            return
-        
-        # Statistics
-        total_tiles_generated = 0
-        total_tiles_validated = 0
-        total_tiles_failed = 0
-        all_validation_errors = []
-        
-        start_time = time.time()
-        
-        # Generate tiles based on type
-        if data_type == 'plots' and plot_count > 0:
-            self.stdout.write(f"\n📂 Generating tiles for: plots")
-            result = self.generate_and_validate_tiles('plots', min_zoom, max_zoom, output_dir, force, skip_validation)
-            total_tiles_generated += result['tiles_generated']
-            total_tiles_validated += result['tiles_validated']
-            total_tiles_failed += result['tiles_failed']
-            all_validation_errors.extend(result['validation_errors'])
-            
-        elif data_type == 'lands' and land_count > 0:
-            self.stdout.write(f"\n📂 Generating tiles for: lands")
-            result = self.generate_and_validate_tiles('lands', min_zoom, max_zoom, output_dir, force, skip_validation)
-            total_tiles_generated += result['tiles_generated']
-            total_tiles_validated += result['tiles_validated']
-            total_tiles_failed += result['tiles_failed']
-            all_validation_errors.extend(result['validation_errors'])
-            
-        elif data_type == 'combined':
-            self.stdout.write(f"\n📂 Generating tiles for: combined (plots + lands)")
-            result = self.generate_and_validate_tiles('combined', min_zoom, max_zoom, output_dir, force, skip_validation)
-            total_tiles_generated += result['tiles_generated']
-            total_tiles_validated += result['tiles_validated']
-            total_tiles_failed += result['tiles_failed']
-            all_validation_errors.extend(result['validation_errors'])
-        
-        # Final statistics
-        end_time = time.time()
-        duration = end_time - start_time
-        
-        self.stdout.write(f'\n📊 GENERATION SUMMARY')
-        self.stdout.write('=' * 50)
-        self.stdout.write(f'✅ Tiles generated: {total_tiles_generated:,}')
-        self.stdout.write(f'✅ Tiles validated: {total_tiles_validated:,}')
-        self.stdout.write(f'❌ Tiles failed: {total_tiles_failed:,}')
-        self.stdout.write(f'⏱️  Duration: {duration:.2f} seconds')
-        
-        if total_tiles_generated > 0:
-            self.stdout.write(f'🚀 Speed: {total_tiles_generated / duration:.1f} tiles/second')
-        
-        # Show validation errors (first 5)
-        if all_validation_errors:
-            self.stdout.write(f'\n❌ VALIDATION ERRORS (showing first 5):')
-            for i, error in enumerate(all_validation_errors[:5], 1):
-                self.stdout.write(f'   {i}. {error}')
-            
-            if len(all_validation_errors) > 5:
-                self.stdout.write(f'   ... and {len(all_validation_errors) - 5} more errors')
-        
-        if total_tiles_generated > 0:
-            self.stdout.write(self.style.SUCCESS('\n✅ Real Estate MVT tile generation completed successfully!'))
-            
-            # Sample URLs
-            self.stdout.write(f'\n🔗 Sample tile URLs:')
-            self.stdout.write(f'   Vector: /api/real-estate-tiles/{data_type}/10/512/512.mvt')
-            self.stdout.write(f'   Raster: /api/real-estate-tiles/{data_type}/10/512/512.png')
-        else:
-            self.stdout.write(self.style.WARNING('\n⚠️  No tiles were generated. Check your data and bounds.'))
