@@ -87,5 +87,6 @@ logs/
 *.log
 /data/
 
-/media/
 /static/
+data.zip
+/media/

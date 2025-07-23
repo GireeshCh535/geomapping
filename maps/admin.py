@@ -1,10 +1,5 @@
 from django.contrib import admin
-from django.contrib.gis.admin import OSMGeoAdmin
-from .models import City, LayerCategory, DataLayer, GeoFeature, VectorTileLayer
-from .models import (
-    State, City, LayerCategory, DataLayer, GeoFeature, 
-    VectorTileLayer, LayerGroup, LayerConfig
-)
+from .models import *
 
 @admin.register(State)
 class StateAdmin(admin.ModelAdmin):
@@ -40,7 +35,7 @@ class DataLayerAdmin(admin.ModelAdmin):
     search_fields = ['name', 'slug']
 
 @admin.register(GeoFeature)
-class GeoFeatureAdmin(OSMGeoAdmin):
+class GeoFeatureAdmin(admin.ModelAdmin):
     list_display = ['id', 'layer', 'land_use_type', 'calculated_area']  # Fixed: changed 'area_value' to 'calculated_area'
     list_filter = ['layer__city', 'layer__category', 'land_use_type']
     search_fields = ['name', 'land_use_type']
@@ -99,3 +94,49 @@ class LayerConfigAdmin(admin.ModelAdmin):
             # Filter cities based on selected state (requires JavaScript for dynamic filtering)
             pass
         return super().formfield_for_foreignkey(db_field, request, **kwargs)
+    
+@admin.register(Plot)
+class PlotAdmin(admin.ModelAdmin):
+    list_display = ['plot_id', 'marker_title', 'area_sq_yards', 'price_per_sq_yard', 'total_price', 'is_active']
+    list_filter = ['is_active', 'created_at']
+    search_fields = ['plot_id', 'marker_title', 'marker_id']
+    readonly_fields = ['total_price', 'created_at', 'updated_at']
+    
+    fieldsets = (
+        ('Basic Info', {
+            'fields': ('plot_id', 'marker_title', 'marker_id', 'is_active')
+        }),
+        ('Location', {
+            'fields': ('location',)
+        }),
+        ('Pricing', {
+            'fields': ('area_sq_yards', 'price_per_sq_yard', 'total_price')
+        }),
+        ('Metadata', {
+            'fields': ('created_at', 'updated_at'),
+            'classes': ('collapse',)
+        }),
+    )
+
+@admin.register(Land)
+class LandAdmin(admin.ModelAdmin):
+    list_display = ['land_id', 'marker_title', 'area_text', 'price_text', 'is_active']
+    list_filter = ['is_active', 'created_at']
+    search_fields = ['land_id', 'marker_title', 'marker_id', 'area_text']
+    readonly_fields = ['created_at', 'updated_at']
+    
+    fieldsets = (
+        ('Basic Info', {
+            'fields': ('land_id', 'marker_title', 'marker_id', 'is_active')
+        }),
+        ('Location', {
+            'fields': ('location',)
+        }),
+        ('Pricing', {
+            'fields': ('area_text', 'price_text')
+        }),
+        ('Metadata', {
+            'fields': ('created_at', 'updated_at'),
+            'classes': ('collapse',)
+        }),
+    )

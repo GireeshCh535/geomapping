@@ -38,13 +38,54 @@ class TileRenderingService:
             'UNCLASSIFIED': '#D3D3D3',     # Light Gray
             'DRAINS': '#4682B4',           # Steel Blue
         }
+
+    def _save_compressed_png(self, img, optimize_level=2):
+        """
+        Save PIL Image with enhanced compression settings.
+        
+        Args:
+            img: PIL Image object
+            optimize_level: 1=basic, 2=balanced, 3=maximum compression
+        
+        Returns:
+            bytes: Compressed PNG data
+        """
+        img_buffer = io.BytesIO()
+        
+        if optimize_level == 1:
+            # Basic optimization (current method)
+            img.save(img_buffer, format='PNG', optimize=True)
+        
+        elif optimize_level == 2:
+            # Balanced optimization (recommended for your use case)
+            img.save(img_buffer, format='PNG', 
+                    optimize=True,
+                    compress_level=6,  # 0-9, higher = more compression
+                    )
+        
+        elif optimize_level == 3:
+            # Maximum compression (slower but smallest files)
+            # First, try to reduce colors for better compression
+            if img.mode == 'RGBA':
+                # Convert to palette mode if possible (for map tiles with limited colors)
+                try:
+                    # Create a copy and quantize
+                    quantized = img.quantize(colors=256, method=Image.Quantize.MEDIANCUT)
+                    # Convert back to RGBA to maintain transparency
+                    img = quantized.convert('RGBA')
+                except:
+                    pass  # Keep original if quantization fails
+            
+            img.save(img_buffer, format='PNG', 
+                    optimize=True,
+                    compress_level=9,  # Maximum compression
+                    )
+        
+        return img_buffer.getvalue()
     
     def mvt_to_png(self, mvt_data, layer, z, x, y):
         """
-        Convert a single-layer MVT tile to a PNG image.
-        - Decodes the MVT data.
-        - Draws all features using the layer's color.
-        - Returns PNG bytes.
+        Convert a single-layer MVT tile to a PNG image with compression.
         """
         try:
             # Decode MVT data
@@ -52,53 +93,59 @@ class TileRenderingService:
             if not decoded_data:
                 logger.warning(f"No decoded data for {layer.slug} at {z}/{x}/{y}")
                 return self.create_empty_tile()
+            
             # Create blank image
             img = Image.new('RGBA', (self.tile_size, self.tile_size), self.background_color)
             draw = ImageDraw.Draw(img)
+            
             # Get layer color
             layer_color = self._get_layer_color_simple(layer)
             rgb_color = self._hex_to_rgb(layer_color)
             features_drawn = 0
+            
             # Render each feature in the MVT
             for layer_name, layer_data in decoded_data.items():
                 features = layer_data.get('features', [])
                 for feature in features:
                     if self._draw_feature_simple(draw, feature, rgb_color):
                         features_drawn += 1
+            
             logger.info(f"Drew {features_drawn} features for {layer.slug} at {z}/{x}/{y}")
-            # Convert to PNG bytes
-            img_buffer = io.BytesIO()
-            img.save(img_buffer, format='PNG', optimize=True)
-            return img_buffer.getvalue()
+            
+            # Use enhanced compression (level 2 for balanced performance/size)
+            return self._save_compressed_png(img, optimize_level=2)
+            
         except Exception as e:
             logger.error(f"Error rendering MVT to PNG: {e}")
             return self.create_empty_tile()
     
     def combined_mvt_to_png(self, mvt_data, layers, z, x, y):
         """
-        Convert a combined MVT tile (multiple layers) to a PNG image.
-        - Assigns a unique color to each layer based on config or fallback.
-        - Draws all features for all layers.
-        - Returns PNG bytes.
+        Convert a combined MVT tile (multiple layers) to a PNG image with compression.
         """
         try:
             decoded_data = mapbox_vector_tile.decode(mvt_data)
             if not decoded_data:
                 return self.create_empty_tile()
+                
             img = Image.new('RGBA', (self.tile_size, self.tile_size), self.background_color)
             draw = ImageDraw.Draw(img)
+            
             # Build a mapping from MVT layer name (slug) to color
             if layers:
                 city_slug = layers[0].city.slug
             else:
                 city_slug = None
+                
             layer_colors = {}
             for layer in layers:
                 layer_colors[layer.slug] = self._get_layer_color_simple(layer)
+            
             # Also allow fallback for any slug in decoded_data
             for layer_name in decoded_data.keys():
                 if layer_name not in layer_colors:
                     layer_colors[layer_name] = self._get_layer_color_simple(layer_name, city_slug)
+            
             features_drawn = 0
             for layer_name, layer_data in decoded_data.items():
                 features = layer_data.get('features', [])
@@ -108,10 +155,12 @@ class TileRenderingService:
                 for feature in features:
                     if self._draw_feature_simple(draw, feature, rgb_color):
                         features_drawn += 1
+            
             logger.info(f"Drew {features_drawn} features for combined tile at {z}/{x}/{y}")
-            img_buffer = io.BytesIO()
-            img.save(img_buffer, format='PNG', optimize=True)
-            return img_buffer.getvalue()
+            
+            # Use enhanced compression (level 2 for balanced performance/size)
+            return self._save_compressed_png(img, optimize_level=2)
+            
         except Exception as e:
             logger.error(f"Error rendering combined MVT to PNG: {e}")
             return self.create_empty_tile()
@@ -240,10 +289,9 @@ class TileRenderingService:
         return (255, 0, 0)  # Red fallback
     
     def create_empty_tile(self):
-        """Create an empty transparent tile"""
-        
-        img = Image.new('RGBA', (self.tile_size, self.tile_size), (255, 255, 255, 0))
-        img_buffer = io.BytesIO()
-        img.save(img_buffer, format='PNG', optimize=True)
-        return img_buffer.getvalue()
+        """
+        Create an empty/transparent PNG tile with compression.
+        """
+        img = Image.new('RGBA', (self.tile_size, self.tile_size), self.background_color)
+        return self._save_compressed_png(img, optimize_level=2)
     
