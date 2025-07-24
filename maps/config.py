@@ -667,7 +667,7 @@ HYDERABAD_CONFIG = {
     },
     'data_format': 'MIXED',  # We have both GeoJSON and Shapefiles
     'coordinate_precision': 8,
-
+    
     # Layer Groups configuration
     'layer_groups': {
         'transport': {
@@ -813,7 +813,7 @@ HYDERABAD_CONFIG = {
             }
         }
     },
-
+    
     # Colors for different categories
     'colors': {
         'TRANSPORT': '#607D8B',      # Blue Grey
