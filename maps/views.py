@@ -765,92 +765,217 @@ class RasterTileView(APIView):
 
 class CombinedRasterTileView(APIView):
     """
-    Serve combined city tiles from CloudFront with multiple fallback options.
-    Priority: CloudFront → Pre-generated local → Generate on-demand
+    Complete tile serving view with CloudFront integration and robust fallbacks.
+    
+    Serving Priority:
+    1. CloudFront (if configured and not in DEBUG mode)
+    2. Local pre-generated files (multiple path formats)
+    3. On-demand generation (as last resort)
+    4. Empty tile (if all else fails)
+    
+    URL Format: /api/tiles/{city_slug}/combined/{z}/{x}/{y}.png
+    File Format: static/tiles_png/{city_slug}/combined/{z}_{x}_{y}.png
     """
-    permission_classes = []  # Public access for tiles
+    
+    permission_classes = [AllowAny]  # Public access for tiles
     
     def get(self, request, city_slug, z, x, y):
+        """
+        Main tile serving endpoint.
+        Handles the complete tile serving workflow with comprehensive error handling.
+        """
         try:
-            # Convert parameters to integers
+            # Validate and convert parameters
             z, x, y = int(z), int(x), int(y)
             
-            # Validate zoom level (basic security)
+            # Basic validation
             if not (0 <= z <= 20):
-                return HttpResponse("Invalid zoom level", status=400)
+                logger.warning(f"Invalid zoom level: {z}")
+                return HttpResponse("Invalid zoom level (0-20)", status=400)
             
-            # Method 1: Redirect to CloudFront (Fastest - ~50ms)
+            if not (0 <= x < 2**z) or not (0 <= y < 2**z):
+                logger.warning(f"Invalid tile coordinates: {x},{y} for zoom {z}")
+                return HttpResponse("Invalid tile coordinates", status=400)
+            
+            logger.info(f"🗺️  Tile request: {city_slug}/{z}/{x}/{y}")
+            
+            # Method 1: CloudFront Redirect (Production)
             if self._should_use_cloudfront():
-                cloudfront_url = self._get_cloudfront_url(city_slug, 'combined', z, x, y)
-                
-                # Option A: Direct redirect (recommended for production)
-                if not settings.DEBUG:
-                    return redirect(cloudfront_url)
-                
-                # Option B: Validate CloudFront first (slower but safer for development)
-                if self._validate_cloudfront_tile(cloudfront_url):
-                    return redirect(cloudfront_url)
+                return self._redirect_to_cloudfront(city_slug, z, x, y)
             
-            # Method 2: Serve pre-generated local file (Fast - ~100ms)
-            local_tile_response = self._serve_local_tile(city_slug, z, x, y)
-            if local_tile_response:
-                return local_tile_response
+            # Method 2: Serve Local Pre-generated File
+            local_response = self._serve_local_tile(city_slug, z, x, y)
+            if local_response:
+                return local_response
             
-            # Method 3: Generate on-demand (Slow - ~5-15 seconds)
-            return self._generate_tile_on_demand(city_slug, z, x, y)
+            # Method 3: Generate On-Demand (Fallback)
+            generated_response = self._generate_tile_on_demand(city_slug, z, x, y)
+            if generated_response:
+                return generated_response
             
+            # Method 4: Empty Tile (Last Resort)
+            logger.warning(f"🔴 All methods failed for tile: {city_slug}/{z}/{x}/{y}")
+            return self._return_empty_tile()
+            
+        except ValueError as e:
+            logger.error(f"Invalid parameters for tile request: {e}")
+            return HttpResponse("Invalid tile parameters", status=400)
         except Exception as e:
-            logger.error(f"Error in CombinedRasterTileView for {city_slug}/{z}/{x}/{y}: {e}")
+            logger.error(f"🔴 Unexpected error in CombinedRasterTileView: {e}", exc_info=True)
             return self._return_empty_tile()
     
     def _should_use_cloudfront(self):
-        """Check if CloudFront is configured and should be used"""
-        return (
+        """
+        Determine if CloudFront should be used.
+        Only in production with proper configuration.
+        """
+        cloudfront_configured = (
             hasattr(settings, 'CLOUDFRONT_DOMAIN') and 
             settings.CLOUDFRONT_DOMAIN and 
-            settings.CLOUDFRONT_DOMAIN != 'your-cloudfront-id.cloudfront.net'
+            settings.CLOUDFRONT_DOMAIN != 'your-cloudfront-id.cloudfront.net' and
+            settings.CLOUDFRONT_DOMAIN.strip() != ''
         )
+        
+        use_cloudfront = cloudfront_configured and not settings.DEBUG
+        
+        if cloudfront_configured and settings.DEBUG:
+            logger.info("🔧 CloudFront configured but disabled in DEBUG mode")
+        
+        return use_cloudfront
     
-    def _get_cloudfront_url(self, city_slug, layer_type, z, x, y):
-        """Generate CloudFront URL for tile"""
-        return f"https://{settings.CLOUDFRONT_DOMAIN}/{city_slug}/{layer_type}/{z}_{x}_{y}.png"
-    
-    def _validate_cloudfront_tile(self, url):
-        """Check if tile exists in CloudFront (HEAD request)"""
+    def _redirect_to_cloudfront(self, city_slug, z, x, y):
+        """Redirect to CloudFront for fast tile serving"""
         try:
-            response = requests.head(url, timeout=2)
-            return response.status_code == 200
-        except:
-            return False
+            cloudfront_url = f"https://{settings.CLOUDFRONT_DOMAIN}/{city_slug}/combined/{z}_{x}_{y}.png"
+            logger.info(f"☁️  Redirecting to CloudFront: {cloudfront_url}")
+            
+            response = redirect(cloudfront_url)
+            response['X-Tile-Source'] = 'cloudfront-redirect'
+            response['Cache-Control'] = 'max-age=300'  # 5 minute cache for redirects
+            return response
+            
+        except Exception as e:
+            logger.error(f"CloudFront redirect failed: {e}")
+            return None
     
     def _serve_local_tile(self, city_slug, z, x, y):
-        """Serve pre-generated local tile if it exists"""
-        # Try multiple possible local paths
+        """
+        Serve pre-generated local tile with comprehensive path checking.
+        Tries multiple possible file locations and formats.
+        """
+        
+        # Generate all possible file paths (in order of preference)
         possible_paths = [
+            # Primary format: z_x_y.png in combined folder
             f'static/tiles_png/{city_slug}/combined/{z}_{x}_{y}.png',
+            
+            # Alternative format: z/x/y.png directory structure
+            f'static/tiles_png/{city_slug}/combined/{z}/{x}/{y}.png',
+            
+            # Direct in city folder
             f'static/tiles_png/{city_slug}/{z}_{x}_{y}.png',
+            
+            # Media folder alternatives
             f'media/tiles_png/{city_slug}/combined/{z}_{x}_{y}.png',
+            f'media/tiles_png/{city_slug}/{z}_{x}_{y}.png',
+            
+            # Static folder alternatives (without tiles_png)
+            f'static/{city_slug}/combined/{z}_{x}_{y}.png',
+            f'static/tiles/{city_slug}/combined/{z}_{x}_{y}.png',
         ]
         
         for png_path in possible_paths:
             if os.path.exists(png_path):
-                logger.info(f"Serving local tile: {png_path}")
-                response = FileResponse(
-                    open(png_path, 'rb'), 
-                    content_type='image/png'
-                )
-                response['Cache-Control'] = 'max-age=3600'
-                response['X-Tile-Source'] = 'local-file'
-                return response
+                try:
+                    file_size = os.path.getsize(png_path)
+                    logger.info(f"✅ Found local tile: {png_path} ({file_size} bytes)")
+                    
+                    # Serve the file
+                    response = FileResponse(
+                        open(png_path, 'rb'), 
+                        content_type='image/png'
+                    )
+                    
+                    # Set appropriate headers
+                    response['Cache-Control'] = 'max-age=3600'  # 1 hour cache
+                    response['X-Tile-Source'] = 'local-file'
+                    response['X-Tile-Path'] = png_path
+                    response['X-Tile-Size'] = str(file_size)
+                    response['Access-Control-Allow-Origin'] = '*'
+                    
+                    return response
+                    
+                except (IOError, OSError) as e:
+                    logger.error(f"Error reading local tile {png_path}: {e}")
+                    continue
+                except Exception as e:
+                    logger.error(f"Unexpected error serving local tile {png_path}: {e}")
+                    continue
         
+        # Debug logging if no file found
+        self._debug_missing_tile(city_slug, z, x, y)
         return None
     
-    def _generate_tile_on_demand(self, city_slug, z, x, y):
-        """Generate tile on-demand as last resort"""
+    def _debug_missing_tile(self, city_slug, z, x, y):
+        """Debug helper to understand why a tile wasn't found"""
         try:
-            logger.warning(f"Generating tile on-demand for {city_slug}/{z}/{x}/{y}")
+            # Check if the city directory exists
+            city_dir = f'static/tiles_png/{city_slug}'
+            combined_dir = f'static/tiles_png/{city_slug}/combined'
             
-            # Get city layers
+            if not os.path.exists(city_dir):
+                logger.warning(f"🔍 City directory not found: {city_dir}")
+                # List available cities
+                tiles_dir = 'static/tiles_png'
+                if os.path.exists(tiles_dir):
+                    available_cities = [d for d in os.listdir(tiles_dir) if os.path.isdir(os.path.join(tiles_dir, d))]
+                    logger.info(f"Available cities: {available_cities}")
+                return
+            
+            if not os.path.exists(combined_dir):
+                logger.warning(f"🔍 Combined directory not found: {combined_dir}")
+                # List available subdirectories
+                subdirs = [d for d in os.listdir(city_dir) if os.path.isdir(os.path.join(city_dir, d))]
+                logger.info(f"Available subdirectories in {city_dir}: {subdirs}")
+                return
+            
+            # List some actual files to see the pattern
+            actual_files = [f for f in os.listdir(combined_dir) if f.endswith('.png')]
+            logger.warning(f"🔍 Tile {z}_{x}_{y}.png not found in {combined_dir}")
+            logger.info(f"Sample files in directory: {actual_files[:10]}")
+            
+            # Check for similar tiles (same zoom level)
+            similar_tiles = [f for f in actual_files if f.startswith(f'{z}_')]
+            if similar_tiles:
+                logger.info(f"Found {len(similar_tiles)} tiles for zoom level {z}")
+            else:
+                # Check what zoom levels are available
+                zoom_levels = set()
+                for f in actual_files:
+                    try:
+                        zoom = f.split('_')[0]
+                        zoom_levels.add(zoom)
+                    except:
+                        continue
+                logger.info(f"Available zoom levels: {sorted(zoom_levels)}")
+                
+        except Exception as e:
+            logger.error(f"Error in debug analysis: {e}")
+    
+    def _generate_tile_on_demand(self, city_slug, z, x, y):
+        """
+        Generate tile on-demand as fallback option.
+        This is slow but ensures tiles are always available.
+        """
+        try:
+            logger.warning(f"🔄 Generating tile on-demand: {city_slug}/{z}/{x}/{y}")
+            
+            # Import here to avoid circular imports
+            from maps.models import DataLayer
+            from maps.services import VectorTileService
+            from maps.tile_rendering_service import TileRenderingService
+            
+            # Get processed layers for the city
             layers = DataLayer.objects.filter(
                 city__slug=city_slug, 
                 is_processed=True
@@ -858,50 +983,138 @@ class CombinedRasterTileView(APIView):
             
             if not layers.exists():
                 logger.warning(f"No processed layers found for city: {city_slug}")
-                return self._return_empty_tile()
+                return None
+            
+            logger.info(f"Found {layers.count()} processed layers for {city_slug}")
             
             # Generate MVT data
             vector_service = VectorTileService()
             mvt_data = vector_service.generate_combined_tile(layers, z, x, y)
             
-            if not mvt_data:
-                logger.info(f"No MVT data for tile {city_slug}/{z}/{x}/{y}")
-                return self._return_empty_tile()
+            if not mvt_data or len(mvt_data) == 0:
+                logger.info(f"No MVT data generated for tile {city_slug}/{z}/{x}/{y}")
+                return None
+            
+            logger.info(f"Generated MVT data: {len(mvt_data)} bytes")
             
             # Convert MVT to PNG
             renderer = TileRenderingService()
             png_data = renderer.combined_mvt_to_png(mvt_data, layers, z, x, y)
             
             if not png_data or len(png_data) == 0:
-                logger.warning(f"Failed to generate PNG for {city_slug}/{z}/{x}/{y}")
-                return self._return_empty_tile()
+                logger.warning(f"Failed to convert MVT to PNG for {city_slug}/{z}/{x}/{y}")
+                return None
             
-            # Return generated tile
+            # Create response
             response = HttpResponse(png_data, content_type='image/png')
-            response['Cache-Control'] = 'max-age=3600'
+            response['Cache-Control'] = 'max-age=3600'  # 1 hour cache
             response['X-Tile-Source'] = 'generated-on-demand'
+            response['X-Generation-Time'] = 'real-time'
+            response['X-Tile-Size'] = str(len(png_data))
             response['Access-Control-Allow-Origin'] = '*'
             
-            logger.info(f"Successfully generated tile {city_slug}/{z}/{x}/{y} ({len(png_data)} bytes)")
+            logger.info(f"✅ Generated tile on-demand: {city_slug}/{z}/{x}/{y} ({len(png_data)} bytes)")
+            
+            # Optional: Save generated tile for future requests
+            self._save_generated_tile(city_slug, z, x, y, png_data)
+            
             return response
             
         except Exception as e:
-            logger.error(f"Error generating tile on-demand: {e}")
-            return self._return_empty_tile()
+            logger.error(f"Error generating tile on-demand: {e}", exc_info=True)
+            return None
+    
+    def _save_generated_tile(self, city_slug, z, x, y, png_data):
+        """
+        Optionally save generated tile to disk for future requests.
+        This improves performance for subsequent requests.
+        """
+        try:
+            # Create directory if it doesn't exist
+            tile_dir = Path(f'static/tiles_png/{city_slug}/combined')
+            tile_dir.mkdir(parents=True, exist_ok=True)
+            
+            # Save tile
+            tile_path = tile_dir / f'{z}_{x}_{y}.png'
+            with open(tile_path, 'wb') as f:
+                f.write(png_data)
+            
+            logger.info(f"💾 Saved generated tile: {tile_path}")
+            
+        except Exception as e:
+            logger.warning(f"Failed to save generated tile: {e}")
     
     def _return_empty_tile(self):
-        """Return empty/transparent tile"""
+        """
+        Return empty/transparent tile as last resort.
+        Always succeeds to prevent broken tile requests.
+        """
         try:
+            # Try to use the rendering service for consistent empty tiles
+            from maps.tile_rendering_service import TileRenderingService
             renderer = TileRenderingService()
             empty_png = renderer.create_empty_tile()
+            
             response = HttpResponse(empty_png, content_type='image/png')
             response['Cache-Control'] = 'max-age=3600'
-            response['X-Tile-Source'] = 'empty'
+            response['X-Tile-Source'] = 'empty-tile'
             response['Access-Control-Allow-Origin'] = '*'
+            
+            logger.info("📋 Returned empty tile")
             return response
-        except:
-            # Last resort: minimal response
-            return HttpResponse(b'', content_type='image/png', status=204)
+            
+        except Exception as e:
+            logger.error(f"Error creating empty tile: {e}")
+            
+            # Absolute last resort: create minimal PNG
+            try:
+                from PIL import Image
+                import io
+                
+                # Create 256x256 transparent image
+                img = Image.new('RGBA', (256, 256), (255, 255, 255, 0))
+                img_buffer = io.BytesIO()
+                img.save(img_buffer, format='PNG')
+                
+                response = HttpResponse(img_buffer.getvalue(), content_type='image/png')
+                response['Cache-Control'] = 'max-age=3600'
+                response['X-Tile-Source'] = 'fallback-empty'
+                response['Access-Control-Allow-Origin'] = '*'
+                
+                return response
+                
+            except Exception as final_error:
+                logger.error(f"Final fallback failed: {final_error}")
+                # Ultimate fallback: minimal response
+                return HttpResponse(b'', content_type='image/png', status=204)
+    
+    # Additional utility methods
+    
+    def head(self, request, city_slug, z, x, y):
+        """Handle HEAD requests for tile existence checking"""
+        try:
+            # Quick check if tile exists locally
+            z, x, y = int(z), int(x), int(y)
+            
+            if self._tile_exists_locally(city_slug, z, x, y):
+                response = HttpResponse()
+                response['Content-Type'] = 'image/png'
+                response['X-Tile-Source'] = 'local-file'
+                return response
+            else:
+                return HttpResponse(status=404)
+                
+        except Exception:
+            return HttpResponse(status=500)
+    
+    def _tile_exists_locally(self, city_slug, z, x, y):
+        """Quick check if tile exists locally"""
+        possible_paths = [
+            f'static/tiles_png/{city_slug}/combined/{z}_{x}_{y}.png',
+            f'static/tiles_png/{city_slug}/{z}_{x}_{y}.png',
+        ]
+        
+        return any(os.path.exists(path) for path in possible_paths)
 
 class SimpleVectorTileView(APIView):
     """A simplified view to directly test VectorTileService"""
