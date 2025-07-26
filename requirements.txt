@@ -4,6 +4,7 @@ djangorestframework==3.14.0
 django-cors-headers==4.3.1
 django-filter==23.3
 requests==2.32.4
+boto3==1.39.12
 
 # GeoDjango and Spatial
 djangorestframework-gis==1.0

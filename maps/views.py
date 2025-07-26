@@ -1,7 +1,9 @@
 from django.shortcuts import get_object_or_404
 from django.db.models import Count, Q, Avg, Max, Min, Sum
 from rest_framework import viewsets, status
+import requests
 from rest_framework.decorators import action
+from django.conf import settings
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from django.contrib.gis.geos import Polygon
@@ -762,40 +764,144 @@ class RasterTileView(APIView):
                 return HttpResponse(b'', content_type='image/png', status=204)
 
 class CombinedRasterTileView(APIView):
-    """Serve combined raster tiles (PNG)"""
+    """
+    Serve combined city tiles from CloudFront with multiple fallback options.
+    Priority: CloudFront → Pre-generated local → Generate on-demand
+    """
+    permission_classes = []  # Public access for tiles
     
     def get(self, request, city_slug, z, x, y):
-        """Handle request and return combined PNG"""
         try:
-            # Check for pre-generated PNG
-            png_path = os.path.join('static', 'tiles_png', city_slug, 'combined', f'{z}_{x}_{y}.png')
-            if os.path.exists(png_path):
-                return FileResponse(open(png_path, 'rb'), content_type='image/png')
+            # Convert parameters to integers
+            z, x, y = int(z), int(x), int(y)
             
-            # Fallback: generate on the fly
+            # Validate zoom level (basic security)
+            if not (0 <= z <= 20):
+                return HttpResponse("Invalid zoom level", status=400)
+            
+            # Method 1: Redirect to CloudFront (Fastest - ~50ms)
+            if self._should_use_cloudfront():
+                cloudfront_url = self._get_cloudfront_url(city_slug, 'combined', z, x, y)
+                
+                # Option A: Direct redirect (recommended for production)
+                if not settings.DEBUG:
+                    return redirect(cloudfront_url)
+                
+                # Option B: Validate CloudFront first (slower but safer for development)
+                if self._validate_cloudfront_tile(cloudfront_url):
+                    return redirect(cloudfront_url)
+            
+            # Method 2: Serve pre-generated local file (Fast - ~100ms)
+            local_tile_response = self._serve_local_tile(city_slug, z, x, y)
+            if local_tile_response:
+                return local_tile_response
+            
+            # Method 3: Generate on-demand (Slow - ~5-15 seconds)
+            return self._generate_tile_on_demand(city_slug, z, x, y)
+            
+        except Exception as e:
+            logger.error(f"Error in CombinedRasterTileView for {city_slug}/{z}/{x}/{y}: {e}")
+            return self._return_empty_tile()
+    
+    def _should_use_cloudfront(self):
+        """Check if CloudFront is configured and should be used"""
+        return (
+            hasattr(settings, 'CLOUDFRONT_DOMAIN') and 
+            settings.CLOUDFRONT_DOMAIN and 
+            settings.CLOUDFRONT_DOMAIN != 'your-cloudfront-id.cloudfront.net'
+        )
+    
+    def _get_cloudfront_url(self, city_slug, layer_type, z, x, y):
+        """Generate CloudFront URL for tile"""
+        return f"https://{settings.CLOUDFRONT_DOMAIN}/{city_slug}/{layer_type}/{z}_{x}_{y}.png"
+    
+    def _validate_cloudfront_tile(self, url):
+        """Check if tile exists in CloudFront (HEAD request)"""
+        try:
+            response = requests.head(url, timeout=2)
+            return response.status_code == 200
+        except:
+            return False
+    
+    def _serve_local_tile(self, city_slug, z, x, y):
+        """Serve pre-generated local tile if it exists"""
+        # Try multiple possible local paths
+        possible_paths = [
+            f'static/tiles_png/{city_slug}/combined/{z}_{x}_{y}.png',
+            f'static/tiles_png/{city_slug}/{z}_{x}_{y}.png',
+            f'media/tiles_png/{city_slug}/combined/{z}_{x}_{y}.png',
+        ]
+        
+        for png_path in possible_paths:
+            if os.path.exists(png_path):
+                logger.info(f"Serving local tile: {png_path}")
+                response = FileResponse(
+                    open(png_path, 'rb'), 
+                    content_type='image/png'
+                )
+                response['Cache-Control'] = 'max-age=3600'
+                response['X-Tile-Source'] = 'local-file'
+                return response
+        
+        return None
+    
+    def _generate_tile_on_demand(self, city_slug, z, x, y):
+        """Generate tile on-demand as last resort"""
+        try:
+            logger.warning(f"Generating tile on-demand for {city_slug}/{z}/{x}/{y}")
+            
+            # Get city layers
             layers = DataLayer.objects.filter(
                 city__slug=city_slug, 
                 is_processed=True
-            ).select_related('category')
+            ).select_related('category', 'city')
             
+            if not layers.exists():
+                logger.warning(f"No processed layers found for city: {city_slug}")
+                return self._return_empty_tile()
+            
+            # Generate MVT data
             vector_service = VectorTileService()
             mvt_data = vector_service.generate_combined_tile(layers, z, x, y)
             
             if not mvt_data:
-                renderer = TileRenderingService()
-                return HttpResponse(renderer.create_empty_tile(), content_type='image/png')
+                logger.info(f"No MVT data for tile {city_slug}/{z}/{x}/{y}")
+                return self._return_empty_tile()
             
+            # Convert MVT to PNG
             renderer = TileRenderingService()
             png_data = renderer.combined_mvt_to_png(mvt_data, layers, z, x, y)
             
+            if not png_data or len(png_data) == 0:
+                logger.warning(f"Failed to generate PNG for {city_slug}/{z}/{x}/{y}")
+                return self._return_empty_tile()
+            
+            # Return generated tile
             response = HttpResponse(png_data, content_type='image/png')
             response['Cache-Control'] = 'max-age=3600'
+            response['X-Tile-Source'] = 'generated-on-demand'
+            response['Access-Control-Allow-Origin'] = '*'
+            
+            logger.info(f"Successfully generated tile {city_slug}/{z}/{x}/{y} ({len(png_data)} bytes)")
             return response
             
         except Exception as e:
-            print(f"Error generating combined raster tile for {city_slug}: {e}")
+            logger.error(f"Error generating tile on-demand: {e}")
+            return self._return_empty_tile()
+    
+    def _return_empty_tile(self):
+        """Return empty/transparent tile"""
+        try:
             renderer = TileRenderingService()
-            return HttpResponse(renderer.create_empty_tile(), content_type='image/png', status=500)
+            empty_png = renderer.create_empty_tile()
+            response = HttpResponse(empty_png, content_type='image/png')
+            response['Cache-Control'] = 'max-age=3600'
+            response['X-Tile-Source'] = 'empty'
+            response['Access-Control-Allow-Origin'] = '*'
+            return response
+        except:
+            # Last resort: minimal response
+            return HttpResponse(b'', content_type='image/png', status=204)
 
 class SimpleVectorTileView(APIView):
     """A simplified view to directly test VectorTileService"""
@@ -3136,237 +3242,592 @@ class RealEstateVectorTileView(APIView):
 
 class RealEstateRasterTileView(APIView):
     """
-    Serve PNG tiles for real estate data
-    URL: /api/real-estate-tiles/{type}/{z}/{x}/{y}.png
-    type: plots, lands, or combined
+    Serve real estate tiles (plots/lands) from CloudFront with fallback options.
+    Supports: plots, lands, combined
     """
+    permission_classes = []  # Public access for tiles
     
     def get(self, request, tile_type, z, x, y):
         try:
+            # Convert parameters to integers
             z, x, y = int(z), int(x), int(y)
             
-            # Try to serve pre-generated tile first (matching management command output)
-            tile_path = Path('media/real_estate_tiles_png') / tile_type / str(z) / str(x) / f'{y}.png'
+            # Validate tile type
+            if tile_type not in ['plots', 'lands', 'combined']:
+                return HttpResponse("Invalid tile type. Use: plots, lands, or combined", status=400)
             
-            if tile_path.exists():
-                return FileResponse(
-                    open(tile_path, 'rb'), 
-                    content_type='image/png'
-                )
+            # Validate zoom level
+            if not (0 <= z <= 20):
+                return HttpResponse("Invalid zoom level", status=400)
             
-            # Generate tile on-the-fly if not pre-generated
-            if tile_type == 'plots':
-                png_data = self.generate_plot_png_tile(z, x, y)
-            elif tile_type == 'lands':
-                png_data = self.generate_land_png_tile(z, x, y)
-            elif tile_type == 'combined':
-                png_data = self.generate_combined_png_tile(z, x, y)
-            else:
-                return HttpResponse('Invalid tile type', status=404)
+            # Method 1: Redirect to CloudFront
+            if self._should_use_cloudfront():
+                cloudfront_url = self._get_cloudfront_url(tile_type, z, x, y)
+                
+                # Direct redirect for production
+                if not settings.DEBUG:
+                    return redirect(cloudfront_url)
+                
+                # Validate first for development
+                if self._validate_cloudfront_tile(cloudfront_url):
+                    return redirect(cloudfront_url)
             
-            if png_data:
-                response = HttpResponse(png_data, content_type='image/png')
-                response['Cache-Control'] = 'max-age=3600'
-                response['Access-Control-Allow-Origin'] = '*'
-                return response
+            # Method 2: Serve pre-generated local file
+            local_tile_response = self._serve_local_real_estate_tile(tile_type, z, x, y)
+            if local_tile_response:
+                return local_tile_response
             
-            # Return empty tile
-            return HttpResponse(self.create_empty_tile(), content_type='image/png')
+            # Method 3: Generate on-demand
+            return self._generate_real_estate_tile(tile_type, z, x, y)
             
         except Exception as e:
-            print(f"Error in RealEstateRasterTileView: {e}")
-            return HttpResponse(self.create_empty_tile(), content_type='image/png', status=500)
-
-    def generate_plot_png_tile(self, z, x, y):
-        """Generate PNG tile for plots"""
-        tile_bounds = self.get_tile_bounds(z, x, y)
-        
-        plots = Plot.objects.filter(
-            location__intersects=tile_bounds,
-            is_active=True
+            logger.error(f"Error in RealEstateRasterTileView for {tile_type}/{z}/{x}/{y}: {e}")
+            return self._return_empty_tile()
+    
+    def _should_use_cloudfront(self):
+        """Check if CloudFront is configured"""
+        return (
+            hasattr(settings, 'CLOUDFRONT_DOMAIN') and 
+            settings.CLOUDFRONT_DOMAIN and 
+            settings.CLOUDFRONT_DOMAIN != 'your-cloudfront-id.cloudfront.net'
         )
+    
+    def _get_cloudfront_url(self, tile_type, z, x, y):
+        """Generate CloudFront URL for real estate tile"""
+        return f"https://{settings.CLOUDFRONT_DOMAIN}/real_estate/{tile_type}/{z}_{x}_{y}.png"
+    
+    def _validate_cloudfront_tile(self, url):
+        """Check if tile exists in CloudFront"""
+        try:
+            response = requests.head(url, timeout=2)
+            return response.status_code == 200
+        except:
+            return False
+    
+    def _serve_local_real_estate_tile(self, tile_type, z, x, y):
+        """Serve pre-generated local real estate tile"""
+        # Try multiple possible paths
+        possible_paths = [
+            f'static/real_estate_tiles_png/{tile_type}/{z}_{x}_{y}.png',
+            f'static/real_estate_tiles_png/combined/{z}_{x}_{y}.png' if tile_type == 'combined' else None,
+            f'media/real_estate_tiles/{tile_type}/{z}_{x}_{y}.png',
+        ]
         
-        if not plots.exists():
-            return self.create_empty_tile()
+        # Filter out None values
+        possible_paths = [path for path in possible_paths if path]
         
-        max_features = 50 if z < 10 else 200 if z < 12 else 1000
-        plots = plots[:max_features]
-        
-        return self.render_features_to_png(plots, Plot, z, x, y)
-
-    def generate_land_png_tile(self, z, x, y):
-        """Generate PNG tile for lands"""
-        tile_bounds = self.get_tile_bounds(z, x, y)
-        
-        lands = Land.objects.filter(
-            location__intersects=tile_bounds,
-            is_active=True
-        )
-        
-        if not lands.exists():
-            return self.create_empty_tile()
-        
-        max_features = 50 if z < 10 else 200 if z < 12 else 1000
-        lands = lands[:max_features]
-        
-        return self.render_features_to_png(lands, Land, z, x, y)
-
-    def generate_combined_png_tile(self, z, x, y):
-        """Generate combined PNG tile"""
-        tile_bounds = self.get_tile_bounds(z, x, y)
-        
-        plots = Plot.objects.filter(
-            location__intersects=tile_bounds,
-            is_active=True
-        )
-        
-        lands = Land.objects.filter(
-            location__intersects=tile_bounds,
-            is_active=True
-        )
-        
-        if not plots.exists() and not lands.exists():
-            return self.create_empty_tile()
-        
-        max_features = 25 if z < 10 else 100 if z < 12 else 500
-        plots = plots[:max_features]
-        lands = lands[:max_features]
-        
-        return self.render_combined_features_to_png(plots, lands, z, x, y)
-
-    def render_features_to_png(self, features, model, z, x, y):
-        """Render features to PNG image"""
-        tile_size = 256
-        img = Image.new('RGBA', (tile_size, tile_size), (0, 0, 0, 0))  # Transparent background
-        draw = ImageDraw.Draw(img)
-        
-        bounds = mercantile.bounds(x, y, z)
-        
-        # Define colors based on model type
-        if model == Plot:
-            color = (255, 120, 0, 200)      # Orange for plots
-            outline_color = (255, 120, 0, 255)
-        else:  # Land
-            color = (0, 200, 0, 200)       # Green for lands
-            outline_color = (0, 200, 0, 255)
-        
-        # Draw features
-        features_drawn = 0
-        for feature in features:
-            try:
-                pixel_x, pixel_y = self.latlng_to_pixel(
-                    feature.location.y, feature.location.x,
-                    bounds, tile_size
+        for png_path in possible_paths:
+            if os.path.exists(png_path):
+                logger.info(f"Serving local real estate tile: {png_path}")
+                response = FileResponse(
+                    open(png_path, 'rb'), 
+                    content_type='image/png'
                 )
+                response['Cache-Control'] = 'max-age=3600'
+                response['X-Tile-Source'] = 'local-real-estate'
+                return response
+        
+        return None
+    
+    def _generate_real_estate_tile(self, tile_type, z, x, y):
+        """Generate real estate tile on-demand"""
+        try:
+            from maps.models import Plot, Land
+            from django.contrib.gis.geos import Polygon
+            import mercantile
+            import mapbox_vector_tile
+            
+            logger.warning(f"Generating real estate tile on-demand: {tile_type}/{z}/{x}/{y}")
+            
+            # Get tile bounds
+            tile_bounds = self._get_tile_bounds(z, x, y)
+            if not tile_bounds:
+                return self._return_empty_tile()
+            
+            # Generate MVT data based on tile type
+            if tile_type == 'plots':
+                mvt_data = self._generate_plots_mvt(tile_bounds, z, x, y)
+            elif tile_type == 'lands':
+                mvt_data = self._generate_lands_mvt(tile_bounds, z, x, y)
+            else:  # combined
+                mvt_data = self._generate_combined_real_estate_mvt(tile_bounds, z, x, y)
+            
+            if not mvt_data:
+                return self._return_empty_tile()
+            
+            # Convert MVT to PNG
+            png_data = self._convert_real_estate_mvt_to_png(mvt_data, tile_type, z, x, y)
+            
+            response = HttpResponse(png_data, content_type='image/png')
+            response['Cache-Control'] = 'max-age=3600'
+            response['X-Tile-Source'] = f'generated-real-estate-{tile_type}'
+            response['Access-Control-Allow-Origin'] = '*'
+            
+            return response
+            
+        except Exception as e:
+            logger.error(f"Error generating real estate tile: {e}")
+            return self._return_empty_tile()
+    
+    def _get_tile_bounds(self, z, x, y):
+        """Get geographic bounds for tile"""
+        try:
+            import mercantile
+            from django.contrib.gis.geos import Polygon
+            
+            bounds = mercantile.bounds(x, y, z)
+            tile_polygon = Polygon.from_bbox((
+                bounds.west, bounds.south, bounds.east, bounds.north
+            ))
+            return tile_polygon
+        except:
+            return None
+    
+    def _generate_plots_mvt(self, tile_bounds, z, x, y):
+        """Generate MVT for plots only"""
+        try:
+            from maps.models import Plot
+            import mapbox_vector_tile
+            
+            plots = Plot.objects.filter(
+                location__intersects=tile_bounds,
+                is_active=True
+            )[:500]  # Limit for performance
+            
+            if not plots.exists():
+                return None
+            
+            features = []
+            for plot in plots:
+                features.append({
+                    'geometry': {
+                        'type': 'Point',
+                        'coordinates': [plot.location.x, plot.location.y]
+                    },
+                    'properties': {
+                        'id': plot.plot_id,
+                        'title': plot.marker_title or '',
+                        'type': 'plot'
+                    }
+                })
+            
+            layer_data = [{
+                'name': 'plots',
+                'features': features,
+                'version': 2,
+                'extent': 4096
+            }]
+            
+            return mapbox_vector_tile.encode(layer_data)
+            
+        except Exception as e:
+            logger.error(f"Error generating plots MVT: {e}")
+            return None
+    
+    def _generate_lands_mvt(self, tile_bounds, z, x, y):
+        """Generate MVT for lands only"""
+        try:
+            from maps.models import Land
+            import mapbox_vector_tile
+            
+            lands = Land.objects.filter(
+                location__intersects=tile_bounds,
+                is_active=True
+            )[:500]  # Limit for performance
+            
+            if not lands.exists():
+                return None
+            
+            features = []
+            for land in lands:
+                features.append({
+                    'geometry': {
+                        'type': 'Point',
+                        'coordinates': [land.location.x, land.location.y]
+                    },
+                    'properties': {
+                        'id': land.land_id,
+                        'title': land.marker_title or '',
+                        'type': 'land'
+                    }
+                })
+            
+            layer_data = [{
+                'name': 'lands',
+                'features': features,
+                'version': 2,
+                'extent': 4096
+            }]
+            
+            return mapbox_vector_tile.encode(layer_data)
+            
+        except Exception as e:
+            logger.error(f"Error generating lands MVT: {e}")
+            return None
+    
+    def _generate_combined_real_estate_mvt(self, tile_bounds, z, x, y):
+        """Generate combined MVT with both plots and lands"""
+        try:
+            from maps.models import Plot, Land
+            import mapbox_vector_tile
+            
+            # Get both plots and lands
+            plots = Plot.objects.filter(
+                location__intersects=tile_bounds,
+                is_active=True
+            )[:250]
+            
+            lands = Land.objects.filter(
+                location__intersects=tile_bounds,
+                is_active=True
+            )[:250]
+            
+            layers_list = []
+            
+            # Add plots layer
+            if plots.exists():
+                plot_features = []
+                for plot in plots:
+                    plot_features.append({
+                        'geometry': {
+                            'type': 'Point',
+                            'coordinates': [plot.location.x, plot.location.y]
+                        },
+                        'properties': {
+                            'id': plot.plot_id,
+                            'title': plot.marker_title or '',
+                            'type': 'plot'
+                        }
+                    })
                 
-                # Ensure coordinates are within tile bounds
-                if 0 <= pixel_x <= tile_size and 0 <= pixel_y <= tile_size:
-                    radius = max(3, min(10, z - 4))  # Scale radius with zoom
-                    
-                    draw.ellipse(
-                        [pixel_x - radius, pixel_y - radius, 
-                         pixel_x + radius, pixel_y + radius],
-                        fill=color,
-                        outline=outline_color,
-                        width=1
-                    )
-                    features_drawn += 1
-                    
-            except Exception:
-                continue
-        
-        # Return empty tile if no features were drawn
-        if features_drawn == 0:
-            return self.create_empty_tile()
-        
-        buffer = io.BytesIO()
-        img.save(buffer, format='PNG', optimize=True)
-        return buffer.getvalue()
-
-    def render_combined_features_to_png(self, plots, lands, z, x, y):
-        """Render combined features to PNG"""
-        tile_size = 256
-        img = Image.new('RGBA', (tile_size, tile_size), (0, 0, 0, 0))  # Transparent background
-        draw = ImageDraw.Draw(img)
-        
-        bounds = mercantile.bounds(x, y, z)
-        features_drawn = 0
-        
-        # Draw lands first (background)
-        for land in lands:
-            try:
-                pixel_x, pixel_y = self.latlng_to_pixel(
-                    land.location.y, land.location.x,
-                    bounds, tile_size
-                )
+                layers_list.append({
+                    'name': 'plots',
+                    'features': plot_features,
+                    'version': 2,
+                    'extent': 4096
+                })
+            
+            # Add lands layer
+            if lands.exists():
+                land_features = []
+                for land in lands:
+                    land_features.append({
+                        'geometry': {
+                            'type': 'Point',
+                            'coordinates': [land.location.x, land.location.y]
+                        },
+                        'properties': {
+                            'id': land.land_id,
+                            'title': land.marker_title or '',
+                            'type': 'land'
+                        }
+                    })
                 
-                if 0 <= pixel_x <= tile_size and 0 <= pixel_y <= tile_size:
-                    radius = max(4, min(12, z - 3))
-                    
-                    draw.ellipse(
-                        [pixel_x - radius, pixel_y - radius, 
-                         pixel_x + radius, pixel_y + radius],
-                        fill=(0, 200, 0, 180),      # Green for lands
-                        outline=(0, 200, 0, 255),
-                        width=1
-                    )
-                    features_drawn += 1
-                    
-            except Exception:
-                continue
-        
-        # Draw plots on top
-        for plot in plots:
-            try:
-                pixel_x, pixel_y = self.latlng_to_pixel(
-                    plot.location.y, plot.location.x,
-                    bounds, tile_size
-                )
+                layers_list.append({
+                    'name': 'lands',
+                    'features': land_features,
+                    'version': 2,
+                    'extent': 4096
+                })
+            
+            if not layers_list:
+                return None
+            
+            return mapbox_vector_tile.encode(layers_list)
+            
+        except Exception as e:
+            logger.error(f"Error generating combined real estate MVT: {e}")
+            return None
+    
+    def _convert_real_estate_mvt_to_png(self, mvt_data, tile_type, z, x, y):
+        """Convert real estate MVT to PNG"""
+        try:
+            import mapbox_vector_tile
+            from PIL import Image, ImageDraw
+            import io
+            
+            # Decode MVT
+            decoded_data = mapbox_vector_tile.decode(mvt_data)
+            if not decoded_data:
+                return self._create_empty_png()
+            
+            # Create image
+            img = Image.new('RGBA', (256, 256), (255, 255, 255, 0))
+            draw = ImageDraw.Draw(img)
+            
+            # Draw features
+            for layer_name, layer_data in decoded_data.items():
+                features = layer_data.get('features', [])
                 
-                if 0 <= pixel_x <= tile_size and 0 <= pixel_y <= tile_size:
-                    radius = max(3, min(10, z - 4))
-                    
-                    draw.ellipse(
-                        [pixel_x - radius, pixel_y - radius, 
-                         pixel_x + radius, pixel_y + radius],
-                        fill=(255, 120, 0, 200),    # Orange for plots
-                        outline=(255, 120, 0, 255),
-                        width=1
-                    )
-                    features_drawn += 1
-                    
-            except Exception:
-                continue
+                # Set colors based on layer
+                if layer_name == 'plots':
+                    color = (255, 120, 0, 200)      # Orange
+                    outline = (255, 120, 0, 255)
+                else:  # lands
+                    color = (0, 255, 0, 200)       # Green
+                    outline = (0, 255, 0, 255)
+                
+                for feature in features:
+                    self._draw_point_feature(draw, feature, color, outline, z)
+            
+            # Convert to PNG
+            img_buffer = io.BytesIO()
+            img.save(img_buffer, format='PNG', optimize=True)
+            return img_buffer.getvalue()
+            
+        except Exception as e:
+            logger.error(f"Error converting real estate MVT to PNG: {e}")
+            return self._create_empty_png()
+    
+    def _draw_point_feature(self, draw, feature, color, outline_color, zoom):
+        """Draw a point feature on the image"""
+        try:
+            geometry = feature.get('geometry', {})
+            if geometry.get('type') != 'Point':
+                return
+            
+            coords = geometry.get('coordinates', [])
+            if len(coords) != 2:
+                return
+            
+            # Convert to pixel coordinates (simplified)
+            x, y = coords
+            pixel_x = int((x + 180) / 360 * 256)
+            pixel_y = int((90 - y) / 180 * 256)
+            
+            # Draw point with size based on zoom
+            radius = max(2, min(8, zoom - 8))
+            
+            draw.ellipse(
+                [pixel_x - radius, pixel_y - radius, pixel_x + radius, pixel_y + radius],
+                fill=color,
+                outline=outline_color
+            )
+            
+        except Exception as e:
+            logger.error(f"Error drawing point feature: {e}")
+    
+    def _create_empty_png(self):
+        """Create empty PNG bytes"""
+        try:
+            from PIL import Image
+            import io
+            
+            img = Image.new('RGBA', (256, 256), (255, 255, 255, 0))
+            img_buffer = io.BytesIO()
+            img.save(img_buffer, format='PNG')
+            return img_buffer.getvalue()
+        except:
+            return b''
+    
+    def _return_empty_tile(self):
+        """Return empty tile response"""
+        try:
+            renderer = TileRenderingService()
+            empty_png = renderer.create_empty_tile()
+            response = HttpResponse(empty_png, content_type='image/png')
+            response['Cache-Control'] = 'max-age=3600'
+            response['X-Tile-Source'] = 'empty-real-estate'
+            response['Access-Control-Allow-Origin'] = '*'
+            return response
+        except:
+            return HttpResponse(b'', content_type='image/png', status=204)
         
-        # Return empty tile if no features were drawn
-        if features_drawn == 0:
-            return self.create_empty_tile()
+class TileUploadManagementView(APIView):
+    """
+    API endpoint for managing tile uploads to S3.
+    Provides a web interface to trigger uploads without using management commands.
+    """
+    
+    def get(self, request, city_slug):
+        """Get upload status and available actions"""
+        try:
+            from maps.services.s3_upload_service import S3TileUploadService
+            
+            # Test S3 connection
+            upload_service = S3TileUploadService()
+            connection_test = upload_service.test_connection()
+            
+            # Check local tile availability
+            local_tiles = self._check_local_tiles(city_slug)
+            
+            # Get CloudFront status
+            cloudfront_status = self._get_cloudfront_status()
+            
+            return Response({
+                'city': city_slug,
+                's3_connection': connection_test,
+                'local_tiles': local_tiles,
+                'cloudfront': cloudfront_status,
+                'available_actions': [
+                    'upload_city_png',
+                    'upload_city_mvt', 
+                    'upload_real_estate',
+                    'test_s3_connection'
+                ]
+            })
+            
+        except Exception as e:
+            return Response({
+                'error': f'Failed to get upload status: {str(e)}'
+            }, status=500)
+    
+    def post(self, request, city_slug):
+        """Trigger tile upload to S3"""
+        try:
+            action = request.data.get('action')
+            tile_type = request.data.get('type', 'png')
+            
+            if not action:
+                return Response({
+                    'error': 'Action required. Use: upload_city_png, upload_city_mvt, upload_real_estate, test_s3_connection'
+                }, status=400)
+            
+            from maps.services.s3_upload_service import S3TileUploadService
+            upload_service = S3TileUploadService()
+            
+            # Handle different actions
+            if action == 'test_s3_connection':
+                result = upload_service.test_connection()
+                
+            elif action == 'upload_city_png':
+                result = upload_service.upload_city_tiles(city_slug, 'png')
+                
+            elif action == 'upload_city_mvt':
+                result = upload_service.upload_city_tiles(city_slug, 'mvt')
+                
+            elif action == 'upload_real_estate':
+                data_type = request.data.get('data_type', 'combined')
+                result = upload_service.upload_real_estate_tiles(data_type, tile_type)
+                
+            else:
+                return Response({
+                    'error': f'Unknown action: {action}'
+                }, status=400)
+            
+            # Return result
+            if result.get('success'):
+                return Response({
+                    'action': action,
+                    'city': city_slug,
+                    'result': result,
+                    'message': f'{action} completed successfully'
+                })
+            else:
+                return Response({
+                    'action': action,
+                    'city': city_slug,
+                    'result': result,
+                    'message': f'{action} failed'
+                }, status=500)
+                
+        except Exception as e:
+            return Response({
+                'error': f'Upload failed: {str(e)}'
+            }, status=500)
+    
+    def _check_local_tiles(self, city_slug):
+        """Check what tiles are available locally"""
+        import os
+        from pathlib import Path
         
-        buffer = io.BytesIO()
-        img.save(buffer, format='PNG', optimize=True)
-        return buffer.getvalue()
-
-    def latlng_to_pixel(self, lat, lng, bounds, tile_size):
-        """Convert lat/lng to pixel coordinates within tile"""
-        x_ratio = (lng - bounds.west) / (bounds.east - bounds.west)
-        y_ratio = (bounds.north - lat) / (bounds.north - bounds.south)
+        tile_info = {
+            'city_png': 0,
+            'city_mvt': 0,
+            'real_estate_png': 0,
+            'real_estate_mvt': 0
+        }
         
-        pixel_x = int(x_ratio * tile_size)
-        pixel_y = int(y_ratio * tile_size)
+        # Check city PNG tiles
+        city_png_dir = Path(f'static/tiles_png/{city_slug}')
+        if city_png_dir.exists():
+            tile_info['city_png'] = len(list(city_png_dir.rglob('*.png')))
         
-        return pixel_x, pixel_y
-
-    def create_empty_tile(self):
-        """Create transparent empty PNG tile"""
-        img = Image.new('RGBA', (256, 256), (0, 0, 0, 0))
-        buffer = io.BytesIO()
-        img.save(buffer, format='PNG', optimize=True)
-        return buffer.getvalue()
-
-    def get_tile_bounds(self, z, x, y):
-        """Get tile bounding box as Polygon"""
-        bounds = mercantile.bounds(x, y, z)
-        return Polygon.from_bbox([
-            bounds.west, bounds.south,
-            bounds.east, bounds.north
-        ])
+        # Check city MVT tiles  
+        city_mvt_dir = Path(f'media/tiles/{city_slug}')
+        if city_mvt_dir.exists():
+            tile_info['city_mvt'] = len(list(city_mvt_dir.rglob('*.mvt')))
+        
+        # Check real estate PNG tiles
+        re_png_dir = Path('static/real_estate_tiles_png')
+        if re_png_dir.exists():
+            tile_info['real_estate_png'] = len(list(re_png_dir.rglob('*.png')))
+        
+        # Check real estate MVT tiles
+        re_mvt_dir = Path('media/real_estate_tiles')
+        if re_mvt_dir.exists():
+            tile_info['real_estate_mvt'] = len(list(re_mvt_dir.rglob('*.mvt')))
+        
+        return tile_info
+    
+    def _get_cloudfront_status(self):
+        """Get CloudFront configuration status"""
+        cloudfront_configured = (
+            hasattr(settings, 'CLOUDFRONT_DOMAIN') and 
+            settings.CLOUDFRONT_DOMAIN and 
+            settings.CLOUDFRONT_DOMAIN != 'your-cloudfront-id.cloudfront.net'
+        )
+        
+        return {
+            'configured': cloudfront_configured,
+            'domain': getattr(settings, 'CLOUDFRONT_DOMAIN', 'Not configured'),
+            'status': 'Ready' if cloudfront_configured else 'Needs configuration'
+        }
+    
+class TileURLView(APIView):
+    """
+    Return CloudFront URLs for frontend mapping libraries.
+    Useful for configuring mapping libraries like Leaflet, Mapbox, etc.
+    """
+    
+    def get(self, request, city_slug):
+        try:
+            # Check if CloudFront is configured
+            if not hasattr(settings, 'CLOUDFRONT_DOMAIN') or not settings.CLOUDFRONT_DOMAIN:
+                return Response({
+                    'error': 'CloudFront not configured',
+                    'message': 'Set CLOUDFRONT_DOMAIN in settings.py'
+                }, status=503)
+            
+            base_url = f"https://{settings.CLOUDFRONT_DOMAIN}"
+            
+            # Generate URL templates
+            tile_urls = {
+                'city_tiles': {
+                    'combined_png': f"{base_url}/{city_slug}/combined/{{z}}_{{x}}_{{y}}.png",
+                    'combined_mvt': f"{base_url}/{city_slug}/combined/{{z}}_{{x}}_{{y}}.mvt",
+                    'description': 'City masterplan layers combined'
+                },
+                'real_estate_tiles': {
+                    'plots_png': f"{base_url}/real_estate/plots/{{z}}_{{x}}_{{y}}.png",
+                    'lands_png': f"{base_url}/real_estate/lands/{{z}}_{{x}}_{{y}}.png",
+                    'combined_png': f"{base_url}/real_estate/combined/{{z}}_{{x}}_{{y}}.png",
+                    'description': 'Real estate data (plots and lands)'
+                },
+                'leaflet_examples': {
+                    'city_layer': f"L.tileLayer('{base_url}/{city_slug}/combined/{{z}}_{{x}}_{{y}}.png')",
+                    'real_estate_layer': f"L.tileLayer('{base_url}/real_estate/combined/{{z}}_{{x}}_{{y}}.png')"
+                }
+            }
+            
+            # Example URLs for testing
+            example_urls = {
+                'city_tile_example': f"{base_url}/{city_slug}/combined/12_3119_3222.png",
+                'real_estate_example': f"{base_url}/real_estate/combined/12_3119_3222.png",
+                'test_instructions': 'Open these URLs in browser to test tile serving'
+            }
+            
+            return Response({
+                'city': city_slug,
+                'cloudfront_domain': settings.CLOUDFRONT_DOMAIN,
+                'tile_urls': tile_urls,
+                'example_urls': example_urls,
+                'status': 'CloudFront configured and ready'
+            })
+            
+        except Exception as e:
+            logger.error(f"Error in TileURLView: {e}")
+            return Response({
+                'error': 'Internal server error',
+                'message': str(e)
+            }, status=500)

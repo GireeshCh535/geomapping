@@ -294,3 +294,14 @@ LOGGING = {
         },
     },
 }
+
+#AWS S3 Configuration
+
+AWS_ACCESS_KEY_ID = 'AKIAW3MEBMOOEQKR3BXV'
+AWS_SECRET_ACCESS_KEY = '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'
+AWS_S3_REGION_NAME = "ap-south-1"
+AWS_STORAGE_BUCKET_NAME='gis-portal'
+AWS_S3_CUSTOM_DOMAIN = f'{AWS_STORAGE_BUCKET_NAME}.s3.{AWS_S3_REGION_NAME}.amazonaws.com'
+CLOUDFRONT_DOMAIN = 'd17yosovmfjm4.cloudfront.net'
+
+USE_CLOUDFRONT = True

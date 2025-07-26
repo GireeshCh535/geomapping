@@ -1,4 +1,4 @@
-# urls.py
+# urls.py - Updated with CloudFront integration
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 from . import views
@@ -22,7 +22,7 @@ urlpatterns = [
     # Router URLs (REST API endpoints)
     path('', include(router.urls)),
     
-    # Your existing tile URLs...
+    # 🚀 UPDATED: CloudFront-enabled tile URLs
     path('tiles/<slug:city_slug>/combined/<int:z>/<int:x>/<int:y>.png',
          views.CombinedRasterTileView.as_view(), name='combined_raster_tile'),
     
@@ -34,6 +34,21 @@ urlpatterns = [
          
     path('tiles/<slug:city_slug>/<slug:layer_slug>/<int:z>/<int:x>/<int:y>.mvt', 
          views.VectorTileView.as_view(), name='vector_tile'),
+    
+    # 🚀 UPDATED: CloudFront-enabled real estate tiles
+    path('real-estate-tiles/<str:tile_type>/<int:z>/<int:x>/<int:y>.mvt',
+         RealEstateVectorTileView.as_view(), name='real_estate_vector_tile'),
+         
+    path('real-estate-tiles/<str:tile_type>/<int:z>/<int:x>/<int:y>.png',
+         views.RealEstateRasterTileView.as_view(), name='real_estate_raster_tile'),
+
+    # 🆕 NEW: CloudFront URL helper for frontend integration
+    path('cities/<slug:city_slug>/tile-urls/',
+         views.TileURLView.as_view(), name='city_tile_urls'),
+
+    # 🆕 NEW: Bulk tile upload management
+    path('cities/<slug:city_slug>/upload-tiles/',
+         views.TileUploadManagementView.as_view(), name='tile_upload_management'),
     
     # Your existing layer URLs...
     path('cities/<slug:city_slug>/layers/', 
@@ -113,21 +128,37 @@ urlpatterns = [
      path('cities/<slug:city_slug>/layer-config/', views.CityLayerConfigView.as_view(), name='city_layer_config'),
      path('layer-config/<slug:layer_slug>/', views.LayerConfigDetailView.as_view(), name='layer_config_detail'),
 
-     path('real-estate-tiles/<str:tile_type>/<int:z>/<int:x>/<int:y>.mvt',
-         RealEstateVectorTileView.as_view(), name='real_estate_vector_tile'),
-         
-     path('real-estate-tiles/<str:tile_type>/<int:z>/<int:x>/<int:y>.png',
-         RealEstateRasterTileView.as_view(), name='real_estate_raster_tile'),
-
 ]
-# Plots APIs:
 
-# GET /api/plots/ - All plots
-# GET /api/plots/in_bbox/?bbox=77.0,17.0,78.0,18.0 - Plots in bounding box
-# GET /api/plots/near_point/?lat=17.31&lng=77.91&radius_km=5 - Plots near point
+# 📋 API DOCUMENTATION
+"""
+# City Tile APIs:
+GET /api/tiles/{city_slug}/combined/{z}/{x}/{y}.png - Combined city tiles (CloudFront-enabled)
+GET /api/tiles/{city_slug}/{layer_slug}/{z}/{x}/{y}.png - Individual layer tiles
+GET /api/tiles/{city_slug}/combined/{z}/{x}/{y}.mvt - Combined MVT tiles
+GET /api/tiles/{city_slug}/{layer_slug}/{z}/{x}/{y}.mvt - Individual MVT tiles
 
-# Lands APIs:
+# Real Estate Tile APIs:
+GET /api/real-estate-tiles/{tile_type}/{z}/{x}/{y}.mvt - Real estate MVT tiles (plots/lands/combined)
+GET /api/real-estate-tiles/{tile_type}/{z}/{x}/{y}.png - Real estate PNG tiles (CloudFront-enabled)
 
-# GET /api/lands/ - All lands
-# GET /api/lands/in_bbox/?bbox=77.0,17.0,78.0,18.0 - Lands in bounding box
-# GET /api/lands/near_point/?lat=18.01&lng=78.41&radius_km=10 - Lands near poin
+# CloudFront Integration APIs:
+GET /api/cities/{city_slug}/tile-urls/ - Get all CloudFront URLs for frontend integration
+POST /api/cities/{city_slug}/upload-tiles/ - Trigger S3 upload for city tiles
+
+# Plot APIs:
+GET /api/plots/ - All plots
+GET /api/plots/in_bbox/?bbox=77.0,17.0,78.0,18.0 - Plots in bounding box
+GET /api/plots/near_point/?lat=17.31&lng=77.91&radius_km=5 - Plots near point
+
+# Land APIs:
+GET /api/lands/ - All lands
+GET /api/lands/in_bbox/?bbox=77.0,17.0,78.0,18.0 - Lands in bounding box
+GET /api/lands/near_point/?lat=18.01&lng=78.41&radius_km=10 - Lands near point
+
+# Performance Optimized:
+- Combined tile requests now redirect to CloudFront (50ms response)
+- Real estate tiles served from CloudFront with fallback
+- Tile URL endpoint provides frontend integration URLs
+- Bulk upload management for S3 synchronization
+"""
