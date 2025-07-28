@@ -249,7 +249,7 @@ def map_plu_code_to_category_bangalore(plu_primary, plu_secondary_1=None, plu_se
 BANGALORE_CONFIG = {
     'city_info': {
         'name': 'Bangalore',
-        'slug': 'bangalore',
+        'slug': 'bengaluru',
         'state': 'Karnataka',
         'center_lat': 12.9716,
         'center_lng': 77.5946,
@@ -878,7 +878,7 @@ HYDERABAD_CONFIG = {
 
 # Master configuration dictionary
 CITY_CONFIGS = {
-    'bangalore': BANGALORE_CONFIG,
+    'bengaluru': BANGALORE_CONFIG,
     'visakhapatnam': VIZAG_CONFIG,
     'amaravati': AMARAVATI_CONFIG,
     'hyderabad': HYDERABAD_CONFIG,
