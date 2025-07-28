@@ -353,7 +353,7 @@ def process_bangalore_attributes(esri_attributes):
 VIZAG_CONFIG = {
     'city_info': {
         'name': 'Visakhapatnam',
-        'slug': 'vizag',
+        'slug': 'visakhapatnam',
         'state': 'Andhra Pradesh',
         'center_lat': 17.6868,
         'center_lng': 83.2185,
@@ -879,7 +879,7 @@ HYDERABAD_CONFIG = {
 # Master configuration dictionary
 CITY_CONFIGS = {
     'bangalore': BANGALORE_CONFIG,
-    'vizag': VIZAG_CONFIG,
+    'visakhapatnam': VIZAG_CONFIG,
     'amaravati': AMARAVATI_CONFIG,
     'hyderabad': HYDERABAD_CONFIG,
 }
