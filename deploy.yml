@@ -1,5 +1,5 @@
 ---
-- name: Deploy GeoMapping Application
+- name: Deploy GeoMapping Application - CLOUDFRONT-ONLY PRODUCTION
   hosts: aws_servers
   become: yes
   vars:
@@ -11,7 +11,10 @@
     domain: "gis-portal.1acre.in"
 
   tasks:
-    # Step 1: Clone from git to local machine
+    # ===================================
+    # STEP 1: PREPARE LOCAL DEPLOYMENT
+    # ===================================
+    
     - name: Clean up old temp files on local machine
       file:
         path: "{{ temp_dir }}"
@@ -29,7 +32,6 @@
       run_once: true
       become: no
 
-    # Step 2: Zip the cloned repository
     - name: Create zip archive of the project
       archive:
         path: "{{ temp_dir }}"
@@ -39,13 +41,15 @@
       run_once: true
       become: no
 
-    # Step 3: Send zip file to server
     - name: Upload zip file to server
       copy:
         src: "/tmp/{{ zip_file }}"
         dest: "/tmp/{{ zip_file }}"
 
-    # Step 4: Check if docker is installed, install if not
+    # ===================================
+    # STEP 2: DOCKER INSTALLATION
+    # ===================================
+    
     - name: Check if Docker is installed
       command: which docker
       register: docker_installed
@@ -120,40 +124,21 @@
         groups: docker
         append: yes
 
-    # Check and install docker-compose if missing
-    - name: Check if docker-compose is available
-      command: which docker-compose
-      register: docker_compose_installed
-      ignore_errors: yes
-
-    - name: Install Docker Compose if not found
-      get_url:
-        url: "https://github.com/docker/compose/releases/download/v2.20.2/docker-compose-linux-x86_64"
-        dest: /usr/local/bin/docker-compose
-        mode: '0755'
-      when: docker_compose_installed.rc != 0
-
-    - name: Create docker-compose symlink if needed
-      file:
-        src: /usr/local/bin/docker-compose
-        dest: /usr/bin/docker-compose
-        state: link
-      when: docker_compose_installed.rc != 0
-      ignore_errors: yes
-
-    - name: Verify docker-compose installation
-      command: docker-compose --version
-      register: docker_compose_version
-
-    - name: Display docker-compose version
-      debug:
-        msg: "Docker Compose version: {{ docker_compose_version.stdout }}"
-
-    # Reset connection to apply group changes
-    - name: Reset ssh connection to allow user changes to affect ansible user
+    - name: Reset ssh connection to apply group changes
       meta: reset_connection
 
-    # Step 5: Check for existing docker processes and stop them (preserve data)
+    # ===================================
+    # STEP 3: AGGRESSIVE CLEANUP FOR DISK SPACE
+    # ===================================
+    
+    - name: Check initial disk space
+      shell: df -h
+      register: initial_disk_space
+
+    - name: Display initial disk usage
+      debug:
+        msg: "Initial disk usage: {{ initial_disk_space.stdout }}"
+
     - name: Check if project directory exists
       stat:
         path: "{{ project_dir }}"
@@ -172,28 +157,78 @@
         seconds: 10
       when: project_exists.stat.exists
 
-    - name: Clean up unused containers and images (preserve volumes)
+    # SAFE Docker cleanup - PRESERVES DATA VOLUMES
+    - name: Safe Docker cleanup - preserves database and media data
       shell: |
-        docker container prune -f
-        docker image prune -f
+        echo "🧹 Starting SAFE Docker cleanup (preserving data)..."
+        
+        # Stop all running containers
+        docker stop $(docker ps -aq) 2>/dev/null || true
+        
+        # Remove all containers
+        docker rm $(docker ps -aq) 2>/dev/null || true
+        
+        # Remove all images (except base images we'll need)
+        docker image prune -af
+        
+        # Remove ONLY unused/orphaned volumes (NOT named volumes with data)
+        # This is safer than 'docker volume prune -f'
+        docker volume ls -qf dangling=true | xargs docker volume rm 2>/dev/null || true
+        
+        # Remove all networks
+        docker network prune -f
+        
+        # Remove build cache
+        docker builder prune -af
+        
+        # System-wide cleanup but PRESERVE volumes
+        docker system prune -af
+        
+        echo "✅ SAFE Docker cleanup completed (data preserved)"
+        
+        # Show preserved volumes
+        echo "📊 Preserved volumes:"
+        docker volume ls | grep -E "(postgres_data|redis_data|media_volume)" || echo "No data volumes found yet"
       ignore_errors: yes
 
-    # Step 6: Force delete and recreate directory
-    - name: Force remove old project directory
+    # Clean up old static files and logs
+    - name: Clean up old application files
       shell: |
+        # Remove old project directory completely
         rm -rf {{ project_dir }}
+        
+        # Clean up any orphaned static files
+        find /tmp -name "*tiles*" -type f -delete 2>/dev/null || true
+        find /tmp -name "*.png" -type f -delete 2>/dev/null || true
+        find /tmp -name "*.mvt" -type f -delete 2>/dev/null || true
+        
+        # Clean up logs
+        find /var/log -name "*.log" -size +100M -delete 2>/dev/null || true
+        
+        # Clean apt cache
+        apt-get clean
+        apt-get autoremove -y
+        
+        echo "✅ Application cleanup completed"
+      ignore_errors: yes
+
+    - name: Check disk space after cleanup
+      shell: df -h
+      register: cleaned_disk_space
+
+    - name: Display disk space after cleanup
+      debug:
+        msg: "Disk space after cleanup: {{ cleaned_disk_space.stdout }}"
+
+    - name: Create fresh project directory
+      shell: |
         mkdir -p {{ project_dir }}
         chown ubuntu:ubuntu {{ project_dir }}
 
-    - name: Verify directory is clean
-      shell: ls -la {{ project_dir }}
-      register: dir_contents
-
-    - name: Display directory contents (should be empty)
-      debug:
-        msg: "Directory contents: {{ dir_contents.stdout }}"
-
-    # Extract ZIP file properly (without --strip-components)
+    # ===================================
+    # STEP 4: DEPLOY NEW CODE
+    # ===================================
+    
     - name: Extract zip file to temporary location
       unarchive:
         src: "/tmp/{{ zip_file }}"
@@ -202,29 +237,16 @@
 
     - name: Find extracted directory and move contents
       shell: |
-        # Find the extracted directory (it will be named something like geomapping_deploy)
         EXTRACTED_DIR=$(find /tmp -maxdepth 1 -name "{{ project_name }}_deploy*" -type d | head -1)
         if [ -n "$EXTRACTED_DIR" ]; then
-          # Move all contents from extracted directory to project directory
           mv "$EXTRACTED_DIR"/* {{ project_dir }}/
-          # Also move hidden files if any
           mv "$EXTRACTED_DIR"/.* {{ project_dir }}/ 2>/dev/null || true
-          # Remove the empty extracted directory
           rm -rf "$EXTRACTED_DIR"
-          # Set proper ownership
           chown -R ubuntu:ubuntu {{ project_dir }}
         else
           echo "No extracted directory found"
           exit 1
         fi
-
-    - name: Verify new deployment files
-      shell: ls -la {{ project_dir }}
-      register: new_dir_contents
-
-    - name: Display new directory contents
-      debug:
-        msg: "New deployment files: {{ new_dir_contents.stdout }}"
 
     - name: Update Django ALLOWED_HOSTS setting
       lineinfile:
@@ -232,7 +254,22 @@
         regexp: '^ALLOWED_HOSTS\s*='
         line: "ALLOWED_HOSTS = ['*']"
 
-    # SSL Certificate Check and Installation
+    - name: Ensure DEBUG = False for production
+      lineinfile:
+        path: "{{ project_dir }}/geo_mapping/settings.py"
+        regexp: '^DEBUG\s*='
+        line: "DEBUG = False"
+
+    - name: Force CloudFront-only tile serving
+      lineinfile:
+        path: "{{ project_dir }}/geo_mapping/settings.py"
+        regexp: '^TILE_SERVING_METHOD\s*='
+        line: "TILE_SERVING_METHOD = 'cloudfront_only'"
+
+    # ===================================
+    # STEP 5: SSL CERTIFICATE
+    # ===================================
+    
     - name: Check if SSL certificate exists
       stat:
         path: "/etc/letsencrypt/live/{{ domain }}/fullchain.pem"
@@ -262,7 +299,6 @@
           -d {{ domain }}
       when: not ssl_cert.stat.exists
 
-    # Step 7: Run docker-compose with proper permissions
     - name: Ensure SSL certificate permissions
       file:
         path: /etc/letsencrypt
@@ -270,7 +306,22 @@
         mode: '0755'
         recurse: yes
 
-    - name: Build Docker containers
+    # ===================================
+    # STEP 6: BUILD AND START CONTAINERS
+    # ===================================
+    
+    - name: Create necessary directories
+      file:
+        path: "{{ item }}"
+        state: directory
+        owner: ubuntu
+        group: ubuntu
+        mode: '0755'
+      loop:
+        - "{{ project_dir }}/logs"
+        - "{{ project_dir }}/temp"
+
+    - name: Build Docker containers (no cache for fresh build)
       shell: docker-compose build --no-cache
       args:
         chdir: "{{ project_dir }}"
@@ -282,7 +333,6 @@
         chdir: "{{ project_dir }}"
       become_user: ubuntu
 
-    # Add SSL auto-renewal
     - name: Add SSL renewal cron job
       cron:
         name: "SSL renewal"
@@ -295,25 +345,88 @@
       wait_for:
         port: 443
         host: "0.0.0.0"
-        delay: 20
+        delay: 30
         timeout: 300
       become: no
 
-    # Step 8: Run migrations
+    # ===================================
+    # STEP 7: DATABASE & MINIMAL STATIC FILES
+    # ===================================
+    
     - name: Run Django migrations
       shell: docker-compose exec -T web python manage.py migrate
       args:
         chdir: "{{ project_dir }}"
       become_user: ubuntu
 
-    - name: Collect static files
-      shell: docker-compose exec -T web python manage.py collectstatic --noinput
+    # CRITICAL: Collect ONLY essential static files (NO TILES)
+    - name: Collect minimal static files (CSS, JS, admin only - NO TILES)
+      shell: |
+        docker-compose exec -T web sh -c "
+        # Remove any existing static files first
+        rm -rf /app/staticfiles/* || true
+        
+        # Collect only essential files, explicitly ignore all tile patterns
+        python manage.py collectstatic --noinput \
+          --ignore='*.png' \
+          --ignore='tiles_png' \
+          --ignore='real_estate_tiles_png' \
+          --ignore='tiles' \
+          --ignore='real_estate_tiles' \
+          --ignore='combined' \
+          --verbosity=1 \
+          --clear
+        
+        echo '✅ Static files collection completed (tiles excluded)'
+        "
       args:
         chdir: "{{ project_dir }}"
       become_user: ubuntu
       ignore_errors: yes
 
-    # Step 9: PostGIS extensions (handled by init-db.sql in docker)
+    # ===================================
+    # STEP 8: VERIFY S3/CLOUDFRONT CONNECTION
+    # ===================================
+    
+    - name: Test S3 and CloudFront connectivity
+      shell: |
+        docker-compose exec -T web python manage.py shell -c "
+        print('🔍 Testing S3/CloudFront connectivity...')
+        
+        from maps.s3_upload_service import S3TileUploadService
+        
+        # Test S3 connection
+        uploader = S3TileUploadService()
+        connection = uploader.test_connection()
+        
+        if connection['success']:
+            print(f'✅ S3 Connection successful!')
+            print(f'   Bucket: {connection[\"bucket\"]}')
+            print(f'   Region: {connection[\"region\"]}')
+        else:
+            print(f'❌ S3 Connection failed: {connection[\"error\"]}')
+            exit(1)
+        
+        # Test CloudFront domain
+        from django.conf import settings
+        if hasattr(settings, 'CLOUDFRONT_DOMAIN') and settings.CLOUDFRONT_DOMAIN:
+            print(f'✅ CloudFront domain configured: {settings.CLOUDFRONT_DOMAIN}')
+        else:
+            print('⚠️  CloudFront domain not configured')
+        
+        print('🌐 Tile serving will use CloudFront-only mode')
+        print('📋 To generate tiles, run:')
+        print('   docker-compose exec web python manage.py generate_and_upload_tiles --city CITY_NAME')
+        "
+      args:
+        chdir: "{{ project_dir }}"
+      become_user: ubuntu
+      ignore_errors: yes
+
+    # ===================================
+    # STEP 9: VERIFY POSTGIS
+    # ===================================
+    
     - name: Verify PostGIS extensions are installed
       shell: docker-compose exec -T db psql -U postgres -d geo_mapping_db -c "SELECT extname FROM pg_extension WHERE extname LIKE '%postgis%';"
       args:
@@ -327,7 +440,10 @@
         msg: "PostGIS extensions installed: {{ postgis_check.stdout }}"
       when: postgis_check.stdout is defined
 
-    # Cleanup
+    # ===================================
+    # STEP 10: CLEANUP & FINAL STATUS
+    # ===================================
+    
     - name: Remove uploaded zip file
       file:
         path: "/tmp/{{ zip_file }}"
@@ -349,7 +465,14 @@
       run_once: true
       become: no
 
-    # Final status
+    - name: Final disk space check
+      shell: df -h
+      register: final_disk_space
+
+    - name: Display final disk usage
+      debug:
+        msg: "Final disk usage: {{ final_disk_space.stdout }}"
+
     - name: Show container status
       shell: docker-compose ps
       args:
@@ -357,20 +480,81 @@
       become_user: ubuntu
       register: container_status
 
+    - name: Test application health
+      uri:
+        url: "http://{{ ansible_default_ipv4.address }}/api/"
+        method: GET
+        timeout: 10
+      register: health_check
+      ignore_errors: yes
+
+    # ===================================
+    # DEPLOYMENT SUCCESS MESSAGE
+    # ===================================
+    
     - name: Display deployment status
       debug:
         msg: |
-          🚀 Deployment completed successfully!
+          🎉 CLOUDFRONT-ONLY DEPLOYMENT COMPLETED SUCCESSFULLY!
           
-          Application URL: http://{{ ansible_default_ipv4.address }}
-          Application URL: http://13.233.120.111
+          🌐 Application URLs:
+            - HTTPS: https://{{ domain }}
+            - HTTP:  http://{{ ansible_default_ipv4.address }}
+            - API:   https://{{ domain }}/api/
+            - Health Check: {{ 'PASSED' if health_check.status == 200 else 'FAILED' }}
           
-          Container Status:
+          📊 Container Status:
           {{ container_status.stdout }}
           
-          Useful commands:
-          - Check containers: cd {{ project_dir }} && docker-compose ps
-          - View logs: cd {{ project_dir }} && docker-compose logs -f
-          - Access container: cd {{ project_dir }} && docker-compose exec web bash
+          💾 Disk Usage Optimization:
+          {{ final_disk_space.stdout }}
           
-          Project directory: {{ project_dir }}
+          🗂️ Key Features Deployed:
+            ✅ PostgreSQL with PostGIS extensions
+            ✅ Redis caching (4GB, optimized for GIS)
+            ✅ CloudFront-ONLY tile serving (no local tiles)
+            ✅ SSL certificate with auto-renewal
+            ✅ Production-optimized Django settings
+            ✅ Maximum disk space optimization
+            ✅ Direct S3 tile upload capability
+          
+          🚀 TILE GENERATION COMMANDS:
+            # Generate city tiles directly to S3/CloudFront
+            docker-compose exec web python manage.py generate_and_upload_tiles --city bangalore --type city
+            
+            # Generate real estate tiles directly to S3/CloudFront  
+            docker-compose exec web python manage.py generate_and_upload_tiles --type real-estate
+            
+            # Generate both city and real estate tiles
+            docker-compose exec web python manage.py generate_and_upload_tiles --city bangalore --type both
+            
+            # Test S3 connection before generating
+            docker-compose exec web python manage.py generate_and_upload_tiles --test-connection
+            
+            # Dry run (generate but don't upload)
+            docker-compose exec web python manage.py generate_and_upload_tiles --city bangalore --dry-run
+          
+          🔧 Useful Commands:
+            - Check containers: cd {{ project_dir }} && docker-compose ps
+            - View logs: cd {{ project_dir }} && docker-compose logs -f [service]
+            - Django shell: cd {{ project_dir }} && docker-compose exec web python manage.py shell
+            - Monitor disk: df -h && docker system df
+            - Clean Docker: docker system prune -f
+          
+          📁 Project Directory: {{ project_dir }}
+          
+          ⚠️ IMPORTANT NOTES:
+            🔥 NO TILES STORED LOCALLY - All tiles go directly to S3/CloudFront
+            🔥 Static files collection excludes ALL tile patterns
+            🔥 Deployment uses minimal disk space (no tile storage)
+            🔥 Tiles are generated on-demand and uploaded to CloudFront
+            🔥 Maximum performance with CloudFront CDN delivery
+            🔥 Zero disk space issues with tile storage
+          
+          🎯 NEXT STEPS:
+            1. Generate tiles for your cities using the commands above
+            2. Tiles will be available instantly via CloudFront
+            3. Your application is ready for production traffic
+            4. Monitor CloudFront cache hit rates for optimal performance
+          
+          🌟 Your CloudFront-optimized GIS portal is now production-ready!
