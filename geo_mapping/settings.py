@@ -330,13 +330,22 @@ DATABASES['default']['CONN_MAX_AGE'] = 60
 FILE_UPLOAD_MAX_MEMORY_SIZE = 10 * 1024 * 1024  # 10 MB
 DATA_UPLOAD_MAX_MEMORY_SIZE = 10 * 1024 * 1024  # 10 MB
 
-# Template caching for production
-TEMPLATES[0]['OPTIONS']['loaders'] = [
-    ('django.template.loaders.cached.Loader', [
-        'django.template.loaders.filesystem.Loader',
-        'django.template.loaders.app_directories.Loader',
-    ]),
-]
+# Template caching for production - FIXED
+# Cannot use both APP_DIRS=True and custom loaders
+# For production caching, either use cached loader with APP_DIRS=False
+# or keep APP_DIRS=True without custom loaders
+
+# Option 1: Enable template caching (uncomment for production)
+# TEMPLATES[0]['APP_DIRS'] = False  # Must be False when using custom loaders
+# TEMPLATES[0]['OPTIONS']['loaders'] = [
+#     ('django.template.loaders.cached.Loader', [
+#         'django.template.loaders.filesystem.Loader',
+#         'django.template.loaders.app_directories.Loader',
+#     ]),
+# ]
+
+# Option 2: Keep APP_DIRS=True (current setting, no template caching)
+# This is the default and works fine for most cases
 
 # ===================================
 # TILE SERVING CONFIGURATION
