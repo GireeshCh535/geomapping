@@ -90,3 +90,4 @@ logs/
 /static/
 data.zip
 /media/
+/staticfiles/
