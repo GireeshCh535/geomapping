@@ -95,9 +95,7 @@ DATABASES = {
         'PASSWORD': os.getenv('DJANGO_DB_PASSWORD', 'postgres'),
         'HOST': os.getenv('DJANGO_DB_HOST', 'db'),
         'PORT': os.getenv('DJANGO_DB_PORT', '5432'),
-        'OPTIONS': {
-            'init_command': "SET sql_mode='STRICT_TRANS_TABLES'",
-        },
+        # Removed invalid init_command option for PostgreSQL
     }
 }
 
@@ -143,11 +141,17 @@ STATIC_URL = '/static/'
 STATIC_ROOT = BASE_DIR / 'staticfiles'
 
 # CRITICAL: Only include essential static files (NO TILES)
+# Only include directories that actually exist or will be created
 STATICFILES_DIRS = [
-    BASE_DIR / 'static' / 'css',
-    BASE_DIR / 'static' / 'js',
-    BASE_DIR / 'static' / 'images', 
-    BASE_DIR / 'static' / 'admin',
+    # Only include base static directory - let Django find subdirectories
+    BASE_DIR / 'static',
+    
+    # Alternative: Create specific directories only if they exist
+    # BASE_DIR / 'static' / 'css',     # Only if this directory exists
+    # BASE_DIR / 'static' / 'js',      # Only if this directory exists  
+    # BASE_DIR / 'static' / 'images',  # Only if this directory exists
+    # BASE_DIR / 'static' / 'admin',   # Only if this directory exists
+    
     # TILES ARE COMPLETELY EXCLUDED - SERVED FROM CLOUDFRONT ONLY
 ]
 
@@ -323,7 +327,7 @@ SESSION_COOKIE_AGE = 86400  # 24 hours
 # PERFORMANCE OPTIMIZATIONS
 # ===================================
 
-# Database connection pooling
+# Database connection pooling (for PostgreSQL)
 DATABASES['default']['CONN_MAX_AGE'] = 60
 
 # File upload settings
