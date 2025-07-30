@@ -1,4 +1,4 @@
-# docker-compose.yml - Optimized Redis for GIS caching
+# docker-compose.yml - CLOUDFRONT-ONLY (No Local Tiles)
 
 version: '3.8'
 
@@ -59,9 +59,23 @@ services:
       - redis
     volumes:
       - .:/app
-      - static_volume:/app/static
+      - static_volume:/app/staticfiles  # Changed: map to staticfiles, not static
       - media_volume:/app/media
-    command: sh -c "sleep 15 && python manage.py migrate && python manage.py collectstatic --noinput && python manage.py runserver 0.0.0.0:8000"
+    # CRITICAL: Updated command to exclude tiles from collection
+    command: >
+      sh -c "
+      sleep 15 &&
+      python manage.py migrate &&
+      python manage.py collectstatic --noinput 
+        --ignore='*.png'
+        --ignore='tiles_png'
+        --ignore='real_estate_tiles_png'
+        --ignore='tiles'
+        --ignore='real_estate_tiles'
+        --ignore='combined'
+        --verbosity=1 &&
+      python manage.py runserver 0.0.0.0:8000
+      "
     restart: unless-stopped
 
   nginx:
@@ -72,7 +86,7 @@ services:
     volumes:
       - ./nginx/conf.d:/etc/nginx/conf.d
       - /etc/letsencrypt:/etc/letsencrypt:ro
-      - static_volume:/app/static
+      - static_volume:/app/staticfiles  # Changed: serve from staticfiles
       - media_volume:/app/media
     depends_on:
       - web
