@@ -332,7 +332,7 @@ class DataImportService:
                 geom = GEOSGeometry(json.dumps(geojson_geom))
                 
                 # Enhanced PLU processing for Bangalore
-                if layer.city.slug == 'bangalore':
+                if layer.city.slug == 'bengaluru':
                     processed_attrs = self._process_bangalore_plu_attributes(attrs, layer)
                 else:
                     processed_attrs = self._process_standard_attributes(attrs, layer)
@@ -366,7 +366,7 @@ class DataImportService:
             GeoFeature.objects.bulk_create(features, batch_size=1000)
             
             # Update layer categorization method
-            layer.categorization_method = 'PLU_CODE' if layer.city.slug == 'bangalore' else 'FILENAME'
+            layer.categorization_method = 'PLU_CODE' if layer.city.slug == 'bengaluru' else 'FILENAME'
             layer.save()
         
         print(f"✅ Import completed: {len(features)} features saved")
@@ -544,11 +544,11 @@ class DataImportService:
                 categorization_method = 'PLU_CODE'
         
         # Debug output
-        if categorization_method == 'PLU_CODE':
+        if plu_primary or plu_bda:
             print(f"   PLU: {plu_primary}/{plu_secondary_1}/{plu_secondary_2} (BDA:{plu_bda}) → {derived_category}")
         
         # Build comprehensive attributes
-        return {
+        result = {
             'source_fid': esri_attrs.get('fid'),
             'source_object_id': esri_attrs.get('OBJECTID'),
             
@@ -579,6 +579,8 @@ class DataImportService:
             'original_precision': 15,
             'geometry_simplified': True,
         }
+        
+        return result
 
     def _process_standard_attributes(self, attrs, layer):
         """Process attributes for non-Bangalore cities (ENHANCED for Amaravati and Vizag)"""

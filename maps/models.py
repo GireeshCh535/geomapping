@@ -311,7 +311,7 @@ class GeoFeature(models.Model):
     plot_category = models.CharField(max_length=100, blank=True)
     
     # Enhanced PLU fields (Bangalore-specific but flexible)
-    plu_primary_code = models.CharField(max_length=10, blank=True)          # E, M, D, P, Q, I, C, R
+    plu_primary_code = models.CharField(max_length=100, blank=True)          # E, M, D, P, Q, I, C, R
     plu_secondary_1 = models.CharField(max_length=50, blank=True)           # Ea, Mt, Dc, etc.
     plu_secondary_2 = models.CharField(max_length=50, blank=True)           # Eaa, Mtg, Dc, etc.
     plu_proposed_use = models.CharField(max_length=100, blank=True)         # PLU_prop_l

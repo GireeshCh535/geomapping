@@ -1,4 +1,5 @@
-# urls.py - Updated with CloudFront integration
+# maps/urls.py - Updated with Direct S3 Generation endpoints
+
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 from . import views
@@ -22,7 +23,7 @@ urlpatterns = [
     # Router URLs (REST API endpoints)
     path('', include(router.urls)),
     
-    # 🚀 UPDATED: CloudFront-enabled tile URLs
+    # 🚀 TILE SERVING ENDPOINTS (Updated with Direct S3 fallback)
     path('tiles/<slug:city_slug>/combined/<int:z>/<int:x>/<int:y>.png',
          views.CombinedRasterTileView.as_view(), name='combined_raster_tile'),
     
@@ -35,22 +36,33 @@ urlpatterns = [
     path('tiles/<slug:city_slug>/<slug:layer_slug>/<int:z>/<int:x>/<int:y>.mvt', 
          views.VectorTileView.as_view(), name='vector_tile'),
     
-    # 🚀 UPDATED: CloudFront-enabled real estate tiles
+    # 🚀 REAL ESTATE TILES (CloudFront-enabled)
     path('real-estate-tiles/<str:tile_type>/<int:z>/<int:x>/<int:y>.mvt',
          RealEstateVectorTileView.as_view(), name='real_estate_vector_tile'),
          
     path('real-estate-tiles/<str:tile_type>/<int:z>/<int:x>/<int:y>.png',
          views.RealEstateRasterTileView.as_view(), name='real_estate_raster_tile'),
 
+    # 🆕 NEW: DIRECT S3 GENERATION ENDPOINTS
+    path('direct-s3/generate/',
+         views.DirectS3TileGenerationView.as_view(), name='direct_s3_generation'),
+    
+    path('direct-s3/generate/<slug:city_slug>/',
+         views.DirectS3TileGenerationView.as_view(), name='direct_s3_city_generation'),
+    
+    # 🔄 UPDATED: Enhanced tile upload management with direct S3 generation
+    path('cities/<slug:city_slug>/tile-management/',
+         views.TileUploadManagementView.as_view(), name='tile_management'),
+    
     # 🆕 NEW: CloudFront URL helper for frontend integration
     path('cities/<slug:city_slug>/tile-urls/',
          views.TileURLView.as_view(), name='city_tile_urls'),
 
-    # 🆕 NEW: Bulk tile upload management
+    # 🔄 UPDATED: Legacy upload endpoints (for backward compatibility)
     path('cities/<slug:city_slug>/upload-tiles/',
          views.TileUploadManagementView.as_view(), name='tile_upload_management'),
     
-    # Your existing layer URLs...
+    # REST OF YOUR EXISTING URLS...
     path('cities/<slug:city_slug>/layers/', 
          views.CityLayersView.as_view(), name='city_layers'),
     
@@ -60,15 +72,14 @@ urlpatterns = [
     path('cities/<slug:city_slug>/complete/',
          views.CityCompleteView.as_view(), name='city_complete'),
     
-    # 🚀 NEW COORDINATE SEARCH ENDPOINTS
+    # 🚀 COORDINATE SEARCH ENDPOINTS
     path('cities/<slug:city_slug>/search-coords/',
          views.CoordinateSearchView.as_view(), name='coordinate_search'),
     
-    # Optional: GET version for testing
     path('cities/<slug:city_slug>/search-coords-test/',
          views.CoordinateSearchTestView.as_view(), name='coordinate_search_test'),
     
-    # Rest of your existing URLs...
+    # LAYER MANAGEMENT
     path('layers/<int:pk>/plu-analysis/',
          views.DataLayerViewSet.as_view({'get': 'plu_analysis'}), name='layer_plu_analysis'),
     
@@ -84,81 +95,128 @@ urlpatterns = [
     path('layers/<int:pk>/generate-tiles/',
          views.DataLayerViewSet.as_view({'post': 'generate_tiles'}), name='generate_layer_tiles'),
     
+    # SETUP AND CONFIGURATION
     path('setup/cities/', 
-         views.SetupCitiesView.as_view(), name='setup_cities'),
-
-     path('cities/<slug:city_slug>/progressive/',
-         views.CityProgressiveView.as_view(), name='city_progressive'),
-         
-    # Cached endpoints (add these)
-    path('cities/<slug:city_slug>/complete-cached/',
-         views.CachedCityCompleteView.as_view(), name='city_complete_cached'),
-
-    path('cities/<slug:city_slug>/progressive-cached/',
-         views.CachedProgressiveView.as_view(), name='city_progressive_cached'),
-
-    path('cache/manage/<slug:city_slug>/',
+         views.SetupCitiesView.as_view(), name='city_setup'),
+    
+    path('cache/manage/<slug:city_slug>/', 
          views.CacheManagementView.as_view(), name='cache_management'),
 
-    path('cache/stats/',
-         views.CacheManagementView.as_view(), name='cache_stats'),
-
-    # 🚀 NEW: City tile generation endpoint
+    # VISUALIZATION PAGES
+    path('simple-map/', views.SimpleMapView.as_view(), name='simple_map'),
+    path('masterplan-viewer/', views.MasterplanViewerView.as_view(), name='masterplan_viewer'),
+    
+    # TILE GENERATION ENDPOINTS
     path('cities/<slug:city_slug>/generate-tiles/',
          views.CityTileGenerationView.as_view(), name='city_tile_generation'),
-
-    path('maps/simple/', SimpleMapView.as_view(), name='simple_map'),
     
-    # 🏙️ NEW: Masterplan viewer page
-    path('maps/masterplan/', views.MasterplanViewerView.as_view(), name='masterplan_viewer'),
-    path('api/static-tiles/<slug:city_slug>/<slug:layer_slug>/<int:z>/<int:x>/<int:y>.mvt', StaticVectorTileView.as_view(), name='static-vector-tile'),
-
-    # Add new endpoints
-    path('states/<slug:state_slug>/cities/',
-         views.StateCitiesView.as_view(), name='state_cities'),
-    
-    path('cities/<slug:city_slug>/layer-groups/',
-         views.CityLayerGroupsView.as_view(), name='city_layer_groups'),
-    
-    path('layer-groups/<slug:group_slug>/layers/',
-         views.LayerGroupLayersView.as_view(), name='layer_group_layers'),
-
+    # LAYER CONFIGURATION
      path('layer-config/', views.LayerConfigAPIView.as_view(), name='layer_config'),
      path('states/<slug:state_slug>/layer-config/', views.StateLayerConfigView.as_view(), name='state_layer_config'),
+     path('layer-config/', views.StateLayerConfigView.as_view(), name='state_layer_config'),
      path('cities/<slug:city_slug>/layer-config/', views.CityLayerConfigView.as_view(), name='city_layer_config'),
      path('layer-config/<slug:layer_slug>/', views.LayerConfigDetailView.as_view(), name='layer_config_detail'),
 
 ]
 
-# 📋 API DOCUMENTATION
+# 📋 UPDATED API DOCUMENTATION
 """
-# City Tile APIs:
-GET /api/tiles/{city_slug}/combined/{z}/{x}/{y}.png - Combined city tiles (CloudFront-enabled)
+# 🚀 NEW DIRECT S3 GENERATION ENDPOINTS:
+
+## Direct S3 Generation APIs:
+POST /api/direct-s3/generate/ - Generate tiles directly to S3
+POST /api/direct-s3/generate/{city_slug}/ - Generate city-specific tiles to S3
+
+### Request Body Example:
+{
+    "action": "generate_city",           // or "generate_real_estate", "generate_all_cities"
+    "tile_types": ["png", "mvt"],        // Array of tile types to generate
+    "min_zoom": 8,                       // Minimum zoom level
+    "max_zoom": 14,                      // Maximum zoom level
+    "data_type": "combined",             // For real estate: "plots", "lands", "combined"
+    "include_real_estate": false         // Include real estate tiles for city generation
+}
+
+### Response Example:
+{
+    "status": "success",
+    "action": "generate_city",
+    "result": {
+        "success": true,
+        "city": "bangalore",
+        "results": {
+            "total_tiles": 1024,
+            "generated_tiles": 1024,
+            "failed_tiles": 0,
+            "png_uploads": 1024,
+            "mvt_uploads": 1024,
+            "total_size_mb": 45.3
+        },
+        "success_rate": "100.0%",
+        "sample_urls": {
+            "city_tile_example": "https://d17yosovmfjm4.cloudfront.net/bangalore/combined/12_2048_2048.png",
+            "template_png": "https://d17yosovmfjm4.cloudfront.net/bangalore/combined/{z}_{x}_{y}.png"
+        }
+    }
+}
+
+## Enhanced Tile Management APIs:
+GET /api/cities/{city_slug}/tile-management/ - Get status and available actions
+POST /api/cities/{city_slug}/tile-management/ - Trigger operations
+
+### Available Actions:
+- "generate_direct_s3" - 🆕 NEW: Generate tiles directly to S3 (RECOMMENDED)
+- "upload_city_png" - Legacy: Upload existing local PNG files
+- "upload_city_mvt" - Legacy: Upload existing local MVT files
+- "upload_real_estate" - Legacy: Upload existing real estate files
+- "test_s3_connection" - Test S3 connectivity
+
+## Tile Serving APIs (Updated):
+GET /api/tiles/{city_slug}/combined/{z}/{x}/{y}.png - City tiles with enhanced fallback
 GET /api/tiles/{city_slug}/{layer_slug}/{z}/{x}/{y}.png - Individual layer tiles
 GET /api/tiles/{city_slug}/combined/{z}/{x}/{y}.mvt - Combined MVT tiles
 GET /api/tiles/{city_slug}/{layer_slug}/{z}/{x}/{y}.mvt - Individual MVT tiles
 
-# Real Estate Tile APIs:
-GET /api/real-estate-tiles/{tile_type}/{z}/{x}/{y}.mvt - Real estate MVT tiles (plots/lands/combined)
-GET /api/real-estate-tiles/{tile_type}/{z}/{x}/{y}.png - Real estate PNG tiles (CloudFront-enabled)
+### Updated Serving Priority:
+1. 🌐 CloudFront (Production, fastest)
+2. 📁 Local files (Backward compatibility)
+3. 🚀 Direct S3 generation (NEW - Primary method)
+4. 🔄 On-demand generation (Fallback)
+5. ⚪ Empty tile (Last resort)
 
-# CloudFront Integration APIs:
-GET /api/cities/{city_slug}/tile-urls/ - Get all CloudFront URLs for frontend integration
-POST /api/cities/{city_slug}/upload-tiles/ - Trigger S3 upload for city tiles
+## Real Estate Tile APIs:
+GET /api/real-estate-tiles/{tile_type}/{z}/{x}/{y}.mvt - Real estate MVT tiles
+GET /api/real-estate-tiles/{tile_type}/{z}/{x}/{y}.png - Real estate PNG tiles
 
-# Plot APIs:
+## CloudFront Integration APIs:
+GET /api/cities/{city_slug}/tile-urls/ - Get all CloudFront URLs for frontend
+
+## Plot & Land APIs:
 GET /api/plots/ - All plots
 GET /api/plots/in_bbox/?bbox=77.0,17.0,78.0,18.0 - Plots in bounding box
 GET /api/plots/near_point/?lat=17.31&lng=77.91&radius_km=5 - Plots near point
-
-# Land APIs:
 GET /api/lands/ - All lands
 GET /api/lands/in_bbox/?bbox=77.0,17.0,78.0,18.0 - Lands in bounding box
 GET /api/lands/near_point/?lat=18.01&lng=78.41&radius_km=10 - Lands near point
 
-# Performance Optimized:
-- Combined tile requests now redirect to CloudFront (50ms response)
-- Real estate tiles served from CloudFront with fallback
-- Tile URL endpoint provides frontend integration URLs
-- Bulk upload management for S3 synchronization
+# 🎯 RECOMMENDED WORKFLOW:
+
+## For New Deployments:
+1. Use direct S3 generation: POST /api/direct-s3/generate/{city_slug}/
+2. Tiles are generated and uploaded directly to S3
+3. CloudFront serves tiles globally with CDN caching
+4. No local storage required
+
+## For Existing Deployments:
+1. Can continue using legacy upload methods
+2. Gradually migrate to direct S3 generation
+3. Both methods work together seamlessly
+
+# 🚀 PERFORMANCE BENEFITS:
+- No local disk space required for tiles
+- Faster deployment (no tile file transfers)
+- Automatic CDN distribution
+- Concurrent tile generation
+- Better error handling and retry logic
+- Real-time progress tracking
 """

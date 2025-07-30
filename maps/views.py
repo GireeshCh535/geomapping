@@ -32,7 +32,7 @@ from django.urls import path
 from PIL import Image, ImageDraw
 import io
 from pathlib import Path
-
+from maps.s3_direct_tile_service import *
 from .models import *
 from .serializers import *
 from .services import DataImportService, VectorTileService
@@ -765,87 +765,60 @@ class RasterTileView(APIView):
 
 class CombinedRasterTileView(APIView):
     """
-    Complete tile serving view with CloudFront integration and robust fallbacks.
-    
-    Serving Priority:
-    1. CloudFront (if configured and not in DEBUG mode)
-    2. Local pre-generated files (multiple path formats)
-    3. On-demand generation (as last resort)
-    4. Empty tile (if all else fails)
-    
-    URL Format: /api/tiles/{city_slug}/combined/{z}/{x}/{y}.png
-    File Format: static/tiles_png/{city_slug}/combined/{z}_{x}_{y}.png
+    🔄 UPDATED: Enhanced tile serving with direct S3 fallback
+    Priority: CloudFront → S3 Direct → Local → On-demand → Empty
     """
-    
-    permission_classes = [AllowAny]  # Public access for tiles
     
     def get(self, request, city_slug, z, x, y):
         """
-        Main tile serving endpoint.
-        Handles the complete tile serving workflow with comprehensive error handling.
+        Serve tiles with updated priority system including direct S3 generation
         """
         try:
-            # Validate and convert parameters
             z, x, y = int(z), int(x), int(y)
             
-            # Basic validation
-            if not (0 <= z <= 20):
-                logger.warning(f"Invalid zoom level: {z}")
-                return HttpResponse("Invalid zoom level (0-20)", status=400)
-            
-            if not (0 <= x < 2**z) or not (0 <= y < 2**z):
-                logger.warning(f"Invalid tile coordinates: {x},{y} for zoom {z}")
-                return HttpResponse("Invalid tile coordinates", status=400)
-            
-            logger.info(f"🗺️  Tile request: {city_slug}/{z}/{x}/{y}")
-            
-            # Method 1: CloudFront Redirect (Production)
+            # 1. Try CloudFront redirect (fastest)
             if self._should_use_cloudfront():
-                return self._redirect_to_cloudfront(city_slug, z, x, y)
+                cloudfront_response = self._redirect_to_cloudfront(city_slug, z, x, y)
+                if cloudfront_response:
+                    return cloudfront_response
             
-            # Method 2: Serve Local Pre-generated File
+            # 2. Try serving from local files (backward compatibility)
             local_response = self._serve_local_tile(city_slug, z, x, y)
             if local_response:
                 return local_response
             
-            # Method 3: Generate On-Demand (Fallback)
-            generated_response = self._generate_tile_on_demand(city_slug, z, x, y)
-            if generated_response:
-                return generated_response
+            # 3. Generate tile directly to S3 and serve (NEW)
+            direct_s3_response = self._generate_and_serve_from_s3(city_slug, z, x, y)
+            if direct_s3_response:
+                return direct_s3_response
             
-            # Method 4: Empty Tile (Last Resort)
-            logger.warning(f"🔴 All methods failed for tile: {city_slug}/{z}/{x}/{y}")
+            # 4. Fallback: Generate on-demand (temporary)
+            on_demand_response = self._generate_tile_on_demand(city_slug, z, x, y)
+            if on_demand_response:
+                return on_demand_response
+            
+            # 5. Last resort: Empty tile
             return self._return_empty_tile()
             
-        except ValueError as e:
-            logger.error(f"Invalid parameters for tile request: {e}")
-            return HttpResponse("Invalid tile parameters", status=400)
+        except ValueError:
+            return Response({'error': 'Invalid tile coordinates'}, status=400)
         except Exception as e:
-            logger.error(f"🔴 Unexpected error in CombinedRasterTileView: {e}", exc_info=True)
+            logger.error(f"Error serving tile {city_slug}/{z}/{x}/{y}: {e}")
             return self._return_empty_tile()
     
     def _should_use_cloudfront(self):
-        """
-        Determine if CloudFront should be used.
-        Only in production with proper configuration.
-        """
-        cloudfront_configured = (
+        return (
             hasattr(settings, 'CLOUDFRONT_DOMAIN') and 
             settings.CLOUDFRONT_DOMAIN and 
-            settings.CLOUDFRONT_DOMAIN != 'your-cloudfront-id.cloudfront.net' and
-            settings.CLOUDFRONT_DOMAIN.strip() != ''
+            not settings.DEBUG and              # ← This still blocks it!
+            getattr(settings, 'USE_CLOUDFRONT', True)
         )
-        
-        use_cloudfront = cloudfront_configured and not settings.DEBUG
-        
-        if cloudfront_configured and settings.DEBUG:
-            logger.info("🔧 CloudFront configured but disabled in DEBUG mode")
-        
-        return use_cloudfront
     
     def _redirect_to_cloudfront(self, city_slug, z, x, y):
         """Redirect to CloudFront for fast tile serving"""
         try:
+            from django.shortcuts import redirect
+            
             cloudfront_url = f"https://{settings.CLOUDFRONT_DOMAIN}/{city_slug}/combined/{z}_{x}_{y}.png"
             logger.info(f"☁️  Redirecting to CloudFront: {cloudfront_url}")
             
@@ -859,121 +832,102 @@ class CombinedRasterTileView(APIView):
             return None
     
     def _serve_local_tile(self, city_slug, z, x, y):
-        """
-        Serve pre-generated local tile with comprehensive path checking.
-        Tries multiple possible file locations and formats.
-        """
-        
-        # Generate all possible file paths (in order of preference)
-        possible_paths = [
-            # Primary format: z_x_y.png in combined folder
-            f'static/tiles_png/{city_slug}/combined/{z}_{x}_{y}.png',
+        """Serve from local files (backward compatibility)"""
+        try:
+            import os
+            from django.http import FileResponse
             
-            # Alternative format: z/x/y.png directory structure
-            f'static/tiles_png/{city_slug}/combined/{z}/{x}/{y}.png',
+            # Try multiple possible local paths
+            possible_paths = [
+                f'static/tiles_png/{city_slug}/combined/{z}_{x}_{y}.png',
+                f'static/tiles_png/{city_slug}/{z}_{x}_{y}.png',
+                f'media/tiles_png/{city_slug}/combined/{z}_{x}_{y}.png',
+            ]
             
-            # Direct in city folder
-            f'static/tiles_png/{city_slug}/{z}_{x}_{y}.png',
-            
-            # Media folder alternatives
-            f'media/tiles_png/{city_slug}/combined/{z}_{x}_{y}.png',
-            f'media/tiles_png/{city_slug}/{z}_{x}_{y}.png',
-            
-            # Static folder alternatives (without tiles_png)
-            f'static/{city_slug}/combined/{z}_{x}_{y}.png',
-            f'static/tiles/{city_slug}/combined/{z}_{x}_{y}.png',
-        ]
-        
-        for png_path in possible_paths:
-            if os.path.exists(png_path):
-                try:
-                    file_size = os.path.getsize(png_path)
-                    logger.info(f"✅ Found local tile: {png_path} ({file_size} bytes)")
-                    
-                    # Serve the file
+            for png_path in possible_paths:
+                if os.path.exists(png_path):
+                    logger.info(f"📁 Serving local tile: {png_path}")
                     response = FileResponse(
                         open(png_path, 'rb'), 
                         content_type='image/png'
                     )
-                    
-                    # Set appropriate headers
-                    response['Cache-Control'] = 'max-age=3600'  # 1 hour cache
+                    response['Cache-Control'] = 'max-age=3600'
                     response['X-Tile-Source'] = 'local-file'
-                    response['X-Tile-Path'] = png_path
-                    response['X-Tile-Size'] = str(file_size)
-                    response['Access-Control-Allow-Origin'] = '*'
-                    
                     return response
-                    
-                except (IOError, OSError) as e:
-                    logger.error(f"Error reading local tile {png_path}: {e}")
-                    continue
-                except Exception as e:
-                    logger.error(f"Unexpected error serving local tile {png_path}: {e}")
-                    continue
-        
-        # Debug logging if no file found
-        self._debug_missing_tile(city_slug, z, x, y)
-        return None
-    
-    def _debug_missing_tile(self, city_slug, z, x, y):
-        """Debug helper to understand why a tile wasn't found"""
-        try:
-            # Check if the city directory exists
-            city_dir = f'static/tiles_png/{city_slug}'
-            combined_dir = f'static/tiles_png/{city_slug}/combined'
             
-            if not os.path.exists(city_dir):
-                logger.warning(f"🔍 City directory not found: {city_dir}")
-                # List available cities
-                tiles_dir = 'static/tiles_png'
-                if os.path.exists(tiles_dir):
-                    available_cities = [d for d in os.listdir(tiles_dir) if os.path.isdir(os.path.join(tiles_dir, d))]
-                    logger.info(f"Available cities: {available_cities}")
-                return
+            return None
             
-            if not os.path.exists(combined_dir):
-                logger.warning(f"🔍 Combined directory not found: {combined_dir}")
-                # List available subdirectories
-                subdirs = [d for d in os.listdir(city_dir) if os.path.isdir(os.path.join(city_dir, d))]
-                logger.info(f"Available subdirectories in {city_dir}: {subdirs}")
-                return
-            
-            # List some actual files to see the pattern
-            actual_files = [f for f in os.listdir(combined_dir) if f.endswith('.png')]
-            logger.warning(f"🔍 Tile {z}_{x}_{y}.png not found in {combined_dir}")
-            logger.info(f"Sample files in directory: {actual_files[:10]}")
-            
-            # Check for similar tiles (same zoom level)
-            similar_tiles = [f for f in actual_files if f.startswith(f'{z}_')]
-            if similar_tiles:
-                logger.info(f"Found {len(similar_tiles)} tiles for zoom level {z}")
-            else:
-                # Check what zoom levels are available
-                zoom_levels = set()
-                for f in actual_files:
-                    try:
-                        zoom = f.split('_')[0]
-                        zoom_levels.add(zoom)
-                    except:
-                        continue
-                logger.info(f"Available zoom levels: {sorted(zoom_levels)}")
-                
         except Exception as e:
-            logger.error(f"Error in debug analysis: {e}")
+            logger.error(f"Error serving local tile: {e}")
+            return None
+    
+    def _generate_and_serve_from_s3(self, city_slug, z, x, y):
+        """
+        🆕 NEW: Generate tile directly to S3 and serve
+        This is the new primary method for tile generation
+        """
+        try:
+            logger.info(f"🚀 Generating tile directly to S3: {city_slug}/{z}/{x}/{y}")
+            
+            # Initialize direct S3 service
+            service = S3DirectTileGenerationService()
+            
+            # Get city layers
+            from maps.models import DataLayer, City
+            
+            try:
+                city = City.objects.get(slug=city_slug, is_active=True)
+                layers = DataLayer.objects.filter(
+                    city=city,
+                    is_processed=True
+                ).select_related('category', 'city')
+                
+                if not layers.exists():
+                    logger.warning(f"No processed layers found for city: {city_slug}")
+                    return None
+                
+            except City.DoesNotExist:
+                logger.error(f"City not found: {city_slug}")
+                return None
+            
+            # Generate single tile directly to S3
+            tile_result = service._generate_and_upload_single_tile(
+                city_slug, layers, z, x, y, ['png']
+            )
+            
+            if tile_result.get('success') and tile_result.get('png_size'):
+                # Tile generated successfully, redirect to S3/CloudFront
+                if service.cloudfront_domain:
+                    tile_url = f"https://{service.cloudfront_domain}/{city_slug}/combined/{z}_{x}_{y}.png"
+                else:
+                    tile_url = f"https://{service.bucket_name}.s3.{service.region}.amazonaws.com/{city_slug}/combined/{z}_{x}_{y}.png"
+                
+                logger.info(f"✅ Generated and redirecting to: {tile_url}")
+                
+                from django.shortcuts import redirect
+                response = redirect(tile_url)
+                response['X-Tile-Source'] = 'generated-s3-direct'
+                response['X-Generation-Time'] = 'real-time'
+                response['Cache-Control'] = 'max-age=31536000'  # 1 year cache
+                return response
+            
+            else:
+                logger.warning(f"Failed to generate tile to S3: {tile_result}")
+                return None
+            
+        except Exception as e:
+            logger.error(f"Error in direct S3 generation: {e}")
+            return None
     
     def _generate_tile_on_demand(self, city_slug, z, x, y):
-        """
-        Generate tile on-demand as fallback option.
-        This is slow but ensures tiles are always available.
-        """
+        """Generate tile on-demand (fallback method)"""
         try:
             logger.warning(f"🔄 Generating tile on-demand: {city_slug}/{z}/{x}/{y}")
             
-            # Import here to avoid circular imports
             from maps.models import DataLayer
             from maps.services import VectorTileService
             from maps.tile_rendering_service import TileRenderingService
+            from django.http import HttpResponse
             
             # Get processed layers for the city
             layers = DataLayer.objects.filter(
@@ -985,8 +939,6 @@ class CombinedRasterTileView(APIView):
                 logger.warning(f"No processed layers found for city: {city_slug}")
                 return None
             
-            logger.info(f"Found {layers.count()} processed layers for {city_slug}")
-            
             # Generate MVT data
             vector_service = VectorTileService()
             mvt_data = vector_service.generate_combined_tile(layers, z, x, y)
@@ -994,8 +946,6 @@ class CombinedRasterTileView(APIView):
             if not mvt_data or len(mvt_data) == 0:
                 logger.info(f"No MVT data generated for tile {city_slug}/{z}/{x}/{y}")
                 return None
-            
-            logger.info(f"Generated MVT data: {len(mvt_data)} bytes")
             
             # Convert MVT to PNG
             renderer = TileRenderingService()
@@ -1014,44 +964,18 @@ class CombinedRasterTileView(APIView):
             response['Access-Control-Allow-Origin'] = '*'
             
             logger.info(f"✅ Generated tile on-demand: {city_slug}/{z}/{x}/{y} ({len(png_data)} bytes)")
-            
-            # Optional: Save generated tile for future requests
-            self._save_generated_tile(city_slug, z, x, y, png_data)
-            
             return response
             
         except Exception as e:
-            logger.error(f"Error generating tile on-demand: {e}", exc_info=True)
+            logger.error(f"Error generating tile on-demand: {e}")
             return None
     
-    def _save_generated_tile(self, city_slug, z, x, y, png_data):
-        """
-        Optionally save generated tile to disk for future requests.
-        This improves performance for subsequent requests.
-        """
-        try:
-            # Create directory if it doesn't exist
-            tile_dir = Path(f'static/tiles_png/{city_slug}/combined')
-            tile_dir.mkdir(parents=True, exist_ok=True)
-            
-            # Save tile
-            tile_path = tile_dir / f'{z}_{x}_{y}.png'
-            with open(tile_path, 'wb') as f:
-                f.write(png_data)
-            
-            logger.info(f"💾 Saved generated tile: {tile_path}")
-            
-        except Exception as e:
-            logger.warning(f"Failed to save generated tile: {e}")
-    
     def _return_empty_tile(self):
-        """
-        Return empty/transparent tile as last resort.
-        Always succeeds to prevent broken tile requests.
-        """
+        """Return empty/transparent tile"""
         try:
-            # Try to use the rendering service for consistent empty tiles
             from maps.tile_rendering_service import TileRenderingService
+            from django.http import HttpResponse
+            
             renderer = TileRenderingService()
             empty_png = renderer.create_empty_tile()
             
@@ -1060,61 +984,12 @@ class CombinedRasterTileView(APIView):
             response['X-Tile-Source'] = 'empty-tile'
             response['Access-Control-Allow-Origin'] = '*'
             
-            logger.info("📋 Returned empty tile")
             return response
             
         except Exception as e:
             logger.error(f"Error creating empty tile: {e}")
-            
-            # Absolute last resort: create minimal PNG
-            try:
-                from PIL import Image
-                import io
-                
-                # Create 256x256 transparent image
-                img = Image.new('RGBA', (256, 256), (255, 255, 255, 0))
-                img_buffer = io.BytesIO()
-                img.save(img_buffer, format='PNG')
-                
-                response = HttpResponse(img_buffer.getvalue(), content_type='image/png')
-                response['Cache-Control'] = 'max-age=3600'
-                response['X-Tile-Source'] = 'fallback-empty'
-                response['Access-Control-Allow-Origin'] = '*'
-                
-                return response
-                
-            except Exception as final_error:
-                logger.error(f"Final fallback failed: {final_error}")
-                # Ultimate fallback: minimal response
-                return HttpResponse(b'', content_type='image/png', status=204)
-    
-    # Additional utility methods
-    
-    def head(self, request, city_slug, z, x, y):
-        """Handle HEAD requests for tile existence checking"""
-        try:
-            # Quick check if tile exists locally
-            z, x, y = int(z), int(x), int(y)
-            
-            if self._tile_exists_locally(city_slug, z, x, y):
-                response = HttpResponse()
-                response['Content-Type'] = 'image/png'
-                response['X-Tile-Source'] = 'local-file'
-                return response
-            else:
-                return HttpResponse(status=404)
-                
-        except Exception:
-            return HttpResponse(status=500)
-    
-    def _tile_exists_locally(self, city_slug, z, x, y):
-        """Quick check if tile exists locally"""
-        possible_paths = [
-            f'static/tiles_png/{city_slug}/combined/{z}_{x}_{y}.png',
-            f'static/tiles_png/{city_slug}/{z}_{x}_{y}.png',
-        ]
-        
-        return any(os.path.exists(path) for path in possible_paths)
+            from django.http import HttpResponse
+            return HttpResponse(b'', content_type='image/png', status=204)
 
 class SimpleVectorTileView(APIView):
     """A simplified view to directly test VectorTileService"""
@@ -3848,20 +3723,20 @@ class RealEstateRasterTileView(APIView):
         
 class TileUploadManagementView(APIView):
     """
-    API endpoint for managing tile uploads to S3.
-    Provides a web interface to trigger uploads without using management commands.
+    🔄 UPDATED: Enhanced tile upload management with direct S3 generation
+    Provides both legacy local upload and new direct S3 generation
     """
     
     def get(self, request, city_slug):
         """Get upload status and available actions"""
         try:
-            from maps.services.s3_upload_service import S3TileUploadService
+            # Initialize services
+            direct_service = S3DirectTileGenerationService()
             
             # Test S3 connection
-            upload_service = S3TileUploadService()
-            connection_test = upload_service.test_connection()
+            connection_test = direct_service.test_connection()
             
-            # Check local tile availability
+            # Check for local tiles (for backward compatibility)
             local_tiles = self._check_local_tiles(city_slug)
             
             # Get CloudFront status
@@ -3873,11 +3748,14 @@ class TileUploadManagementView(APIView):
                 'local_tiles': local_tiles,
                 'cloudfront': cloudfront_status,
                 'available_actions': [
-                    'upload_city_png',
-                    'upload_city_mvt', 
-                    'upload_real_estate',
-                    'test_s3_connection'
-                ]
+                    'generate_direct_s3',      # NEW: Direct S3 generation
+                    'upload_city_png',         # Legacy: Upload existing local files
+                    'upload_city_mvt',         # Legacy: Upload existing local files
+                    'upload_real_estate',      # Legacy: Upload existing local files
+                    'test_s3_connection'       # Test connection
+                ],
+                'recommended_action': 'generate_direct_s3',
+                'direct_generation_available': True
             })
             
         except Exception as e:
@@ -3886,20 +3764,104 @@ class TileUploadManagementView(APIView):
             }, status=500)
     
     def post(self, request, city_slug):
-        """Trigger tile upload to S3"""
+        """Trigger tile operations (upload or direct generation)"""
         try:
             action = request.data.get('action')
-            tile_type = request.data.get('type', 'png')
             
             if not action:
                 return Response({
-                    'error': 'Action required. Use: upload_city_png, upload_city_mvt, upload_real_estate, test_s3_connection'
+                    'error': 'Action required',
+                    'available_actions': [
+                        'generate_direct_s3',
+                        'upload_city_png', 
+                        'upload_city_mvt',
+                        'upload_real_estate',
+                        'test_s3_connection'
+                    ]
                 }, status=400)
             
-            from maps.services.s3_upload_service import S3TileUploadService
+            # Handle direct S3 generation (NEW)
+            if action == 'generate_direct_s3':
+                return self._handle_direct_s3_generation(request, city_slug)
+            
+            # Handle legacy uploads (existing functionality)
+            elif action in ['upload_city_png', 'upload_city_mvt', 'upload_real_estate', 'test_s3_connection']:
+                return self._handle_legacy_upload(request, city_slug, action)
+            
+            else:
+                return Response({
+                    'error': f'Unknown action: {action}'
+                }, status=400)
+                
+        except Exception as e:
+            return Response({
+                'error': f'Operation failed: {str(e)}'
+            }, status=500)
+    
+    def _handle_direct_s3_generation(self, request, city_slug):
+        """Handle direct S3 tile generation"""
+        try:
+            service = S3DirectTileGenerationService()
+            
+            # Get parameters with defaults
+            tile_types = request.data.get('tile_types', ['png', 'mvt'])
+            min_zoom = int(request.data.get('min_zoom', 8))
+            max_zoom = int(request.data.get('max_zoom', 14))
+            include_real_estate = request.data.get('include_real_estate', False)
+            
+            results = {}
+            
+            # Generate city tiles
+            city_result = service.generate_and_upload_city_tiles(
+                city_slug=city_slug,
+                min_zoom=min_zoom,
+                max_zoom=max_zoom,
+                tile_types=tile_types
+            )
+            results['city'] = city_result
+            
+            # Optionally generate real estate tiles
+            if include_real_estate:
+                real_estate_result = service.generate_and_upload_real_estate_tiles(
+                    data_type='combined',
+                    min_zoom=min_zoom,
+                    max_zoom=max_zoom,
+                    tile_types=tile_types
+                )
+                results['real_estate'] = real_estate_result
+            
+            # Determine overall success
+            overall_success = city_result.get('success', False)
+            if include_real_estate:
+                overall_success = overall_success and results['real_estate'].get('success', False)
+            
+            return Response({
+                'action': 'generate_direct_s3',
+                'city': city_slug,
+                'success': overall_success,
+                'results': results,
+                'message': 'Direct S3 generation completed',
+                'cloudfront_urls': city_result.get('sample_urls', {}) if city_result.get('success') else None
+            })
+            
+        except Exception as e:
+            logger.error(f"Error in direct S3 generation: {e}")
+            return Response({
+                'action': 'generate_direct_s3',
+                'city': city_slug,
+                'success': False,
+                'error': str(e),
+                'message': 'Direct S3 generation failed'
+            }, status=500)
+    
+    def _handle_legacy_upload(self, request, city_slug, action):
+        """Handle legacy file upload operations"""
+        try:
+            # Use existing S3TileUploadService for backward compatibility
+            from maps.s3_upload_service import S3TileUploadService
             upload_service = S3TileUploadService()
             
-            # Handle different actions
+            # Handle different legacy actions
             if action == 'test_s3_connection':
                 result = upload_service.test_connection()
                 
@@ -3911,12 +3873,8 @@ class TileUploadManagementView(APIView):
                 
             elif action == 'upload_real_estate':
                 data_type = request.data.get('data_type', 'combined')
+                tile_type = request.data.get('type', 'png')
                 result = upload_service.upload_real_estate_tiles(data_type, tile_type)
-                
-            else:
-                return Response({
-                    'error': f'Unknown action: {action}'
-                }, status=400)
             
             # Return result
             if result.get('success'):
@@ -3935,12 +3893,17 @@ class TileUploadManagementView(APIView):
                 }, status=500)
                 
         except Exception as e:
+            logger.error(f"Error in legacy upload: {e}")
             return Response({
-                'error': f'Upload failed: {str(e)}'
+                'action': action,
+                'city': city_slug,
+                'success': False,
+                'error': str(e),
+                'message': f'{action} failed'
             }, status=500)
     
     def _check_local_tiles(self, city_slug):
-        """Check what tiles are available locally"""
+        """Check what tiles are available locally (for backward compatibility)"""
         import os
         from pathlib import Path
         
@@ -4040,6 +4003,148 @@ class TileURLView(APIView):
             
         except Exception as e:
             logger.error(f"Error in TileURLView: {e}")
+            return Response({
+                'error': 'Internal server error',
+                'message': str(e)
+            }, status=500)
+        
+class DirectS3TileGenerationView(APIView):
+    """
+    🚀 NEW: Generate tiles directly to S3 without local storage
+    Supports both city tiles and real estate tiles
+    """
+    
+    def post(self, request, city_slug=None):
+        """Trigger direct S3 tile generation"""
+        try:
+            # Initialize service
+            service = S3DirectTileGenerationService()
+            
+            # Test connection first
+            connection_test = service.test_connection()
+            if not connection_test['success']:
+                return Response({
+                    'error': 'S3 connection failed',
+                    'details': connection_test['error']
+                }, status=503)
+            
+            # Get parameters
+            action = request.data.get('action', 'generate_city')
+            tile_types = request.data.get('tile_types', ['png', 'mvt'])
+            min_zoom = int(request.data.get('min_zoom', 8))
+            max_zoom = int(request.data.get('max_zoom', 14))
+            
+            # Validate zoom levels
+            if min_zoom < 0 or max_zoom > 18 or min_zoom > max_zoom:
+                return Response({
+                    'error': 'Invalid zoom levels',
+                    'message': 'Zoom levels must be between 0-18 and min_zoom <= max_zoom'
+                }, status=400)
+            
+            # Validate tile types
+            if not isinstance(tile_types, list) or not all(t in ['png', 'mvt'] for t in tile_types):
+                return Response({
+                    'error': 'Invalid tile_types',
+                    'message': 'tile_types must be a list containing "png" and/or "mvt"'
+                }, status=400)
+            
+            result = None
+            
+            # Handle city tile generation
+            if action == 'generate_city':
+                if not city_slug:
+                    return Response({
+                        'error': 'city_slug required for city tile generation'
+                    }, status=400)
+                
+                result = service.generate_and_upload_city_tiles(
+                    city_slug=city_slug,
+                    min_zoom=min_zoom,
+                    max_zoom=max_zoom,
+                    tile_types=tile_types
+                )
+                
+            # Handle real estate tile generation
+            elif action == 'generate_real_estate':
+                data_type = request.data.get('data_type', 'combined')
+                
+                if data_type not in ['plots', 'lands', 'combined']:
+                    return Response({
+                        'error': 'Invalid data_type',
+                        'message': 'data_type must be "plots", "lands", or "combined"'
+                    }, status=400)
+                
+                result = service.generate_and_upload_real_estate_tiles(
+                    data_type=data_type,
+                    min_zoom=min_zoom,
+                    max_zoom=max_zoom,
+                    tile_types=tile_types
+                )
+                
+            # Handle all cities generation
+            elif action == 'generate_all_cities':
+                from maps.models import City
+                
+                cities = City.objects.filter(is_active=True).values_list('slug', flat=True)
+                if not cities:
+                    return Response({
+                        'error': 'No active cities found'
+                    }, status=404)
+                
+                all_results = {
+                    'cities_processed': 0,
+                    'cities_successful': 0,
+                    'total_tiles_generated': 0,
+                    'total_size_mb': 0,
+                    'city_results': {}
+                }
+                
+                for city in cities:
+                    city_result = service.generate_and_upload_city_tiles(
+                        city_slug=city,
+                        min_zoom=min_zoom,
+                        max_zoom=max_zoom,
+                        tile_types=tile_types
+                    )
+                    
+                    all_results['cities_processed'] += 1
+                    all_results['city_results'][city] = city_result
+                    
+                    if city_result['success']:
+                        all_results['cities_successful'] += 1
+                        all_results['total_tiles_generated'] += city_result['results']['generated_tiles']
+                        all_results['total_size_mb'] += city_result['results']['total_size_mb']
+                
+                result = {
+                    'success': all_results['cities_successful'] > 0,
+                    'summary': all_results,
+                    'message': f"Processed {all_results['cities_processed']} cities, {all_results['cities_successful']} successful"
+                }
+                
+            else:
+                return Response({
+                    'error': 'Invalid action',
+                    'valid_actions': ['generate_city', 'generate_real_estate', 'generate_all_cities']
+                }, status=400)
+            
+            # Return result
+            if result and result.get('success'):
+                return Response({
+                    'status': 'success',
+                    'action': action,
+                    'result': result,
+                    'message': 'Tile generation completed successfully'
+                })
+            else:
+                return Response({
+                    'status': 'error',
+                    'action': action,
+                    'result': result,
+                    'message': 'Tile generation failed'
+                }, status=500)
+                
+        except Exception as e:
+            logger.error(f"Error in DirectS3TileGenerationView: {e}")
             return Response({
                 'error': 'Internal server error',
                 'message': str(e)

@@ -16,7 +16,6 @@ services:
       - "5432:5432"
     restart: unless-stopped
 
-  # 🚀 OPTIMIZED REDIS FOR GIS CACHING
   redis:
     image: redis:7-alpine
     ports:
@@ -54,7 +53,8 @@ services:
       - DJANGO_DB_USER=postgres
       - DJANGO_DB_PASSWORD=postgres
       - REDIS_URL=redis://redis:6379/1
-      - DJANGO_DEBUG=True
+      - DJANGO_DEBUG=True        # ✅ LOCAL: Enable DEBUG
+      - USE_CLOUDFRONT=False     # ✅ LOCAL: Disable CloudFront  
       - DJANGO_ALLOWED_HOSTS=localhost,127.0.0.1,0.0.0.0
     volumes:
       - .:/app
@@ -70,4 +70,4 @@ volumes:
   postgres_data:
     driver: local
   redis_data:
-    driver: local 
+    driver: local
