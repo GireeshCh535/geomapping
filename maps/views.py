@@ -807,10 +807,10 @@ class CombinedRasterTileView(APIView):
             return self._return_empty_tile()
     
     def _should_use_cloudfront(self):
+        """Check if CloudFront should be used"""
         return (
             hasattr(settings, 'CLOUDFRONT_DOMAIN') and 
             settings.CLOUDFRONT_DOMAIN and 
-            not settings.DEBUG and              # ← This still blocks it!
             getattr(settings, 'USE_CLOUDFRONT', True)
         )
     

@@ -155,26 +155,56 @@ STATICFILES_DIRS = [
     BASE_DIR / 'static',
 ]
 
-# MEDIA FILES
+# Custom StaticFiles configuration to explicitly exclude all tile files
+STATICFILES_FINDERS = [
+    'django.contrib.staticfiles.finders.FileSystemFinder',
+    'django.contrib.staticfiles.finders.AppDirectoriesFinder',
+]
+
+# Ignore all tile-related files during static collection
+STATICFILES_IGNORE_PATTERNS = [
+    # PNG Tiles
+    '*/tiles_png/*',
+    '*/real_estate_tiles_png/*', 
+    '**/tiles_png/**',
+    '**/real_estate_tiles_png/**',
+    
+    # MVT Tiles  
+    '*/tiles/*',
+    '*/real_estate_tiles/*',
+    '**/tiles/**',
+    '**/real_estate_tiles/**',
+    
+    # Pattern-based exclusions
+    '**/combined/*.png',
+    '**/combined/*.mvt',
+    '*/[0-9]*_[0-9]*_[0-9]*.png',  # Tile pattern: z_x_y.png
+    '*/[0-9]*_[0-9]*_[0-9]*.mvt',  # Tile pattern: z_x_y.mvt
+    
+    # Be very careful with this - only if you're sure
+    # '*.png',  # This would exclude ALL PNGs - use cautiously
+]
+
+# Media files (still local for user uploads)
 MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
 
-# FILE UPLOAD SETTINGS
-FILE_UPLOAD_MAX_MEMORY_SIZE = 10 * 1024 * 1024  # 10 MB
-DATA_UPLOAD_MAX_MEMORY_SIZE = 10 * 1024 * 1024  # 10 MB
+# ===================================
+# AWS S3 & CLOUDFRONT - TILE-ONLY CONFIGURATION  
+# ===================================
 
-# AWS S3 SETTINGS
-AWS_ACCESS_KEY_ID = os.getenv('AWS_ACCESS_KEY_ID', 'AKIAVZWKGXM4B6UUABCX')
-AWS_SECRET_ACCESS_KEY = os.getenv('AWS_SECRET_ACCESS_KEY', '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')
-AWS_STORAGE_BUCKET_NAME = os.getenv('AWS_STORAGE_BUCKET_NAME', 'gis-portal')
-AWS_S3_REGION_NAME = os.getenv('AWS_S3_REGION_NAME', 'ap-south-1')
+# AWS S3 Configuration
+AWS_ACCESS_KEY_ID = 'AKIAW3MEBMOOEQKR3BXV'
+AWS_SECRET_ACCESS_KEY = '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'
+AWS_S3_REGION_NAME = "ap-south-1"
+AWS_STORAGE_BUCKET_NAME = 'gis-portal'
 AWS_S3_CUSTOM_DOMAIN = f'{AWS_STORAGE_BUCKET_NAME}.s3.{AWS_S3_REGION_NAME}.amazonaws.com'
 
-# CLOUDFRONT SETTINGS
+# CloudFront Configuration - TILES ONLY
 CLOUDFRONT_DOMAIN = 'd17yosovmfjm4.cloudfront.net'
 USE_CLOUDFRONT = os.getenv('USE_CLOUDFRONT', 'True').lower() == 'true'
 
-# SECURITY SETTINGS (Production only)
+
 if not DEBUG:
     SECURE_BROWSER_XSS_FILTER = True
     SECURE_CONTENT_TYPE_NOSNIFF = True
@@ -185,7 +215,6 @@ SESSION_ENGINE = 'django.contrib.sessions.backends.cache'
 SESSION_CACHE_ALIAS = 'default'
 SESSION_COOKIE_AGE = 86400  # 24 hours
 
-# LOGGING
 LOGGING = {
     'version': 1,
     'disable_existing_loggers': False,
@@ -205,20 +234,37 @@ LOGGING = {
             'class': 'logging.StreamHandler',
             'formatter': 'verbose',
         },
+        'file': {
+            'level': 'ERROR',
+            'class': 'logging.FileHandler',
+            'filename': '/app/logs/django_errors.log',
+            'formatter': 'verbose',
+        },
     },
     'loggers': {
         'django': {
+            'handlers': ['console', 'file'],
+            'level': 'INFO',
+            'propagate': True,
+        },
+        'maps.tile_generation': {
             'handlers': ['console'],
             'level': 'INFO',
             'propagate': True,
         },
-        'maps': {
+        'maps.s3_upload': {
             'handlers': ['console'],
             'level': 'INFO',
             'propagate': True,
         },
+        'maps.views': {
+            'handlers': ['console'],
+            'level': 'INFO',
+            'propagate': True,
+        }
     },
 }
 
-# DEFAULT PRIMARY KEY
+# Data directory
+DATA_DIR = BASE_DIR / 'data'
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
