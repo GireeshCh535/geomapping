@@ -371,15 +371,7 @@
 
     - name: Collect minimal static files (CSS, JS, admin only - NO TILES)
       shell: |
-        docker-compose exec -T web python manage.py collectstatic --noinput \
-          --ignore='*.png' \
-          --ignore='tiles_png' \
-          --ignore='real_estate_tiles_png' \
-          --ignore='tiles' \
-          --ignore='real_estate_tiles' \
-          --ignore='combined' \
-          --verbosity=1 \
-          --clear
+        docker-compose exec web python manage.py collectstatic --noinput --ignore='*.png' --ignore='tiles_png' --ignore='real_estate_tiles_png'
       args:
         chdir: "{{ project_dir }}"
       become_user: ubuntu
