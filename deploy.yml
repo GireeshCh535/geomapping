@@ -322,15 +322,44 @@
         timeout: 300
       become: no
 
+    - name: Wait additional time for web container to be ready
+      pause:
+        seconds: 30
+
+    - name: Check container status before migrations
+      shell: docker-compose ps
+      args:
+        chdir: "{{ project_dir }}"
+      become_user: ubuntu
+      register: container_status_pre
+
+    - name: Display container status
+      debug:
+        msg: "Container status before migration: {{ container_status_pre.stdout }}"
+
+    - name: Verify database is ready
+      shell: docker-compose exec -T db pg_isready -U postgres
+      args:
+        chdir: "{{ project_dir }}"
+      become_user: ubuntu
+      register: db_ready
+      retries: 5
+      delay: 10
+      until: db_ready.rc == 0
+
     # ===================================
     # STEP 7: DATABASE & MINIMAL STATIC FILES
     # ===================================
     
-    - name: Run Django migrations
+    - name: Run Django migrations (with retries)
       shell: docker-compose exec -T web python manage.py migrate
       args:
         chdir: "{{ project_dir }}"
       become_user: ubuntu
+      register: migration_result
+      retries: 3
+      delay: 15
+      until: migration_result.rc == 0
 
     # CRITICAL: Collect ONLY essential static files (NO TILES)
     - name: Clean old static files first
