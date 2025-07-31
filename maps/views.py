@@ -608,6 +608,76 @@ class ImportJobViewSet(viewsets.ReadOnlyModelViewSet):
     filterset_fields = ['city__slug', 'status', 'file_format']
     ordering = ['-started_at']
 
+class CoordinateSearchTestView(APIView):
+    """Test version using GET parameters for coordinate search"""
+    
+    def get(self, request, city_slug):
+        try:
+            # Get coordinates from query parameters
+            lat = request.GET.get('lat')
+            lng = request.GET.get('lng')
+            
+            if not lat or not lng:
+                return Response({
+                    'error': 'Missing coordinates',
+                    'message': 'Please provide lat and lng parameters',
+                    'example': f'/api/cities/{city_slug}/search-coords-test/?lat=12.9716&lng=77.5946'
+                }, status=400)
+            
+            try:
+                latitude = float(lat)
+                longitude = float(lng)
+            except ValueError:
+                return Response({
+                    'error': 'Invalid coordinate format',
+                    'message': 'Coordinates must be valid numbers'
+                }, status=400)
+            
+            # Get city
+            city = get_object_or_404(City, slug=city_slug, is_active=True)
+            
+            # Validate coordinate ranges
+            if not (-90 <= latitude <= 90) or not (-180 <= longitude <= 180):
+                return Response({
+                    'error': 'Invalid coordinates',
+                    'message': 'Latitude must be between -90 and 90, longitude between -180 and 180'
+                }, status=400)
+            
+            # Create point geometry
+            search_point = Point(longitude, latitude, srid=4326)
+            
+            # Find all features containing this point
+            containing_features = self._find_containing_features(city, search_point)
+            
+            # Find nearby features if no exact match
+            nearby_features = []
+            if not containing_features:
+                nearby_features = self._find_nearby_features(city, search_point, radius_meters=100)
+            
+            # Build response
+            response_data = {
+                'search_point': {
+                    'latitude': latitude,
+                    'longitude': longitude,
+                    'coordinates': [longitude, latitude]  # GeoJSON format
+                },
+                'city': city_slug,
+                'found': len(containing_features) > 0,
+                'containing_features': containing_features,
+                'nearby_features': nearby_features[:5],  # Limit to 5 nearby
+                'summary': self._create_search_summary(containing_features, nearby_features),
+                'method': 'GET'  # To distinguish from POST version
+            }
+            
+            return Response(response_data)
+            
+        except Exception as e:
+            print(f"Error in CoordinateSearchTestView: {e}")
+            return Response({
+                'error': 'Failed to load city data',
+                'message': str(e)
+            }, status=500)
+
 # Configuration and utility views
 class CityConfigView(APIView):
     """Get all city configurations"""

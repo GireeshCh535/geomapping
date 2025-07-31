@@ -60,6 +60,9 @@ urlpatterns = [
     # 🔄 UPDATED: Legacy upload endpoints (for backward compatibility)
     path('cities/<slug:city_slug>/upload-tiles/',
          views.TileUploadManagementView.as_view(), name='tile_upload_management'),
+
+     path('cities/<slug:city_slug>/search-coords-test/',
+         views.CoordinateSearchTestView.as_view(), name='coordinate_search_test'),
     
     # REST OF YOUR EXISTING URLS...
     path('cities/<slug:city_slug>/layers/', 
