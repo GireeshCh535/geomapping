@@ -72,11 +72,6 @@ urlpatterns = [
          views.LayerFeaturesView.as_view(), name='layer_features'),
     
     
-    # 🚀 COORDINATE SEARCH ENDPOINTS
-    path('cities/<slug:city_slug>/search-coords/',
-         views.CoordinateSearchView.as_view(), name='coordinate_search'),
-    
-    
     # LAYER MANAGEMENT
     path('layers/<int:pk>/plu-analysis/',
          views.DataLayerViewSet.as_view({'get': 'plu_analysis'}), name='layer_plu_analysis'),
