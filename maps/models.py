@@ -415,7 +415,7 @@ class PLUCodeMapping(models.Model):
     city = models.ForeignKey(City, on_delete=models.CASCADE, related_name='plu_mappings')
     
     # PLU code info
-    plu_code = models.CharField(max_length=10)                      # E, M, D, P, Q, etc.
+    plu_code = models.CharField(max_length=100)
     plu_description = models.CharField(max_length=200, blank=True)  # Human description
     
     # Mapping to standard category

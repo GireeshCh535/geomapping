@@ -171,7 +171,7 @@ class S3DirectTileGenerationService:
                 
                 for z, x, y in tiles_to_generate:
                     future = executor.submit(
-                        self._generate_and_upload_single_tile_optimized,
+                        self._generate_and_upload_single_tile,
                         city_slug, layers, z, x, y, tile_types
                     )
                     futures.append(future)
@@ -322,16 +322,30 @@ class S3DirectTileGenerationService:
             }
     
     def _generate_and_upload_single_tile(self, city_slug: str, layers, z: int, x: int, y: int, 
-                                       tile_types: List[str]) -> Dict[str, Any]:
-        """Generate and upload a single city tile"""
+                                   tile_types: List[str]) -> Dict[str, Any]:
+        """
+        FIXED: Generate and upload a single tile with proper PNG rendering
+        
+        Args:
+            city_slug: City identifier
+            layers: QuerySet of DataLayer objects
+            z, x, y: Tile coordinates
+            tile_types: List of tile types ('png', 'mvt')
+        
+        Returns:
+            Dictionary with upload results
+        """
         try:
             result = {'success': False}
             
-            # Generate MVT data
+            # Generate MVT data using VectorTileService
             mvt_data = self.vector_service.generate_combined_tile(layers, z, x, y)
             
-            if not mvt_data:
-                # Upload empty tiles
+            # Check if we have valid MVT data
+            if not mvt_data or len(mvt_data) == 0:
+                logger.debug(f"No MVT data for tile {city_slug}/{z}/{x}/{y}, generating empty tiles")
+                
+                # Generate empty tiles for areas with no data
                 if 'mvt' in tile_types:
                     mvt_key = f"{city_slug}/combined/{z}_{x}_{y}.mvt"
                     mvt_result = self.upload_bytes_to_s3(b'', mvt_key, 'application/vnd.mapbox-vector-tile')
@@ -339,6 +353,7 @@ class S3DirectTileGenerationService:
                         result['mvt_size'] = 0
                 
                 if 'png' in tile_types:
+                    # Create a proper empty PNG tile
                     empty_png = self.render_service.create_empty_tile()
                     png_key = f"{city_slug}/combined/{z}_{x}_{y}.png"
                     png_result = self.upload_bytes_to_s3(empty_png, png_key, 'image/png')
@@ -359,16 +374,30 @@ class S3DirectTileGenerationService:
             
             # Generate and upload PNG if requested
             if 'png' in tile_types:
+                # FIXED: Use the proper PNG rendering method from TileRenderingService
+                logger.debug(f"Generating PNG for tile {city_slug}/{z}/{x}/{y} with {len(mvt_data)} bytes MVT data")
+                
+                # Use the combined_mvt_to_png method which properly handles layer rendering
                 png_data = self.render_service.combined_mvt_to_png(mvt_data, layers, z, x, y)
-                if png_data:
+                
+                if png_data and len(png_data) > 0:
                     png_key = f"{city_slug}/combined/{z}_{x}_{y}.png"
                     png_result = self.upload_bytes_to_s3(png_data, png_key, 'image/png')
                     if png_result['success']:
                         result['png_size'] = len(png_data)
+                        logger.debug(f"Successfully uploaded PNG for {city_slug}/{z}/{x}/{y}, size: {len(png_data)} bytes")
                     else:
                         return {'success': False, 'error': f"PNG upload failed: {png_result.get('error')}"}
                 else:
-                    return {'success': False, 'error': 'PNG generation failed'}
+                    # Fallback to empty tile if PNG generation fails
+                    logger.warning(f"PNG generation failed for {city_slug}/{z}/{x}/{y}, using empty tile")
+                    empty_png = self.render_service.create_empty_tile()
+                    png_key = f"{city_slug}/combined/{z}_{x}_{y}.png"
+                    png_result = self.upload_bytes_to_s3(empty_png, png_key, 'image/png')
+                    if png_result['success']:
+                        result['png_size'] = len(empty_png)
+                    else:
+                        return {'success': False, 'error': f"Empty PNG upload failed: {png_result.get('error')}"}
             
             result['success'] = True
             return result
@@ -652,29 +681,29 @@ class S3DirectTileGenerationService:
 
     
     def _get_city_bounds(self, layers) -> Optional[Dict[str, float]]:
-        """Get bounding box for city layers"""
-        try:
-            from django.contrib.gis.db.models import Extent
-            from maps.models import GeoFeature
-            
-            # Get extent from all features in the layers
-            extent = GeoFeature.objects.filter(
-                layer__in=layers,
-                is_valid=True
-            ).aggregate(extent=Extent('geometry'))['extent']
-            
-            if extent:
-                return {
-                    'west': extent[0],
-                    'south': extent[1], 
-                    'east': extent[2],
-                    'north': extent[3]
-                }
-            return None
-            
-        except Exception as e:
-            logger.error(f"Error getting city bounds: {e}")
-            return None
+        """
+        Calculate bounds from all layers in a city
+        
+        Args:
+            layers: QuerySet of DataLayer objects
+        
+        Returns:
+            Dict with bounds or None if no bounds found
+        """
+        bounds = None
+        
+        for layer in layers:
+            layer_bounds = self.vector_service._get_layer_bounds(layer)
+            if layer_bounds:
+                if not bounds:
+                    bounds = layer_bounds.copy()
+                else:
+                    bounds['west'] = min(bounds['west'], layer_bounds['west'])
+                    bounds['south'] = min(bounds['south'], layer_bounds['south'])
+                    bounds['east'] = max(bounds['east'], layer_bounds['east'])
+                    bounds['north'] = max(bounds['north'], layer_bounds['north'])
+        
+        return bounds
         
     def _draw_mvt_feature_optimized(self, draw, feature, color):
         """Draw a single MVT feature with memory optimization"""
@@ -1042,3 +1071,55 @@ class S3DirectTileGenerationService:
             return {'success': False, 'error': "AWS credentials not found"}
         except Exception as e:
             return {'success': False, 'error': str(e)}
+        
+
+    def test_connection(self) -> Dict[str, Any]:
+        """
+        Test S3 connection and bucket access
+        
+        Returns:
+            Dictionary with connection test results
+        """
+        try:
+            # Try to list objects in bucket (this tests both credentials and bucket access)
+            response = self.s3_client.head_bucket(Bucket=self.bucket_name)
+            
+            return {
+                'success': True,
+                'bucket': self.bucket_name,
+                'region': self.region,
+                'cloudfront_domain': self.cloudfront_domain,
+                'message': 'S3 connection successful'
+            }
+            
+        except ClientError as e:
+            error_code = e.response['Error']['Code']
+            if error_code == '404':
+                error_msg = f"Bucket '{self.bucket_name}' not found"
+            elif error_code == '403':
+                error_msg = f"Access denied to bucket '{self.bucket_name}'"
+            else:
+                error_msg = f"S3 error: {e.response['Error']['Message']}"
+            
+            return {
+                'success': False,
+                'error': error_msg,
+                'bucket': self.bucket_name,
+                'region': self.region
+            }
+            
+        except NoCredentialsError:
+            return {
+                'success': False,
+                'error': 'AWS credentials not found or invalid',
+                'bucket': self.bucket_name,
+                'region': self.region
+            }
+            
+        except Exception as e:
+            return {
+                'success': False,
+                'error': f'Connection test failed: {str(e)}',
+                'bucket': self.bucket_name,
+                'region': self.region
+            }

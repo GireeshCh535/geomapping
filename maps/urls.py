@@ -18,7 +18,6 @@ router.register(r'plots', PlotViewSet)
 router.register(r'lands', LandViewSet)
 
 urlpatterns = [
-    path('map/', views.MapVisualizationView.as_view(), name='map_visualization'),
     
     # Router URLs (REST API endpoints)
     path('', include(router.urls)),
@@ -69,15 +68,11 @@ urlpatterns = [
     path('cities/<slug:city_slug>/layers/<slug:layer_slug>/features/',
          views.LayerFeaturesView.as_view(), name='layer_features'),
     
-    path('cities/<slug:city_slug>/complete/',
-         views.CityCompleteView.as_view(), name='city_complete'),
     
     # 🚀 COORDINATE SEARCH ENDPOINTS
     path('cities/<slug:city_slug>/search-coords/',
          views.CoordinateSearchView.as_view(), name='coordinate_search'),
     
-    path('cities/<slug:city_slug>/search-coords-test/',
-         views.CoordinateSearchTestView.as_view(), name='coordinate_search_test'),
     
     # LAYER MANAGEMENT
     path('layers/<int:pk>/plu-analysis/',
@@ -99,16 +94,6 @@ urlpatterns = [
     path('setup/cities/', 
          views.SetupCitiesView.as_view(), name='city_setup'),
     
-    path('cache/manage/<slug:city_slug>/', 
-         views.CacheManagementView.as_view(), name='cache_management'),
-
-    # VISUALIZATION PAGES
-    path('simple-map/', views.SimpleMapView.as_view(), name='simple_map'),
-    path('masterplan-viewer/', views.MasterplanViewerView.as_view(), name='masterplan_viewer'),
-    
-    # TILE GENERATION ENDPOINTS
-    path('cities/<slug:city_slug>/generate-tiles/',
-         views.CityTileGenerationView.as_view(), name='city_tile_generation'),
     
     # LAYER CONFIGURATION
      path('layer-config/', views.LayerConfigAPIView.as_view(), name='layer_config'),
@@ -116,6 +101,11 @@ urlpatterns = [
      path('layer-config/', views.StateLayerConfigView.as_view(), name='state_layer_config'),
      path('cities/<slug:city_slug>/layer-config/', views.CityLayerConfigView.as_view(), name='city_layer_config'),
      path('layer-config/<slug:layer_slug>/', views.LayerConfigDetailView.as_view(), name='layer_config_detail'),
+     path('cities/<slug:city_slug>/tiles/available/',
+         AvailableTilesView.as_view(), name='available_tiles'),
+    
+    path('cities/<slug:city_slug>/tiles/coordinates/', 
+         TileCoordinatesView.as_view(), name='tile_coordinates'),
 
 ]
 

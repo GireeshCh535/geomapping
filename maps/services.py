@@ -334,6 +334,8 @@ class DataImportService:
                 # Enhanced PLU processing for Bangalore
                 if layer.city.slug == 'bengaluru':
                     processed_attrs = self._process_bangalore_plu_attributes(attrs, layer)
+                elif layer.city.slug == 'warangal':
+                    processed_attrs = self._process_warangal_attributes(attrs, layer)
                 else:
                     processed_attrs = self._process_standard_attributes(attrs, layer)
                 
@@ -371,6 +373,101 @@ class DataImportService:
         
         print(f"✅ Import completed: {len(features)} features saved")
         return len(features)
+    def _process_warangal_attributes(self, attrs, layer):
+        """Process Warangal GeoJSON attributes - CORRECTED to match GeoFeature model fields"""
+        
+        # Safety check - handle None attrs
+        if attrs is None:
+            attrs = {}
+        
+        # Extract PLU fields safely with None checks
+        plu_code = (attrs.get('PLU') or '').strip()
+        plu_name = (attrs.get('PLU_NAME') or '').strip()
+        
+        # Map to category safely
+        derived_category = layer.category.code  # Default fallback
+        
+        try:
+            # Check if we have valid PLU codes to map
+            if plu_code:
+                from .config import map_plu_code_to_category_warangal
+                mapped_category = map_plu_code_to_category_warangal(plu_code, plu_name)
+                if mapped_category != 'UNCLASSIFIED':
+                    derived_category = mapped_category
+        except Exception as e:
+            print(f"   ⚠️  PLU mapping error: {e}")
+            # Fall back to layer category
+            pass
+        
+        # Helper functions for safe value extraction
+        def safe_get(attr_dict, key, default=''):
+            """Safely get attribute value, handling None"""
+            value = attr_dict.get(key)
+            if value is None:
+                return default
+            return str(value).strip() if isinstance(value, str) else str(value)
+        
+        def safe_float(attr_dict, key, default=0.0):
+            """Safely get float value"""
+            value = attr_dict.get(key, default)
+            if value is None:
+                return default
+            try:
+                return float(value)
+            except (ValueError, TypeError):
+                return default
+        
+        def safe_int(attr_dict, key, default=0):
+            """Safely get integer value"""
+            value = attr_dict.get(key, default)
+            if value is None:
+                return default
+            try:
+                return int(value)
+            except (ValueError, TypeError):
+                return default
+        
+        # Build processed attributes using ONLY fields that exist in GeoFeature model
+        processed = {
+            # Basic identification (from GeoFeature model)
+            'name': safe_get(attrs, 'Name'),
+            'source_fid': safe_int(attrs, 'id'),
+            
+            # PLU/Land Use fields (these exist in the model)
+            'plu_primary_code': plu_code,
+            'plu_secondary_1': safe_get(attrs, 'plu_secondary_1'),  # Usually empty for Warangal
+            'plu_secondary_2': safe_get(attrs, 'plu_secondary_2'),  # Usually empty for Warangal
+            'plu_proposed_use': safe_get(attrs, 'PLU_NAME'),
+            'plu_authority': safe_get(attrs, 'KUDA'),
+            'plu_ktc_code': safe_get(attrs, 'ktc_code'),
+            'plu_survey_code': safe_get(attrs, 'survey_code'),
+            
+            # Derived/computed fields (these exist in the model)
+            'derived_category': derived_category,
+            'land_use_type': derived_category,
+            'land_use_code': plu_code,
+            'zoning': safe_get(attrs, 'PLU_NAME'),
+            
+            # Area/size attributes (these exist in the model)
+            'source_area_value': safe_float(attrs, 'Area'),
+            'source_length_value': safe_float(attrs, 'Shape_Length'),
+            'source_perimeter_value': safe_float(attrs, 'Shape_Area'),
+            
+            # Store all original attributes as JSON (this field exists)
+            'source_attributes': attrs,
+            
+            # Processing info (these exist in the model)
+            'is_valid': True,
+            'validation_notes': '',
+            'geometry_simplified': False,
+            'original_precision': 8,  # Using config precision
+            
+            # Import metadata (these exist in the model)
+            'import_source': 'file_import',
+            'import_batch_id': getattr(self, 'import_job', None).id if hasattr(self, 'import_job') and self.import_job else None,
+        }
+        
+        return processed
     
     def _process_bangalore_plu_attributes(self, esri_attrs, layer):
         """Process Bangalore ESRI attributes with enhanced PLU logic"""
@@ -583,98 +680,187 @@ class DataImportService:
         return result
 
     def _process_standard_attributes(self, attrs, layer):
-        """Process attributes for non-Bangalore cities (ENHANCED for Amaravati and Vizag)"""
+        """Process attributes for non-Bangalore cities - CORRECTED to match GeoFeature model fields"""
+        
+        # Safety check - handle None attrs
+        if attrs is None:
+            attrs = {}
+        
+        # For Warangal, use the specific processor
+        if layer.city.slug == 'warangal':
+            return self._process_warangal_attributes(attrs, layer)
         
         city_config = get_city_config(layer.city.slug)
         attribute_mapping = city_config.get('attribute_mappings', {}) if city_config else {}
         category_mappings = city_config.get('category_mappings', {}) if city_config else {}
         
-        # Map attributes using configuration
-        mapped_attrs = {}
-        for source_field, target_field in attribute_mapping.items():
-            if source_field in attrs:
-                mapped_attrs[target_field] = attrs[source_field]
+        # Safety function to handle None values
+        def safe_get(attr_dict, key, default=''):
+            """Safely get attribute value, handling None"""
+            value = attr_dict.get(key)
+            if value is None:
+                return default
+            return str(value).strip() if isinstance(value, str) else str(value)
         
-        # Determine category - ENHANCED FOR BOTH VIZAG AND AMARAVATI
+        def safe_float(attr_dict, key, default=0.0):
+            """Safely get float value"""
+            value = attr_dict.get(key, default)
+            if value is None:
+                return default
+            try:
+                return float(value)
+            except (ValueError, TypeError):
+                return default
+        
+        # Determine category with None checks
         derived_category = layer.category.code  # Default fallback
         categorization_method = 'FILENAME'  # Default method
         
-        # ✅ AMARAVATI: Use 'symbology' field for categorization
-        if layer.city.slug == 'amaravati' and 'symbology' in attrs:
-            symbology_value = attrs['symbology']
-            if symbology_value in category_mappings:
+        # City-specific processing with None checks
+        if layer.city.slug == 'amaravati':
+            # AMARAVATI: Use 'symbology' field for categorization
+            symbology_value = safe_get(attrs, 'symbology')
+            if symbology_value and symbology_value in category_mappings:
                 derived_category = category_mappings[symbology_value]
                 categorization_method = 'ATTRIBUTE'
                 print(f"   ✅ Amaravati: Mapped symbology '{symbology_value}' → {derived_category}")
-                
-                # Track category mapping for statistics
                 self.statistics['categories_assigned'][derived_category] += 1
-            else:
+            elif symbology_value:
                 print(f"   ⚠️  Amaravati: Unknown symbology '{symbology_value}', using filename category")
         
-        # ✅ VIZAG: Use 'Category' field for categorization (existing logic)
-        elif layer.city.slug == 'vizag' and 'Category' in attrs:
-            category_value = attrs['Category']
-            if category_value in category_mappings:
+        elif layer.city.slug == 'visakhapatnam':
+            # VIZAG: Use 'Category' field for categorization
+            category_value = safe_get(attrs, 'Category')
+            if category_value and category_value in category_mappings:
                 derived_category = category_mappings[category_value]
                 categorization_method = 'ATTRIBUTE'
-                print(f"   ✅ Vizag: Mapped Category '{category_value}' → {derived_category}")
-                
-                # Track category mapping for statistics
+                print(f"   ✅ Vizag: Mapped category '{category_value}' → {derived_category}")
                 self.statistics['categories_assigned'][derived_category] += 1
-            else:
+            elif category_value:
                 print(f"   ⚠️  Vizag: Unknown category '{category_value}', using filename category")
         
-        # Store city-specific fields in source_attributes
-        enhanced_source_attrs = attrs.copy()
-        
-        # ✅ AMARAVATI-specific field handling
-        if layer.city.slug == 'amaravati':
-            if 'plot_code' in attrs:
-                enhanced_source_attrs['plot_code'] = attrs['plot_code']
-            if 'symbology' in attrs:
-                enhanced_source_attrs['symbology'] = attrs['symbology']
-            if 'plot_categ' in attrs:
-                enhanced_source_attrs['plot_category'] = attrs['plot_categ']
-            if 'township' in attrs:
-                enhanced_source_attrs['township'] = attrs['township']
-            if 'sector' in attrs:
-                enhanced_source_attrs['sector'] = attrs['sector']
-            if 'colony' in attrs:
-                enhanced_source_attrs['colony'] = attrs['colony']
-        
-        # ✅ VIZAG-specific field handling (existing)
-        elif layer.city.slug == 'vizag':
-            if 'RuleID' in attrs:
-                enhanced_source_attrs['rule_id'] = attrs['RuleID']
-            if 'Override' in attrs:
-                enhanced_source_attrs['override_value'] = attrs['Override']
-        
-        # Return only fields that exist in the GeoFeature model
-        return {
-            'source_fid': mapped_attrs.get('source_fid', attrs.get('FID')),
-            'source_object_id': mapped_attrs.get('source_object_id', attrs.get('OBJECTID')),
-            'name': mapped_attrs.get('name', attrs.get('plot_code', '')),  # Use plot_code as name for Amaravati
-            'category_name': attrs.get('symbology', attrs.get('Category', '')),  # symbology for Amaravati, Category for Vizag
+        # Build standard processed attributes with ONLY valid GeoFeature model fields
+        processed = {
+            # Basic identification
+            'name': safe_get(attrs, 'Name'),
+            'source_fid': attrs.get('id'),
+            
+            # PLU/Land use fields
+            'plu_primary_code': safe_get(attrs, 'PLU'),
+            'plu_secondary_1': '',
+            'plu_secondary_2': '',
+            'land_use_code': safe_get(attrs, 'Code', safe_get(attrs, 'Category')),
+            'land_use_type': derived_category,
             'derived_category': derived_category,
-            'land_use_type': attrs.get('symbology', attrs.get('Category', derived_category)),
-            'zoning': mapped_attrs.get('zoning', ''),
+            'zoning': safe_get(attrs, 'Category'),
             
-            # Administrative info
-            'district': attrs.get('DISTRICT', '').strip(),
-            'mandal': attrs.get('MANDAL', '').strip(),
-            'village': attrs.get('Village', attrs.get('lpsvillage', '')).strip(),
+            # Area and measurements
+            'source_area_value': safe_float(attrs, 'Area'),
+            'source_length_value': safe_float(attrs, 'Shape_Length'),
+            'source_perimeter_value': safe_float(attrs, 'Shape_Area'),
             
-            # Amaravati-specific fields
-            'state': 'Andhra Pradesh' if layer.city.slug in ['amaravati', 'vizag'] else '',
+            # Store all original attributes as JSON
+            'source_attributes': attrs,
             
-            # Measurements
-            'source_area_value': mapped_attrs.get('source_area_value', attrs.get('Shape_Area', attrs.get('alloted_ex'))),
-            'source_length_value': mapped_attrs.get('source_length_value', attrs.get('Shape_Length')),
+            # Processing info
+            'is_valid': True,
+            'validation_notes': '',
+            'geometry_simplified': False,
+            'original_precision': 8,
+            'import_source': 'file_import',
+            'import_batch_id': getattr(self, 'import_job', None).id if hasattr(self, 'import_job') and self.import_job else None,
+        }
+        
+        return processed
+    
+    def import_warangal_data(self, data_directory):
+        """
+        Import all Warangal GeoJSON files from a directory
+        """
+        from .config import WARANGAL_CONFIG
+        
+        city_slug = 'warangal'
+        config = WARANGAL_CONFIG
+        
+        print(f"🏙️  Starting Warangal data import from: {data_directory}")
+        # Create or get city
+
+        city, created = City.objects.get_or_create(
+            slug=city_slug,
+            defaults={
+                'name': config['city_info']['name'],
+                'state': config['city_info']['state'],
+                'center_lat': config['city_info']['center_lat'],
+                'center_lng': config['city_info']['center_lng'],
+                'is_active': True,
+            }
+        )
+        
+        if created:
+            print(f"✅ Created city: {city.name}")
+        else:
+            print(f"📍 Using existing city: {city.name}")
+        
+        results = []
+        file_mappings = config['file_mappings']
+        
+        for filename, category_code in file_mappings.items():
+            file_path = os.path.join(data_directory, filename)
             
-            # Store ALL original attributes including city-specific fields
-            'source_attributes': enhanced_source_attrs,
-            'geometry_simplified': True,
+            if os.path.exists(file_path):
+                print(f"\n📄 Processing: {filename} -> {category_code}")
+                try:
+                    # Get or create category
+                    category, _ = LayerCategory.objects.get_or_create(
+                        code=category_code,
+                        defaults={'name': category_code.replace('_', ' ').title()}
+                    )
+                    
+                    # Import the file
+                    features_imported = self.import_file_from_path(file_path, city, category)
+                    
+                    results.append({
+                        'filename': filename,
+                        'category_code': category_code,
+                        'status': 'success',
+                        'features_imported': features_imported
+                    })
+                    
+                    print(f"   ✅ Imported {features_imported} features")
+                    
+                except Exception as e:
+                    results.append({
+                        'filename': filename,
+                        'category_code': category_code,
+                        'status': 'error',
+                        'error': str(e),
+                        'features_imported': 0
+                    })
+                    print(f"   ❌ Error: {filename} - {e}")
+            else:
+                print(f"   ⚠️  File not found: {filename}")
+                results.append({
+                    'filename': filename,
+                    'category_code': category_code,
+                    'status': 'not_found',
+                    'features_imported': 0
+                })
+        
+        # Summary
+        total_features = sum(r.get('features_imported', 0) for r in results)
+        successful_files = len([r for r in results if r.get('status') == 'success'])
+        
+        print(f"\n📊 Warangal Import Summary:")
+        print(f"   Total files configured: {len(file_mappings)}")
+        print(f"   Successfully imported: {successful_files}")
+        print(f"   Total features imported: {total_features}")
+        
+        return {
+            'city': city_slug,
+            'total_files': len(file_mappings),
+            'imported_files': successful_files,
+            'total_features': total_features,
+            'results': results
         }
         
     def _import_geojson(self, file_path, layer):

@@ -876,12 +876,239 @@ HYDERABAD_CONFIG = {
     },
 }
 
+WARANGAL_PLU_MAPPING = {
+    'Agriculture': {
+        'category': 'AGRICULTURAL',
+        'description': 'Agricultural land use',
+        'secondary_codes': [],
+        'examples': ['Agricultural areas', 'Farming land']
+    },
+    'Air Strip': {
+        'category': 'TRANSPORT',
+        'description': 'Air strip/Airport facilities',
+        'secondary_codes': [],
+        'examples': ['Airports', 'Air strips', 'Aviation facilities']
+    },
+    'Commercial': {
+        'category': 'COMMERCIAL',
+        'description': 'Commercial land use',
+        'secondary_codes': [],
+        'examples': ['Shopping areas', 'Business districts', 'Commercial complexes']
+    },
+    'Forest': {
+        'category': 'PROTECTED',
+        'description': 'Forest areas',
+        'secondary_codes': [],
+        'examples': ['Reserved forests', 'Protected forest areas']
+    },
+    'Growth Corridor': {
+        'category': 'SPECIAL',
+        'description': 'Designated growth corridor',
+        'secondary_codes': [],
+        'examples': ['Development corridors', 'Growth zones']
+    },
+    'Growth Corridor 2': {
+        'category': 'SPECIAL',
+        'description': 'Secondary growth corridor',
+        'secondary_codes': [],
+        'examples': ['Secondary development corridors']
+    },
+    'Heritage': {
+        'category': 'CULTURAL',
+        'description': 'Heritage conservation areas',
+        'secondary_codes': [],
+        'examples': ['Historical sites', 'Heritage buildings', 'Archaeological sites']
+    },
+    'Hill Buffer': {
+        'category': 'PARKS_GREEN',
+        'description': 'Hill buffer zones',
+        'secondary_codes': [],
+        'examples': ['Hill protection zones', 'Buffer areas around hills']
+    },
+    'Hillocks': {
+        'category': 'PROTECTED',
+        'description': 'Protected hillock areas',
+        'secondary_codes': [],
+        'examples': ['Small hills', 'Rocky outcrops', 'Protected hillocks']
+    },
+    'Industrial': {
+        'category': 'INDUSTRIAL',
+        'description': 'Industrial land use',
+        'secondary_codes': [],
+        'examples': ['Manufacturing areas', 'Industrial estates', 'Factories']
+    },
+    'Mixed Use': {
+        'category': 'MIXED_USE',
+        'description': 'Mixed use development',
+        'secondary_codes': [],
+        'examples': ['Residential-commercial mix', 'Multi-purpose developments']
+    },
+    'Public & Semi-Public': {
+        'category': 'PUBLIC',
+        'description': 'Public and semi-public facilities',
+        'secondary_codes': [],
+        'examples': ['Government buildings', 'Public institutions', 'Semi-public facilities']
+    },
+    'Public Utilities': {
+        'category': 'UTILITIES',
+        'description': 'Public utility infrastructure',
+        'secondary_codes': [],
+        'examples': ['Power stations', 'Water treatment', 'Waste management']
+    },
+    'Railway Land': {
+        'category': 'TRANSPORT',
+        'description': 'Railway infrastructure',
+        'secondary_codes': [],
+        'examples': ['Railway tracks', 'Railway stations', 'Railway yards']
+    },
+    'Recreational': {
+        'category': 'PARKS_GREEN',
+        'description': 'Recreational facilities',
+        'secondary_codes': [],
+        'examples': ['Parks', 'Sports facilities', 'Recreation centers']
+    },
+    'Residential': {
+        'category': 'RESIDENTIAL',
+        'description': 'Residential areas',
+        'secondary_codes': [],
+        'examples': ['Housing areas', 'Residential colonies', 'Neighborhoods']
+    },
+    'Residential Expansion': {
+        'category': 'RESIDENTIAL',
+        'description': 'Planned residential expansion areas',
+        'secondary_codes': [],
+        'examples': ['Future residential zones', 'Residential development areas']
+    },
+    'Road Buffer': {
+        'category': 'TRANSPORT',
+        'description': 'Road buffer zones',
+        'secondary_codes': [],
+        'examples': ['Road side buffers', 'Highway buffers']
+    },
+    'Transportation': {
+        'category': 'TRANSPORT',
+        'description': 'Transportation infrastructure',
+        'secondary_codes': [],
+        'examples': ['Roads', 'Transportation hubs', 'Transit facilities']
+    },
+    'Water Bodies': {
+        'category': 'WATER_BODIES',
+        'description': 'Water bodies',
+        'secondary_codes': [],
+        'examples': ['Lakes', 'Ponds', 'Reservoirs', 'Rivers']
+    },
+    'Water Body Buffer': {
+        'category': 'PARKS_GREEN',
+        'description': 'Water body buffer zones',
+        'secondary_codes': [],
+        'examples': ['Lake buffers', 'River buffers', 'Wetland buffers']
+    },
+    'Zoological park': {
+        'category': 'PARKS_GREEN',
+        'description': 'Zoological park',
+        'secondary_codes': [],
+        'examples': ['Zoo', 'Wildlife park', 'Animal sanctuary']
+    }
+}
+
+# Warangal Configuration
+WARANGAL_CONFIG = {
+    'city_info': {
+        'name': 'Warangal',
+        'slug': 'warangal',
+        'state': 'Telangana',
+        'center_lat': 17.9689,  # Warangal coordinates
+        'center_lng': 79.5941,
+    },
+    'data_format': 'GEOJSON',
+    'coordinate_precision': 8,
+    'plu_mapping': WARANGAL_PLU_MAPPING,
+    
+    # File mappings - mapping filename to category
+    'file_mappings': {
+        'Agriculture.geojson': 'AGRICULTURAL',
+        'AirStrip.geojson': 'TRANSPORT',
+        'Commercial.geojson': 'COMMERCIAL',
+        'Forest.geojson': 'PROTECTED',
+        'GrowthCorridor.geojson': 'SPECIAL',
+        'GrowthCorridor2.geojson': 'SPECIAL',
+        'Heritage.geojson': 'CULTURAL',
+        'HillBuffer.geojson': 'PARKS_GREEN',
+        'Hillocks.geojson': 'PROTECTED',
+        'Industrial.geojson': 'INDUSTRIAL',
+        'MixedUse.geojson': 'MIXED_USE',
+        'Public_and_SemiPublic.geojson': 'PUBLIC',
+        'PublicUtilities.geojson': 'UTILITIES',
+        'RailwayLand.geojson': 'TRANSPORT',
+        'Recreational.geojson': 'PARKS_GREEN',
+        'Residential.geojson': 'RESIDENTIAL',
+        'ResidentialExpansion.geojson': 'RESIDENTIAL',
+        'RoadBuffer.geojson': 'TRANSPORT',
+        'Transportation.geojson': 'TRANSPORT',
+        'Water_Bodies.geojson': 'WATER_BODIES',
+        'WaterBodyBuffer.geojson': 'PARKS_GREEN',
+        'ZoologicalPark.geojson': 'PARKS_GREEN',
+    },
+    
+    # Colors - converted from your provided colors
+    'colors': {
+        'AGRICULTURAL': '#D3FFBE',
+        'TRANSPORT': '#B2B2B2',  # Using Transportation color as default for transport
+        'COMMERCIAL': '#0070FF',
+        'PROTECTED': '#267300',  # Using Forest color for protected areas
+        'SPECIAL': '#FFBEE8',    # Using Growth Corridor color
+        'CULTURAL': '#FFA77F',   # Using Heritage solid fill color
+        'PARKS_GREEN': '#55FF00', # Using Recreational color
+        'INDUSTRIAL': '#C500FF',
+        'MIXED_USE': '#FFAA00',
+        'PUBLIC': '#FF0000',
+        'UTILITIES': '#E69800',  # Using Public Utilities solid fill color
+        'RESIDENTIAL': '#FFFF00',
+        'WATER_BODIES': '#00C5FF',
+        'GOVERNMENT': '#FF0000', # Same as public
+        'EDUCATION': '#FF0000',   # Same as public
+        'HEALTHCARE': '#FF0000',  # Same as public
+        'DEFENSE': '#666666',     # Default
+        'HIGH_TECH': '#C500FF',   # Same as industrial
+        'DRAINS': '#00C5FF',      # Same as water bodies
+        'HILLS': '#A87000',       # Using Hillocks color
+        'CEMETERY': '#55FF00',    # Same as parks/green
+        'UNCLASSIFIED': '#CCCCCC'
+    },
+    
+    # Attribute mappings for Warangal (based on your sample data structure)
+    'attribute_mappings': {
+        'land_use_fields': {
+            'PLU Code': 'plu_code',
+            'PLU': 'plu_name',
+            'PLU_NAME': 'plu_category',
+            'Name': 'name',
+            'Area': 'area',
+            'OBJECTID': 'object_id',
+        },
+        'geometry_fields': {
+            'Area': 'area',
+            'Shape_Length': 'perimeter',
+            'Shape_Area': 'shape_area',
+        },
+        'metadata_fields': {
+            'KUDA': 'authority',
+            'ELU': 'existing_land_use',
+            'Ex_PR': 'existing_proposed',
+            'Category': 'category',
+            'Sub_Catego': 'sub_category',
+            'Layout': 'layout',
+        }
+    }
+}
+
 # Master configuration dictionary
 CITY_CONFIGS = {
     'bengaluru': BANGALORE_CONFIG,
     'visakhapatnam': VIZAG_CONFIG,
     'amaravati': AMARAVATI_CONFIG,
     'hyderabad': HYDERABAD_CONFIG,
+    'warangal': WARANGAL_CONFIG,
 }
 
 def get_city_config(city_slug):
@@ -978,6 +1205,25 @@ def validate_city_configuration(city_slug):
     
     return True, "Configuration is valid"
 
+def map_plu_code_to_category_warangal(plu_code, plu_name=None):
+    """
+    Map Warangal PLU codes to categories
+    Warangal uses simple PLU field mapping
+    """
+    # Clean inputs
+    plu_code = (plu_code or '').strip()
+    plu_name = (plu_name or '').strip()
+    
+    # Check direct PLU code mapping
+    if plu_code and plu_code in WARANGAL_PLU_MAPPING:
+        return WARANGAL_PLU_MAPPING[plu_code]['category']
+    
+    # Fallback to PLU_NAME if available
+    if plu_name and plu_name in WARANGAL_PLU_MAPPING:
+        return WARANGAL_PLU_MAPPING[plu_name]['category']
+    
+    return 'UNCLASSIFIED'
+
 # Export commonly used functions
 __all__ = [
     'CITY_CONFIGS',
@@ -988,5 +1234,6 @@ __all__ = [
     'optimize_coordinates',
     'detect_data_format',
     'convert_esri_to_geojson_geometry',
-    'validate_city_configuration'
+    'validate_city_configuration',
+    'map_plu_code_to_category_warangal',
 ]
