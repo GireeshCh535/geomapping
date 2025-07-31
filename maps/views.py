@@ -677,6 +677,132 @@ class CoordinateSearchTestView(APIView):
                 'error': 'Failed to load city data',
                 'message': str(e)
             }, status=500)
+    
+    def _find_containing_features(self, city, point):
+        """Find all features that contain the search point"""
+        
+        containing_features = []
+        
+        # Query features that contain the point
+        features = GeoFeature.objects.filter(
+            layer__city=city,
+            layer__is_processed=True,
+            is_valid=True,
+            geometry__contains=point
+        ).select_related('layer', 'layer__category').order_by('-calculated_area')
+        
+        for feature in features:
+            try:
+                # Get layer color using existing config system
+                layer_color = self._get_feature_color_from_config(feature, city.slug)
+                
+                feature_data = {
+                    'feature_id': feature.id,
+                    'feature_name': feature.name or 'Unnamed',
+                    'layer_slug': feature.layer.slug,
+                    'layer_name': feature.layer.name,
+                    'category': feature.layer.category.name if feature.layer.category else 'Unknown',
+                    'color': layer_color,
+                    'area': float(feature.calculated_area) if feature.calculated_area else 0.0,
+                    'land_use': feature.land_use_type or '',
+                    'plu_code': feature.plu_primary_code or ''
+                }
+                
+                containing_features.append(feature_data)
+                
+            except Exception as e:
+                print(f"Error processing feature {feature.id}: {e}")
+                continue
+        
+        return containing_features
+    
+    def _find_nearby_features(self, city, point, radius_meters=100):
+        """Find features near the search point"""
+        
+        nearby_features = []
+        
+        # Create a buffer around the point for nearby search
+        buffer_point = point.transform(3857, clone=True)  # Web Mercator for distance
+        buffered_area = buffer_point.buffer(radius_meters)
+        buffered_area.transform(4326)  # Back to WGS84
+        
+        # Find features that intersect with the buffer
+        features = GeoFeature.objects.filter(
+            layer__city=city,
+            layer__is_processed=True,
+            is_valid=True,
+            geometry__intersects=buffered_area
+        ).select_related('layer', 'layer__category')
+        
+        for feature in features:
+            try:
+                # Calculate approximate distance
+                feature_centroid = feature.geometry.centroid
+                distance = point.distance(feature_centroid) * 111000  # Rough conversion to meters
+                
+                layer_color = self._get_feature_color_from_config(feature, city.slug)
+                
+                nearby_data = {
+                    'feature_id': feature.id,
+                    'feature_name': feature.name or 'Unnamed',
+                    'layer_slug': feature.layer.slug,
+                    'layer_name': feature.layer.name,
+                    'category': feature.layer.category.name if feature.layer.category else 'Unknown',
+                    'color': layer_color,
+                    'distance_meters': round(distance, 1),
+                    'area': float(feature.calculated_area) if feature.calculated_area else 0.0
+                }
+                
+                nearby_features.append(nearby_data)
+                
+            except Exception as e:
+                print(f"Error processing nearby feature {feature.id}: {e}")
+                continue
+        
+        # Sort by distance
+        nearby_features.sort(key=lambda x: x['distance_meters'])
+        
+        return nearby_features
+    
+    def _get_feature_color_from_config(self, feature, city_slug):
+        """Get feature color from configuration"""
+        try:
+            from maps.utils.config_manager import ConfigManager
+            config_manager = ConfigManager()
+            
+            # Try to get layer-specific color from config
+            layer_config = config_manager.get_layer_config(city_slug, feature.layer.slug)
+            if layer_config and 'style' in layer_config and 'color' in layer_config['style']:
+                return layer_config['style']['color']
+            
+            # Fall back to category color or default
+            if feature.layer.category:
+                return feature.layer.category.color or '#0066CC'
+            
+            return '#0066CC'  # Default blue
+            
+        except Exception as e:
+            print(f"Error getting feature color: {e}")
+            return '#0066CC'
+    
+    def _create_search_summary(self, containing_features, nearby_features):
+        """Create a human-readable summary of the search results"""
+        
+        if containing_features:
+            if len(containing_features) == 1:
+                feature = containing_features[0]
+                return f"Location is within {feature['layer_name']}: {feature['feature_name']}"
+            else:
+                primary = containing_features[0]  # Largest by area
+                return f"Location is within {primary['layer_name']}: {primary['feature_name']}. Also overlaps with {len(containing_features) - 1} other features."
+            
+        elif nearby_features:
+            nearest = nearby_features[0]
+            return f"No exact match. Nearest feature is {nearest['layer_name']} ({nearest['distance_meters']}m away)"
+            
+        else:
+            return "No features found at this location"
+
 
 # Configuration and utility views
 class CityConfigView(APIView):
@@ -1107,235 +1233,6 @@ class SimpleRasterTileView(APIView):
             print(f"[SimpleRasterTileView] Error: {e}")
             renderer = TileRenderingService()
             return HttpResponse(renderer.create_empty_tile(), content_type='image/png', status=500)
-
-
-class CoordinateSearchView(APIView):
-    """
-    Search for features containing a specific coordinate point
-    Uses city-specific configuration for colors (NO HARDCODING)
-    """
-    
-    def post(self, request, city_slug):
-        try:
-            # Get city
-            city = get_object_or_404(City, slug=city_slug, is_active=True)
-            
-            # Parse coordinates from request
-            data = request.data
-            latitude = float(data.get('latitude', 0))
-            longitude = float(data.get('longitude', 0))
-            
-            if not (-90 <= latitude <= 90) or not (-180 <= longitude <= 180):
-                return Response({
-                    'error': 'Invalid coordinates',
-                    'message': 'Latitude must be between -90 and 90, longitude between -180 and 180'
-                }, status=400)
-            
-            # Create point geometry
-            search_point = Point(longitude, latitude, srid=4326)
-            
-            # Find all features containing this point
-            containing_features = self._find_containing_features(city, search_point)
-            
-            # Find nearby features if no exact match
-            nearby_features = []
-            if not containing_features:
-                nearby_features = self._find_nearby_features(city, search_point, radius_meters=100)
-            
-            # Build response
-            response_data = {
-                'search_point': {
-                    'latitude': latitude,
-                    'longitude': longitude,
-                    'coordinates': [longitude, latitude]  # GeoJSON format
-                },
-                'city': city_slug,
-                'found': len(containing_features) > 0,
-                'containing_features': containing_features,
-                'nearby_features': nearby_features[:5],  # Limit to 5 nearby
-                'summary': self._create_search_summary(containing_features, nearby_features)
-            }
-            
-            return Response(response_data)
-            
-        except ValueError:
-            return Response({
-                'error': 'Invalid coordinate format',
-                'message': 'Coordinates must be valid numbers'
-            }, status=400)
-        except Exception as e:
-            print(f"Error in CoordinateSearchView: {e}")
-            return Response({
-                'error': 'Search failed',
-                'message': str(e)
-            }, status=500)
-    
-    def _find_containing_features(self, city, point):
-        """Find all features that contain the search point"""
-        
-        containing_features = []
-        
-        # Query features that contain the point
-        features = GeoFeature.objects.filter(
-            layer__city=city,
-            layer__is_processed=True,
-            is_valid=True,
-            geometry__contains=point
-        ).select_related('layer', 'layer__category').order_by('-calculated_area')
-        
-        for feature in features:
-            try:
-                # Get layer color using existing config system
-                layer_color = self._get_feature_color_from_config(feature, city.slug)
-                
-                feature_data = {
-                    'feature_id': feature.id,
-                    'feature_name': feature.name or 'Unnamed',
-                    'layer_slug': feature.layer.slug,
-                    'layer_name': feature.layer.name,
-                    'category': feature.layer.category.name if feature.layer.category else 'Unknown',
-                    'category_code': feature.layer.category.code if feature.layer.category else None,
-                    'land_use': feature.land_use_type or '',
-                    'plu_code': feature.plu_primary_code or '',
-                    'area': float(feature.calculated_area) if feature.calculated_area else 0.0,
-                    'color': layer_color,
-                    'administrative_info': {
-                        'state': feature.state or '',
-                        'district': feature.district or '',
-                        'village': feature.village or ''
-                    }
-                }
-                
-                containing_features.append(feature_data)
-                
-            except Exception as e:
-                print(f"Error processing feature {feature.id}: {e}")
-                continue
-        
-        return containing_features
-    
-    def _find_nearby_features(self, city, point, radius_meters=100):
-        """Find features near the point if no exact match"""
-        
-        nearby_features = []
-        
-        # Create buffer around point (rough conversion to degrees)
-        buffer_degrees = radius_meters / 111320  # Very rough conversion
-        search_area = point.buffer(buffer_degrees)
-        
-        # Find intersecting features
-        features = GeoFeature.objects.filter(
-            layer__city=city,
-            layer__is_processed=True,
-            is_valid=True,
-            geometry__intersects=search_area
-        ).select_related('layer', 'layer__category')[:10]
-        
-        for feature in features:
-            try:
-                # Calculate distance (rough)
-                distance = point.distance(feature.geometry) * 111320  # Convert to meters
-                
-                layer_color = self._get_feature_color_from_config(feature, city.slug)
-                
-                feature_data = {
-                    'feature_id': feature.id,
-                    'feature_name': feature.name or 'Unnamed',
-                    'layer_name': feature.layer.name,
-                    'category': feature.layer.category.name if feature.layer.category else 'Unknown',
-                    'land_use': feature.land_use_type or '',
-                    'color': layer_color,
-                    'distance_meters': round(distance, 1)
-                }
-                
-                nearby_features.append(feature_data)
-                
-            except Exception as e:
-                print(f"Error processing nearby feature {feature.id}: {e}")
-                continue
-        
-        # Sort by distance
-        nearby_features.sort(key=lambda x: x['distance_meters'])
-        
-        return nearby_features
-    
-    def _get_feature_color_from_config(self, feature, city_slug):
-        """
-        Get color for a feature using the existing configuration system
-        NO HARDCODING - uses city-specific config
-        """
-        
-        try:
-            # Method 1: Try to use the existing layer.get_style() method
-            style = feature.layer.get_style()
-            if isinstance(style, dict) and style.get('fill_color'):
-                return style['fill_color']
-            elif hasattr(style, 'fill_color'):
-                return style.fill_color
-        except Exception as e:
-            print(f"Could not get style from layer.get_style(): {e}")
-        
-        try:
-            # Method 2: Try to get CityLayerStyle directly
-            if feature.layer.category:
-                from .models import CityLayerStyle
-                city_style = CityLayerStyle.objects.get(
-                    city__slug=city_slug,
-                    category=feature.layer.category
-                )
-                return city_style.fill_color
-        except Exception as e:
-            print(f"Could not get CityLayerStyle: {e}")
-        
-        try:
-            # Method 3: Get color from city config
-            city_config = get_city_config(city_slug)
-            if city_config and 'colors' in city_config:
-                if feature.layer.category and feature.layer.category.code:
-                    category_code = feature.layer.category.code.upper()
-                    if category_code in city_config['colors']:
-                        return city_config['colors'][category_code]
-        except Exception as e:
-            print(f"Could not get color from city config: {e}")
-        
-        try:
-            # Method 4: Fallback to category default color
-            if feature.layer.category:
-                return feature.layer.category.default_color
-        except Exception as e:
-            print(f"Could not get category default color: {e}")
-        
-        # Final fallback
-        print(f"Using fallback color for feature {feature.id}")
-        return '#666666'
-    
-    def _create_search_summary(self, containing_features, nearby_features):
-        """Create human-readable summary of search results"""
-        
-        if containing_features:
-            primary_feature = containing_features[0]  # Largest containing feature
-            
-            summary = f"This location is in {primary_feature['layer_name']}"
-            
-            if primary_feature['land_use']:
-                summary += f" ({primary_feature['land_use']})"
-            
-            if primary_feature['administrative_info']['village']:
-                summary += f", {primary_feature['administrative_info']['village']}"
-            
-            if len(containing_features) > 1:
-                summary += f". Also overlaps with {len(containing_features) - 1} other features."
-            
-            return summary
-            
-        elif nearby_features:
-            nearest = nearby_features[0]
-            return f"No exact match. Nearest feature is {nearest['layer_name']} ({nearest['distance_meters']}m away)"
-            
-        else:
-            return "No features found at this location"
-
-
 
 class StateCitiesView(APIView):
     """Get all cities for a specific state"""
