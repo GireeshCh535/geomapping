@@ -24,9 +24,6 @@ from .config import (
     convert_esri_to_geojson_geometry, CITY_CONFIGS
 )
 
-# -----------------------------
-# DataImportService: Handles all data import logic for city layers
-# -----------------------------
 class DataImportService:
     """
     Service for importing geographic data into the system.
@@ -287,6 +284,67 @@ class DataImportService:
         finally:
             os.unlink(temp_file.name)
     
+    def _process_delhi_attributes(self, geojson_properties, layer):
+        """Process Delhi GeoJSON attributes - Simple NAME field mapping"""
+        
+        # Extract NAME field  
+        name_field = geojson_properties.get('NAME', '').strip()
+        
+        # Map to category using Delhi-specific logic
+        from .config import map_name_to_category_delhi
+        derived_category = map_name_to_category_delhi(name_field)
+        
+        # If mapping failed, use layer's default category
+        if derived_category == 'UNCLASSIFIED' and layer.category:
+            derived_category = layer.category.code
+        
+        # Process Delhi GeoJSON properties (very simple structure)
+        processed = {
+            # Basic identification
+            'name': name_field,
+            'description': '',
+            'source_layer_name': layer.name,
+            
+            # Delhi-specific fields
+            'land_use_name': name_field,
+            'land_use_type': derived_category,
+            'derived_category': derived_category,
+            
+            # Area and geometry fields
+            'area_value': geojson_properties.get('AREA_SQMTR', 0),
+            'area_unit': 'square_meters', 
+            'perimeter_value': 0,
+            
+            # Administrative fields (empty for Delhi)
+            'state': 'Delhi',
+            'district': '',
+            'mandal': '',
+            'village': '',
+            'authority_name': '',
+            
+            # PLU fields (empty for Delhi as it doesn't use PLU codes)
+            'plu_primary_code': '',
+            'plu_secondary_code_1': '',
+            'plu_secondary_code_2': '',
+            'plu_authority': '',
+            'land_use_code': name_field,
+            
+            # Source data fields
+            'source_fid': geojson_properties.get('fid'),
+            'source_object_id': geojson_properties.get('fid'),
+            'source_area_value': geojson_properties.get('AREA_SQMTR', 0),
+            'source_length_value': 0,
+            'source_perimeter_value': 0,
+            
+            # Delhi-specific fields
+            'original_color': geojson_properties.get('COLOR', ''),
+            
+            # Additional metadata
+            'original_properties': geojson_properties,
+        }
+        
+        return processed
+    
     def _import_esri_json(self, file_path, layer):
         """Enhanced import ESRI JSON file with smart PLU categorization"""
         print(f"🔧 Processing ESRI JSON format with enhanced PLU mapping")
@@ -336,6 +394,8 @@ class DataImportService:
                     processed_attrs = self._process_bangalore_plu_attributes(attrs, layer)
                 elif layer.city.slug == 'warangal':
                     processed_attrs = self._process_warangal_attributes(attrs, layer)
+                elif layer.city.slug == 'delhi':
+                    processed_attrs = self._process_delhi_attributes(attrs, layer)
                 else:
                     processed_attrs = self._process_standard_attributes(attrs, layer)
                 

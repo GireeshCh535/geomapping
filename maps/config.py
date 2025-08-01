@@ -1102,6 +1102,352 @@ WARANGAL_CONFIG = {
     }
 }
 
+DELHI_NAME_MAPPING = {
+    'AGRICULTURE': {
+        'category': 'AGRICULTURAL',
+        'description': 'Agricultural land use',
+        'examples': ['Farmland', 'Agricultural areas']
+    },
+    'AIR CITY': {
+        'category': 'TRANSPORT',
+        'description': 'Aviation and airport facilities',
+        'examples': ['Airport areas', 'Aviation facilities']
+    },
+    'CITY PARK': {
+        'category': 'PARKS_GREEN',
+        'description': 'City parks',
+        'examples': ['Public parks', 'Urban green spaces']
+    },
+    'COLD STORAGE': {
+        'category': 'INDUSTRIAL',
+        'description': 'Cold storage facilities',
+        'examples': ['Refrigeration facilities', 'Storage warehouses']
+    },
+    'COMMUNITY CENTRE': {
+        'category': 'PUBLIC',
+        'description': 'Community centers',
+        'examples': ['Community halls', 'Public meeting spaces']
+    },
+    'COMMUNITY PARK': {
+        'category': 'PARKS_GREEN',
+        'description': 'Community parks',
+        'examples': ['Neighborhood parks', 'Local green spaces']
+    },
+    'CULTURAL COMPLEX': {
+        'category': 'CULTURAL',
+        'description': 'Cultural facilities',
+        'examples': ['Cultural centers', 'Arts complexes']
+    },
+    'DISTRICT CENTRE': {
+        'category': 'COMMERCIAL',
+        'description': 'District commercial centers',
+        'examples': ['Shopping centers', 'Commercial hubs']
+    },
+    'EDUCATION AND RESEARCH': {
+        'category': 'EDUCATION',
+        'description': 'Educational and research institutions',
+        'examples': ['Schools', 'Universities', 'Research centers']
+    },
+    'ELECTRICITY (POWER HOUSE SUB STATION)': {
+        'category': 'UTILITIES',
+        'description': 'Power infrastructure',
+        'examples': ['Power stations', 'Electrical substations']
+    },
+    'FOREIGN MISSION': {
+        'category': 'GOVERNMENT',
+        'description': 'Foreign diplomatic missions',
+        'examples': ['Embassies', 'Consulates']
+    },
+    'GENERAL BUSINESS': {
+        'category': 'COMMERCIAL',
+        'description': 'General business areas',
+        'examples': ['Business districts', 'Commercial areas']
+    },
+    'GOVERNMENT LAND': {
+        'category': 'GOVERNMENT',
+        'description': 'Government owned land',
+        'examples': ['Government reserves', 'Public land']
+    },
+    'GOVERNMET OFFICE': {
+        'category': 'GOVERNMENT',
+        'description': 'Government offices',
+        'examples': ['Administrative buildings', 'Government facilities']
+    },
+    'HISTORICAL MONUMENTS': {
+        'category': 'CULTURAL',
+        'description': 'Historical monuments',
+        'examples': ['Heritage sites', 'Historical buildings']
+    },
+    'HOSPITAL': {
+        'category': 'HEALTHCARE',
+        'description': 'Healthcare facilities',
+        'examples': ['Hospitals', 'Medical centers']
+    },
+    'HOTEL': {
+        'category': 'COMMERCIAL',
+        'description': 'Hospitality services',
+        'examples': ['Hotels', 'Guest houses']
+    },
+    'INDUSTRY': {
+        'category': 'INDUSTRIAL',
+        'description': 'Industrial areas',
+        'examples': ['Factories', 'Manufacturing units']
+    },
+    'MANUFACTURING SERVICE AND REPAIR INDUSTRY': {
+        'category': 'INDUSTRIAL',
+        'description': 'Manufacturing and repair industries',
+        'examples': ['Service industries', 'Repair facilities']
+    },
+    'NON HIERARCHIALCOMMERCIAL CENTRE': {
+        'category': 'COMMERCIAL',
+        'description': 'Non-hierarchical commercial centers',
+        'examples': ['Local commercial areas', 'Mixed commercial zones']
+    },
+    'PARK': {
+        'category': 'PARKS_GREEN',
+        'description': 'Parks and green spaces',
+        'examples': ['Public parks', 'Recreation areas']
+    },
+    'PARLIAMENT HOUSE': {
+        'category': 'GOVERNMENT',
+        'description': 'Parliament facilities',
+        'examples': ['Legislative buildings', 'Parliament complex']
+    },
+    'POLICE': {
+        'category': 'GOVERNMENT',
+        'description': 'Police facilities',
+        'examples': ['Police stations', 'Law enforcement']
+    },
+    'POLICE HEADQUARTER': {
+        'category': 'GOVERNMENT',
+        'description': 'Police headquarters',
+        'examples': ['Police headquarters', 'Command centers']
+    },
+    'PRESIDENT HOUSE': {
+        'category': 'GOVERNMENT',
+        'description': 'Presidential residence',
+        'examples': ['Presidential palace', 'Executive residence']
+    },
+    'REGIONAL PARK': {
+        'category': 'PARKS_GREEN',
+        'description': 'Regional parks',
+        'examples': ['Large parks', 'Regional green areas']
+    },
+    'RELIGIOUS': {
+        'category': 'CULTURAL',
+        'description': 'Religious facilities',
+        'examples': ['Temples', 'Churches', 'Mosques', 'Religious buildings']
+    },
+    'RESIDENTIAL AREA': {
+        'category': 'RESIDENTIAL',
+        'description': 'Residential areas',
+        'examples': ['Housing areas', 'Residential colonies']
+    },
+    'SEWERAGE (TREATMENT PLANT)': {
+        'category': 'UTILITIES',
+        'description': 'Sewerage treatment facilities',
+        'examples': ['Water treatment plants', 'Sewage facilities']
+    },
+    'SOCIAL CULTURAL': {
+        'category': 'CULTURAL',
+        'description': 'Social and cultural facilities',
+        'examples': ['Social centers', 'Cultural institutions']
+    },
+    'SOLID WASTE (SANITERY LANDFILL)': {
+        'category': 'UTILITIES',
+        'description': 'Waste management facilities',
+        'examples': ['Landfills', 'Waste treatment']
+    },
+    'SPECIAL AREA': {
+        'category': 'SPECIAL',
+        'description': 'Special designated areas',
+        'examples': ['Special zones', 'Designated areas']
+    },
+    'SPORTS': {
+        'category': 'PARKS_GREEN',
+        'description': 'Sports facilities',
+        'examples': ['Sports grounds', 'Athletic facilities']
+    },
+    'SPORTS CENTRE': {
+        'category': 'PARKS_GREEN',
+        'description': 'Sports centers',
+        'examples': ['Sports complexes', 'Recreation centers']
+    },
+    'SPORTS FACILITIES': {
+        'category': 'PARKS_GREEN',
+        'description': 'Sports facilities',
+        'examples': ['Sports infrastructure', 'Athletic venues']
+    },
+    'STADIUM': {
+        'category': 'PARKS_GREEN',
+        'description': 'Stadiums',
+        'examples': ['Sports stadiums', 'Event venues']
+    },
+    'TERMINAL': {
+        'category': 'TRANSPORT',
+        'description': 'Transportation terminals',
+        'examples': ['Bus terminals', 'Transport hubs']
+    },
+    'TERMINAL RAIL': {
+        'category': 'TRANSPORT',
+        'description': 'Railway terminals',
+        'examples': ['Railway stations', 'Train terminals']
+    },
+    'TRANSMISSION CENTRE': {
+        'category': 'UTILITIES',
+        'description': 'Transmission centers',
+        'examples': ['Communication centers', 'Broadcasting facilities']
+    },
+    'TRANSMISSION SITE': {
+        'category': 'UTILITIES',
+        'description': 'Transmission sites',
+        'examples': ['Communication towers', 'Transmission infrastructure']
+    },
+    'UNIVERSITY CENTRE': {
+        'category': 'EDUCATION',
+        'description': 'University centers',
+        'examples': ['Higher education', 'University campuses']
+    },
+    'URBANISABLE AREA': {
+        'category': 'SPECIAL',
+        'description': 'Areas designated for urbanization',
+        'examples': ['Development zones', 'Urban expansion areas']
+    },
+    'WAREHOUSING': {
+        'category': 'INDUSTRIAL',
+        'description': 'Warehousing facilities',
+        'examples': ['Storage facilities', 'Distribution centers']
+    },
+    'WASTE LAND': {
+        'category': 'UNCLASSIFIED',
+        'description': 'Waste land',
+        'examples': ['Unused land', 'Barren areas']
+    },
+    'WATER BODIES': {
+        'category': 'WATER_BODIES',
+        'description': 'Water bodies',
+        'examples': ['Rivers', 'Lakes', 'Ponds']
+    },
+    'WATER TREATMENT PLANT': {
+        'category': 'UTILITIES',
+        'description': 'Water treatment facilities',
+        'examples': ['Water purification plants', 'Treatment facilities']
+    },
+    'WHOLE SALE': {
+        'category': 'COMMERCIAL',
+        'description': 'Wholesale markets',
+        'examples': ['Wholesale markets', 'Distribution centers']
+    }
+}
+
+# Delhi Configuration
+DELHI_CONFIG = {
+    'city_info': {
+        'name': 'Delhi',
+        'slug': 'delhi',
+        'state': 'Delhi',
+        'center_lat': 28.6139,  # New Delhi coordinates
+        'center_lng': 77.2090,
+    },
+    'data_format': 'GEOJSON',
+    'coordinate_precision': 8,
+    'name_mapping': DELHI_NAME_MAPPING,
+    
+    # File mappings - mapping filename to category based on NAME field
+    'file_mappings': {
+        'AGRICULTURE.geojson': 'AGRICULTURAL',
+        'AIR_CITY.geojson': 'TRANSPORT',
+        'CITY_PARK.geojson': 'PARKS_GREEN',
+        'COLD_STORAGE.geojson': 'INDUSTRIAL',
+        'COMMUNITY_CENTRE.geojson': 'PUBLIC',
+        'COMMUNITY_PARK.geojson': 'PARKS_GREEN',
+        'CULTURAL_COMPLEX.geojson': 'CULTURAL',
+        'DISTRICT_CENTRE.geojson': 'COMMERCIAL',
+        'EDUCATION_AND_RESEARCH.geojson': 'EDUCATION',
+        'ELECTRICITY__POWER_HOUSE_SUB_STATION__.geojson': 'UTILITIES',
+        'FOREIGN_MISSION.geojson': 'GOVERNMENT',
+        'GENERAL_BUSINESS.geojson': 'COMMERCIAL',
+        'GOVERNMENT_LAND.geojson': 'GOVERNMENT',
+        'GOVERNMET_OFFICE.geojson': 'GOVERNMENT',
+        'HISTORICAL_MONUMENTS.geojson': 'CULTURAL',
+        'HOSPITAL.geojson': 'HEALTHCARE',
+        'HOTEL.geojson': 'COMMERCIAL',
+        'INDUSTRY.geojson': 'INDUSTRIAL',
+        'MANUFACTURING_SERVICE_AND_REPAIR_INDUSTRY.geojson': 'INDUSTRIAL',
+        'NON_HIERARCHIALCOMMERCIAL_CENTRE.geojson': 'COMMERCIAL',
+        'PARK.geojson': 'PARKS_GREEN',
+        'PARLIAMENT_HOUSE.geojson': 'GOVERNMENT',
+        'POLICE.geojson': 'GOVERNMENT',
+        'POLICE_HEADQUARTER.geojson': 'GOVERNMENT',
+        'PRESIDENT_HOUSE.geojson': 'GOVERNMENT',
+        'REGIONAL_PARK.geojson': 'PARKS_GREEN',
+        'RELIGIOUS.geojson': 'CULTURAL',
+        'RESIDENTIAL_AREA.geojson': 'RESIDENTIAL',
+        'SEWERAGE__TREATMENT_PLANT__.geojson': 'UTILITIES',
+        'SOCIAL_CULTURAL.geojson': 'CULTURAL',
+        'SOLID_WASTE__SANITERY_LANDFILL__.geojson': 'UTILITIES',
+        'SPECIAL_AREA.geojson': 'SPECIAL',
+        'SPORTS.geojson': 'PARKS_GREEN',
+        'SPORTS_CENTRE.geojson': 'PARKS_GREEN',
+        'SPORTS_FACILITIES.geojson': 'PARKS_GREEN',
+        'STADIUM.geojson': 'PARKS_GREEN',
+        'TERMINAL.geojson': 'TRANSPORT',
+        'TERMINAL_RAIL_.geojson': 'TRANSPORT',
+        'TRANSMISSION_CENTRE.geojson': 'UTILITIES',
+        'TRANSMISSION_SITE.geojson': 'UTILITIES',
+        'UNIVERSITY_CENTRE.geojson': 'EDUCATION',
+        'URBANISABLE_AREA.geojson': 'SPECIAL',
+        'WAREHOUSING.geojson': 'INDUSTRIAL',
+        'WASTE_LAND.geojson': 'UNCLASSIFIED',
+        'WATER_BODIES.geojson': 'WATER_BODIES',
+        'WATER_TREATMENT_PLANT.geojson': 'UTILITIES',
+        'WHOLE_SALE.geojson': 'COMMERCIAL',
+    },
+    
+    # Colors - using the hex codes you provided
+    'colors': {
+        'AGRICULTURAL': '#005CE6',        # Agriculture
+        'TRANSPORT': '#FFFFFF',           # Air City, Terminal, Terminal Rail
+        'PARKS_GREEN': '#4CE600',         # City Park, Community Park, Park, Regional Park, Sports, Sports Centre, Sports Facilities, Stadium
+        'INDUSTRIAL': '#8400A8',          # Cold Storage, Industry, Manufacturing Service And Repair Industry, Warehousing
+        'PUBLIC': '#FF0000',              # Community Centre
+        'CULTURAL': '#4CE600',            # Cultural Complex, Historical Monuments, Religious, Social Cultural
+        'COMMERCIAL': '#FF0000',          # District Centre, General Business, Hotel, Non Hierarchical Commercial Centre, Whole Sale
+        'EDUCATION': '#005CE6',           # Education And Research, University Centre
+        'UTILITIES': '#FFFFFF',           # Electricity, Sewerage, Solid Waste, Transmission Centre, Transmission Site, Water Treatment Plant
+        'GOVERNMENT': '#FFFFFF',          # Foreign Mission, Government Land, Government Office, Parliament House, Police, Police Headquarter, President House
+        'HEALTHCARE': '#005CE6',          # Hospital
+        'RESIDENTIAL': '#FFFF00',         # Residential Area
+        'WATER_BODIES': '#73B2FF',        # Water Bodies
+        'SPECIAL': '#7AF5CA',             # Special Area, Urbanisable Area
+        'UNCLASSIFIED': '#000000',        # Waste Land
+        # Fallback colors
+        'MIXED_USE': '#FFAA00',
+        'PROTECTED': '#267300',
+        'DEFENSE': '#666666',
+        'HIGH_TECH': '#C500FF',
+        'DRAINS': '#00C5FF',
+        'HILLS': '#A87000',
+        'CEMETERY': '#55FF00',
+    },
+    
+    # Attribute mappings for Delhi (based on your sample data structure)
+    'attribute_mappings': {
+        'land_use_fields': {
+            'NAME': 'name',
+            'fid': 'source_fid',
+            'AREA_SQMTR': 'area_sqmtr',
+            'COLOR': 'original_color',
+        },
+        'geometry_fields': {
+            'AREA_SQMTR': 'area',
+        },
+        'metadata_fields': {
+            'fid': 'source_object_id',
+        }
+    }
+}
+
 # Master configuration dictionary
 CITY_CONFIGS = {
     'bengaluru': BANGALORE_CONFIG,
@@ -1109,7 +1455,22 @@ CITY_CONFIGS = {
     'amaravati': AMARAVATI_CONFIG,
     'hyderabad': HYDERABAD_CONFIG,
     'warangal': WARANGAL_CONFIG,
+    'delhi': DELHI_CONFIG,
 }
+
+def map_name_to_category_delhi(name_field):
+    """
+    Map Delhi NAME field to categories
+    Delhi uses simple NAME field mapping
+    """
+    # Clean input
+    name_field = (name_field or '').strip()
+    
+    # Check direct NAME mapping
+    if name_field and name_field in DELHI_NAME_MAPPING:
+        return DELHI_NAME_MAPPING[name_field]['category']
+    
+    return 'UNCLASSIFIED'
 
 def get_city_config(city_slug):
     """Get configuration for a specific city"""
