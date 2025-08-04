@@ -70,6 +70,9 @@ urlpatterns = [
     
     path('cities/<slug:city_slug>/layers/<slug:layer_slug>/features/',
          views.LayerFeaturesView.as_view(), name='layer_features'),
+
+     path('cities/<slug:city_slug>/center/', 
+          views.CityCenterView.as_view(), name='city_center'),
     
     
     # LAYER MANAGEMENT

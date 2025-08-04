@@ -1448,6 +1448,151 @@ DELHI_CONFIG = {
     }
 }
 
+GURGAON_CLASSTEXT_MAPPING = {
+    '100 Residential (Group Housing/Plotted)': {
+        'category': 'RESIDENTIAL',
+        'description': 'Residential areas with group housing and plotted development',
+        'examples': ['Group housing', 'Plotted development', 'Housing societies']
+    },
+    '200 Commercial': {
+        'category': 'COMMERCIAL',
+        'description': 'Commercial areas',
+        'examples': ['Shopping centers', 'Business districts', 'Commercial complexes']
+    },
+    '300 Industrial': {
+        'category': 'INDUSTRIAL',
+        'description': 'Industrial areas',
+        'examples': ['Manufacturing units', 'Industrial estates', 'Factories']
+    },
+    '400 Transport and Communication': {
+        'category': 'TRANSPORT',
+        'description': 'Transportation and communication infrastructure',
+        'examples': ['Roads', 'Railways', 'Communication facilities']
+    },
+    '500 Public Utilities': {
+        'category': 'UTILITIES',
+        'description': 'Public utility infrastructure',
+        'examples': ['Power stations', 'Water treatment', 'Utility facilities']
+    },
+    '600 Public and Semi Public Use': {
+        'category': 'PUBLIC',
+        'description': 'Public and semi-public facilities',
+        'examples': ['Government buildings', 'Public institutions', 'Semi-public facilities']
+    },
+    '700 Open Spaces': {
+        'category': 'PARKS_GREEN',
+        'description': 'Open spaces and green areas',
+        'examples': ['Parks', 'Open grounds', 'Green spaces']
+    },
+    '800 Aggriculture Zone': {
+        'category': 'AGRICULTURAL',
+        'description': 'Agricultural zones',
+        'examples': ['Agricultural land', 'Farming areas']
+    },
+    '900 Special Zone': {
+        'category': 'SPECIAL',
+        'description': 'Special designated zones',
+        'examples': ['Special economic zones', 'Designated special areas']
+    },
+    '1000 Natural Conservation Zone Hubs': {
+        'category': 'PROTECTED',
+        'description': 'Natural conservation areas',
+        'examples': ['Conservation zones', 'Protected natural areas', 'Environmental reserves']
+    },
+    'Hubs': {
+        'category': 'COMMERCIAL',
+        'description': 'Commercial and business hubs',
+        'examples': ['Business hubs', 'Commercial centers']
+    },
+    'H6 World Trade Hub': {
+        'category': 'COMMERCIAL',
+        'description': 'World Trade Hub',
+        'examples': ['International trade center', 'World trade facilities']
+    }
+}
+
+# Gurgaon Configuration
+GURGAON_CONFIG = {
+    'city_info': {
+        'name': 'Gurgaon',
+        'slug': 'gurgaon',
+        'state': 'Haryana',
+        'center_lat': 28.4595,  # Gurgaon coordinates
+        'center_lng': 77.0266,
+    },
+    'data_format': 'GEOJSON',
+    'coordinate_precision': 8,
+    'classtext_mapping': GURGAON_CLASSTEXT_MAPPING,
+    
+    # File mappings - mapping filename to category based on classtext field
+    'file_mappings': {
+        'Agriculture_Zone.geojson': 'AGRICULTURAL',
+        'Commercial.geojson': 'COMMERCIAL',
+        'Hubs.geojson': 'COMMERCIAL',
+        'Industrial.geojson': 'INDUSTRIAL',
+        'Natural_Conservation_Zone_Hubs.geojson': 'PROTECTED',
+        'Open_Spaces.geojson': 'PARKS_GREEN',
+        'Public_and_Semi_Public_Use.geojson': 'PUBLIC',
+        'Public_Utilities.geojson': 'UTILITIES',
+        'Residential_GroupHousing_Plotted.geojson': 'RESIDENTIAL',
+        'Special_Zone.geojson': 'SPECIAL',
+        'Transport_and_Communication.geojson': 'TRANSPORT',
+        'World_Trade_Hub.geojson': 'COMMERCIAL',
+    },
+    
+    # Colors - using the hex codes you provided
+    'colors': {
+        'RESIDENTIAL': '#FFFF73',        # 100 Residential (Group Housing/Plotted)
+        'COMMERCIAL': '#BED2FF',         # 200 Commercial, Hubs, H6 World Trade Hub
+        'INDUSTRIAL': '#A80084',         # 300 Industrial
+        'TRANSPORT': '#828282',          # 400 Transport and Communication
+        'UTILITIES': '#A83800',          # 500 Public Utilities
+        'PUBLIC': '#E60000',             # 600 Public and Semi Public Use
+        'PARKS_GREEN': '#F57A7A',        # 700 Open Spaces (using solid fill)
+        'AGRICULTURAL': '#4CE600',       # 800 Agriculture Zone (using dot fill)
+        'SPECIAL': '#DF73FF',            # 900 Special Zone
+        'PROTECTED': '#38A800',          # 1000 Natural Conservation Zone Hubs
+        # Fallback colors for other categories
+        'WATER_BODIES': '#00C5FF',
+        'GOVERNMENT': '#E60000',         # Same as public
+        'EDUCATION': '#E60000',          # Same as public
+        'HEALTHCARE': '#E60000',         # Same as public
+        'CULTURAL': '#FFAA00',           # Using Hubs color
+        'MIXED_USE': '#FFAA00',
+        'DEFENSE': '#666666',
+        'HIGH_TECH': '#A80084',          # Same as industrial
+        'DRAINS': '#00C5FF',
+        'HILLS': '#38A800',              # Same as protected
+        'CEMETERY': '#F57A7A',           # Same as parks/green
+        'UNCLASSIFIED': '#CCCCCC'
+    },
+    
+    # Attribute mappings for Gurgaon (based on your sample data structure)
+    'attribute_mappings': {
+        'land_use_fields': {
+            'classtext': 'classtext',
+            'class': 'class_code',
+            'code': 'code',
+            'name': 'sector_name',
+            'density': 'density',
+            'val': 'val',
+            'text_': 'text_code',
+            'codetext': 'codetext',
+        },
+        'geometry_fields': {
+            'Shape_Area': 'area',
+            'Shape_Length': 'perimeter',
+        },
+        'metadata_fields': {
+            'OBJECTID': 'object_id',
+            'objectid': 'object_id_alt',
+            'id': 'feature_id',
+            'final_gmda_jan17_sde_sector_no_': 'gmda_sector_no',
+        }
+    }
+}
+
+
 # Master configuration dictionary
 CITY_CONFIGS = {
     'bengaluru': BANGALORE_CONFIG,
@@ -1456,6 +1601,7 @@ CITY_CONFIGS = {
     'hyderabad': HYDERABAD_CONFIG,
     'warangal': WARANGAL_CONFIG,
     'delhi': DELHI_CONFIG,
+    'gurgaon': GURGAON_CONFIG,
 }
 
 def map_name_to_category_delhi(name_field):
@@ -1469,6 +1615,20 @@ def map_name_to_category_delhi(name_field):
     # Check direct NAME mapping
     if name_field and name_field in DELHI_NAME_MAPPING:
         return DELHI_NAME_MAPPING[name_field]['category']
+    
+    return 'UNCLASSIFIED'
+
+def map_classtext_to_category_gurgaon(classtext_field):
+    """
+    Map Gurgaon classtext field to categories
+    Gurgaon uses classtext field mapping with codes
+    """
+    # Clean input
+    classtext_field = (classtext_field or '').strip()
+    
+    # Check direct classtext mapping
+    if classtext_field and classtext_field in GURGAON_CLASSTEXT_MAPPING:
+        return GURGAON_CLASSTEXT_MAPPING[classtext_field]['category']
     
     return 'UNCLASSIFIED'
 

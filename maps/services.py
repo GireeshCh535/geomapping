@@ -345,6 +345,74 @@ class DataImportService:
         
         return processed
     
+    def _process_gurgaon_attributes(self, geojson_properties, layer):
+        """Process Gurgaon GeoJSON attributes - Uses classtext field mapping"""
+        
+        # Extract classtext field  
+        classtext_field = geojson_properties.get('classtext', '').strip()
+        
+        # Map to category using Gurgaon-specific logic
+        from .config import map_classtext_to_category_gurgaon
+        derived_category = map_classtext_to_category_gurgaon(classtext_field)
+        
+        # If mapping failed, use layer's default category
+        if derived_category == 'UNCLASSIFIED' and layer.category:
+            derived_category = layer.category.code
+        
+        # Process Gurgaon GeoJSON properties
+        processed = {
+            # Basic identification
+            'name': geojson_properties.get('name', '').strip(),  # Sector name
+            'description': classtext_field,
+            'source_layer_name': layer.name,
+            
+            # Gurgaon-specific fields
+            'land_use_name': classtext_field,
+            'land_use_type': derived_category,
+            'derived_category': derived_category,
+            'land_use_code': str(geojson_properties.get('class', geojson_properties.get('code', ''))),
+            
+            # Area and geometry fields
+            'area_value': geojson_properties.get('Shape_Area', 0),
+            'area_unit': 'square_units',  # Adjust if you know the actual units
+            'perimeter_value': geojson_properties.get('Shape_Length', 0),
+            
+            # Administrative fields
+            'state': 'Haryana',
+            'district': 'Gurgaon',
+            'mandal': '',
+            'village': '',
+            'authority_name': 'GMDA',  # Gurgaon Metropolitan Development Authority
+            
+            # Gurgaon-specific planning fields
+            'sector_name': geojson_properties.get('name', ''),
+            'class_code': geojson_properties.get('class'),
+            'code': geojson_properties.get('code'),
+            'density': geojson_properties.get('density', '').strip(),
+            'val': geojson_properties.get('val', '').strip(),
+            'text_code': geojson_properties.get('text_', '').strip(),
+            'codetext': geojson_properties.get('codetext', '').strip(),
+            'gmda_sector_no': geojson_properties.get('final_gmda_jan17_sde_sector_no_'),
+            
+            # PLU fields (empty for Gurgaon as it uses different system)
+            'plu_primary_code': '',
+            'plu_secondary_code_1': '',
+            'plu_secondary_code_2': '',
+            'plu_authority': 'GMDA',
+            
+            # Source data fields
+            'source_fid': geojson_properties.get('id'),
+            'source_object_id': geojson_properties.get('OBJECTID', geojson_properties.get('objectid')),
+            'source_area_value': geojson_properties.get('Shape_Area', 0),
+            'source_length_value': geojson_properties.get('Shape_Length', 0),
+            'source_perimeter_value': geojson_properties.get('Shape_Length', 0),
+            
+            # Additional metadata
+            'original_properties': geojson_properties,
+        }
+        
+        return processed
+    
     def _import_esri_json(self, file_path, layer):
         """Enhanced import ESRI JSON file with smart PLU categorization"""
         print(f"🔧 Processing ESRI JSON format with enhanced PLU mapping")
@@ -396,6 +464,8 @@ class DataImportService:
                     processed_attrs = self._process_warangal_attributes(attrs, layer)
                 elif layer.city.slug == 'delhi':
                     processed_attrs = self._process_delhi_attributes(attrs, layer)
+                elif layer.city.slug == 'gurgaon':
+                    processed_attrs = self._process_gurgaon_attributes(attrs, layer)
                 else:
                     processed_attrs = self._process_standard_attributes(attrs, layer)
                 

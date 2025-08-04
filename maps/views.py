@@ -3064,3 +3064,84 @@ class TileCoordinatesView(APIView):
                 'north': city.center_lat + buffer
             }
         return None
+    
+
+class CityCenterView(APIView):
+    """
+    API endpoint to get city center coordinates with default zoom
+    URL: /api/cities/{city_slug}/center/
+    """
+    permission_classes = [AllowAny]
+    
+    def get(self, request, city_slug):
+        """
+        Get center coordinates for a city with default zoom level 9
+        
+        Returns:
+        {
+            "city_slug": "bangalore",
+            "city_name": "Bangalore", 
+            "center": {
+                "latitude": 12.9716,
+                "longitude": 77.5946
+            },
+            "zoom": 9,
+            "state": {
+                "name": "Karnataka",
+                "slug": "karnataka"
+            }
+        }
+        """
+        try:
+            # Get city with state information
+            city = City.objects.select_related('state_ref').get(
+                slug=city_slug, 
+                is_active=True
+            )
+            
+            # Validate that city has center coordinates
+            if not city.center_lat or not city.center_lng:
+                return Response({
+                    'error': 'City center coordinates not available',
+                    'message': f'Center coordinates are not set for {city.name}',
+                    'city_slug': city_slug
+                }, status=400)
+            
+            # Build response
+            response_data = {
+                'city_slug': city.slug,
+                'city_name': city.name,
+                'center': {
+                    'latitude': city.center_lat,
+                    'longitude': city.center_lng
+                },
+                'zoom': 9,  # Default zoom level as requested
+            }
+            
+            # Add state information if available
+            if city.state_ref:
+                response_data['state'] = {
+                    'name': city.state_ref.name,
+                    'slug': city.state_ref.slug
+                }
+            else:
+                # Fallback to legacy state field
+                response_data['state'] = {
+                    'name': city.state,
+                    'slug': None
+                }
+            
+            return Response(response_data, status=200)
+            
+        except City.DoesNotExist:
+            return Response({
+                'error': 'City not found',
+                'message': f'No active city found with slug: {city_slug}',
+                'available_cities_endpoint': '/api/cities/'
+            }, status=404)
+            
+        except Exception as e:
+            return Response({
+                'error': 'Internal server error',
+                'message': str(e)
+            }, status=500)
