@@ -413,6 +413,99 @@ class DataImportService:
         
         return processed
     
+    def _process_jaipur_attributes(self, geojson_properties, layer):
+        """Process Jaipur GeoJSON attributes - Uses LANDUSE_CATEGORY field mapping"""
+        
+        # Extract LANDUSE_CATEGORY field  
+        landuse_category = geojson_properties.get('LANDUSE_CATEGORY', '').strip()
+        
+        # Map to category using Jaipur-specific logic
+        from .config import map_landuse_category_to_category_jaipur
+        derived_category = map_landuse_category_to_category_jaipur(landuse_category)
+        
+        # If mapping failed, use layer's default category
+        if derived_category == 'UNCLASSIFIED' and layer.category:
+            derived_category = layer.category.code
+        
+        # Process Jaipur GeoJSON properties (rich structure)
+        processed = {
+            # Basic identification
+            'name': geojson_properties.get('FEATURE_NAME', '').strip() or landuse_category,
+            'description': geojson_properties.get('REMARKS', '').strip(),
+            'source_layer_name': layer.name,
+            
+            # Jaipur-specific land use fields
+            'land_use_name': landuse_category,
+            'land_use_type': derived_category,
+            'derived_category': derived_category,
+            'land_use_category': landuse_category,
+            'land_use_subcat_level_1': geojson_properties.get('LANDUSE_SUBCAT_LEVEL_1', '').strip(),
+            'land_use_subcat_level_2': geojson_properties.get('LANDUSE_SUBCAT_LEVEL_2', '').strip(),
+            'land_use_subcat_level_3': geojson_properties.get('LANDUSE_SUBCAT_LEVEL_3', '').strip(),
+            
+            # Area and geometry fields
+            'area_value': geojson_properties.get('SHAPE.AREA', 0),
+            'area_unit': 'square_units',  # Jaipur data units (likely square meters)
+            'perimeter_value': geojson_properties.get('SHAPE.LEN', 0),
+            'landuse_area': geojson_properties.get('LANDUSE_AREA', 0),
+            'geometry_length': geojson_properties.get('geom_Length', 0),
+            'geometry_area': geojson_properties.get('geom_Area', 0),
+            
+            # Administrative fields
+            'state': 'Rajasthan',
+            'district': geojson_properties.get('DISTRICT', 'Jaipur'),
+            'district_code': geojson_properties.get('DISTRICT_CODE', ''),
+            'mandal': '',  # Not applicable for Jaipur
+            'village': '',  # Not applicable for Jaipur
+            'authority_name': 'JDA',  # Jaipur Development Authority
+            
+            # Jaipur-specific administrative fields
+            'urban_local_body': geojson_properties.get('URBAN_LOCAL_BODY', '').strip(),
+            'urban_local_body_code': geojson_properties.get('URBAN_LOCAL_BODY_CODE', ''),
+            'admin_zone': geojson_properties.get('ADMIN_ZONE', '').strip(),
+            'admin_zone_code': geojson_properties.get('ADMIN_ZONE_CODE', ''),
+            'planning_zone': geojson_properties.get('PLANNING_ZONE', '').strip(),
+            'planning_zone_code': geojson_properties.get('PLANNING_ZONE_CODE', ''),
+            
+            # Category codes
+            'landuse_category_code': geojson_properties.get('LANDUSE_CATEGORY_CODE', ''),
+            'landuse_subcat_level_1_code': geojson_properties.get('LANDUSE_SUBCAT_LEVEL_1_CODE', ''),
+            'landuse_subcat_level_2_code': geojson_properties.get('LANDUSE_SUBCAT_LEVEL_2_CODE', ''),
+            'landuse_subcat_level_3_code': geojson_properties.get('LANDUSE_SUBCAT_LEVEL_3_CODE', ''),
+            
+            # Feature identification
+            'feature_name': geojson_properties.get('FEATURE_NAME', '').strip(),
+            'label': geojson_properties.get('LABEL', '').strip(),
+            'remarks': geojson_properties.get('REMARKS', '').strip(),
+            
+            # PLU fields (empty for Jaipur as it doesn't use PLU codes like Bangalore)
+            'plu_primary_code': '',
+            'plu_secondary_code_1': '',
+            'plu_secondary_code_2': '',
+            'plu_authority': 'JDA',
+            'land_use_code': landuse_category,
+            
+            # Source data identification fields
+            'source_fid': geojson_properties.get('id'),
+            'source_object_id': geojson_properties.get('OBJECTID'),
+            'source_object_id_1': geojson_properties.get('OBJECTID_1'),
+            'source_id': geojson_properties.get('ID'),
+            'source_area_value': geojson_properties.get('SHAPE.AREA', 0),
+            'source_length_value': geojson_properties.get('SHAPE.LEN', 0),
+            'source_perimeter_value': geojson_properties.get('SHAPE.LEN', 0),
+            
+            # Metadata fields
+            'created_user': geojson_properties.get('CREATED_USER', ''),
+            'created_date': geojson_properties.get('CREATED_DATE'),
+            'last_edited_user': geojson_properties.get('LAST_EDITED_USER', ''),
+            'last_edited_date': geojson_properties.get('LAST_EDITED_DATE'),
+            
+            # Additional metadata
+            'original_properties': geojson_properties,
+        }
+        
+        return processed
+    
     def _import_esri_json(self, file_path, layer):
         """Enhanced import ESRI JSON file with smart PLU categorization"""
         print(f"🔧 Processing ESRI JSON format with enhanced PLU mapping")
@@ -466,6 +559,8 @@ class DataImportService:
                     processed_attrs = self._process_delhi_attributes(attrs, layer)
                 elif layer.city.slug == 'gurgaon':
                     processed_attrs = self._process_gurgaon_attributes(attrs, layer)
+                elif layer.city.slug == 'jaipur':
+                    processed_attrs = self._process_jaipur_attributes(attrs, layer)
                 else:
                     processed_attrs = self._process_standard_attributes(attrs, layer)
                 

@@ -1592,6 +1592,268 @@ GURGAON_CONFIG = {
     }
 }
 
+JAIPUR_LANDUSE_MAPPING = {
+    'Agriculture Land': {
+        'category': 'AGRICULTURAL',
+        'description': 'Agricultural land use including farming and cultivation areas',
+        'examples': ['Nursery Orchard', 'Cropland', 'Agricultural fields']
+    },
+    'Commercial': {
+        'category': 'COMMERCIAL',
+        'description': 'Commercial areas and business districts',
+        'examples': ['Shopping centers', 'Business districts', 'Commercial complexes']
+    },
+    'Communication': {
+        'category': 'UTILITIES',
+        'description': 'Communication infrastructure and facilities',
+        'examples': ['Telecommunication towers', 'Communication facilities', 'Radio stations']
+    },
+    'Eco-Sensitive  Zone': {
+        'category': 'PROTECTED',
+        'description': 'Environmentally sensitive and protected areas',
+        'examples': ['Protected forests', 'Wildlife sanctuaries', 'Conservation zones']
+    },
+    'Educational': {
+        'category': 'EDUCATION',
+        'description': 'Educational institutions and facilities',
+        'examples': ['Schools', 'Colleges', 'Universities', 'Research institutes']
+    },
+    'G1': {
+        'category': 'SPECIAL',
+        'description': 'G1 zoning classification',
+        'examples': ['Special zoning G1', 'Administrative zones']
+    },
+    'G2': {
+        'category': 'SPECIAL',
+        'description': 'G2 zoning classification',
+        'examples': ['Special zoning G2', 'Administrative zones']
+    },
+    'G3': {
+        'category': 'SPECIAL',
+        'description': 'G3 zoning classification',
+        'examples': ['Special zoning G3', 'Administrative zones']
+    },
+    'Govt and Semi Governmernt': {
+        'category': 'GOVERNMENT',
+        'description': 'Government and semi-government facilities',
+        'examples': ['Government offices', 'Administrative buildings', 'Public institutions']
+    },
+    'Green Areas': {
+        'category': 'PARKS_GREEN',
+        'description': 'Green spaces and park areas',
+        'examples': ['Parks', 'Gardens', 'Green belts', 'Open spaces']
+    },
+    'Health Services': {
+        'category': 'HEALTHCARE',
+        'description': 'Healthcare facilities and medical services',
+        'examples': ['Hospitals', 'Clinics', 'Health centers', 'Medical facilities']
+    },
+    'Heritage': {
+        'category': 'CULTURAL',
+        'description': 'Heritage sites and cultural monuments',
+        'examples': ['Historical monuments', 'Heritage buildings', 'Archaeological sites']
+    },
+    'Industrial': {
+        'category': 'INDUSTRIAL',
+        'description': 'Industrial areas and manufacturing zones',
+        'examples': ['Factories', 'Industrial estates', 'Manufacturing units']
+    },
+    'Mixed': {
+        'category': 'MIXED_USE',
+        'description': 'Mixed-use developments',
+        'examples': ['Mixed residential-commercial', 'Multi-purpose buildings']
+    },
+    'Others': {
+        'category': 'UNCLASSIFIED',
+        'description': 'Other miscellaneous land uses',
+        'examples': ['Miscellaneous uses', 'Unspecified areas']
+    },
+    'Public & Semi Public': {
+        'category': 'PUBLIC',
+        'description': 'Public and semi-public facilities',
+        'examples': ['Community centers', 'Public buildings', 'Semi-public institutions']
+    },
+    'Public Utilities': {
+        'category': 'UTILITIES',
+        'description': 'Public utility infrastructure',
+        'examples': ['Power plants', 'Water treatment', 'Sewage facilities', 'Utilities']
+    },
+    'Recreational': {
+        'category': 'PARKS_GREEN',
+        'description': 'Recreational facilities and areas',
+        'examples': ['Sports complexes', 'Recreation centers', 'Playgrounds']
+    },
+    'Religious': {
+        'category': 'CULTURAL',
+        'description': 'Religious facilities and places of worship',
+        'examples': ['Temples', 'Mosques', 'Churches', 'Religious complexes']
+    },
+    'Residential': {
+        'category': 'RESIDENTIAL',
+        'description': 'Residential areas and housing',
+        'examples': ['Housing colonies', 'Residential complexes', 'Apartments']
+    },
+    'Rural': {
+        'category': 'AGRICULTURAL',
+        'description': 'Rural areas and settlements',
+        'examples': ['Rural villages', 'Agricultural settlements', 'Rural land']
+    },
+    'Speccific Land Use': {
+        'category': 'SPECIAL',
+        'description': 'Specific designated land uses',
+        'examples': ['Special purpose areas', 'Designated zones']
+    },
+    'Transportation': {
+        'category': 'TRANSPORT',
+        'description': 'Transportation infrastructure',
+        'examples': ['Roads', 'Railways', 'Airports', 'Transportation facilities']
+    },
+    'U1_2025': {
+        'category': 'SPECIAL',
+        'description': 'U1 zoning for 2025 development',
+        'examples': ['Urban development zone U1', 'Future development areas']
+    },
+    'U2 HIZ': {
+        'category': 'SPECIAL',
+        'description': 'U2 High Intensity Zone',
+        'examples': ['High intensity development zone', 'Dense urban areas']
+    },
+    'U2 LIZ': {
+        'category': 'SPECIAL',
+        'description': 'U2 Low Intensity Zone',
+        'examples': ['Low intensity development zone', 'Low density urban areas']
+    },
+    'U3 HIZ': {
+        'category': 'SPECIAL',
+        'description': 'U3 High Intensity Zone',
+        'examples': ['High intensity development zone U3', 'Dense development areas']
+    },
+    'U3 LIZ': {
+        'category': 'SPECIAL',
+        'description': 'U3 Low Intensity Zone',
+        'examples': ['Low intensity development zone U3', 'Low density areas']
+    },
+    'Vacant Land': {
+        'category': 'UNCLASSIFIED',
+        'description': 'Vacant and undeveloped land',
+        'examples': ['Empty plots', 'Undeveloped areas', 'Vacant lots']
+    },
+    'Water Bodies': {
+        'category': 'WATER_BODIES',
+        'description': 'Water bodies and aquatic features',
+        'examples': ['Lakes', 'Rivers', 'Ponds', 'Water reservoirs']
+    }
+}
+
+# Jaipur Configuration
+JAIPUR_CONFIG = {
+    'city_info': {
+        'name': 'Jaipur',
+        'slug': 'jaipur',
+        'state': 'Rajasthan',
+        'center_lat': 26.9124,  # Jaipur coordinates
+        'center_lng': 75.7873,
+        'is_active': True,
+    },
+    'data_format': 'GEOJSON',
+    'coordinate_precision': 8,
+    'landuse_mapping': JAIPUR_LANDUSE_MAPPING,
+    
+    # File mappings - mapping filename to category based on LANDUSE_CATEGORY field
+    'file_mappings': {
+        'Agriculture_Land.geojson': 'AGRICULTURAL',
+        'Commercial.geojson': 'COMMERCIAL',
+        'Communication.geojson': 'UTILITIES',
+        'Eco_Sensitive__Zone.geojson': 'PROTECTED',
+        'Educational.geojson': 'EDUCATION',
+        'G1.geojson': 'SPECIAL',
+        'G2.geojson': 'SPECIAL',
+        'G3.geojson': 'SPECIAL',
+        'Govt_and_Semi_Governmernt.geojson': 'GOVERNMENT',
+        'Green_Areas.geojson': 'PARKS_GREEN',
+        'Health_Services.geojson': 'HEALTHCARE',
+        'Heritage.geojson': 'CULTURAL',
+        'Industrial.geojson': 'INDUSTRIAL',
+        'Mixed.geojson': 'MIXED_USE',
+        'Others.geojson': 'UNCLASSIFIED',
+        'Public___Semi_Public.geojson': 'PUBLIC',
+        'Public_Utilities.geojson': 'UTILITIES',
+        'Recreational.geojson': 'PARKS_GREEN',
+        'Religious.geojson': 'CULTURAL',
+        'Residential.geojson': 'RESIDENTIAL',
+        'Rural.geojson': 'AGRICULTURAL',
+        'Specific_Land_Use.geojson': 'SPECIAL',
+        'Transportation.geojson': 'TRANSPORT',
+        'U1_2025.geojson': 'SPECIAL',
+        'U2_HIZ.geojson': 'SPECIAL',
+        'U2_LIZ.geojson': 'SPECIAL',
+        'U3_HIZ.geojson': 'SPECIAL',
+        'U3_LIZ.geojson': 'SPECIAL',
+        'Vacant_Land.geojson': 'UNCLASSIFIED',
+        'Water_Bodies.geojson': 'WATER_BODIES',
+    },
+    
+    # Colors - using your specified colors and logical defaults for missing ones
+    'colors': {
+        'AGRICULTURAL': '#D1FF73',        # Agriculture_Land + Rural
+        'COMMERCIAL': '#FF0000',          # Commercial
+        'UTILITIES': '#E69800',           # Communication + Public_Utilities  
+        'PROTECTED': '#38A800',           # Eco_Sensitive__Zone
+        'EDUCATION': '#005CE6',           # Educational
+        'SPECIAL': '#898944',             # G1 (using G1 color for all special zones)
+        'GOVERNMENT': '#A87000',          # Govt_and_Semi_Governmernt
+        'PARKS_GREEN': '#70A800',         # Green_Areas + Recreational
+        'HEALTHCARE': '#73FFDF',          # Health_Services
+        'CULTURAL': '#A3FF73',            # Heritage + Religious
+        'INDUSTRIAL': '#A900E6',          # Industrial
+        'MIXED_USE': '#FFAA00',           # Mixed
+        'UNCLASSIFIED': '#E1E1E1',        # Others + Vacant_Land
+        'PUBLIC': '#FF6B6B',              # Public___Semi_Public (logical color)
+        'RESIDENTIAL': '#FFE135',         # Residential (logical residential color)
+        'TRANSPORT': '#666666',           # Transportation (logical transport color)
+        'WATER_BODIES': '#0084FF',        # Water_Bodies (logical water color)
+        
+        # Fallback colors for any missed categories
+        'DEFENSE': '#8B4513',
+        'HIGH_TECH': '#C500FF',
+        'DRAINS': '#00C5FF',
+        'HILLS': '#A87000',
+        'CEMETERY': '#55FF00',
+    },
+    
+    # Attribute mappings for Jaipur (based on your sample data structure)
+    'attribute_mappings': {
+        'land_use_fields': {
+            'LANDUSE_CATEGORY': 'land_use_type',
+            'LANDUSE_SUBCAT_LEVEL_1': 'sub_category_1',
+            'LANDUSE_SUBCAT_LEVEL_2': 'sub_category_2',
+            'LANDUSE_SUBCAT_LEVEL_3': 'sub_category_3',
+            'DISTRICT': 'district',
+            'ADMIN_ZONE': 'admin_zone',
+            'PLANNING_ZONE': 'planning_zone',
+            'FEATURE_NAME': 'feature_name',
+            'LABEL': 'label',
+            'REMARKS': 'remarks',
+        },
+        'geometry_fields': {
+            'SHAPE.AREA': 'area',
+            'SHAPE.LEN': 'perimeter',
+            'LANDUSE_AREA': 'landuse_area',
+        },
+        'metadata_fields': {
+            'OBJECTID_1': 'object_id_1',
+            'OBJECTID': 'object_id',
+            'ID': 'source_id',
+            'CREATED_USER': 'created_user',
+            'CREATED_DATE': 'created_date',
+            'LAST_EDITED_USER': 'last_edited_user',
+            'LAST_EDITED_DATE': 'last_edited_date',
+            'geom_Length': 'geometry_length',
+            'geom_Area': 'geometry_area',
+        }
+    }
+}
+
 
 # Master configuration dictionary
 CITY_CONFIGS = {
@@ -1602,6 +1864,7 @@ CITY_CONFIGS = {
     'warangal': WARANGAL_CONFIG,
     'delhi': DELHI_CONFIG,
     'gurgaon': GURGAON_CONFIG,
+    'jaipur':JAIPUR_CONFIG,
 }
 
 def map_name_to_category_delhi(name_field):

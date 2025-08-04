@@ -3145,3 +3145,127 @@ class CityCenterView(APIView):
                 'error': 'Internal server error',
                 'message': str(e)
             }, status=500)
+        
+class CombinedLayerCenterView(APIView):
+    """
+    API endpoint to get the center coordinates of combined layers
+    URL: /api/cities/{city_slug}/combined-layer-center/
+    """
+    permission_classes = [AllowAny]
+    
+    def get(self, request, city_slug):
+        """
+        Get center coordinates of all combined layers for a city
+        
+        Returns:
+        {
+            "city": "bangalore",
+            "city_name": "Bangalore",
+            "center": {
+                "lat": 12.9716,
+                "lng": 77.5946
+            },
+            "bounds": {
+                "west": 77.4846,
+                "south": 12.8716,
+                "east": 77.7046,
+                "north": 13.0716
+            },
+            "dimensions": {
+                "width": 0.22,
+                "height": 0.20
+            },
+            "layers_count": 15,
+            "layers": ["parks", "roads", "buildings", ...]
+        }
+        """
+        result = self.get_combined_layer_center(city_slug)
+        
+        if 'error' in result:
+            return Response(result, status=400)
+        
+        return Response(result, status=200)
+    
+    def get_combined_layer_center(self, city_slug):
+        """
+        Calculate the center coordinates of the combined bounds of all layers for a city.
+        
+        Args:
+            city_slug: The slug identifier for the city
+            
+        Returns:
+            dict: Center coordinates and bounds information
+        """
+        from maps.models import City, DataLayer
+        
+        try:
+            # Get the city
+            city = City.objects.get(slug=city_slug, is_active=True)
+            
+            # Get all processed layers for this city
+            layers = DataLayer.objects.filter(
+                city=city,
+                is_processed=True
+            ).exclude(
+                bbox_xmin__isnull=True,
+                bbox_ymin__isnull=True,
+                bbox_xmax__isnull=True,
+                bbox_ymax__isnull=True
+            )
+            
+            if not layers.exists():
+                return {
+                    'error': f'No processed layers with bounds found for {city_slug}',
+                    'city': city_slug
+                }
+            
+            # Calculate combined bounds
+            combined_bounds = {
+                'west': float('inf'),
+                'south': float('inf'),
+                'east': float('-inf'),
+                'north': float('-inf')
+            }
+            
+            # Iterate through all layers to find the overall bounds
+            for layer in layers:
+                combined_bounds['west'] = min(combined_bounds['west'], layer.bbox_xmin)
+                combined_bounds['south'] = min(combined_bounds['south'], layer.bbox_ymin)
+                combined_bounds['east'] = max(combined_bounds['east'], layer.bbox_xmax)
+                combined_bounds['north'] = max(combined_bounds['north'], layer.bbox_ymax)
+            
+            # Calculate center coordinates
+            center_lng = (combined_bounds['west'] + combined_bounds['east']) / 2
+            center_lat = (combined_bounds['south'] + combined_bounds['north']) / 2
+            
+            # Calculate dimensions
+            width = combined_bounds['east'] - combined_bounds['west']
+            height = combined_bounds['north'] - combined_bounds['south']
+            
+            return {
+                'city': city_slug,
+                'city_name': city.name,
+                'center': {
+                    'lat': center_lat,
+                    'lng': center_lng
+                },
+                'bounds': combined_bounds,
+                'dimensions': {
+                    'width': width,
+                    'height': height
+                },
+                'layers_count': layers.count(),
+                'layers': list(layers.values_list('name', flat=True))
+            }
+            
+        except City.DoesNotExist:
+            return {
+                'error': f'City not found: {city_slug}',
+                'city': city_slug
+            }
+        except Exception as e:
+            return {
+                'error': f'Error calculating combined layer center: {str(e)}',
+                'city': city_slug
+            }
+

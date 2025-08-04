@@ -73,7 +73,9 @@ urlpatterns = [
 
      path('cities/<slug:city_slug>/center/', 
           views.CityCenterView.as_view(), name='city_center'),
-    
+          
+     path('cities/<slug:city_slug>/combined-layer-center/', 
+          views.CombinedLayerCenterView.as_view(), name='combined_layer_center'),
     
     # LAYER MANAGEMENT
     path('layers/<int:pk>/plu-analysis/',
