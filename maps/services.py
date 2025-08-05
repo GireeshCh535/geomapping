@@ -983,9 +983,9 @@ class DataImportService:
             'zoning': mapped_attrs.get('zoning', ''),
             
             # Administrative info
-            'district': attrs.get('DISTRICT', '').strip(),
-            'mandal': attrs.get('MANDAL', '').strip(),
-            'village': attrs.get('Village', attrs.get('lpsvillage', '')).strip(),
+            'district': (attrs.get('DISTRICT') or '').strip(),
+            'mandal': (attrs.get('MANDAL') or '').strip(),
+            'village': (attrs.get('Village') or attrs.get('lpsvillage') or '').strip(),
             
             # Amaravati-specific fields
             'state': 'Andhra Pradesh' if layer.city.slug in ['amaravati', 'vizag'] else '',
