@@ -510,111 +510,60 @@ AMARAVATI_CONFIG = {
         'state': 'Andhra Pradesh',
         'center_lat': 16.5062,
         'center_lng': 80.6480,
+        'is_active': True,
     },
     'data_format': 'GEOJSON',
     'coordinate_precision': 8,
     
+    # PLU Code to Category mapping (for data processing)
     'category_mappings': {
-        'C1 -Mixed use zone': 'MIXED_USE',                    # 16 features
-        'C2- General commercial zone': 'COMMERCIAL',          # 29801 features
-        'C3-Neighbourhood centre zone': 'COMMERCIAL',         # 121 features
-        'C4-Town centre zone': 'COMMERCIAL',                  # 24 features
-        'C5-Regional centre zone': 'COMMERCIAL',              # 13 features
-        'C6-Central business district zone': 'COMMERCIAL',    # 13 features
-        'Commercial Vacant': 'COMMERCIAL',                    # 2710 features
+        'Burial Ground': 'CEMETERY',
+        'C1 -Mixed use zone': 'MIXED_USE',                    
+        'C2- General commercial zone': 'COMMERCIAL',          
+        'C3-Neighbourhood centre zone': 'COMMERCIAL',         
+        'C4-Town centre zone': 'COMMERCIAL',                  
+        'C5-Regional centre zone': 'COMMERCIAL',              
+        'C6-Central business district zone': 'COMMERCIAL',    
+        'Commercial Vacant': 'COMMERCIAL',                    
         
-        'I1-Business park zone': 'INDUSTRIAL',                # 4 features
-        'I2-Logistics zone': 'INDUSTRIAL',                    # 5 features
-        'I3-Non polluting industry zone': 'INDUSTRIAL',       # 12 features
+        'I1-Business park zone': 'INDUSTRIAL',                
+        'I2-Logistics zone': 'INDUSTRIAL',                    
+        'I3-Non polluting industry zone': 'INDUSTRIAL',       
         
-        'R1-Village planning zone': 'RESIDENTIAL',            # 187 features (Note: different from your list!)
-        'R3-Medium to high density zone': 'RESIDENTIAL',      # 43874 features
-        'R4-High density zone': 'RESIDENTIAL',                # 7 features
-        'RAA': 'RESIDENTIAL',                                  # 39 features
-        'Residential Vacant': 'RESIDENTIAL',                  # 5323 features
-        'SR2 Low Density Housing': 'RESIDENTIAL',             # 6 features
-        'SR4 - High Density Private': 'RESIDENTIAL',          # 11 features
+        'P1-Passive zone': 'PROTECTED',
+        'P2-Active zone': 'PARKS_GREEN',
+        'P3-Protected zone': 'PROTECTED',
+        'P3-Protected zone Hills': 'HILLS',
+        'PGN-G': 'PARKS_GREEN',
+        'PGN-V': 'PARKS_GREEN',
         
-        'P1-Passive zone': 'PROTECTED',                       # 757 features
-        'P2-Active zone': 'PROTECTED',                        # 1144 features
-        'P3-Protected zone': 'PROTECTED',                     # 210 features
-        'P3-Protected zone Hills': 'PROTECTED',               # 6 features
-        'SP1- Passive Zone': 'PROTECTED',                     # 33 features
-        'SP2- Active Zone': 'PROTECTED',                      # 54 features
-        'SP3-Protected Zone': 'PROTECTED',                    # 7 features
-        'PGN-G': 'PARKS_GREEN',                               # 1090 features
-        'PGN-V': 'PARKS_GREEN',                               # 658 features
+        'R1-Village planning zone': 'RESIDENTIAL',            
+        'R3-Medium to high density zone': 'RESIDENTIAL',
+        'R4-High density zone': 'RESIDENTIAL',
+        'RAA': 'RESIDENTIAL',
+        'Residential Vacant': 'RESIDENTIAL',
+        'SR2-Low Density Housing': 'RESIDENTIAL',
+        'SR4-High Density Private': 'RESIDENTIAL',
         
-        'SS1 - Government Zone': 'GOVERNMENT',                # 13 features
-        'SS2a- Education Zone': 'EDUCATION',                  # 17 features
-        'SS2b Cultural Zone': 'CULTURAL',                     # 19 features
-        'SS2c Health Zone': 'HEALTHCARE',                     # 2 features
-        'S2-Education zone': 'EDUCATION',                     # 400 features
-        'SS3 - Special Zone': 'SPECIAL',                      # 10 features
-        'S3-Special zone': 'SPECIAL',                         # 167 features
-        
-        'SC1a-Mixed Use': 'MIXED_USE',                        # 80 features
-        'SC1b - Mixed Use': 'MIXED_USE',                      # 20 features
-        
-        'SU1-Reserve Zone': 'UTILITIES',                      # 27 features
-        'SU2 - Road Network': 'TRANSPORT',                    # 13 features
-        'U1-Reserve zone': 'UTILITIES',                       # 548 features
-        'U2- Road reserve zone': 'TRANSPORT',                 # 3160 features
-        
-        'Burial Ground': 'CEMETERY',                          # 4 features
+        'S2-Education zone': 'EDUCATION',
+        'S3-Special zone': 'SPECIAL',
+        'SC1a-Mixed Use': 'MIXED_USE',
+        'SC1b-Mixed Use': 'MIXED_USE',
+        'SP1-Passive Zone': 'PROTECTED',
+        'SP2-Active Zone': 'PARKS_GREEN',
+        'SP3-Protected Zone': 'PROTECTED',
+        'SS1-Government Zone': 'GOVERNMENT',
+        'SS2a-Education Zone': 'EDUCATION',
+        'SS2b-Cultural Zone': 'CULTURAL',
+        'SS2c-Health Zone': 'HEALTHCARE',
+        'SS3-Special Zone': 'SPECIAL',
+        'SU1-Reserve Zone': 'UTILITIES',
+        'SU2-Road Network': 'TRANSPORT',
+        'U1-Reserve zone': 'UTILITIES',
+        'U2-Road reserve zone': 'TRANSPORT',
     },
     
-    'file_mappings': {
-        # Commercial zones
-        'C1__Mixed_use_zone.geojson': 'MIXED_USE',
-        'C2__General_commercial_zone.geojson': 'COMMERCIAL',
-        'C3_Neighbourhood_centre_zone.geojson': 'COMMERCIAL',
-        'C4_Town_centre_zone.geojson': 'COMMERCIAL',
-        'C5_Regional_centre_zone.geojson': 'COMMERCIAL',
-        'C6_Central_business_district_zone.geojson': 'COMMERCIAL',
-        'Commercial_Vacant.geojson': 'COMMERCIAL',
-        
-        'I1_Business_park_zone.geojson': 'INDUSTRIAL',
-        'I2_Logistics_zone.geojson': 'INDUSTRIAL',
-        'I3_Non_polluting_industry_zone.geojson': 'INDUSTRIAL',
-        
-        'R1_Village_planning_zone.geojson': 'RESIDENTIAL',
-        'R3_Medium_to_high_density_zone.geojson': 'RESIDENTIAL',
-        'R4_High_density_zone.geojson': 'RESIDENTIAL',
-        'RAA.geojson': 'RESIDENTIAL',
-        'Residential_Vacant.geojson': 'RESIDENTIAL',
-        'SR2_Low_Density_Housing.geojson': 'RESIDENTIAL',
-        'SR4___High_Density_Private.geojson': 'RESIDENTIAL',
-        
-        'P1_Passive_zone.geojson': 'PROTECTED',
-        'P2_Active_zone.geojson': 'PROTECTED',
-        'P3_Protected_zone.geojson': 'PROTECTED',
-        'P3_Protected_zone_Hills.geojson': 'HILLS',
-        'SP1__Passive_Zone.geojson': 'PROTECTED',
-        'SP2__Active_Zone.geojson': 'PROTECTED',
-        'SP3_Protected_Zone.geojson': 'PROTECTED',
-        'PGN_G.geojson': 'PARKS_GREEN',
-        'PGN_V.geojson': 'PARKS_GREEN',
-        
-        'SS1___Government_Zone.geojson': 'GOVERNMENT',
-        'SS2a__Education_Zone.geojson': 'EDUCATION',
-        'SS2b_Cultural_Zone.geojson': 'CULTURAL',
-        'SS2c_Health_Zone.geojson': 'HEALTHCARE',
-        'S2_Education_zone.geojson': 'EDUCATION',
-        'SS3___Special_Zone.geojson': 'SPECIAL',
-        'S3_Special_zone.geojson': 'SPECIAL',
-        
-        'SC1a_Mixed_Use.geojson': 'MIXED_USE',
-        'SC1b___Mixed_Use.geojson': 'MIXED_USE',
-        
-        'SU1_Reserve_Zone.geojson': 'UTILITIES',
-        'SU2___Road_Network.geojson': 'TRANSPORT',
-        'U1_Reserve_zone.geojson': 'UTILITIES',
-        'U2__Road_reserve_zone.geojson': 'TRANSPORT',
-        
-        'Burial_Ground.geojson': 'CEMETERY',
-    },
-    
+    # Attribute mappings for processing GeoJSON data
     'attribute_mappings': {
         'OBJECTID': 'source_object_id',
         'plot_code': 'name',
@@ -629,31 +578,335 @@ AMARAVATI_CONFIG = {
         'Shape_Area': 'calculated_area',
     },
     
-    # Color scheme for Amaravati
+    # EXACT COLOR SPECIFICATIONS AS PROVIDED
+    # These are PLU-specific colors with special styling notes
+    'plu_colors': {
+        'Burial Ground': {
+            'fill_color': '#E39E00',
+            'fill_pattern': 'dotted',
+            'solid_color': '#FFFFFF',
+            'stroke_color': '#000000',
+            'description': 'Dotted pattern with white fill'
+        },
+        'C1 -Mixed use zone': {
+            'fill_color': '#73B2FF',
+            'fill_pattern': 'solid',
+            'stroke_color': '#333333'
+        },
+        'C2- General commercial zone': {
+            'fill_color': '#00C5FF',
+            'fill_pattern': 'solid',
+            'stroke_color': '#000000',
+            'description': 'Black outline'
+        },
+        'C3-Neighbourhood centre zone': {
+            'fill_color': '#00C5FF',
+            'fill_pattern': 'solid',
+            'stroke_color': '#333333'
+        },
+        'C4-Town centre zone': {
+            'fill_color': '#00A9E6',
+            'fill_pattern': 'solid',
+            'stroke_color': '#333333'
+        },
+        'C5-Regional centre zone': {
+            'fill_color': '#0070FF',
+            'fill_pattern': 'solid',
+            'stroke_color': '#333333'
+        },
+        'C6-Central business district zone': {
+            'fill_color': '#005CE6',
+            'fill_pattern': 'solid',
+            'stroke_color': '#333333'
+        },
+        'Commercial Vacant': {
+            'fill_color': '#C5E2FF',
+            'fill_pattern': 'solid',
+            'stroke_color': '#333333'
+        },
+        'I1-Business park zone': {
+            'fill_color': '#FFEBE8',
+            'fill_pattern': 'solid',
+            'stroke_color': '#333333'
+        },
+        'I2-Logistics zone': {
+            'fill_color': '#FF73DF',
+            'fill_pattern': 'solid',
+            'stroke_color': '#333333'
+        },
+        'I3-Non polluting industry zone': {
+            'fill_color': '#A900E6',
+            'fill_pattern': 'solid',
+            'stroke_color': '#333333'
+        },
+        'P1-Passive zone': {
+            'fill_color': '#267300',
+            'fill_pattern': 'solid',
+            'stroke_color': '#333333'
+        },
+        'P2-Active zone': {
+            'fill_color': '#38A800',
+            'fill_pattern': 'solid',
+            'stroke_color': '#333333'
+        },
+        'P3-Protected zone': {
+            'fill_color': '#BEE8FF',
+            'fill_pattern': 'solid',
+            'stroke_color': '#333333'
+        },
+        'P3-Protected zone Hills': {
+            'fill_color': '#4C7300',
+            'fill_pattern': 'solid',
+            'stroke_color': '#333333'
+        },
+        'PGN-G': {
+            'fill_color': '#4C7300',
+            'fill_pattern': 'solid',
+            'stroke_color': '#333333'
+        },
+        'PGN-V': {
+            'fill_color': '#897044',
+            'fill_pattern': 'solid',
+            'stroke_color': '#333333'
+        },
+        'R1-Village planning zone': {
+            'fill_color': '#FFFFFF',
+            'fill_pattern': 'hatched',
+            'stroke_color': '#000000',
+            'description': 'White fill with black hatched pattern'
+        },
+        'R3-Medium to high density zone': {
+            'fill_color': '#F5CA7A',
+            'fill_pattern': 'solid',
+            'stroke_color': '#333333'
+        },
+        'R4-High density zone': {
+            'fill_color': '#E69800',
+            'fill_pattern': 'solid',
+            'stroke_color': '#333333'
+        },
+        'RAA': {
+            'fill_color': '#FFAA00',
+            'fill_pattern': 'solid',
+            'stroke_color': '#333333'
+        },
+        'Residential Vacant': {
+            'fill_color': '#FFD37F',
+            'fill_pattern': 'solid',
+            'stroke_color': '#333333'
+        },
+        'S2-Education zone': {
+            'fill_color': '#FF7F7F',
+            'fill_pattern': 'solid',
+            'stroke_color': '#333333'
+        },
+        'S3-Special zone': {
+            'fill_color': '#D7B09E',
+            'fill_pattern': 'solid',
+            'stroke_color': '#333333'
+        },
+        'SC1a-Mixed Use': {
+            'fill_color': '#0070FF',
+            'fill_pattern': 'solid',
+            'stroke_color': '#333333'
+        },
+        'SC1b-Mixed Use': {
+            'fill_color': '#73B2FF',
+            'fill_pattern': 'solid',
+            'stroke_color': '#333333'
+        },
+        'SP1-Passive Zone': {
+            'fill_color': '#267300',
+            'fill_pattern': 'solid',
+            'stroke_color': '#333333'
+        },
+        'SP2-Active Zone': {
+            'fill_color': '#38A800',
+            'fill_pattern': 'solid',
+            'stroke_color': '#333333'
+        },
+        'SP3-Protected Zone': {
+            'fill_color': '#00C5FF',
+            'fill_pattern': 'solid',
+            'stroke_color': '#333333'
+        },
+        'SR2-Low Density Housing': {
+            'fill_color': '#FFFFBE',
+            'fill_pattern': 'solid',
+            'stroke_color': '#333333'
+        },
+        'SR4-High Density Private': {
+            'fill_color': '#FFAA00',
+            'fill_pattern': 'solid',
+            'stroke_color': '#333333'
+        },
+        'SS1-Government Zone': {
+            'fill_color': '#E60000',
+            'fill_pattern': 'solid',
+            'stroke_color': '#333333'
+        },
+        'SS2a-Education Zone': {
+            'fill_color': '#FF7F7F',
+            'fill_pattern': 'solid',
+            'stroke_color': '#333333'
+        },
+        'SS2b-Cultural Zone': {
+            'fill_color': '#C500FF',
+            'fill_pattern': 'solid',
+            'stroke_color': '#333333'
+        },
+        'SS2c-Health Zone': {
+            'fill_color': '#D3FFBE',
+            'fill_pattern': 'solid',
+            'stroke_color': '#333333'
+        },
+        'SS3-Special Zone': {
+            'fill_color': '#A83800',
+            'fill_pattern': 'solid',
+            'stroke_color': '#333333'
+        },
+        'SU1-Reserve Zone': {
+            'fill_color': '#E1E1E1',
+            'fill_pattern': 'solid',
+            'stroke_color': '#333333'
+        },
+        'SU2-Road Network': {
+            'fill_color': '#FFFFFF',
+            'fill_pattern': 'solid',
+            'stroke_color': '#000000',
+            'description': 'White fill with black outline'
+        },
+        'U1-Reserve zone': {
+            'fill_color': '#CCCCCC',
+            'fill_pattern': 'solid',
+            'stroke_color': '#333333'
+        },
+        'U2-Road reserve zone': {
+            'fill_color': '#000000',
+            'fill_pattern': 'solid',
+            'stroke_color': '#000000'
+        }
+    },
+    
+    # Simplified colors for backwards compatibility (just the fill colors)
     'colors': {
-        'RESIDENTIAL': '#8BC34A',      # Light Green
+        'Burial Ground': '#E39E00',
+        'C1 -Mixed use zone': '#73B2FF',
+        'C2- General commercial zone': '#00C5FF',
+        'C3-Neighbourhood centre zone': '#00C5FF',
+        'C4-Town centre zone': '#00A9E6',
+        'C5-Regional centre zone': '#0070FF',
+        'C6-Central business district zone': '#005CE6',
+        'Commercial Vacant': '#C5E2FF',
+        'I1-Business park zone': '#FFEBE8',
+        'I2-Logistics zone': '#FF73DF',
+        'I3-Non polluting industry zone': '#A900E6',
+        'P1-Passive zone': '#267300',
+        'P2-Active zone': '#38A800',
+        'P3-Protected zone': '#BEE8FF',
+        'P3-Protected zone Hills': '#4C7300',
+        'PGN-G': '#4C7300',
+        'PGN-V': '#897044',
+        'R1-Village planning zone': '#FFFFFF',
+        'R3-Medium to high density zone': '#F5CA7A',
+        'R4-High density zone': '#E69800',
+        'RAA': '#FFAA00',
+        'Residential Vacant': '#FFD37F',
+        'S2-Education zone': '#FF7F7F',
+        'S3-Special zone': '#D7B09E',
+        'SC1a-Mixed Use': '#0070FF',
+        'SC1b-Mixed Use': '#73B2FF',
+        'SP1-Passive Zone': '#267300',
+        'SP2-Active Zone': '#38A800',
+        'SP3-Protected Zone': '#00C5FF',
+        'SR2-Low Density Housing': '#FFFFBE',
+        'SR4-High Density Private': '#FFAA00',
+        'SS1-Government Zone': '#E60000',
+        'SS2a-Education Zone': '#FF7F7F',
+        'SS2b-Cultural Zone': '#C500FF',
+        'SS2c-Health Zone': '#D3FFBE',
+        'SS3-Special Zone': '#A83800',
+        'SU1-Reserve Zone': '#E1E1E1',
+        'SU2-Road Network': '#FFFFFF',
+        'U1-Reserve zone': '#CCCCCC',
+        'U2-Road reserve zone': '#000000',
         
-        'COMMERCIAL': '#2196F3',       # Blue
-        'MIXED_USE': '#9C27B0',        # Purple
+        # Category-based fallbacks (for compatibility)
+        'COMMERCIAL': '#00C5FF',
+        'MIXED_USE': '#73B2FF',
+        'INDUSTRIAL': '#A900E6',
+        'RESIDENTIAL': '#FFD37F',
+        'PARKS_GREEN': '#38A800',
+        'PROTECTED': '#BEE8FF',
+        'GOVERNMENT': '#E60000',
+        'EDUCATION': '#FF7F7F',
+        'CULTURAL': '#C500FF',
+        'HEALTHCARE': '#D3FFBE',
+        'SPECIAL': '#D7B09E',
+        'TRANSPORT': '#000000',
+        'UTILITIES': '#E1E1E1',
+        'CEMETERY': '#E39E00',
+        'HILLS': '#4C7300',
+        'UNCLASSIFIED': '#CCCCCC'
+    },
+    
+    # File mappings (if you have separate GeoJSON files per PLU zone)
+    'file_mappings': {
+        # Commercial zones
+        'C1__Mixed_use_zone.geojson': 'MIXED_USE',
+        'C2__General_commercial_zone.geojson': 'COMMERCIAL',
+        'C3_Neighbourhood_centre_zone.geojson': 'COMMERCIAL',
+        'C4_Town_centre_zone.geojson': 'COMMERCIAL',
+        'C5_Regional_centre_zone.geojson': 'COMMERCIAL',
+        'C6_Central_business_district_zone.geojson': 'COMMERCIAL',
+        'Commercial_Vacant.geojson': 'COMMERCIAL',
         
-        'INDUSTRIAL': '#FF9800',       # Orange
+        # Industrial zones
+        'I1_Business_park_zone.geojson': 'INDUSTRIAL',
+        'I2_Logistics_zone.geojson': 'INDUSTRIAL',
+        'I3_Non_polluting_industry_zone.geojson': 'INDUSTRIAL',
         
-        'GOVERNMENT': '#F44336',       # Red
-        'PUBLIC': '#E91E63',           # Pink
-        'EDUCATION': '#3F51B5',        # Indigo
-        'HEALTHCARE': '#009688',       # Teal
-        'CULTURAL': '#673AB7',         # Deep Purple
+        # Residential zones
+        'R1_Village_planning_zone.geojson': 'RESIDENTIAL',
+        'R3_Medium_to_high_density_zone.geojson': 'RESIDENTIAL',
+        'R4_High_density_zone.geojson': 'RESIDENTIAL',
+        'RAA.geojson': 'RESIDENTIAL',
+        'Residential_Vacant.geojson': 'RESIDENTIAL',
+        'SR2_Low_Density_Housing.geojson': 'RESIDENTIAL',
+        'SR4_High_Density_Private.geojson': 'RESIDENTIAL',
         
-        'TRANSPORT': '#607D8B',        # Blue Grey
-        'UTILITIES': '#795548',        # Brown
+        # Protected/Parks zones
+        'P1_Passive_zone.geojson': 'PROTECTED',
+        'P2_Active_zone.geojson': 'PARKS_GREEN',
+        'P3_Protected_zone.geojson': 'PROTECTED',
+        'P3_Protected_zone_Hills.geojson': 'HILLS',
+        'SP1_Passive_Zone.geojson': 'PROTECTED',
+        'SP2_Active_Zone.geojson': 'PARKS_GREEN',
+        'SP3_Protected_Zone.geojson': 'PROTECTED',
+        'PGN_G.geojson': 'PARKS_GREEN',
+        'PGN_V.geojson': 'PARKS_GREEN',
         
-        'PROTECTED': '#4CAF50',        # Green
-        'PARKS_GREEN': '#8BC34A',      # Light Green
-        'WATER_BODIES': '#03A9F4',     # Light Blue
+        # Service zones
+        'SS1_Government_Zone.geojson': 'GOVERNMENT',
+        'SS2a_Education_Zone.geojson': 'EDUCATION',
+        'SS2b_Cultural_Zone.geojson': 'CULTURAL',
+        'SS2c_Health_Zone.geojson': 'HEALTHCARE',
+        'S2_Education_zone.geojson': 'EDUCATION',
+        'SS3_Special_Zone.geojson': 'SPECIAL',
+        'S3_Special_zone.geojson': 'SPECIAL',
         
-        'CEMETERY': '#9E9E9E',         # Grey
-        'SPECIAL': '#FFEB3B',          # Yellow
-        'UNCLASSIFIED': '#CFD8DC',     # Light Blue Grey
+        # Mixed Use zones
+        'SC1a_Mixed_Use.geojson': 'MIXED_USE',
+        'SC1b_Mixed_Use.geojson': 'MIXED_USE',
+        
+        # Utilities/Transport zones
+        'SU1_Reserve_Zone.geojson': 'UTILITIES',
+        'SU2_Road_Network.geojson': 'TRANSPORT',
+        'U1_Reserve_zone.geojson': 'UTILITIES',
+        'U2_Road_reserve_zone.geojson': 'TRANSPORT',
+        
+        # Cemetery
+        'Burial_Ground.geojson': 'CEMETERY',
     }
 }
 
