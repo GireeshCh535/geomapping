@@ -766,7 +766,7 @@ AMARAVATI_CONFIG = {
             'stroke_color': '#333333'
         },
         'SU1-Reserve Zone': {
-            'fill_color': '#E1E1E1',
+            'fill_color': '#e38f8f',
             'fill_pattern': 'solid',
             'stroke_color': '#333333'
         },
@@ -826,7 +826,7 @@ AMARAVATI_CONFIG = {
         'SS2b-Cultural Zone': '#C500FF',
         'SS2c-Health Zone': '#D3FFBE',
         'SS3-Special Zone': '#A83800',
-        'SU1-Reserve Zone': '#E1E1E1',
+        'SU1-Reserve Zone': '#e38f8f',
         'SU2-Road Network': '#FFFFFF',
         'U1-Reserve zone': '#CCCCCC',
         'U2-Road reserve zone': '#000000',
@@ -844,7 +844,7 @@ AMARAVATI_CONFIG = {
         'HEALTHCARE': '#D3FFBE',
         'SPECIAL': '#D7B09E',
         'TRANSPORT': '#000000',
-        'UTILITIES': '#E1E1E1',
+        'UTILITIES': '#e38f8f',
         'CEMETERY': '#E39E00',
         'HILLS': '#4C7300',
         'UNCLASSIFIED': '#CCCCCC'
@@ -2060,7 +2060,7 @@ JAIPUR_CONFIG = {
         'CULTURAL': '#A3FF73',            # Heritage + Religious
         'INDUSTRIAL': '#A900E6',          # Industrial
         'MIXED_USE': '#FFAA00',           # Mixed
-        'UNCLASSIFIED': '#E1E1E1',        # Others + Vacant_Land
+        'UNCLASSIFIED': '#e38f8f',        # Others + Vacant_Land
         'PUBLIC': '#FF6B6B',              # Public___Semi_Public (logical color)
         'RESIDENTIAL': '#FFE135',         # Residential (logical residential color)
         'TRANSPORT': '#666666',           # Transportation (logical transport color)

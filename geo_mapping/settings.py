@@ -128,10 +128,6 @@ REST_FRAMEWORK = {
         'rest_framework.throttling.AnonRateThrottle',
         'rest_framework.throttling.UserRateThrottle'
     ],
-    'DEFAULT_THROTTLE_RATES': {
-        'anon': '1000/hour',
-        'user': '2000/hour'
-    }
 }
 
 # PASSWORD VALIDATION

@@ -119,7 +119,7 @@ class Command(BaseCommand):
         colors = config.get('colors', {})
         
         # SPECIAL HANDLING FOR AMARAVATI - Map PLU codes to categories
-        if city.slug == 'amaravati':
+        if city.slug == 'amaravati': ##e1e1e1
             
             # PLU to Category mapping for Amaravati
             plu_to_category = {
@@ -314,7 +314,7 @@ class Command(BaseCommand):
             'SS2b-Cultural Zone': '#C500FF',                     # Cultural
             'SS2c-Health Zone': '#D3FFBE',                       # Healthcare
             'SS3-Special Zone': '#A83800',                       # Special
-            'SU1-Reserve Zone': '#E1E1E1',                       # Utilities
+            'SU1-Reserve Zone': '#e38f8f',                       # Utilities
             'SU2-Road Network': '#FFFFFF',                       # Transport
             'U1-Reserve zone': '#CCCCCC',                        # Utilities
             'U2-Road reserve zone': '#000000',                   # Transport
