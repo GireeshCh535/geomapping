@@ -765,17 +765,31 @@ class CoordinateSearchTestView(APIView):
         return nearby_features
     
     def _get_feature_color_from_config(self, feature, city_slug):
-        """Get feature color from configuration"""
+        """Get feature color from configuration using existing system"""
         try:
-            from maps.utils.config_manager import ConfigManager
-            config_manager = ConfigManager()
+            # Use the existing config system from your codebase
+            from .config import get_city_config
             
-            # Try to get layer-specific color from config
-            layer_config = config_manager.get_layer_config(city_slug, feature.layer.slug)
-            if layer_config and 'style' in layer_config and 'color' in layer_config['style']:
-                return layer_config['style']['color']
+            category_code = feature.derived_category
             
-            # Fall back to category color or default
+            # Get city-specific color from config
+            city_config = get_city_config(city_slug)
+            if city_config and 'colors' in city_config:
+                color = city_config['colors'].get(category_code)
+                if color:
+                    return color
+            
+            # Fallback to layer style
+            try:
+                style = feature.layer.get_style()
+                if isinstance(style, dict):
+                    return style.get('fill_color', '#666666')
+                elif hasattr(style, 'fill_color'):
+                    return style.fill_color
+            except:
+                pass
+            
+            # Fallback to category color or default
             if feature.layer.category:
                 return feature.layer.category.color or '#0066CC'
             
@@ -802,7 +816,6 @@ class CoordinateSearchTestView(APIView):
             
         else:
             return "No features found at this location"
-
 
 # Configuration and utility views
 class CityConfigView(APIView):
