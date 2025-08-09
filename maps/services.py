@@ -1,4 +1,4 @@
-# services.py - Enhanced with ESRI support and PLU processing
+# maps/services.py - Complete enhanced service with layer-specific import functionality
 import json
 import tempfile
 import os
@@ -9,14 +9,14 @@ from django.contrib.gis.geos import GEOSGeometry
 from django.core.files.storage import default_storage
 from django.contrib.gis.db.models import Extent
 from django.utils import timezone
+from django.utils.text import slugify
 import mercantile
 import mapbox_vector_tile
 from django.contrib.gis.geos import Polygon
-from .models import GeoFeature, VectorTileLayer
 
 from .models import (
-    City, LayerCategory, DataLayer, GeoFeature, PLUCodeMapping, 
-    CityLayerStyle, ImportJob
+    City, State, LayerCategory, DataLayer, GeoFeature, PLUCodeMapping, 
+    CityLayerStyle, ImportJob, VectorTileLayer
 )
 from .config import (
     get_city_config, get_plu_mapping, map_plu_code_to_category,
@@ -26,9 +26,10 @@ from .config import (
 
 class DataImportService:
     """
-    Service for importing geographic data into the system.
+    Enhanced service for importing geographic data into the system.
     - Handles ESRI JSON, GeoJSON, and config-driven imports.
     - Supports PLU code mapping and statistics.
+    - NEW: Layer-specific imports for hierarchical structure.
     - Used by management commands and API endpoints for bulk and single-file import.
     """
     def __init__(self):
@@ -45,7 +46,11 @@ class DataImportService:
             'plu_codes_found': Counter(),
             'categories_assigned': Counter(),
         }
-    
+
+    # ================================
+    # EXISTING CONFIG-BASED IMPORT METHODS
+    # ================================
+
     def import_file_with_config(self, file_path, city_slug):
         """
         Import a file using the city configuration for automatic category mapping.
@@ -56,29 +61,35 @@ class DataImportService:
         config = get_city_config(city_slug)
         if not config:
             raise ValueError(f"No configuration found for city: {city_slug}")
+        
         filename = os.path.basename(file_path)
+        
         # Find category mapping from filename
         category_code = None
         for file_pattern, cat_code in config['file_mappings'].items():
             if filename == file_pattern:
                 category_code = cat_code
                 break
+        
         if not category_code:
             raise ValueError(f"No category mapping found for file: {filename}")
+        
         # Get or create city
         city, created = City.objects.get_or_create(
             slug=city_slug,
             defaults=config['city_info']
         )
+        
         # Get category
         category = LayerCategory.objects.get(code=category_code)
+        
         # Import the file
         with open(file_path, 'rb') as f:
             from django.core.files import File
             django_file = File(f)
             django_file.name = filename
             return self.import_file(django_file, city, category)
-    
+
     def bulk_import_city(self, city_slug, data_directory):
         """
         Import all files for a city from a directory using the config's file_mappings.
@@ -88,15 +99,19 @@ class DataImportService:
         config = get_city_config(city_slug)
         if not config:
             raise ValueError(f"No configuration found for city: {city_slug}")
+        
         results = []
         data_path = Path(data_directory)
+        
         if not data_path.exists():
             raise ValueError(f"Directory not found: {data_directory}")
+        
         # Get or create city
         city, created = City.objects.get_or_create(
             slug=city_slug,
             defaults=config['city_info']
         )
+        
         print(f"\n🏙️  Processing {city.name} data from {data_directory}")
         print(f"📁 Expected files: {len(config['file_mappings'])}")
         
@@ -141,9 +156,9 @@ class DataImportService:
                         'features_imported': 0
                     }
                     results.append(error_result)
-                    print(f"❌ Error: {filename} - {e}")
+                    print(f"   ❌ Error: {filename} - {e}")
             else:
-                print(f"⚠️  File not found: {filename}")
+                print(f"   ⚠️  File not found: {filename}")
                 results.append({
                     'filename': filename,
                     'category_code': category_code,
@@ -151,10 +166,11 @@ class DataImportService:
                     'features_imported': 0
                 })
         
-        # Update city PLU mappings
+        # Update city PLU mappings for Bangalore
         if city_slug == 'bangalore':
             self._update_plu_mappings(city, results)
         
+        # Summary
         total_features = sum(r.get('features_imported', 0) for r in results)
         successful_files = len([r for r in results if r.get('status') == 'success'])
         
@@ -170,7 +186,7 @@ class DataImportService:
             'total_features': total_features,
             'results': results
         }
-    
+
     def import_file(self, uploaded_file, city, category):
         """Enhanced import with ESRI support and PLU processing"""
         
@@ -283,229 +299,274 @@ class DataImportService:
             raise e
         finally:
             os.unlink(temp_file.name)
-    
-    def _process_delhi_attributes(self, geojson_properties, layer):
-        """Process Delhi GeoJSON attributes - Simple NAME field mapping"""
+
+    # ================================
+    # NEW: LAYER-SPECIFIC IMPORT METHODS
+    # ================================
+
+    def import_geojson_to_layer(self, file_path, target_layer):
+        """
+        NEW: Import GeoJSON file directly to an existing DataLayer
+        This is the key method for layer-specific imports
         
-        # Extract NAME field  
-        name_field = geojson_properties.get('NAME', '').strip()
+        Args:
+            file_path (str): Path to the GeoJSON file
+            target_layer (DataLayer): Existing DataLayer instance to import into
+            
+        Returns:
+            dict: Import results with status, features_imported, etc.
+        """
+        try:
+            print(f"🔧 Importing {file_path} to layer {target_layer.name}")
+            
+            # Reset statistics for this import
+            self.statistics = {
+                'features_processed': 0,
+                'features_imported': 0,
+                'features_failed': 0,
+                'features_skipped': 0,
+                'geometry_conversions': 0,
+                'coordinate_optimizations': 0,
+                'plu_codes_found': Counter(),
+                'categories_assigned': Counter(),
+            }
+            self.errors = []
+            
+            # Create import job for tracking
+            self.import_job = ImportJob.objects.create(
+                city=target_layer.city,
+                filename=os.path.basename(file_path),
+                file_path=file_path,
+                file_format='GEOJSON',
+                category_mapped=target_layer.category.code,
+                status='PROCESSING'
+            )
+            
+            # Import the GeoJSON data
+            features_count = self._import_geojson(file_path, target_layer)
+            
+            # Update target layer
+            target_layer.feature_count += features_count  # Add to existing count
+            target_layer.is_processed = True
+            target_layer.save()
+            
+            # Update import job
+            self.import_job.status = 'COMPLETED' if features_count > 0 else 'PARTIAL'
+            self.import_job.features_imported = features_count
+            self.import_job.features_failed = self.statistics['features_failed']
+            self.import_job.completed_at = timezone.now()
+            self.import_job.save()
+            
+            return {
+                'status': 'success',
+                'features_imported': features_count,
+                'features_failed': self.statistics['features_failed'],
+                'layer_id': target_layer.id,
+                'layer_name': target_layer.name,
+                'statistics': self.statistics
+            }
+            
+        except Exception as e:
+            # Update import job with error
+            if self.import_job:
+                self.import_job.status = 'FAILED'
+                self.import_job.error_message = str(e)
+                self.import_job.completed_at = timezone.now()
+                self.import_job.save()
+            
+            return {
+                'status': 'error',
+                'error': str(e),
+                'features_imported': 0
+            }
+
+    def import_layer_directory(self, city, layer_name, layer_dir_path, category_override=None):
+        """
+        NEW: Import all GeoJSON files from a layer directory into a single DataLayer
         
-        # Map to category using Delhi-specific logic
-        from .config import map_name_to_category_delhi
-        derived_category = map_name_to_category_delhi(name_field)
+        Args:
+            city (City): City instance
+            layer_name (str): Name for the layer (e.g., "Master plan - HMDA")
+            layer_dir_path (str): Path to directory containing GeoJSON files
+            category_override (str): Optional category code override
+            
+        Returns:
+            dict: Results with layer info and import statistics
+        """
+        layer_dir = Path(layer_dir_path)
+        if not layer_dir.exists():
+            raise FileNotFoundError(f"Layer directory not found: {layer_dir_path}")
         
-        # If mapping failed, use layer's default category
-        if derived_category == 'UNCLASSIFIED' and layer.category:
-            derived_category = layer.category.code
+        # Find all GeoJSON files
+        geojson_files = list(layer_dir.glob('*.geojson')) + list(layer_dir.glob('*.json'))
         
-        # Process Delhi GeoJSON properties (very simple structure)
-        processed = {
-            # Basic identification
-            'name': name_field,
-            'description': '',
-            'source_layer_name': layer.name,
+        if not geojson_files:
+            raise ValueError(f"No GeoJSON files found in {layer_dir_path}")
+        
+        print(f"📁 Found {len(geojson_files)} GeoJSON files for layer '{layer_name}'")
+        
+        # Determine category
+        if category_override:
+            try:
+                category = LayerCategory.objects.get(code=category_override.upper())
+            except LayerCategory.DoesNotExist:
+                category = self._auto_detect_category(layer_name)
+        else:
+            category = self._auto_detect_category(layer_name)
+        
+        # Create or get DataLayer
+        layer_slug = slugify(layer_name)
+        layer, created = DataLayer.objects.get_or_create(
+            city=city,
+            slug=layer_slug,
+            defaults={
+                'name': layer_name,
+                'category': category,
+                'description': f"Combined layer for {layer_name}",
+                'file_format': 'GEOJSON',
+                'categorization_method': 'MANUAL',
+                'is_processed': False,
+                'file_path': str(layer_dir)
+            }
+        )
+        
+        if not created:
+            print(f"📋 Using existing layer: {layer.name}")
+            # Clear existing features if re-importing
+            existing_count = layer.geofeature_set.count()
+            if existing_count > 0:
+                print(f"🗑️  Removing {existing_count} existing features")
+                layer.geofeature_set.all().delete()
+                layer.feature_count = 0
+                layer.save()
+        else:
+            print(f"📋 Created new layer: {layer.name}")
+        
+        # Import all files into this layer
+        total_features = 0
+        successful_files = 0
+        failed_files = []
+        
+        for file_path in geojson_files:
+            try:
+                print(f"📄 Importing: {file_path.name}")
+                
+                result = self.import_geojson_to_layer(str(file_path), layer)
+                
+                if result['status'] == 'success':
+                    features_imported = result['features_imported']
+                    total_features += features_imported
+                    successful_files += 1
+                    print(f"   ✅ Imported {features_imported} features")
+                else:
+                    failed_files.append({
+                        'file': file_path.name,
+                        'error': result.get('error', 'Unknown error')
+                    })
+                    print(f"   ❌ Failed: {result.get('error')}")
+                    
+            except Exception as e:
+                failed_files.append({
+                    'file': file_path.name,
+                    'error': str(e)
+                })
+                print(f"   ❌ Error: {e}")
+        
+        # Calculate layer bounding box from all features
+        layer.calculate_bbox()
+        
+        return {
+            'status': 'completed' if successful_files > 0 else 'failed',
+            'layer_id': layer.id,
+            'layer_name': layer_name,
+            'layer_slug': layer_slug,
+            'category': category.name,
+            'total_files': len(geojson_files),
+            'successful_files': successful_files,
+            'failed_files': failed_files,
+            'total_features': total_features,
+            'city': city.slug
+        }
+
+    def import_multiple_layers(self, city, base_data_dir, layer_mappings, force=False):
+        """
+        NEW: Import multiple layers for a city from the hierarchical directory structure
+        
+        Args:
+            city (City): City instance
+            base_data_dir (str): Base data directory path (e.g., "data/telangana/hyderabad")  
+            layer_mappings (list): List of layer definitions from Excel
+            force (bool): Force re-import existing layers
             
-            # Delhi-specific fields
-            'land_use_name': name_field,
-            'land_use_type': derived_category,
-            'derived_category': derived_category,
-            
-            # Area and geometry fields
-            'area_value': geojson_properties.get('AREA_SQMTR', 0),
-            'area_unit': 'square_meters', 
-            'perimeter_value': 0,
-            
-            # Administrative fields (empty for Delhi)
-            'state': 'Delhi',
-            'district': '',
-            'mandal': '',
-            'village': '',
-            'authority_name': '',
-            
-            # PLU fields (empty for Delhi as it doesn't use PLU codes)
-            'plu_primary_code': '',
-            'plu_secondary_code_1': '',
-            'plu_secondary_code_2': '',
-            'plu_authority': '',
-            'land_use_code': name_field,
-            
-            # Source data fields
-            'source_fid': geojson_properties.get('fid'),
-            'source_object_id': geojson_properties.get('fid'),
-            'source_area_value': geojson_properties.get('AREA_SQMTR', 0),
-            'source_length_value': 0,
-            'source_perimeter_value': 0,
-            
-            # Delhi-specific fields
-            'original_color': geojson_properties.get('COLOR', ''),
-            
-            # Additional metadata
-            'original_properties': geojson_properties,
+        Returns:
+            dict: Overall import results
+        """
+        results = {
+            'city': city.slug,
+            'total_layers': len(layer_mappings),
+            'successful_layers': 0,
+            'failed_layers': 0,
+            'total_features': 0,
+            'layer_results': []
         }
         
-        return processed
-    
-    def _process_gurgaon_attributes(self, geojson_properties, layer):
-        """Process Gurgaon GeoJSON attributes - Uses classtext field mapping"""
+        base_dir = Path(base_data_dir)
+        if not base_dir.exists():
+            raise FileNotFoundError(f"Base data directory not found: {base_data_dir}")
         
-        # Extract classtext field  
-        classtext_field = geojson_properties.get('classtext', '').strip()
+        print(f"🏙️  Importing {len(layer_mappings)} layers for {city.name}")
         
-        # Map to category using Gurgaon-specific logic
-        from .config import map_classtext_to_category_gurgaon
-        derived_category = map_classtext_to_category_gurgaon(classtext_field)
+        for i, layer_info in enumerate(layer_mappings, 1):
+            layer_name = layer_info['name']
+            layer_slug = layer_info['slug']
+            
+            print(f"\n📋 [{i}/{len(layer_mappings)}] Processing layer: {layer_name}")
+            
+            # Expected layer directory path
+            layer_dir_path = base_dir / layer_slug
+            
+            if not layer_dir_path.exists():
+                print(f"   ⚠️  Layer directory not found: {layer_dir_path}")
+                results['layer_results'].append({
+                    'layer_name': layer_name,
+                    'status': 'directory_not_found',
+                    'features_imported': 0
+                })
+                results['failed_layers'] += 1
+                continue
+            
+            try:
+                # Import this layer
+                layer_result = self.import_layer_directory(
+                    city, layer_name, str(layer_dir_path)
+                )
+                
+                if layer_result['status'] == 'completed':
+                    results['successful_layers'] += 1
+                    results['total_features'] += layer_result['total_features']
+                    print(f"   ✅ Layer completed: {layer_result['total_features']} features")
+                else:
+                    results['failed_layers'] += 1
+                    print(f"   ❌ Layer failed")
+                
+                results['layer_results'].append(layer_result)
+                
+            except Exception as e:
+                print(f"   ❌ Error importing layer {layer_name}: {e}")
+                results['failed_layers'] += 1
+                results['layer_results'].append({
+                    'layer_name': layer_name,
+                    'status': 'error',
+                    'error': str(e),
+                    'features_imported': 0
+                })
         
-        # If mapping failed, use layer's default category
-        if derived_category == 'UNCLASSIFIED' and layer.category:
-            derived_category = layer.category.code
-        
-        # Process Gurgaon GeoJSON properties
-        processed = {
-            # Basic identification
-            'name': geojson_properties.get('name', '').strip(),  # Sector name
-            'description': classtext_field,
-            'source_layer_name': layer.name,
-            
-            # Gurgaon-specific fields
-            'land_use_name': classtext_field,
-            'land_use_type': derived_category,
-            'derived_category': derived_category,
-            'land_use_code': str(geojson_properties.get('class', geojson_properties.get('code', ''))),
-            
-            # Area and geometry fields
-            'area_value': geojson_properties.get('Shape_Area', 0),
-            'area_unit': 'square_units',  # Adjust if you know the actual units
-            'perimeter_value': geojson_properties.get('Shape_Length', 0),
-            
-            # Administrative fields
-            'state': 'Haryana',
-            'district': 'Gurgaon',
-            'mandal': '',
-            'village': '',
-            'authority_name': 'GMDA',  # Gurgaon Metropolitan Development Authority
-            
-            # Gurgaon-specific planning fields
-            'sector_name': geojson_properties.get('name', ''),
-            'class_code': geojson_properties.get('class'),
-            'code': geojson_properties.get('code'),
-            'density': geojson_properties.get('density', '').strip(),
-            'val': geojson_properties.get('val', '').strip(),
-            'text_code': geojson_properties.get('text_', '').strip(),
-            'codetext': geojson_properties.get('codetext', '').strip(),
-            'gmda_sector_no': geojson_properties.get('final_gmda_jan17_sde_sector_no_'),
-            
-            # PLU fields (empty for Gurgaon as it uses different system)
-            'plu_primary_code': '',
-            'plu_secondary_code_1': '',
-            'plu_secondary_code_2': '',
-            'plu_authority': 'GMDA',
-            
-            # Source data fields
-            'source_fid': geojson_properties.get('id'),
-            'source_object_id': geojson_properties.get('OBJECTID', geojson_properties.get('objectid')),
-            'source_area_value': geojson_properties.get('Shape_Area', 0),
-            'source_length_value': geojson_properties.get('Shape_Length', 0),
-            'source_perimeter_value': geojson_properties.get('Shape_Length', 0),
-            
-            # Additional metadata
-            'original_properties': geojson_properties,
-        }
-        
-        return processed
-    
-    def _process_jaipur_attributes(self, geojson_properties, layer):
-        """Process Jaipur GeoJSON attributes - Uses LANDUSE_CATEGORY field mapping"""
-        
-        # Extract LANDUSE_CATEGORY field  
-        landuse_category = geojson_properties.get('LANDUSE_CATEGORY', '').strip()
-        
-        # Map to category using Jaipur-specific logic
-        from .config import map_landuse_category_to_category_jaipur
-        derived_category = map_landuse_category_to_category_jaipur(landuse_category)
-        
-        # If mapping failed, use layer's default category
-        if derived_category == 'UNCLASSIFIED' and layer.category:
-            derived_category = layer.category.code
-        
-        # Process Jaipur GeoJSON properties (rich structure)
-        processed = {
-            # Basic identification
-            'name': geojson_properties.get('FEATURE_NAME', '').strip() or landuse_category,
-            'description': geojson_properties.get('REMARKS', '').strip(),
-            'source_layer_name': layer.name,
-            
-            # Jaipur-specific land use fields
-            'land_use_name': landuse_category,
-            'land_use_type': derived_category,
-            'derived_category': derived_category,
-            'land_use_category': landuse_category,
-            'land_use_subcat_level_1': geojson_properties.get('LANDUSE_SUBCAT_LEVEL_1', '').strip(),
-            'land_use_subcat_level_2': geojson_properties.get('LANDUSE_SUBCAT_LEVEL_2', '').strip(),
-            'land_use_subcat_level_3': geojson_properties.get('LANDUSE_SUBCAT_LEVEL_3', '').strip(),
-            
-            # Area and geometry fields
-            'area_value': geojson_properties.get('SHAPE.AREA', 0),
-            'area_unit': 'square_units',  # Jaipur data units (likely square meters)
-            'perimeter_value': geojson_properties.get('SHAPE.LEN', 0),
-            'landuse_area': geojson_properties.get('LANDUSE_AREA', 0),
-            'geometry_length': geojson_properties.get('geom_Length', 0),
-            'geometry_area': geojson_properties.get('geom_Area', 0),
-            
-            # Administrative fields
-            'state': 'Rajasthan',
-            'district': geojson_properties.get('DISTRICT', 'Jaipur'),
-            'district_code': geojson_properties.get('DISTRICT_CODE', ''),
-            'mandal': '',  # Not applicable for Jaipur
-            'village': '',  # Not applicable for Jaipur
-            'authority_name': 'JDA',  # Jaipur Development Authority
-            
-            # Jaipur-specific administrative fields
-            'urban_local_body': geojson_properties.get('URBAN_LOCAL_BODY', '').strip(),
-            'urban_local_body_code': geojson_properties.get('URBAN_LOCAL_BODY_CODE', ''),
-            'admin_zone': geojson_properties.get('ADMIN_ZONE', '').strip(),
-            'admin_zone_code': geojson_properties.get('ADMIN_ZONE_CODE', ''),
-            'planning_zone': geojson_properties.get('PLANNING_ZONE', '').strip(),
-            'planning_zone_code': geojson_properties.get('PLANNING_ZONE_CODE', ''),
-            
-            # Category codes
-            'landuse_category_code': geojson_properties.get('LANDUSE_CATEGORY_CODE', ''),
-            'landuse_subcat_level_1_code': geojson_properties.get('LANDUSE_SUBCAT_LEVEL_1_CODE', ''),
-            'landuse_subcat_level_2_code': geojson_properties.get('LANDUSE_SUBCAT_LEVEL_2_CODE', ''),
-            'landuse_subcat_level_3_code': geojson_properties.get('LANDUSE_SUBCAT_LEVEL_3_CODE', ''),
-            
-            # Feature identification
-            'feature_name': geojson_properties.get('FEATURE_NAME', '').strip(),
-            'label': geojson_properties.get('LABEL', '').strip(),
-            'remarks': geojson_properties.get('REMARKS', '').strip(),
-            
-            # PLU fields (empty for Jaipur as it doesn't use PLU codes like Bangalore)
-            'plu_primary_code': '',
-            'plu_secondary_code_1': '',
-            'plu_secondary_code_2': '',
-            'plu_authority': 'JDA',
-            'land_use_code': landuse_category,
-            
-            # Source data identification fields
-            'source_fid': geojson_properties.get('id'),
-            'source_object_id': geojson_properties.get('OBJECTID'),
-            'source_object_id_1': geojson_properties.get('OBJECTID_1'),
-            'source_id': geojson_properties.get('ID'),
-            'source_area_value': geojson_properties.get('SHAPE.AREA', 0),
-            'source_length_value': geojson_properties.get('SHAPE.LEN', 0),
-            'source_perimeter_value': geojson_properties.get('SHAPE.LEN', 0),
-            
-            # Metadata fields
-            'created_user': geojson_properties.get('CREATED_USER', ''),
-            'created_date': geojson_properties.get('CREATED_DATE'),
-            'last_edited_user': geojson_properties.get('LAST_EDITED_USER', ''),
-            'last_edited_date': geojson_properties.get('LAST_EDITED_DATE'),
-            
-            # Additional metadata
-            'original_properties': geojson_properties,
-        }
-        
-        return processed
-    
+        return results
+
+    # ================================
+    # FORMAT-SPECIFIC IMPORT METHODS
+    # ================================
+
     def _import_esri_json(self, file_path, layer):
         """Enhanced import ESRI JSON file with smart PLU categorization"""
         print(f"🔧 Processing ESRI JSON format with enhanced PLU mapping")
@@ -550,7 +611,7 @@ class DataImportService:
                 self.statistics['geometry_conversions'] += 1
                 geom = GEOSGeometry(json.dumps(geojson_geom))
                 
-                # Enhanced PLU processing for Bangalore
+                # Enhanced PLU processing for different cities
                 if layer.city.slug == 'bengaluru':
                     processed_attrs = self._process_bangalore_plu_attributes(attrs, layer)
                 elif layer.city.slug == 'warangal':
@@ -564,13 +625,7 @@ class DataImportService:
                 else:
                     processed_attrs = self._process_standard_attributes(attrs, layer)
                 
-                # Track PLU codes
-                if processed_attrs['plu_primary_code']:
-                    self.statistics['plu_codes_found'][processed_attrs['plu_primary_code']] += 1
-                
-                self.statistics['categories_assigned'][processed_attrs['derived_category']] += 1
-                
-                # Create feature with enhanced data
+                # Create feature with ONLY valid model fields
                 feature = GeoFeature(
                     layer=layer,
                     geometry=geom,
@@ -591,506 +646,14 @@ class DataImportService:
         if features:
             print(f"💾 Saving {len(features)} features to database...")
             GeoFeature.objects.bulk_create(features, batch_size=1000)
-            
-            # Update layer categorization method
-            layer.categorization_method = 'PLU_CODE' if layer.city.slug == 'bengaluru' else 'FILENAME'
-            layer.save()
         
-        print(f"✅ Import completed: {len(features)} features saved")
+        print(f"✅ ESRI Import completed: {len(features)} features saved")
+        print(f"📊 Category distribution: {dict(self.statistics['categories_assigned'])}")
+        
         return len(features)
-    def _process_warangal_attributes(self, attrs, layer):
-        """Process Warangal GeoJSON attributes - CORRECTED to match GeoFeature model fields"""
-        
-        # Safety check - handle None attrs
-        if attrs is None:
-            attrs = {}
-        
-        # Extract PLU fields safely with None checks
-        plu_code = (attrs.get('PLU') or '').strip()
-        plu_name = (attrs.get('PLU_NAME') or '').strip()
-        
-        # Map to category safely
-        derived_category = layer.category.code  # Default fallback
-        
-        try:
-            # Check if we have valid PLU codes to map
-            if plu_code:
-                from .config import map_plu_code_to_category_warangal
-                mapped_category = map_plu_code_to_category_warangal(plu_code, plu_name)
-                if mapped_category != 'UNCLASSIFIED':
-                    derived_category = mapped_category
-        except Exception as e:
-            print(f"   ⚠️  PLU mapping error: {e}")
-            # Fall back to layer category
-            pass
-        
-        # Helper functions for safe value extraction
-        def safe_get(attr_dict, key, default=''):
-            """Safely get attribute value, handling None"""
-            value = attr_dict.get(key)
-            if value is None:
-                return default
-            return str(value).strip() if isinstance(value, str) else str(value)
-        
-        def safe_float(attr_dict, key, default=0.0):
-            """Safely get float value"""
-            value = attr_dict.get(key, default)
-            if value is None:
-                return default
-            try:
-                return float(value)
-            except (ValueError, TypeError):
-                return default
-        
-        def safe_int(attr_dict, key, default=0):
-            """Safely get integer value"""
-            value = attr_dict.get(key, default)
-            if value is None:
-                return default
-            try:
-                return int(value)
-            except (ValueError, TypeError):
-                return default
-        
-        # Build processed attributes using ONLY fields that exist in GeoFeature model
-        processed = {
-            # Basic identification (from GeoFeature model)
-            'name': safe_get(attrs, 'Name'),
-            'source_fid': safe_int(attrs, 'id'),
-            
-            # PLU/Land Use fields (these exist in the model)
-            'plu_primary_code': plu_code,
-            'plu_secondary_1': safe_get(attrs, 'plu_secondary_1'),  # Usually empty for Warangal
-            'plu_secondary_2': safe_get(attrs, 'plu_secondary_2'),  # Usually empty for Warangal
-            'plu_proposed_use': safe_get(attrs, 'PLU_NAME'),
-            'plu_authority': safe_get(attrs, 'KUDA'),
-            'plu_ktc_code': safe_get(attrs, 'ktc_code'),
-            'plu_survey_code': safe_get(attrs, 'survey_code'),
-            
-            # Derived/computed fields (these exist in the model)
-            'derived_category': derived_category,
-            'land_use_type': derived_category,
-            'land_use_code': plu_code,
-            'zoning': safe_get(attrs, 'PLU_NAME'),
-            
-            # Area/size attributes (these exist in the model)
-            'source_area_value': safe_float(attrs, 'Area'),
-            'source_length_value': safe_float(attrs, 'Shape_Length'),
-            'source_perimeter_value': safe_float(attrs, 'Shape_Area'),
-            
-            # Store all original attributes as JSON (this field exists)
-            'source_attributes': attrs,
-            
-            # Processing info (these exist in the model)
-            'is_valid': True,
-            'validation_notes': '',
-            'geometry_simplified': False,
-            'original_precision': 8,  # Using config precision
-            
-            # Import metadata (these exist in the model)
-            'import_source': 'file_import',
-            'import_batch_id': getattr(self, 'import_job', None).id if hasattr(self, 'import_job') and self.import_job else None,
-        }
-        
-        return processed
-    
-    def _process_bangalore_plu_attributes(self, esri_attrs, layer):
-        """Process Bangalore ESRI attributes with enhanced PLU logic"""
-        
-        # Extract all PLU fields
-        plu_primary = esri_attrs.get('PLU_Tp_pro', '').strip()
-        plu_secondary_1 = esri_attrs.get('PLU_Tp_p_1', '').strip()
-        plu_secondary_2 = esri_attrs.get('PLU_Tp_p_2', '').strip()
-        plu_bda = esri_attrs.get('PLU_BDA', '').strip()
-        
-        # Enhanced categorization logic - priority order
-        derived_category = layer.category.code  # Default fallback
-        categorization_method = 'FILENAME'
-        
-        # Priority 1: Use PLU_BDA for specific authority mappings
-        if plu_bda:
-            if plu_bda == 'Eaa':
-                derived_category = 'PROTECTED'
-                categorization_method = 'PLU_CODE'
-            elif plu_bda == 'Eac':
-                derived_category = 'WATER_BODIES'
-                categorization_method = 'PLU_CODE'
-            elif plu_bda == 'Ef':
-                derived_category = 'AGRICULTURAL'
-                categorization_method = 'PLU_CODE'
-            elif plu_bda == 'Ca':
-                derived_category = 'RESIDENTIAL'
-                categorization_method = 'PLU_CODE'
-            elif plu_bda == 'Cb':
-                derived_category = 'RESIDENTIAL'
-                categorization_method = 'PLU_CODE'
-            elif plu_bda == 'Ba':
-                derived_category = 'COMMERCIAL'
-                categorization_method = 'PLU_CODE'
-            elif plu_bda == 'Bb':
-                derived_category = 'COMMERCIAL'
-                categorization_method = 'PLU_CODE'
-            elif plu_bda == 'Da':
-                derived_category = 'INDUSTRIAL'
-                categorization_method = 'PLU_CODE'
-            elif plu_bda == 'Db':
-                derived_category = 'HIGH_TECH'
-                categorization_method = 'PLU_CODE'
-            elif plu_bda == 'Dc':
-                derived_category = 'TRANSPORT'
-                categorization_method = 'PLU_CODE'
-            elif plu_bda == 'Ta':
-                derived_category = 'TRANSPORT'
-                categorization_method = 'PLU_CODE'
-            elif plu_bda == 'K':
-                derived_category = 'PUBLIC'
-                categorization_method = 'PLU_CODE'
-            elif plu_bda == 'Q':
-                derived_category = 'UTILITIES'
-                categorization_method = 'PLU_CODE'
-            elif plu_bda == 'U':
-                derived_category = 'DEFENSE'
-                categorization_method = 'PLU_CODE'
-            elif plu_bda == 'Eab':
-                derived_category = 'DRAINS'
-                categorization_method = 'PLU_CODE'
-            elif plu_bda == 'F':
-                derived_category = 'PARKS_GREEN'
-                categorization_method = 'PLU_CODE'
-        
-        # Priority 2: If no specific PLU_BDA match, use primary + secondary logic
-        if categorization_method == 'FILENAME' and plu_primary:
-            if plu_primary == 'E':
-                # E code - most complex, needs secondary analysis
-                if plu_secondary_1 == 'Ea':
-                    if plu_secondary_2 == 'Eaa':
-                        derived_category = 'PROTECTED'
-                    elif plu_secondary_2 == 'Eac':
-                        derived_category = 'WATER_BODIES'
-                    else:
-                        derived_category = 'PROTECTED'  # Default for Ea
-                elif plu_secondary_1 == 'Eb':
-                    derived_category = 'AGRICULTURAL'
-                elif plu_secondary_1 == 'Ke':
-                    derived_category = 'PUBLIC'
-                else:
-                    derived_category = 'AGRICULTURAL'  # Default for E
-                categorization_method = 'PLU_CODE'
-            
-            elif plu_primary == 'B':
-                # B code - Commercial
-                if plu_secondary_1 == 'Ba':
-                    derived_category = 'COMMERCIAL'  # Central
-                elif plu_secondary_1 == 'Bb':
-                    derived_category = 'COMMERCIAL'  # Business
-                else:
-                    derived_category = 'COMMERCIAL'
-                categorization_method = 'PLU_CODE'
-            
-            elif plu_primary == 'D':
-                # D code - Development/Industrial/Transport
-                if plu_secondary_1 == 'Da':
-                    derived_category = 'INDUSTRIAL'
-                elif plu_secondary_1 == 'Db':
-                    derived_category = 'HIGH_TECH'
-                elif plu_secondary_1 == 'Dc':
-                    derived_category = 'TRANSPORT'
-                else:
-                    derived_category = 'INDUSTRIAL'  # Default for D
-                categorization_method = 'PLU_CODE'
-            
-            elif plu_primary == 'C':
-                # C code - Residential
-                if plu_secondary_1 == 'Ca':
-                    derived_category = 'RESIDENTIAL'  # Mixed
-                elif plu_secondary_1 == 'Cb':
-                    derived_category = 'RESIDENTIAL'  # Main
-                else:
-                    derived_category = 'RESIDENTIAL'
-                categorization_method = 'PLU_CODE'
-            
-            elif plu_primary == 'M':
-                # M code - Utilities
-                derived_category = 'UTILITIES'
-                categorization_method = 'PLU_CODE'
-            
-            elif plu_primary == 'F':
-                # F code - Parks/Green
-                derived_category = 'PARKS_GREEN'
-                categorization_method = 'PLU_CODE'
-            
-            elif plu_primary == 'N':
-                # N code - Defense
-                derived_category = 'DEFENSE'
-                categorization_method = 'PLU_CODE'
-            
-            elif plu_primary == 'S':
-                # S code - Unclassified
-                derived_category = 'UNCLASSIFIED'
-                categorization_method = 'PLU_CODE'
-            
-            elif plu_primary == 'K':
-                # K code - Public
-                derived_category = 'PUBLIC'
-                categorization_method = 'PLU_CODE'
-            
-            elif plu_primary == 'Q':
-                # Q code - Utilities
-                derived_category = 'UTILITIES'
-                categorization_method = 'PLU_CODE'
-            
-            # Add missing codes
-            elif plu_primary == 'R':
-                derived_category = 'RESIDENTIAL'
-                categorization_method = 'PLU_CODE'
-            elif plu_primary == 'J':
-                derived_category = 'UTILITIES'
-                categorization_method = 'PLU_CODE'
-            elif plu_primary == 'P':
-                derived_category = 'PUBLIC'
-                categorization_method = 'PLU_CODE'
-            elif plu_primary == 'H':
-                derived_category = 'TRANSPORT'
-                categorization_method = 'PLU_CODE'
-            elif plu_primary == 'O':
-                derived_category = 'COMMERCIAL'
-                categorization_method = 'PLU_CODE'
-            elif plu_primary == 'G':
-                derived_category = 'PARKS_GREEN'
-                categorization_method = 'PLU_CODE'
-            elif plu_primary == 'T':
-                derived_category = 'TRANSPORT'
-                categorization_method = 'PLU_CODE'
-            elif plu_primary == 'I':
-                derived_category = 'INDUSTRIAL'
-                categorization_method = 'PLU_CODE'
-        
-        # Debug output
-        if plu_primary or plu_bda:
-            print(f"   PLU: {plu_primary}/{plu_secondary_1}/{plu_secondary_2} (BDA:{plu_bda}) → {derived_category}")
-        
-        # Build comprehensive attributes
-        result = {
-            'source_fid': esri_attrs.get('fid'),
-            'source_object_id': esri_attrs.get('OBJECTID'),
-            
-            # PLU-specific fields
-            'plu_primary_code': plu_primary,
-            'plu_secondary_1': plu_secondary_1,
-            'plu_secondary_2': plu_secondary_2,
-            'plu_proposed_use': esri_attrs.get('PLU_prop_l', '').strip(),
-            'plu_development_code': esri_attrs.get('PLU_F_PD_C'),
-            'plu_authority': plu_bda,
-            'plu_ktc_code': esri_attrs.get('PLU_Tp_KTC', '').strip(),
-            'plu_survey_code': esri_attrs.get('PLU_Tp_sur', '').strip(),
-            
-            # Derived fields
-            'land_use_code': str(esri_attrs.get('PLU_Cd', '')),
-            'derived_category': derived_category,
-            'land_use_type': derived_category,
-            
-            # Measurements
-            'source_area_value': esri_attrs.get('SHAPE.STArea()'),
-            'source_length_value': esri_attrs.get('Shape_Leng'),
-            'source_perimeter_value': esri_attrs.get('SHAPE.STLength()'),
-            
-            # Store all original attributes
-            'source_attributes': esri_attrs,
-            
-            # Processing metadata
-            'original_precision': 15,
-            'geometry_simplified': True,
-        }
-        
-        return result
 
-    def _process_standard_attributes(self, attrs, layer):
-        """Process attributes for non-Bangalore cities (ENHANCED for Amaravati and Vizag)"""
-        
-        city_config = get_city_config(layer.city.slug)
-        attribute_mapping = city_config.get('attribute_mappings', {}) if city_config else {}
-        category_mappings = city_config.get('category_mappings', {}) if city_config else {}
-        
-        # Map attributes using configuration
-        mapped_attrs = {}
-        for source_field, target_field in attribute_mapping.items():
-            if source_field in attrs:
-                mapped_attrs[target_field] = attrs[source_field]
-        
-        # Determine category - ENHANCED FOR BOTH VIZAG AND AMARAVATI
-        derived_category = layer.category.code  # Default fallback
-        categorization_method = 'FILENAME'  # Default method
-        
-        # ✅ AMARAVATI: Use 'symbology' field for categorization
-        if layer.city.slug == 'amaravati' and 'symbology' in attrs:
-            symbology_value = attrs['symbology']
-            if symbology_value in category_mappings:
-                derived_category = category_mappings[symbology_value]
-                categorization_method = 'ATTRIBUTE'
-                print(f"   ✅ Amaravati: Mapped symbology '{symbology_value}' → {derived_category}")
-                
-                # Track category mapping for statistics
-                self.statistics['categories_assigned'][derived_category] += 1
-            else:
-                print(f"   ⚠️  Amaravati: Unknown symbology '{symbology_value}', using filename category")
-        
-        # ✅ VIZAG: Use 'Category' field for categorization (existing logic)
-        elif layer.city.slug == 'vizag' and 'Category' in attrs:
-            category_value = attrs['Category']
-            if category_value in category_mappings:
-                derived_category = category_mappings[category_value]
-                categorization_method = 'ATTRIBUTE'
-                print(f"   ✅ Vizag: Mapped Category '{category_value}' → {derived_category}")
-                
-                # Track category mapping for statistics
-                self.statistics['categories_assigned'][derived_category] += 1
-            else:
-                print(f"   ⚠️  Vizag: Unknown category '{category_value}', using filename category")
-        
-        # Store city-specific fields in source_attributes
-        enhanced_source_attrs = attrs.copy()
-        
-        # ✅ AMARAVATI-specific field handling
-        if layer.city.slug == 'amaravati':
-            if 'plot_code' in attrs:
-                enhanced_source_attrs['plot_code'] = attrs['plot_code']
-            if 'symbology' in attrs:
-                enhanced_source_attrs['symbology'] = attrs['symbology']
-            if 'plot_categ' in attrs:
-                enhanced_source_attrs['plot_category'] = attrs['plot_categ']
-            if 'township' in attrs:
-                enhanced_source_attrs['township'] = attrs['township']
-            if 'sector' in attrs:
-                enhanced_source_attrs['sector'] = attrs['sector']
-            if 'colony' in attrs:
-                enhanced_source_attrs['colony'] = attrs['colony']
-        
-        # ✅ VIZAG-specific field handling (existing)
-        elif layer.city.slug == 'vizag':
-            if 'RuleID' in attrs:
-                enhanced_source_attrs['rule_id'] = attrs['RuleID']
-            if 'Override' in attrs:
-                enhanced_source_attrs['override_value'] = attrs['Override']
-        
-        # Return only fields that exist in the GeoFeature model
-        return {
-            'source_fid': mapped_attrs.get('source_fid', attrs.get('FID')),
-            'source_object_id': mapped_attrs.get('source_object_id', attrs.get('OBJECTID')),
-            'name': mapped_attrs.get('name', attrs.get('plot_code', '')),  # Use plot_code as name for Amaravati
-            'category_name': attrs.get('symbology', attrs.get('Category', '')),  # symbology for Amaravati, Category for Vizag
-            'derived_category': derived_category,
-            'land_use_type': attrs.get('symbology', attrs.get('Category', derived_category)),
-            'zoning': mapped_attrs.get('zoning', ''),
-            
-            # Administrative info
-            'district': (attrs.get('DISTRICT') or '').strip(),
-            'mandal': (attrs.get('MANDAL') or '').strip(),
-            'village': (attrs.get('Village') or attrs.get('lpsvillage') or '').strip(),
-            
-            # Amaravati-specific fields
-            'state': 'Andhra Pradesh' if layer.city.slug in ['amaravati', 'vizag'] else '',
-            
-            # Measurements
-            'source_area_value': mapped_attrs.get('source_area_value', attrs.get('Shape_Area', attrs.get('alloted_ex'))),
-            'source_length_value': mapped_attrs.get('source_length_value', attrs.get('Shape_Length')),
-            
-            # Store ALL original attributes including city-specific fields
-            'source_attributes': enhanced_source_attrs,
-            'geometry_simplified': True,
-        }
-    
-    def import_warangal_data(self, data_directory):
-        """
-        Import all Warangal GeoJSON files from a directory
-        """
-        from .config import WARANGAL_CONFIG
-        
-        city_slug = 'warangal'
-        config = WARANGAL_CONFIG
-        
-        print(f"🏙️  Starting Warangal data import from: {data_directory}")
-        # Create or get city
-
-        city, created = City.objects.get_or_create(
-            slug=city_slug,
-            defaults={
-                'name': config['city_info']['name'],
-                'state': config['city_info']['state'],
-                'center_lat': config['city_info']['center_lat'],
-                'center_lng': config['city_info']['center_lng'],
-                'is_active': True,
-            }
-        )
-        
-        if created:
-            print(f"✅ Created city: {city.name}")
-        else:
-            print(f"📍 Using existing city: {city.name}")
-        
-        results = []
-        file_mappings = config['file_mappings']
-        
-        for filename, category_code in file_mappings.items():
-            file_path = os.path.join(data_directory, filename)
-            
-            if os.path.exists(file_path):
-                print(f"\n📄 Processing: {filename} -> {category_code}")
-                try:
-                    # Get or create category
-                    category, _ = LayerCategory.objects.get_or_create(
-                        code=category_code,
-                        defaults={'name': category_code.replace('_', ' ').title()}
-                    )
-                    
-                    # Import the file
-                    features_imported = self.import_file_from_path(file_path, city, category)
-                    
-                    results.append({
-                        'filename': filename,
-                        'category_code': category_code,
-                        'status': 'success',
-                        'features_imported': features_imported
-                    })
-                    
-                    print(f"   ✅ Imported {features_imported} features")
-                    
-                except Exception as e:
-                    results.append({
-                        'filename': filename,
-                        'category_code': category_code,
-                        'status': 'error',
-                        'error': str(e),
-                        'features_imported': 0
-                    })
-                    print(f"   ❌ Error: {filename} - {e}")
-            else:
-                print(f"   ⚠️  File not found: {filename}")
-                results.append({
-                    'filename': filename,
-                    'category_code': category_code,
-                    'status': 'not_found',
-                    'features_imported': 0
-                })
-        
-        # Summary
-        total_features = sum(r.get('features_imported', 0) for r in results)
-        successful_files = len([r for r in results if r.get('status') == 'success'])
-        
-        print(f"\n📊 Warangal Import Summary:")
-        print(f"   Total files configured: {len(file_mappings)}")
-        print(f"   Successfully imported: {successful_files}")
-        print(f"   Total features imported: {total_features}")
-        
-        return {
-            'city': city_slug,
-            'total_files': len(file_mappings),
-            'imported_files': successful_files,
-            'total_features': total_features,
-            'results': results
-        }
-        
     def _import_geojson(self, file_path, layer):
-        """Import standard GeoJSON file (Vizag/Amaravati format) - FIXED"""
+        """Import standard GeoJSON file (Vizag/Amaravati format) - ENHANCED"""
         print(f"🔧 Processing standard GeoJSON format for {layer.city.slug}")
         
         with open(file_path, 'r', encoding='utf-8') as f:
@@ -1156,11 +719,332 @@ class DataImportService:
                 layer.categorization_method = 'FILENAME'   # Others use filename
             layer.save()
         
-        print(f"✅ Import completed: {len(features)} features saved")
+        print(f"✅ GeoJSON Import completed: {len(features)} features saved")
         print(f"📊 Category distribution: {dict(self.statistics['categories_assigned'])}")
         
         return len(features)
-    
+
+    # ================================
+    # CITY-SPECIFIC ATTRIBUTE PROCESSING
+    # ================================
+
+    def _process_bangalore_plu_attributes(self, esri_attrs, layer):
+        """Process Bangalore-specific ESRI attributes with enhanced PLU mapping"""
+        
+        # Extract PLU codes
+        plu_primary = str(esri_attrs.get('PLU', '')).strip()
+        plu_secondary_1 = str(esri_attrs.get('PLU_NAME', '')).strip()
+        plu_secondary_2 = str(esri_attrs.get('PLU_prop_l', '')).strip()
+        
+        # Map PLU to category using enhanced mapping
+        derived_category = map_plu_code_to_category(plu_primary, 'bangalore')
+        
+        # Track PLU codes
+        if plu_primary:
+            self.statistics['plu_codes_found'][plu_primary] += 1
+        
+        # Track category assignment
+        self.statistics['categories_assigned'][derived_category] += 1
+        
+        result = {
+            # Basic identification
+            'name': esri_attrs.get('PLU_NAME', '').strip(),
+            'description': esri_attrs.get('PLU_prop_l', '').strip(),
+            'source_layer_name': layer.name,
+            
+            # PLU fields
+            'plu_primary_code': plu_primary,
+            'plu_secondary_1': plu_secondary_1,
+            'plu_secondary_2': plu_secondary_2,
+            'plu_proposed_use': esri_attrs.get('PLU_prop_l', '').strip(),
+            'plu_development_code': esri_attrs.get('PLU_F_PD_C'),
+            'plu_authority': esri_attrs.get('PLU_BDA', '').strip(),
+            'plu_ktc_code': esri_attrs.get('PLU_Tp_KTC', '').strip(),
+            'plu_survey_code': esri_attrs.get('PLU_Tp_sur', '').strip(),
+            
+            # Derived fields
+            'land_use_code': str(esri_attrs.get('PLU_Cd', '')),
+            'derived_category': derived_category,
+            'land_use_type': derived_category,
+            
+            # Measurements
+            'source_area_value': esri_attrs.get('SHAPE.STArea()'),
+            'source_length_value': esri_attrs.get('Shape_Leng'),
+            'source_perimeter_value': esri_attrs.get('SHAPE.STLength()'),
+            
+            # Store all original attributes
+            'source_attributes': esri_attrs,
+            
+            # Processing metadata
+            'original_precision': 15,
+            'geometry_simplified': True,
+        }
+        
+        return result
+
+    def _process_standard_attributes(self, attrs, layer):
+        """Process attributes for non-Bangalore cities (ENHANCED for Amaravati and Vizag)"""
+        
+        city_config = get_city_config(layer.city.slug)
+        attribute_mapping = city_config.get('attribute_mappings', {}) if city_config else {}
+        category_mappings = city_config.get('category_mappings', {}) if city_config else {}
+        
+        # Map attributes using configuration
+        mapped_attrs = {}
+        for source_field, target_field in attribute_mapping.items():
+            if source_field in attrs:
+                mapped_attrs[target_field] = attrs[source_field]
+        
+        # Determine category - ENHANCED FOR BOTH VIZAG AND AMARAVATI
+        derived_category = layer.category.code  # Default fallback
+        categorization_method = 'FILENAME'  # Default method
+        
+        # ✅ AMARAVATI: Use 'symbology' field for categorization
+        if layer.city.slug == 'amaravati' and 'symbology' in attrs:
+            symbology_value = attrs['symbology']
+            if symbology_value in category_mappings:
+                derived_category = category_mappings[symbology_value]
+                categorization_method = 'ATTRIBUTE'
+                print(f"   ✅ Amaravati: Mapped symbology '{symbology_value}' → {derived_category}")
+                
+                # Track category mapping for statistics
+                self.statistics['categories_assigned'][derived_category] += 1
+            else:
+                print(f"   ⚠️  Amaravati: Unknown symbology '{symbology_value}', using filename category")
+        
+        # ✅ VIZAG: Use 'Category' field for categorization (existing logic)
+        elif layer.city.slug == 'vizag' and 'Category' in attrs:
+            category_value = attrs['Category']
+            if category_value in category_mappings:
+                derived_category = category_mappings[category_value]
+                categorization_method = 'ATTRIBUTE'
+                print(f"   ✅ Vizag: Mapped category '{category_value}' → {derived_category}")
+                
+                # Track category mapping for statistics
+                self.statistics['categories_assigned'][derived_category] += 1
+            else:
+                print(f"   ⚠️  Vizag: Unknown category '{category_value}', using filename category")
+        
+        # Build standardized result
+        processed = {
+            # Basic identification
+            'name': attrs.get('Name', attrs.get('NAME', '')),
+            'description': attrs.get('Description', ''),
+            'source_layer_name': layer.name,
+            
+            # Land use fields
+            'land_use_name': attrs.get('symbology', attrs.get('Category', '')),
+            'land_use_type': derived_category,
+            'derived_category': derived_category,
+            
+            # Area and geometry fields
+            'area_value': attrs.get('AREA', attrs.get('Area', 0)),
+            'area_unit': 'square_meters',
+            'perimeter_value': attrs.get('PERIMETER', attrs.get('Perimeter', 0)),
+            
+            # Administrative fields
+            'state': layer.city.state,
+            'district': attrs.get('District', ''),
+            'mandal': attrs.get('Mandal', ''),
+            'village': attrs.get('Village', ''),
+            'authority_name': '',
+            
+            # Source data fields
+            'source_fid': attrs.get('fid', attrs.get('FID', attrs.get('OBJECTID'))),
+            'source_object_id': attrs.get('OBJECTID', attrs.get('objectid')),
+            'source_area_value': attrs.get('AREA', attrs.get('Area', 0)),
+            'source_length_value': 0,
+            'source_perimeter_value': attrs.get('PERIMETER', attrs.get('Perimeter', 0)),
+            
+            # Additional metadata
+            'source_attributes': attrs,
+        }
+        
+        # Add mapped attributes
+        processed.update(mapped_attrs)
+        
+        return processed
+
+    def _process_delhi_attributes(self, properties, layer):
+        """Process Delhi GeoJSON attributes - Simple NAME field mapping"""
+        
+        # Extract NAME field  
+        name_field = properties.get('NAME', '').strip()
+        
+        # Map to category using Delhi-specific logic
+        from .config import map_name_to_category_delhi
+        derived_category = map_name_to_category_delhi(name_field)
+        
+        # If mapping failed, use layer's default category
+        if derived_category == 'UNCLASSIFIED' and layer.category:
+            derived_category = layer.category.code
+        
+        # Process Delhi GeoJSON properties (very simple structure)
+        processed = {
+            # Basic identification
+            'name': name_field,
+            'description': '',
+            'source_layer_name': layer.name,
+            
+            # Delhi-specific fields
+            'land_use_name': name_field,
+            'land_use_type': derived_category,
+            'derived_category': derived_category,
+            
+            # Area and geometry fields
+            'area_value': properties.get('AREA_SQMTR', 0),
+            'area_unit': 'square_meters', 
+            'perimeter_value': 0,
+            
+            # Administrative fields (empty for Delhi)
+            'state': 'Delhi',
+            'district': '',
+            'mandal': '',
+            'village': '',
+            'authority_name': '',
+            
+            # PLU fields (empty for Delhi as it doesn't use PLU codes)
+            'plu_primary_code': '',
+            'plu_secondary_1': '',
+            'plu_secondary_2': '',
+            'plu_authority': '',
+            'land_use_code': name_field,
+            
+            # Source data fields
+            'source_fid': properties.get('fid'),
+            'source_object_id': properties.get('fid'),
+            'source_area_value': properties.get('AREA_SQMTR', 0),
+            'source_length_value': 0,
+            'source_perimeter_value': 0,
+            
+            # Delhi-specific fields
+            'original_color': properties.get('COLOR', ''),
+            
+            # Additional metadata
+            'source_attributes': properties,
+        }
+        
+        return processed
+
+    def _process_warangal_attributes(self, attrs, layer):
+        """Process Warangal-specific attributes"""
+        
+        # Get PLU field - Warangal uses 'PLU' field
+        plu_field = attrs.get('PLU', '').strip()
+        
+        # Map PLU to category
+        derived_category = map_plu_code_to_category(plu_field, 'warangal')
+        
+        if plu_field:
+            self.statistics['plu_codes_found'][plu_field] += 1
+        
+        self.statistics['categories_assigned'][derived_category] += 1
+        
+        return {
+            'name': attrs.get('PLU_NAME', '').strip(),
+            'description': '',
+            'source_layer_name': layer.name,
+            'plu_primary_code': plu_field,
+            'land_use_type': derived_category,
+            'derived_category': derived_category,
+            'source_area_value': attrs.get('Shape_Leng'),
+            'source_attributes': attrs,
+        }
+
+    def _process_gurgaon_attributes(self, attrs, layer):
+        """Process Gurgaon-specific attributes"""
+        
+        # Gurgaon uses 'classtext' field
+        classtext = attrs.get('classtext', '').strip()
+        
+        # Extract category from classtext (e.g., "100 Residential" -> "RESIDENTIAL")
+        derived_category = 'UNCLASSIFIED'
+        if 'residential' in classtext.lower():
+            derived_category = 'RESIDENTIAL'
+        elif 'commercial' in classtext.lower():
+            derived_category = 'COMMERCIAL'
+        elif 'industrial' in classtext.lower():
+            derived_category = 'INDUSTRIAL'
+        # Add more mappings as needed
+        
+        self.statistics['categories_assigned'][derived_category] += 1
+        
+        return {
+            'name': classtext,
+            'description': '',
+            'source_layer_name': layer.name,
+            'land_use_type': derived_category,
+            'derived_category': derived_category,
+            'land_use_code': classtext,
+            'source_attributes': attrs,
+        }
+
+    def _process_jaipur_attributes(self, attrs, layer):
+        """Process Jaipur-specific attributes"""
+        
+        # Use layer category as default
+        derived_category = layer.category.code
+        
+        return {
+            'name': attrs.get('Name', '').strip(),
+            'description': '',
+            'source_layer_name': layer.name,
+            'land_use_type': derived_category,
+            'derived_category': derived_category,
+            'source_attributes': attrs,
+        }
+
+    # ================================
+    # UTILITY METHODS
+    # ================================
+
+    def _auto_detect_category(self, layer_name):
+        """Auto-detect LayerCategory based on layer name"""
+        layer_lower = layer_name.lower()
+        
+        category_mappings = {
+            'master plan': 'MIXED_USE',
+            'road': 'TRANSPORT', 
+            'roads': 'TRANSPORT',
+            'lake': 'WATER_BODIES',
+            'lakes': 'WATER_BODIES',
+            'parks': 'PARKS_GREEN',
+            'green': 'PARKS_GREEN',
+            'residential': 'RESIDENTIAL',
+            'commercial': 'COMMERCIAL',
+            'industrial': 'INDUSTRIAL',
+            'railway': 'TRANSPORT',
+            'mmts': 'TRANSPORT',
+            'metro': 'TRANSPORT',
+            'utilities': 'UTILITIES',
+            'government': 'GOVERNMENT',
+            'public': 'PUBLIC',
+            'agriculture': 'AGRICULTURAL',
+            'forest': 'PROTECTED',
+            'boundary': 'SPECIAL',
+            'survey': 'SPECIAL',
+            'rrr': 'SPECIAL',
+            'workspace': 'COMMERCIAL',
+            'future': 'SPECIAL'
+        }
+        
+        for keyword, category_code in category_mappings.items():
+            if keyword in layer_lower:
+                try:
+                    return LayerCategory.objects.get(code=category_code)
+                except LayerCategory.DoesNotExist:
+                    continue
+        
+        # Create unclassified category if not exists
+        category, created = LayerCategory.objects.get_or_create(
+            code='UNCLASSIFIED',
+            defaults={
+                'name': 'Unclassified',
+                'description': 'Unclassified layers'
+            }
+        )
+        return category
+
     def _update_plu_mappings(self, city, import_results):
         """Update PLU code mappings based on import results"""
         print(f"\n🏷️  Updating PLU mappings for {city.name}")
@@ -1194,88 +1078,46 @@ class DataImportService:
                         mapping.feature_count = feature_count
                         mapping.last_used = timezone.now()
                         mapping.save()
-                        
-                        if created:
-                            print(f"   ✅ Created PLU mapping: {plu_code} → {category.name}")
-    
-    def setup_city_styles(self, city_slug):
-        """Setup city-specific styles based on configuration"""
-        
-        config = get_city_config(city_slug)
-        if not config:
-            raise ValueError(f"No configuration found for city: {city_slug}")
-        
-        try:
-            city = City.objects.get(slug=city_slug)
-        except City.DoesNotExist:
-            raise ValueError(f"City not found: {city_slug}")
-        
-        print(f"🎨 Setting up styles for {city.name}")
-        
-        # Create city-specific styles
-        for category_code, color in config['colors'].items():
-            try:
-                category = LayerCategory.objects.get(code=category_code)
-                
-                style, created = CityLayerStyle.objects.get_or_create(
-                    city=city,
-                    category=category,
-                    defaults={
-                        'fill_color': color,
-                        'stroke_color': '#333333',
-                        'opacity': 0.7,
-                        'stroke_width': 1,
-                        'is_visible': True
-                    }
-                )
-                
-                if not created:
-                    # Update existing style
-                    style.fill_color = color
-                    style.save()
-                    print(f"   ✅ Updated style: {category.name} → {color}")
-                else:
-                    print(f"   ✅ Created style: {category.name} → {color}")
-                    
-            except LayerCategory.DoesNotExist:
-                print(f"   ⚠️  Category not found: {category_code}")
-        
-        print(f"✅ Style setup completed for {city_slug}")
-    
-    def _determine_categorization_method(self, city_slug, file_format):
-        """Determine the best categorization method for a city/format"""
-        if city_slug == 'bangalore' and file_format == 'ESRI_JSON':
-            return 'PLU_CODE'
-        return 'FILENAME'
-    
+
     def _generate_layer_name(self, filename):
-        """Generate human-readable layer name from filename"""
+        """Generate a human-readable layer name from filename"""
         name = Path(filename).stem
-        # Convert underscores to spaces and title case
-        name = name.replace('_', ' ').replace('.', ' ')
-        return ' '.join(word.capitalize() for word in name.split())
-    
-    def _detect_format(self, filename):
-        """Detect file format from extension"""
-        ext = Path(filename).suffix.lower()
-        if ext == '.json':
-            return 'JSON'  # Will be refined during processing
-        elif ext == '.geojson':
-            return 'GEOJSON'
-        else:
-            raise ValueError(f"Unsupported file extension: {ext}")
-    
-    def _generate_slug(self, name, city):
+        name = name.replace('_', ' ').replace('-', ' ')
+        return name.title()
+
+    def _generate_slug(self, filename_stem, city):
         """Generate unique slug for layer"""
-        base_slug = name.lower().replace(' ', '_').replace('-', '_')
+        base_slug = slugify(filename_stem)
         slug = base_slug
         counter = 1
         
         while DataLayer.objects.filter(city=city, slug=slug).exists():
-            slug = f"{base_slug}_{counter}"
+            slug = f"{base_slug}-{counter}"
             counter += 1
         
         return slug
+
+    def _detect_format(self, filename):
+        """Detect file format from filename"""
+        ext = Path(filename).suffix.lower()
+        
+        if ext in ['.geojson']:
+            return 'GEOJSON'
+        elif ext in ['.json']:
+            return 'JSON'
+        elif ext in ['.shp']:
+            return 'SHP'
+        else:
+            return 'JSON'  # Default
+
+    def _determine_categorization_method(self, city_slug, file_format):
+        """Determine categorization method based on city and format"""
+        if city_slug in ['bangalore']:
+            return 'PLU_CODE'
+        elif city_slug in ['vizag', 'amaravati']:
+            return 'ATTRIBUTE'
+        else:
+            return 'FILENAME'
 
 class VectorTileService:
     """CORRECTED - Vector tile generation service"""

@@ -5,6 +5,8 @@ django-cors-headers==4.3.1
 django-filter==23.3
 requests==2.32.4
 boto3==1.39.12
+pandas==2.3.1
+openpyxl==3.1.5
 
 # GeoDjango and Spatial
 djangorestframework-gis==1.0

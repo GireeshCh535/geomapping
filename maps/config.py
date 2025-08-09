@@ -1,2232 +1,483 @@
-# config.py - Enhanced with accurate PLU mappings from real data
-
+# maps/config.py
 """
-Enhanced city-specific configurations with accurate PLU code mappings
+Clean configuration for Karnataka Bengaluru layers only
+Contains layer definitions with specific colors for master plan, highways, metro, and workspaces
 """
 
-BANGALORE_PLU_MAPPING = {
-    # Primary PLU codes found in actual data - fixed to use valid LayerCategory codes
-    'E': {
-        'category': 'AGRICULTURAL',  # Default fallback, will be overridden by sub-mappings
-        'description': 'Environmental/Agricultural/Protected Land',
-        'secondary_codes': ['Ea', 'Eb', 'Eaa', 'Eac', 'Ke'],
-        'examples': ['Agricultural land', 'Forest areas', 'Protected valleys', 'Lakes']
+from django.contrib.gis.geos import GEOSGeometry
+import json
+
+# ================================
+# LAYER CATEGORY MAPPINGS
+# ================================
+
+LAYER_CATEGORIES = {
+    'AGRICULTURAL': {
+        'name': 'Agricultural',
+        'description': 'Agricultural and farming areas',
+        'default_color': '#9DC1CB',
+        'default_opacity': 0.7
     },
-    'B': {
-        'category': 'COMMERCIAL',
-        'description': 'Business/Commercial Areas',
-        'secondary_codes': ['Ba', 'Bb'],
-        'examples': ['Central Business District', 'Business centers']
+    'COMMERCIAL': {
+        'name': 'Commercial',
+        'description': 'Commercial and business areas',
+        'default_color': '#73B2FF',
+        'default_opacity': 0.7
     },
-    'D': {
-        'category': 'INDUSTRIAL',  # Default fallback
-        'description': 'Development/Industrial/Transport',
-        'secondary_codes': ['Da', 'Db', 'Dc'],
-        'examples': ['Industrial areas', 'High-tech zones', 'Transportation']
+    'GOVERNMENT': {
+        'name': 'Government',
+        'description': 'Government and public facilities',
+        'default_color': '#E60000',
+        'default_opacity': 0.7
     },
-    'C': {
-        'category': 'RESIDENTIAL',
-        'description': 'Residential Areas',
-        'secondary_codes': ['Ca', 'Cb'],
-        'examples': ['Residential zones', 'Housing areas']
+    'INDUSTRIAL': {
+        'name': 'Industrial',
+        'description': 'Industrial and manufacturing areas',
+        'default_color': '#AA66B2',
+        'default_opacity': 0.7
     },
-    'R': {
-        'category': 'RESIDENTIAL',
+    'RESIDENTIAL': {
+        'name': 'Residential',
         'description': 'Residential areas',
-        'secondary_codes': [],
-        'examples': ['Residential zones']
+        'default_color': '#FFEBAF',
+        'default_opacity': 0.7
     },
-    'J': {
-        'category': 'UTILITIES',   
-        'description': 'Infrastructure/Utilities',
-        'secondary_codes': [],
-        'examples': ['Utility infrastructure']
+    'TRANSPORT': {
+        'name': 'Transport',
+        'description': 'Transportation infrastructure',
+        'default_color': '#828282',
+        'default_opacity': 0.7
     },
-    'P': {
-        'category': 'PUBLIC',
-        'description': 'Public facilities',
-        'secondary_codes': [],
-        'examples': ['Public buildings', 'Government facilities']
+    'WATER_BODIES': {
+        'name': 'Water Bodies',
+        'description': 'Lakes, tanks, drains, and water features',
+        'default_color': '#BEE8FF',
+        'default_opacity': 0.7
     },
-    'H': {
-        'category': 'TRANSPORT',
-        'description': 'Transportation/Highways',
-        'secondary_codes': [],
-        'examples': ['Highways', 'Transportation corridors']
+    'PARKS_GREEN': {
+        'name': 'Parks & Green Spaces',
+        'description': 'Parks, playgrounds, and green spaces',
+        'default_color': '#98E600',
+        'default_opacity': 0.7
     },
-    'O': {
-        'category': 'COMMERCIAL',
-        'description': 'Commercial/Office',
-        'secondary_codes': [],
-        'examples': ['Office buildings', 'Commercial complexes']
+    'UTILITIES': {
+        'name': 'Utilities',
+        'description': 'Power, water, and utility facilities',
+        'default_color': '#D79E9E',
+        'default_opacity': 0.7
     },
-    'G': {
-        'category': 'PARKS_GREEN',
-        'description': 'Green spaces',
-        'secondary_codes': [],
-        'examples': ['Gardens', 'Green areas']
+    'PROTECTED': {
+        'name': 'Protected Areas',
+        'description': 'Protected forests and conservation areas',
+        'default_color': '#70A800',
+        'default_opacity': 0.7
     },
-    'T': {
-        'category': 'TRANSPORT',
-        'description': 'Transportation',
-        'secondary_codes': [],
-        'examples': ['Transport facilities']
-    },
-    'I': {
-        'category': 'INDUSTRIAL',
-        'description': 'Industrial',
-        'secondary_codes': [],
-        'examples': ['Industrial areas']
-    },
-    'M': {
-        'category': 'UTILITIES',
-        'description': 'Municipal/Utilities',
-        'secondary_codes': ['Mt', 'Mtg'],
-        'examples': ['Power facilities', 'Water treatment', 'Garbage facilities']
-    },
-    'F': {
-        'category': 'PARKS_GREEN',
-        'description': 'Parks and Green Spaces',
-        'secondary_codes': [],
-        'examples': ['Parks', 'Green spaces', 'Sports grounds', 'Cemeteries']
-    },
-    'N': {
-        'category': 'DEFENSE',
-        'description': 'Defense/Military Areas',
-        'secondary_codes': [],
-        'examples': ['Military installations', 'Defense areas']
-    },
-    'S': {
-        'category': 'UNCLASSIFIED',
-        'description': 'Unclassified/Special Use',
-        'secondary_codes': [],
-        'examples': ['Unclassified areas', 'Special use zones']
-    },
-    # Special PLU_BDA authority codes - simplified structure
-    'K': {
-        'category': 'PUBLIC',
-        'description': 'Public facilities',
-        'secondary_codes': ['Ke'],
-        'examples': ['Public facilities', 'Government buildings']
-    },
-    'Q': {
-        'category': 'UTILITIES',
-        'description': 'Quasi-public utilities',
-        'secondary_codes': [],
-        'examples': ['Public utilities', 'Treatment facilities']
-    },
-    'Ta': {
-        'category': 'TRANSPORT',
-        'description': 'Transportation',
-        'secondary_codes': [],
-        'examples': ['Transportation networks', 'Transit facilities']
-    },
-    'U': {
-        'category': 'DEFENSE',
-        'description': 'Defense authority',
-        'secondary_codes': [],
-        'examples': ['Defense areas', 'Military zones']
-    },
-    'Eab': {
-        'category': 'DRAINS',
-        'description': 'Drainage systems',
-        'secondary_codes': [],
-        'examples': ['Drains', 'Drainage infrastructure']
-    },
-    'Ef': {
+    'UNCLASSIFIED': {
+        'name': 'Unclassified',
+        'description': 'Unclassified land use',
+        'default_color': '#E1E1E1',
+        'default_opacity': 0.7
+    }
+}
+
+# ================================
+# BENGALURU LAYER CONFIGURATIONS
+# ================================
+
+# Master Plan Layers (FLEXIBLE PATTERNS to find your 16 files)
+BENGALURU_MASTER_PLAN_LAYERS = {
+    'Agricultural_Land': {
+        'name': 'Agricultural Land',
+        'color': '#9DC1CB',
         'category': 'AGRICULTURAL',
-        'description': 'Agricultural authority',
-        'secondary_codes': [],
-        'examples': ['Agricultural land']
+        'file_pattern': '*gricultural*.json',  # Flexible pattern
+        'description': 'Agricultural and farming lands'
     },
-    'Eaa': {
-        'category': 'PROTECTED',
-        'description': 'Protected land authority',
-        'secondary_codes': [],
-        'examples': ['Protected areas', 'State forests']
+    'CommercialBusiness': {
+        'name': 'Commercial Business',
+        'color': '#73B2FF',
+        'category': 'COMMERCIAL',
+        'file_pattern': 'Commercial_Business_.json',
+        'description': 'Commercial business areas'
     },
-    'Eac': {
+    'CommercialCentral': {
+        'name': 'Commercial Central',
+        'color': '#004DA8',
+        'category': 'COMMERCIAL',
+        'file_pattern': 'Commercial_Central_.json',
+        'description': 'Central commercial districts'
+    },
+    'Defense': {
+        'name': 'Defense',
+        'color': '#E0B8FC',
+        'category': 'GOVERNMENT',
+        'file_pattern': 'Defense.json',
+        'description': 'Defense establishments'
+    },
+    'Drains': {
+        'name': 'Drains',
+        'color': '#267300',
         'category': 'WATER_BODIES',
-        'description': 'Water bodies authority',
-        'secondary_codes': [],
-        'examples': ['Lakes', 'Tanks', 'Water bodies']
+        'file_pattern': 'Drains.json',
+        'description': 'Drainage systems and channels'
     },
-    'Ca': {
-        'category': 'RESIDENTIAL',
-        'description': 'Residential authority (mixed)',
-        'secondary_codes': [],
-        'examples': ['Mixed residential areas']
-    },
-    'Cb': {
-        'category': 'RESIDENTIAL',
-        'description': 'Residential authority (main)',
-        'secondary_codes': [],
-        'examples': ['Main residential areas']
-    },
-    'Ba': {
-        'category': 'COMMERCIAL',
-        'description': 'Commercial authority (central)',
-        'secondary_codes': [],
-        'examples': ['Central commercial areas']
-    },
-    'Bb': {
-        'category': 'COMMERCIAL',
-        'description': 'Commercial authority (business)',
-        'secondary_codes': [],
-        'examples': ['Business commercial areas']
-    },
-    'Da': {
+    'HighTech': {
+        'name': 'High Tech',
+        'color': '#C29ED7',
         'category': 'INDUSTRIAL',
-        'description': 'Industrial authority',
-        'secondary_codes': [],
-        'examples': ['Industrial areas']
-    },
-    'Db': {
-        'category': 'HIGH_TECH',
-        'description': 'High-tech authority',
-        'secondary_codes': [],
-        'examples': ['High-tech zones']
-    },
-    'Dc': {
-        'category': 'TRANSPORT',
-        'description': 'Transport authority',
-        'secondary_codes': [],
-        'examples': ['Transportation infrastructure']
-    }
-}
-
-# Enhanced PLU mapping function - simplified logic
-def map_plu_code_to_category_bangalore(plu_primary, plu_secondary_1=None, plu_secondary_2=None, plu_bda=None):
-    """
-    Enhanced PLU mapping for Bangalore using real data patterns - simplified
-    """
-    
-    # Clean inputs
-    plu_primary = (plu_primary or '').strip()
-    plu_secondary_1 = (plu_secondary_1 or '').strip()
-    plu_secondary_2 = (plu_secondary_2 or '').strip()
-    plu_bda = (plu_bda or '').strip()
-    
-    # Priority 1: Check PLU_BDA for specific authority mappings
-    if plu_bda and plu_bda in BANGALORE_PLU_MAPPING:
-        return BANGALORE_PLU_MAPPING[plu_bda]['category']
-    
-    # Priority 2: Check secondary code 2 (most specific)
-    if plu_secondary_2 and plu_secondary_2 in BANGALORE_PLU_MAPPING:
-        return BANGALORE_PLU_MAPPING[plu_secondary_2]['category']
-    
-    # Priority 3: Check secondary code 1
-    if plu_secondary_1 and plu_secondary_1 in BANGALORE_PLU_MAPPING:
-        return BANGALORE_PLU_MAPPING[plu_secondary_1]['category']
-    
-    # Priority 4: Check primary code
-    if plu_primary and plu_primary in BANGALORE_PLU_MAPPING:
-        return BANGALORE_PLU_MAPPING[plu_primary]['category']
-    
-    # Priority 5: Special combinations for 'E' code (most complex)
-    if plu_primary == 'E':
-        # E + Ea + Eaa = Protected
-        if plu_secondary_1 == 'Ea' and plu_secondary_2 == 'Eaa':
-            return 'PROTECTED'
-        # E + Ea + Eac = Water Bodies  
-        elif plu_secondary_1 == 'Ea' and plu_secondary_2 == 'Eac':
-            return 'WATER_BODIES'
-        # E + Eb + no secondary = Agricultural
-        elif plu_secondary_1 == 'Eb':
-            return 'AGRICULTURAL'
-        # E + Ke = Public
-        elif plu_secondary_1 == 'Ke':
-            return 'PUBLIC'
-        # E + Ea default = Protected
-        elif plu_secondary_1 == 'Ea':
-            return 'PROTECTED'
-        else:
-            return 'AGRICULTURAL'  # Default for E
-    
-    return 'UNCLASSIFIED'
-
-# Bangalore Configuration (Enhanced with real data patterns)
-BANGALORE_CONFIG = {
-    'city_info': {
-        'name': 'Bangalore',
-        'slug': 'bengaluru',
-        'state': 'Karnataka',
-        'center_lat': 12.9716,
-        'center_lng': 77.5946,
-    },
-    'data_format': 'ESRI_JSON',
-    'coordinate_precision': 8,
-    'plu_mapping': BANGALORE_PLU_MAPPING,
-    'file_mappings': {
-        # Updated with your actual files
-        'Agricultural_Land.json': 'AGRICULTURAL',
-        'Commercial_Business_.json': 'COMMERCIAL',
-        'Commercial_Central_.json': 'COMMERCIAL', 
-        'Defense.json': 'DEFENSE',
-        'Drains.json': 'DRAINS',
-        'HighTech.json': 'HIGH_TECH',
-        'Industrial.json': 'INDUSTRIAL',
-        'Lake_Tank.json': 'WATER_BODIES',
-        'Parks_GreenSpaces_Sports_Playgrounds_Cemetery_BurialGrounds.json': 'PARKS_GREEN',
-        'Power_Water_GarbageFacility_TreatmentPlant.json': 'UTILITIES',
-        'Public_SemiPublic.json': 'PUBLIC',
-        'Residential_Main_.json': 'RESIDENTIAL',
-        'Residential_Mixed_.json': 'RESIDENTIAL',
-        'Road_Rail_Airport_Transport.json': 'TRANSPORT',
-        'StateForest_Valley_ProtectedLand_.json': 'PROTECTED',
-        'Unclassified_Use.json': 'UNCLASSIFIED',
-    },
-    'attribute_mappings': {
-        'fid': 'source_fid',
-        'OBJECTID': 'source_object_id',
-        'PLU_Cd': 'land_use_code',
-        'PLU_Tp_pro': 'plu_primary_code',
-        'PLU_Tp_p_1': 'plu_secondary_1', 
-        'PLU_Tp_p_2': 'plu_secondary_2',
-        'PLU_prop_l': 'plu_proposed_use',
-        'PLU_F_PD_C': 'plu_development_code',
-        'PLU_BDA': 'plu_authority',
-        'PLU_Tp_KTC': 'plu_ktc_code',
-        'PLU_Tp_sur': 'plu_survey_code',
-        'Shape_Leng': 'source_length_value',
-        'SHAPE.STArea()': 'source_area_value',
-        'SHAPE.STLength()': 'source_perimeter_value',
-    },
-    'colors': {
-        'RESIDENTIAL': '#FFC400',      # Yellow - Residential
-        'COMMERCIAL': '#004DA8',       # Blue - Commercial  
-        'INDUSTRIAL': '#AA66B2',       # Purple - Industrial
-        'HIGH_TECH': '#C29ED7',        # Light Purple - High Tech
-        'PUBLIC': '#E60000',           # Red - Public/Semi Public
-        'DEFENSE': '#8B4513',          # Brown - Defense
-        'PROTECTED': '#228B22',        # Forest Green - State Forest/Protected
-        'PARKS_GREEN': '#98E600',      # Bright Green - Parks and Green Spaces
-        'WATER_BODIES': '#1E90FF',     # Dodger Blue - Lake/Tank
-        'TRANSPORT': '#808080',        # Gray - Road/Rail/Airport Transport
-        'UTILITIES': '#FF6347',        # Tomato - Power/Water/Utilities
-        'AGRICULTURAL': '#9ACD32',     # Yellow Green - Agricultural Land
-        'UNCLASSIFIED': '#D3D3D3',     # Light Gray - Unclassified Use
-        'DRAINS': '#4682B4',           # Steel Blue - Drains
-    }
-}
-
-# Enhanced attribute processing
-def process_bangalore_attributes(esri_attributes):
-    """
-    Process ESRI attributes for Bangalore with smart categorization
-    """
-    
-    # Extract PLU fields
-    plu_primary = esri_attributes.get('PLU_Tp_pro', '').strip()
-    plu_secondary_1 = esri_attributes.get('PLU_Tp_p_1', '').strip()
-    plu_secondary_2 = esri_attributes.get('PLU_Tp_p_2', '').strip()
-    plu_bda = esri_attributes.get('PLU_BDA', '').strip()
-    
-    # Smart categorization
-    derived_category = map_plu_code_to_category_bangalore(
-        plu_primary, plu_secondary_1, plu_secondary_2, plu_bda
-    )
-    
-    # Build processed attributes
-    processed = {
-        'plu_primary_code': plu_primary,
-        'plu_secondary_1': plu_secondary_1,
-        'plu_secondary_2': plu_secondary_2,
-        'plu_proposed_use': esri_attributes.get('PLU_prop_l', '').strip(),
-        'plu_development_code': esri_attributes.get('PLU_F_PD_C'),
-        'plu_authority': plu_bda,
-        'plu_ktc_code': esri_attributes.get('PLU_Tp_KTC', '').strip(),
-        'plu_survey_code': esri_attributes.get('PLU_Tp_sur', '').strip(),
-        'land_use_code': str(esri_attributes.get('PLU_Cd', '')),
-        'derived_category': derived_category,
-        'land_use_type': derived_category,
-        'source_fid': esri_attributes.get('fid'),
-        'source_object_id': esri_attributes.get('OBJECTID'),
-        'source_area_value': esri_attributes.get('SHAPE.STArea()'),
-        'source_length_value': esri_attributes.get('Shape_Leng'),
-        'source_perimeter_value': esri_attributes.get('SHAPE.STLength()'),
-    }
-    
-    return processed
-
-# Vizag Configuration (Standard GeoJSON)
-VIZAG_CONFIG = {
-    'city_info': {
-        'name': 'Visakhapatnam',
-        'slug': 'visakhapatnam',
-        'state': 'Andhra Pradesh',
-        'center_lat': 17.6868,
-        'center_lng': 83.2185,
-    },
-    'data_format': 'GEOJSON',
-    'coordinate_precision': 8,
-    
-    # File mappings (inferred from category names)
-    'file_mappings': {
-        'Agricultural_Use_Zone.geojson': 'AGRICULTURAL',
-        'Blue_Zone_Water_Bodies.geojson': 'WATER_BODIES',
-        'Brown_Zone_Hills.geojson': 'HILLS',
-        'Commercial_Use_Zone.geojson': 'COMMERCIAL',
-        'Existing_Crematorium_Burial_Ground_Graveyard.geojson': 'CEMETERY',
-        'Existing_Educational_Facilities.geojson': 'EDUCATION',
-        'Existing_Government_Semi_Government_Facilities.geojson': 'GOVERNMENT',
-        'Existing_Health_Facilities.geojson': 'HEALTHCARE',
-        'Existing_Industrial_Area.geojson': 'INDUSTRIAL',
-        'Existing_Public_Utilities.geojson': 'UTILITIES',
-        'Existing_Recreational_Playgrounds_Parks_Layout_OpenSpace.geojson': 'PARKS_GREEN',
-        'Existing_Religious_Facilities.geojson': 'CULTURAL',
-        'Existing_Road_Railway_Line_Area.geojson': 'TRANSPORT',
-        'Existing_Transportation_Facility.geojson': 'TRANSPORT',
-        'Green_Zone_Forest.geojson': 'PROTECTED',
-        'Kambalakonda_Eco_Sensitive_Zone_NAOB_Buffer_Zoological_Park.geojson': 'PROTECTED',
-        'Kambalakonda_WildLife_Sanctuary_Biodiversity_Area.geojson': 'PROTECTED',
-        'Mixed_Use_Zone_1.geojson': 'MIXED_USE',
-        'Mixed_Use_Zone_2_BAIA.geojson': 'MIXED_USE',
-        'Mixed_Use_Zone_3_BAIA.geojson': 'MIXED_USE',
-        'Mixed_Use_Zone_4_BAIA.geojson': 'MIXED_USE',
-        'Proposed_Industrial_Use_Zone.geojson': 'INDUSTRIAL',
-        'Proposed_PSP_Use_Zone.geojson': 'PUBLIC',
-        'Proposed_Public_Utilities_Use_Zone.geojson': 'UTILITIES',
-        'Proposed_Recreational_Use_Zone.geojson': 'PARKS_GREEN',
-        'Proposed_Road_Network.geojson': 'TRANSPORT',
-        'Proposed_Transportation_Facility_Use_Zone.geojson': 'TRANSPORT',
-        'Residential_Use_Zone.geojson': 'RESIDENTIAL',
-        'Sea_River_Accreted_Land.geojson': 'WATER_BODIES',
-        'Special_Area_Use_Zone.geojson': 'SPECIAL',
-        'Water_Body_Buffer.geojson': 'WATER_BODIES',
-    },
-    
-    # Attribute mappings to match your data structure
-    'attribute_mappings': {
-        'FID': 'source_fid',
-        'Category': 'land_use_type',
-        'Category': 'category_name',
-        'MANDAL': 'mandal',
-        'DISTRICT': 'district',
-        'Village': 'village',
-        'Shape_Area': 'source_area_value',
-        'Shape_Length': 'source_length_value',
-        'RuleID': 'rule_id',
-        'Override': 'override_value',
-    },
-    
-    # Complete category mappings - maps Category field values to standard categories
-    'category_mappings': {
-        'Agricultural Use Zone': 'AGRICULTURAL',
-        'Blue Zone (Water Bodies)': 'WATER_BODIES',
-        'Brown Zone (Hills)': 'HILLS',
-        'Commercial Use Zone': 'COMMERCIAL',
-        'Existing Crematorium / Burial Ground / Graveyard': 'CEMETERY',
-        'Existing Educational Facilities': 'EDUCATION',
-        'Existing Government & Semi Government Facilities': 'GOVERNMENT',
-        'Existing Health Facilities': 'HEALTHCARE',
-        'Existing Industrial Area': 'INDUSTRIAL',
-        'Existing Public Utilities': 'UTILITIES',
-        'Existing Recreational, Play grounds, Parks & Layout Open Space': 'PARKS_GREEN',
-        'Existing Religious Facilities': 'CULTURAL',
-        'Existing Road & Railway Line Area': 'TRANSPORT',
-        'Existing Transportation Facility': 'TRANSPORT',
-        'Green Zone (Forest)': 'PROTECTED',
-        'Kambalakonda Eco Sensitive Zone/ NAOB Buffer, Zoological Park': 'PROTECTED',
-        'Kambalakonda WildLife Sanctuary & Biodiversity Area': 'PROTECTED',
-        'Mixed Use Zone - 1': 'MIXED_USE',
-        'Mixed Use Zone - 2 (BAIA)': 'MIXED_USE',
-        'Mixed Use Zone - 3 (BAIA)': 'MIXED_USE',
-        'Mixed Use Zone - 4 (BAIA)': 'MIXED_USE',
-        'Proposed Industrial Use Zone': 'INDUSTRIAL',
-        'Proposed PSP Use Zone': 'PUBLIC',
-        'Proposed Public Utilities Use Zone': 'UTILITIES',
-        'Proposed Recreational Use Zone': 'PARKS_GREEN',
-        'Proposed Road Network': 'TRANSPORT',
-        'Proposed Transportation Facility Use Zone': 'TRANSPORT',
-        'Residential Use Zone': 'RESIDENTIAL',
-        'Sea / River Accreted Land': 'WATER_BODIES',
-        'Special Area Use Zone': 'SPECIAL',
-        'Water Body Buffer': 'WATER_BODIES',
-    },
-    
-    # Colors based on your specifications (using solid fill colors)
-    'colors': {
-        'AGRICULTURAL': '#D3FFBE',       # Agricultural Use Zone
-        'WATER_BODIES': '#73FFDF',       # Blue Zone Water Bodies  
-        'HILLS': '#A87000',              # Brown Zone Hills
-        'COMMERCIAL': '#004DA8',         # Commercial Use Zone
-        'CEMETERY': '#FFFFFF',           # Existing Crematorium (solid fill)
-        'EDUCATION': '#FF0000',          # Existing Educational (solid fill)
-        'GOVERNMENT': '#FF0000',         # Existing Government Semi Government
-        'HEALTHCARE': '#FF0000',         # Existing Health (solid fill)
-        'INDUSTRIAL': '#C500FF',         # Existing Industrial Area
-        'UTILITIES': '#FF7F7F',          # Existing Public Utilities (solid fill)
-        'PARKS_GREEN': '#55FF00',        # Existing Recreational
-        'CULTURAL': '#FF0000',           # Existing Religious (solid fill)
-        'TRANSPORT': '#686868',          # Existing Transportation Facility
-        'PROTECTED': '#00734C',          # Green Zone Forest
-        'MIXED_USE': '#FFAA00',          # Mixed Use Zone 1
-        'PUBLIC': '#FF0000',             # Proposed PSP (hatch fill color)
-        'SPECIAL': '#FFFFFF',            # Special Area (solid fill)
-        'RESIDENTIAL': '#FFFF73',
-    },
-    
-    # Detailed colors for specific subcategories (optional - for future use)
-    'detailed_colors': {
-        'Agricultural Use Zone': '#D3FFBE',
-        'Blue Zone (Water Bodies)': '#73FFDF',
-        'Brown Zone (Hills)': '#A87000',
-        'Commercial Use Zone': '#004DA8',
-        'Existing Crematorium / Burial Ground / Graveyard': '#FFFFFF',
-        'Existing Educational Facilities': '#FF0000',
-        'Existing Government & Semi Government Facilities': '#FF0000',
-        'Existing Health Facilities': '#FF0000',
-        'Existing Industrial Area': '#C500FF',
-        'Existing Public Utilities': '#FF7F7F',
-        'Existing Recreational, Play grounds, Parks & Layout Open Space': '#55FF00',
-        'Existing Religious Facilities': '#FF0000',
-        'Existing Road & Railway Line Area': '#828282',
-        'Existing Transportation Facility': '#686868',
-        'Green Zone (Forest)': '#00734C',
-        'Kambalakonda Eco Sensitive Zone/ NAOB Buffer': '#D7C29E',
-        'Kambalakonda WildLife Sanctuary & Biodiversity Area': '#38A800',
-        'Mixed Use Zone - 1': '#FFAA00',
-        'Mixed Use Zone - 2 (BAIA)': '#FFD37F',
-        'Mixed Use Zone - 3 (BAIA)': '#E69800',
-        'Mixed Use Zone - 4 (BAIA)': '#FFAA00',
-        'Proposed Industrial Use Zone': '#C500FF',
-        'Proposed PSP Use Zone': '#FF0000',
-        'Proposed Public Utilities Use Zone': '#F57A7A',
-        'Proposed Recreational Use Zone': '#4C7300',
-        'Proposed Road Network': '#000000',
-        'Proposed Transportation Facility Use Zone': '#343434',
-        'Residential Use Zone': '#FFFF73',
-        'Sea / River Accreted Land': '#D7C29E',
-        'Special Area Use Zone': '#FFFFFF',
-        'Water Body Buffer': '#4CE600',
-    }
-}
-
-AMARAVATI_CONFIG = {
-    'city_info': {
-        'name': 'Amaravati',
-        'slug': 'amaravati',
-        'state': 'Andhra Pradesh',
-        'center_lat': 16.5062,
-        'center_lng': 80.6480,
-        'is_active': True,
-    },
-    'data_format': 'GEOJSON',
-    'coordinate_precision': 8,
-    
-    # PLU Code to Category mapping (for data processing)
-    'category_mappings': {
-        'Burial Ground': 'CEMETERY',
-        'C1 -Mixed use zone': 'MIXED_USE',                    
-        'C2- General commercial zone': 'COMMERCIAL',          
-        'C3-Neighbourhood centre zone': 'COMMERCIAL',         
-        'C4-Town centre zone': 'COMMERCIAL',                  
-        'C5-Regional centre zone': 'COMMERCIAL',              
-        'C6-Central business district zone': 'COMMERCIAL',    
-        'Commercial Vacant': 'COMMERCIAL',                    
-        
-        'I1-Business park zone': 'INDUSTRIAL',                
-        'I2-Logistics zone': 'INDUSTRIAL',                    
-        'I3-Non polluting industry zone': 'INDUSTRIAL',       
-        
-        'P1-Passive zone': 'PROTECTED',
-        'P2-Active zone': 'PARKS_GREEN',
-        'P3-Protected zone': 'PROTECTED',
-        'P3-Protected zone Hills': 'HILLS',
-        'PGN-G': 'PARKS_GREEN',
-        'PGN-V': 'PARKS_GREEN',
-        
-        'R1-Village planning zone': 'RESIDENTIAL',            
-        'R3-Medium to high density zone': 'RESIDENTIAL',
-        'R4-High density zone': 'RESIDENTIAL',
-        'RAA': 'RESIDENTIAL',
-        'Residential Vacant': 'RESIDENTIAL',
-        'SR2-Low Density Housing': 'RESIDENTIAL',
-        'SR4-High Density Private': 'RESIDENTIAL',
-        
-        'S2-Education zone': 'EDUCATION',
-        'S3-Special zone': 'SPECIAL',
-        'SC1a-Mixed Use': 'MIXED_USE',
-        'SC1b-Mixed Use': 'MIXED_USE',
-        'SP1-Passive Zone': 'PROTECTED',
-        'SP2-Active Zone': 'PARKS_GREEN',
-        'SP3-Protected Zone': 'PROTECTED',
-        'SS1-Government Zone': 'GOVERNMENT',
-        'SS2a-Education Zone': 'EDUCATION',
-        'SS2b-Cultural Zone': 'CULTURAL',
-        'SS2c-Health Zone': 'HEALTHCARE',
-        'SS3-Special Zone': 'SPECIAL',
-        'SU1-Reserve Zone': 'UTILITIES',
-        'SU2-Road Network': 'TRANSPORT',
-        'U1-Reserve zone': 'UTILITIES',
-        'U2-Road reserve zone': 'TRANSPORT',
-    },
-    
-    # Attribute mappings for processing GeoJSON data
-    'attribute_mappings': {
-        'OBJECTID': 'source_object_id',
-        'plot_code': 'name',
-        'symbology': 'land_use_type',  # Key field for categorization
-        'alloted_ex': 'source_area_value',
-        'plot_no': 'plot_number',
-        'plot_categ': 'plot_category',
-        'township': 'township',
-        'sector': 'sector',
-        'colony': 'colony',
-        'Shape_Length': 'source_length_value',
-        'Shape_Area': 'calculated_area',
-    },
-    
-    # EXACT COLOR SPECIFICATIONS AS PROVIDED
-    # These are PLU-specific colors with special styling notes
-    'plu_colors': {
-        'Burial Ground': {
-            'fill_color': '#E39E00',
-            'fill_pattern': 'dotted',
-            'solid_color': '#FFFFFF',
-            'stroke_color': '#000000',
-            'description': 'Dotted pattern with white fill'
-        },
-        'C1 -Mixed use zone': {
-            'fill_color': '#73B2FF',
-            'fill_pattern': 'solid',
-            'stroke_color': '#333333'
-        },
-        'C2- General commercial zone': {
-            'fill_color': '#00C5FF',
-            'fill_pattern': 'solid',
-            'stroke_color': '#000000',
-            'description': 'Black outline'
-        },
-        'C3-Neighbourhood centre zone': {
-            'fill_color': '#00C5FF',
-            'fill_pattern': 'solid',
-            'stroke_color': '#333333'
-        },
-        'C4-Town centre zone': {
-            'fill_color': '#00A9E6',
-            'fill_pattern': 'solid',
-            'stroke_color': '#333333'
-        },
-        'C5-Regional centre zone': {
-            'fill_color': '#0070FF',
-            'fill_pattern': 'solid',
-            'stroke_color': '#333333'
-        },
-        'C6-Central business district zone': {
-            'fill_color': '#005CE6',
-            'fill_pattern': 'solid',
-            'stroke_color': '#333333'
-        },
-        'Commercial Vacant': {
-            'fill_color': '#C5E2FF',
-            'fill_pattern': 'solid',
-            'stroke_color': '#333333'
-        },
-        'I1-Business park zone': {
-            'fill_color': '#FFEBE8',
-            'fill_pattern': 'solid',
-            'stroke_color': '#333333'
-        },
-        'I2-Logistics zone': {
-            'fill_color': '#FF73DF',
-            'fill_pattern': 'solid',
-            'stroke_color': '#333333'
-        },
-        'I3-Non polluting industry zone': {
-            'fill_color': '#A900E6',
-            'fill_pattern': 'solid',
-            'stroke_color': '#333333'
-        },
-        'P1-Passive zone': {
-            'fill_color': '#267300',
-            'fill_pattern': 'solid',
-            'stroke_color': '#333333'
-        },
-        'P2-Active zone': {
-            'fill_color': '#38A800',
-            'fill_pattern': 'solid',
-            'stroke_color': '#333333'
-        },
-        'P3-Protected zone': {
-            'fill_color': '#BEE8FF',
-            'fill_pattern': 'solid',
-            'stroke_color': '#333333'
-        },
-        'P3-Protected zone Hills': {
-            'fill_color': '#4C7300',
-            'fill_pattern': 'solid',
-            'stroke_color': '#333333'
-        },
-        'PGN-G': {
-            'fill_color': '#4C7300',
-            'fill_pattern': 'solid',
-            'stroke_color': '#333333'
-        },
-        'PGN-V': {
-            'fill_color': '#897044',
-            'fill_pattern': 'solid',
-            'stroke_color': '#333333'
-        },
-        'R1-Village planning zone': {
-            'fill_color': '#FFFFFF',
-            'fill_pattern': 'hatched',
-            'stroke_color': '#000000',
-            'description': 'White fill with black hatched pattern'
-        },
-        'R3-Medium to high density zone': {
-            'fill_color': '#F5CA7A',
-            'fill_pattern': 'solid',
-            'stroke_color': '#333333'
-        },
-        'R4-High density zone': {
-            'fill_color': '#E69800',
-            'fill_pattern': 'solid',
-            'stroke_color': '#333333'
-        },
-        'RAA': {
-            'fill_color': '#FFAA00',
-            'fill_pattern': 'solid',
-            'stroke_color': '#333333'
-        },
-        'Residential Vacant': {
-            'fill_color': '#FFD37F',
-            'fill_pattern': 'solid',
-            'stroke_color': '#333333'
-        },
-        'S2-Education zone': {
-            'fill_color': '#FF7F7F',
-            'fill_pattern': 'solid',
-            'stroke_color': '#333333'
-        },
-        'S3-Special zone': {
-            'fill_color': '#D7B09E',
-            'fill_pattern': 'solid',
-            'stroke_color': '#333333'
-        },
-        'SC1a-Mixed Use': {
-            'fill_color': '#0070FF',
-            'fill_pattern': 'solid',
-            'stroke_color': '#333333'
-        },
-        'SC1b-Mixed Use': {
-            'fill_color': '#73B2FF',
-            'fill_pattern': 'solid',
-            'stroke_color': '#333333'
-        },
-        'SP1-Passive Zone': {
-            'fill_color': '#267300',
-            'fill_pattern': 'solid',
-            'stroke_color': '#333333'
-        },
-        'SP2-Active Zone': {
-            'fill_color': '#38A800',
-            'fill_pattern': 'solid',
-            'stroke_color': '#333333'
-        },
-        'SP3-Protected Zone': {
-            'fill_color': '#00C5FF',
-            'fill_pattern': 'solid',
-            'stroke_color': '#333333'
-        },
-        'SR2-Low Density Housing': {
-            'fill_color': '#FFFFBE',
-            'fill_pattern': 'solid',
-            'stroke_color': '#333333'
-        },
-        'SR4-High Density Private': {
-            'fill_color': '#FFAA00',
-            'fill_pattern': 'solid',
-            'stroke_color': '#333333'
-        },
-        'SS1-Government Zone': {
-            'fill_color': '#E60000',
-            'fill_pattern': 'solid',
-            'stroke_color': '#333333'
-        },
-        'SS2a-Education Zone': {
-            'fill_color': '#FF7F7F',
-            'fill_pattern': 'solid',
-            'stroke_color': '#333333'
-        },
-        'SS2b-Cultural Zone': {
-            'fill_color': '#C500FF',
-            'fill_pattern': 'solid',
-            'stroke_color': '#333333'
-        },
-        'SS2c-Health Zone': {
-            'fill_color': '#D3FFBE',
-            'fill_pattern': 'solid',
-            'stroke_color': '#333333'
-        },
-        'SS3-Special Zone': {
-            'fill_color': '#A83800',
-            'fill_pattern': 'solid',
-            'stroke_color': '#333333'
-        },
-        'SU1-Reserve Zone': {
-            'fill_color': '#e38f8f',
-            'fill_pattern': 'solid',
-            'stroke_color': '#333333'
-        },
-        'SU2-Road Network': {
-            'fill_color': '#FFFFFF',
-            'fill_pattern': 'solid',
-            'stroke_color': '#000000',
-            'description': 'White fill with black outline'
-        },
-        'U1-Reserve zone': {
-            'fill_color': '#CCCCCC',
-            'fill_pattern': 'solid',
-            'stroke_color': '#333333'
-        },
-        'U2-Road reserve zone': {
-            'fill_color': '#000000',
-            'fill_pattern': 'solid',
-            'stroke_color': '#000000'
-        }
-    },
-    
-    # Simplified colors for backwards compatibility (just the fill colors)
-    'colors': {
-        'Burial Ground': '#E39E00',
-        'C1 -Mixed use zone': '#73B2FF',
-        'C2- General commercial zone': '#00C5FF',
-        'C3-Neighbourhood centre zone': '#00C5FF',
-        'C4-Town centre zone': '#00A9E6',
-        'C5-Regional centre zone': '#0070FF',
-        'C6-Central business district zone': '#005CE6',
-        'Commercial Vacant': '#C5E2FF',
-        'I1-Business park zone': '#FFEBE8',
-        'I2-Logistics zone': '#FF73DF',
-        'I3-Non polluting industry zone': '#A900E6',
-        'P1-Passive zone': '#267300',
-        'P2-Active zone': '#38A800',
-        'P3-Protected zone': '#BEE8FF',
-        'P3-Protected zone Hills': '#4C7300',
-        'PGN-G': '#4C7300',
-        'PGN-V': '#897044',
-        'R1-Village planning zone': '#FFFFFF',
-        'R3-Medium to high density zone': '#F5CA7A',
-        'R4-High density zone': '#E69800',
-        'RAA': '#FFAA00',
-        'Residential Vacant': '#FFD37F',
-        'S2-Education zone': '#FF7F7F',
-        'S3-Special zone': '#D7B09E',
-        'SC1a-Mixed Use': '#0070FF',
-        'SC1b-Mixed Use': '#73B2FF',
-        'SP1-Passive Zone': '#267300',
-        'SP2-Active Zone': '#38A800',
-        'SP3-Protected Zone': '#00C5FF',
-        'SR2-Low Density Housing': '#FFFFBE',
-        'SR4-High Density Private': '#FFAA00',
-        'SS1-Government Zone': '#E60000',
-        'SS2a-Education Zone': '#FF7F7F',
-        'SS2b-Cultural Zone': '#C500FF',
-        'SS2c-Health Zone': '#D3FFBE',
-        'SS3-Special Zone': '#A83800',
-        'SU1-Reserve Zone': '#e38f8f',
-        'SU2-Road Network': '#FFFFFF',
-        'U1-Reserve zone': '#CCCCCC',
-        'U2-Road reserve zone': '#000000',
-        
-        # Category-based fallbacks (for compatibility)
-        'COMMERCIAL': '#00C5FF',
-        'MIXED_USE': '#73B2FF',
-        'INDUSTRIAL': '#A900E6',
-        'RESIDENTIAL': '#FFD37F',
-        'PARKS_GREEN': '#38A800',
-        'PROTECTED': '#BEE8FF',
-        'GOVERNMENT': '#E60000',
-        'EDUCATION': '#FF7F7F',
-        'CULTURAL': '#C500FF',
-        'HEALTHCARE': '#D3FFBE',
-        'SPECIAL': '#D7B09E',
-        'TRANSPORT': '#000000',
-        'UTILITIES': '#e38f8f',
-        'CEMETERY': '#E39E00',
-        'HILLS': '#4C7300',
-        'UNCLASSIFIED': '#CCCCCC'
-    },
-    
-    # File mappings (if you have separate GeoJSON files per PLU zone)
-    'file_mappings': {
-        # Commercial zones
-        'C1__Mixed_use_zone.geojson': 'MIXED_USE',
-        'C2__General_commercial_zone.geojson': 'COMMERCIAL',
-        'C3_Neighbourhood_centre_zone.geojson': 'COMMERCIAL',
-        'C4_Town_centre_zone.geojson': 'COMMERCIAL',
-        'C5_Regional_centre_zone.geojson': 'COMMERCIAL',
-        'C6_Central_business_district_zone.geojson': 'COMMERCIAL',
-        'Commercial_Vacant.geojson': 'COMMERCIAL',
-        
-        # Industrial zones
-        'I1_Business_park_zone.geojson': 'INDUSTRIAL',
-        'I2_Logistics_zone.geojson': 'INDUSTRIAL',
-        'I3_Non_polluting_industry_zone.geojson': 'INDUSTRIAL',
-        
-        # Residential zones
-        'R1_Village_planning_zone.geojson': 'RESIDENTIAL',
-        'R3_Medium_to_high_density_zone.geojson': 'RESIDENTIAL',
-        'R4_High_density_zone.geojson': 'RESIDENTIAL',
-        'RAA.geojson': 'RESIDENTIAL',
-        'Residential_Vacant.geojson': 'RESIDENTIAL',
-        'SR2_Low_Density_Housing.geojson': 'RESIDENTIAL',
-        'SR4_High_Density_Private.geojson': 'RESIDENTIAL',
-        
-        # Protected/Parks zones
-        'P1_Passive_zone.geojson': 'PROTECTED',
-        'P2_Active_zone.geojson': 'PARKS_GREEN',
-        'P3_Protected_zone.geojson': 'PROTECTED',
-        'P3_Protected_zone_Hills.geojson': 'HILLS',
-        'SP1_Passive_Zone.geojson': 'PROTECTED',
-        'SP2_Active_Zone.geojson': 'PARKS_GREEN',
-        'SP3_Protected_Zone.geojson': 'PROTECTED',
-        'PGN_G.geojson': 'PARKS_GREEN',
-        'PGN_V.geojson': 'PARKS_GREEN',
-        
-        # Service zones
-        'SS1_Government_Zone.geojson': 'GOVERNMENT',
-        'SS2a_Education_Zone.geojson': 'EDUCATION',
-        'SS2b_Cultural_Zone.geojson': 'CULTURAL',
-        'SS2c_Health_Zone.geojson': 'HEALTHCARE',
-        'S2_Education_zone.geojson': 'EDUCATION',
-        'SS3_Special_Zone.geojson': 'SPECIAL',
-        'S3_Special_zone.geojson': 'SPECIAL',
-        
-        # Mixed Use zones
-        'SC1a_Mixed_Use.geojson': 'MIXED_USE',
-        'SC1b_Mixed_Use.geojson': 'MIXED_USE',
-        
-        # Utilities/Transport zones
-        'SU1_Reserve_Zone.geojson': 'UTILITIES',
-        'SU2_Road_Network.geojson': 'TRANSPORT',
-        'U1_Reserve_zone.geojson': 'UTILITIES',
-        'U2_Road_reserve_zone.geojson': 'TRANSPORT',
-        
-        # Cemetery
-        'Burial_Ground.geojson': 'CEMETERY',
-    }
-}
-
-HYDERABAD_CONFIG = {
-    'city_info': {
-        'name': 'Hyderabad',
-        'slug': 'hyderabad',
-        'state': 'Telangana',
-        'center_lat': 17.385044,
-        'center_lng': 78.486671,
-    },
-    'data_format': 'MIXED',  # We have both GeoJSON and Shapefiles
-    'coordinate_precision': 8,
-    
-    # Layer Groups configuration
-    'layer_groups': {
-        'transport': {
-            'name': 'Transportation',
-            'slug': 'transport',
-            'category': 'TRANSPORT',
-            'description': 'Transportation infrastructure including metro, highways, RRR, and masterplan roads',
-            'directory_path': 'data/hyderabad',
-            'default_color': '#607D8B',  # Blue Grey
-            'layers': {
-                'hyd_metro_stations_ph1&2': {
-                    'file': 'Hyd_metro_stations_ph1&2.geojson',
-                    'name': 'Metro Stations',
-                    'color': '#F44336',  # Red
-                    'metadata': {
-                        'lines': [
-                            {'name': 'Metro Phase 1 Existing Green Line', 'status': 'Existing', 'color': 'Green', 'from': 'JBS Parade Ground', 'to': 'MG Bus Station'},
-                            {'name': 'Metro Phase 1 Existing Blue Line', 'status': 'Existing', 'color': 'Blue', 'from': 'Nagole', 'to': 'Raidurg'},
-                            {'name': 'Metro Phase 1 Existing Red Line', 'status': 'Existing', 'color': 'Red', 'from': 'Miyapur', 'to': 'L.B. Nagar'},
-                            {'name': 'Metro Phase 2 A Upcoming Green Line', 'status': 'Upcoming', 'color': 'Green', 'from': 'MG Bus Station', 'to': 'Chandrayangutta'},
-                            {'name': 'Metro Phase 2 A Upcoming Purple Line', 'status': 'Upcoming', 'color': 'Purple', 'from': 'Nagole', 'to': 'RGIA Shamshabad'},
-                            {'name': 'Metro Phase 2 B Upcoming Future City Line', 'status': 'Upcoming', 'color': 'Future City', 'from': 'RGIA Shamshabad', 'to': 'Future City'},
-                            {'name': 'Metro Phase 2 B Upcoming Blue Line', 'status': 'Upcoming', 'color': 'Blue', 'from': 'JBS Parade Ground', 'to': 'Shamirpet'},
-                            {'name': 'Metro Phase 2 B Upcoming Green Line', 'status': 'Upcoming', 'color': 'Green', 'from': 'Paradise', 'to': 'Medchal'},
-                        ]
-                    }
-                },
-                'hyd_metro_lines_ph_1&2_final': {
-                    'file': 'Hyd_metro_lines_ph_1&2_Final.geojson',
-                    'name': 'Metro Lines',
-                    'color': '#4CAF50',  # Green
-                },
-                'hyd_highways_merged': {
-                    'file': 'hyd_highways_merged.geojson',
-                    'name': 'Highways',
-                    'color': '#2196F3',  # Blue
-                    'metadata': {
-                        'highways': [
-                            {'name': 'Mumbai Highway', 'notation': 'NH 65 (West)', 'endpoints': 'Hyderabad to Mumbai', 'width': '4 Lane'},
-                            {'name': 'Bangalore Highway', 'notation': 'NH 44 (South)', 'endpoints': 'Hyderabad to Bangalore', 'width': '4 Lane'},
-                            {'name': 'Srisailam Highway', 'notation': 'NH 765 (South)', 'endpoints': 'Hyderabad to Srisailam', 'width': '2 Lane'},
-                            {'name': 'Medak Highway', 'notation': 'NH 765D (North)', 'endpoints': 'Hyderabad to Medak', 'width': '2 Lane'},
-                            {'name': 'Vijaywada Highway', 'notation': 'NH65 (East)', 'endpoints': 'Hyderabad to Vijaywada', 'width': '4 Lane'},
-                            {'name': 'Warangal Highway', 'notation': 'NH 163 (East)', 'endpoints': 'Hyderabad to Warangal', 'width': '4 Lane'},
-                            {'name': 'Chevella Highway', 'notation': 'NH 163 (West)', 'endpoints': 'Hyderabad to Chevella', 'width': '2 Lane'},
-                            {'name': 'Nagpur Highway', 'notation': 'NH 44 (North)', 'endpoints': 'Hyderabad to Nagpur', 'width': '4 Lane'},
-                            {'name': 'Karimnagar Highway', 'notation': 'SH 1', 'endpoints': 'Hyderabad to Karimnagar', 'width': '4 Lane'},
-                            {'name': 'Nagarjuna Sagar Highway', 'notation': 'SH 19', 'endpoints': 'Hyderabad to Nagarjuna Sagar', 'width': '2 Lane'},
-                        ]
-                    }
-                },
-                'rrr_final': {
-                    'file': 'RRR_Final.geojson',
-                    'name': 'Regional Ring Road',
-                    'color': '#9C27B0',  # Purple
-                    'metadata': {
-                        'rrr': [
-                            {'name': 'Proposed Hyderabad Regional Ring Road - Northern Part', 'notation': 'RRR North', 'alignment': 'Finalised', 'status': 'Finalised', 'width': '6 Lane'},
-                            {'name': 'Proposed Hyderabad Regional Ring Road - Southern Part', 'notation': 'RRR South', 'alignment': 'Yet to be finalised', 'status': 'Yet to be finalised', 'width': '6 Lane'},
-                        ]
-                    }
-                },
-                'hmda_masterplan_roads_merged': {
-                    'file': 'HMDA_masterplan_roads_merged.geojson',
-                    'name': 'HMDA Masterplan Roads',
-                    'color': '#FF9800',  # Orange
-                    'metadata': {
-                        'roads': [
-                            {'name': 'Proposed Masterplan Road', 'width_m': 18},
-                            {'name': 'Proposed Masterplan Road', 'width_m': 30},
-                            {'name': 'Proposed Masterplan Road', 'width_m': 45},
-                            {'name': 'Proposed Masterplan Road', 'width_m': 90},
-                        ]
-                    }
-                },
-            }
-        },
-        'economic': {
-            'name': 'Economic Zones',
-            'slug': 'economic',
-            'category': 'INDUSTRIAL',
-            'description': 'Special Economic Zones and industrial areas',
-            'directory_path': 'data/hyderabad',
-            'default_color': '#FF9800',  # Orange
-            'layers': {
-                'hyd_sezs_final': {
-                    'file': 'Hyd_SEZs_Final.geojson',
-                    'name': 'Special Economic Zones',
-                    'color': '#FF9800',  # Orange
-                    'metadata': {
-                        'sezs': [
-                            {'name': 'Adibatla Aerospace Park', 'industry': 'Aerospace & Precision Engineering', 'employment_type': 'White Collar', 'employees': 5000, 'size': '339 acres', 'polluting': 'No'},
-                            {'name': 'Adibatla Aerospace SEZ', 'industry': 'Aerospace & Precision Engineering', 'employment_type': 'White Collar', 'employees': 27000, 'size': '500 acres', 'polluting': 'No'},
-                            {'name': 'Industrial Park Nadergul', 'industry': 'Aerospace & Precision Engineering', 'employment_type': 'Blue Collar', 'employees': 35000, 'size': '602 acres', 'polluting': 'No'},
-                            {'name': 'Industrial Park Ramachandrapuram', 'industry': 'Automobile', 'employment_type': 'Blue Collar', 'employees': '2000 - 4000', 'size': '', 'polluting': 'No'},
-                            {'name': 'Auto Nagar Hyderabad', 'industry': 'Automobile', 'employment_type': 'Blue Collar', 'employees': '', 'size': '54 acres', 'polluting': 'No'},
-                            {'name': 'Industrial Park Banda Mailaram', 'industry': 'Seed Processing Industry', 'employment_type': 'Blue Collar', 'employees': '', 'size': '370 acres', 'polluting': 'No'},
-                            {'name': 'Industrial Park Banda Thimmapur', 'industry': 'Food processing & FMCG', 'employment_type': 'Blue Collar', 'employees': 410, 'size': '49 acres', 'polluting': 'No'},
-                            {'name': 'Industrial Park Toopran', 'industry': 'Multi - Industry', 'employment_type': 'Blue Collar', 'employees': '50000 - 60000', 'size': '737.3 acres', 'polluting': 'Yes'},
-                            {'name': 'Chandanvelly Industrial Park SEZ', 'industry': 'Multi - Industry', 'employment_type': 'Blue Collar', 'employees': 12000, 'size': '1569.89 acres', 'polluting': 'Yes'},
-                            {'name': 'Chandulal Baradari Industrial Park', 'industry': 'Multi - Industry', 'employment_type': 'Blue Collar', 'employees': 250, 'size': '25.82 acres', 'polluting': 'Yes'},
-                            {'name': 'Cherlapally Industrial Area', 'industry': 'Multi - Industry', 'employment_type': 'Blue Collar', 'employees': '40000+', 'size': '120 acres', 'polluting': 'Yes'},
-                            {'name': 'Green Industrial Park Dandumalkapur', 'industry': 'Multi - Industry', 'employment_type': 'Blue Collar', 'employees': 35000, 'size': '2000 acres', 'polluting': 'No'},
-                            {'name': 'Electronic City SEZ', 'industry': 'Electronics', 'employment_type': 'White Collar', 'employees': 2500, 'size': '1000 acres', 'polluting': 'No'},
-                        ]
-                    }
-                }
-            }
-        },
-        'administrative': {
-            'name': 'Administrative Boundaries',
-            'slug': 'administrative',
-            'category': 'GOVERNMENT',
-            'description': 'City boundaries and administrative zones',
-            'directory_path': 'data/hyderabad/FutureCityHyderabad_Boundary',
-            'default_color': '#F44336',  # Red
-            'layers': {
-                'future_city': {
-                    'file': 'FutureCityHyderabad_Boundary.shp',
-                    'name': 'Future City Boundary',
-                    'color': '#2196F3',  # Blue
-                }
-            }
-        },
-        'villages': {
-            'name': 'Village Boundaries',
-            'slug': 'villages',
-            'category': 'GOVERNMENT',
-            'description': 'HMDA boundary and village boundaries',
-            'directory_path': 'data/hyderabad/FCDA_Boundary_Villages',
-            'default_color': '#8BC34A',  # Light Green
-            'layers': {
-                'hmda_boundary': {
-                    'file': 'HMDA_Boundary.geojson',
-                    'name': 'HMDA Boundary',
-                    'color': '#388E3C',  # Dark Green
-                },
-                'hmda_villages_clip': {
-                    'file': 'HMDA_Villages_Clip.geojson',
-                    'name': 'HMDA Villages',
-                    'color': '#C8E6C9',  # Light Green
-                }
-            }
-        }
-    },
-    
-    # Colors for different categories
-    'colors': {
-        'TRANSPORT': '#607D8B',      # Blue Grey
-        'INDUSTRIAL': '#FF9800',     # Orange
-        'GOVERNMENT': '#F44336',     # Red
-        'COMMERCIAL': '#2196F3',     # Blue
-        'RESIDENTIAL': '#8BC34A',    # Light Green
-        'SPECIAL': '#9C27B0',        # Purple
-    },
-    'file_mappings': {
-        'Hyd_metro_stations_ph1&2.geojson': 'TRANSPORT',
-        'Hyd_metro_lines_ph_1&2_Final.geojson': 'TRANSPORT',
-        'hyd_highways_merged.geojson': 'TRANSPORT',
-        'RRR_Final.geojson': 'TRANSPORT',
-        'HMDA_masterplan_roads_merged.geojson': 'TRANSPORT',
-        'Hyd_SEZs_Final.geojson': 'INDUSTRIAL',
-        'FutureCityHyderabad_Boundary.shp': 'GOVERNMENT',
-        'HMDA_Boundary.geojson': 'GOVERNMENT',
-        'HMDA_Villages_Clip.geojson': 'GOVERNMENT',
-    },
-    # Attribute mappings for key layers (can be expanded as needed)
-    'attribute_mappings': {
-        # Highways
-        'highways': {
-            'Name': 'name',
-            'Notation': 'notation',
-            'End to End points': 'endpoints',
-            'Width': 'width',
-        },
-        # RRR
-        'rrr': {
-            'Name': 'name',
-            'Notation': 'notation',
-            'Alignment': 'alignment',
-            'Status': 'status',
-            'Width': 'width',
-        },
-        # HMDA Roads
-        'hmda_roads': {
-            'Name': 'name',
-            'Road width ( in meters )': 'width_m',
-        },
-        # Metro
-        'metro': {
-            'Name': 'name',
-            'Status': 'status',
-            'Line Colour': 'color',
-            'From Junction': 'from',
-            'To Junction': 'to',
-        },
-        # SEZs
-        'sez': {
-            'Name': 'name',
-            'Industry': 'industry',
-            'Primary Employment Type': 'employment_type',
-            'No. of Employees': 'employees',
-            'Size': 'size',
-            'Polluting': 'polluting',
-        },
-    },
-}
-
-WARANGAL_PLU_MAPPING = {
-    'Agriculture': {
-        'category': 'AGRICULTURAL',
-        'description': 'Agricultural land use',
-        'secondary_codes': [],
-        'examples': ['Agricultural areas', 'Farming land']
-    },
-    'Air Strip': {
-        'category': 'TRANSPORT',
-        'description': 'Air strip/Airport facilities',
-        'secondary_codes': [],
-        'examples': ['Airports', 'Air strips', 'Aviation facilities']
-    },
-    'Commercial': {
-        'category': 'COMMERCIAL',
-        'description': 'Commercial land use',
-        'secondary_codes': [],
-        'examples': ['Shopping areas', 'Business districts', 'Commercial complexes']
-    },
-    'Forest': {
-        'category': 'PROTECTED',
-        'description': 'Forest areas',
-        'secondary_codes': [],
-        'examples': ['Reserved forests', 'Protected forest areas']
-    },
-    'Growth Corridor': {
-        'category': 'SPECIAL',
-        'description': 'Designated growth corridor',
-        'secondary_codes': [],
-        'examples': ['Development corridors', 'Growth zones']
-    },
-    'Growth Corridor 2': {
-        'category': 'SPECIAL',
-        'description': 'Secondary growth corridor',
-        'secondary_codes': [],
-        'examples': ['Secondary development corridors']
-    },
-    'Heritage': {
-        'category': 'CULTURAL',
-        'description': 'Heritage conservation areas',
-        'secondary_codes': [],
-        'examples': ['Historical sites', 'Heritage buildings', 'Archaeological sites']
-    },
-    'Hill Buffer': {
-        'category': 'PARKS_GREEN',
-        'description': 'Hill buffer zones',
-        'secondary_codes': [],
-        'examples': ['Hill protection zones', 'Buffer areas around hills']
-    },
-    'Hillocks': {
-        'category': 'PROTECTED',
-        'description': 'Protected hillock areas',
-        'secondary_codes': [],
-        'examples': ['Small hills', 'Rocky outcrops', 'Protected hillocks']
+        'file_pattern': 'HighTech.json',
+        'description': 'High-tech industrial areas'
     },
     'Industrial': {
+        'name': 'Industrial',
+        'color': '#AA66B2',
         'category': 'INDUSTRIAL',
-        'description': 'Industrial land use',
-        'secondary_codes': [],
-        'examples': ['Manufacturing areas', 'Industrial estates', 'Factories']
+        'file_pattern': 'Industrial.json',
+        'description': 'Industrial zones'
     },
-    'Mixed Use': {
-        'category': 'MIXED_USE',
-        'description': 'Mixed use development',
-        'secondary_codes': [],
-        'examples': ['Residential-commercial mix', 'Multi-purpose developments']
-    },
-    'Public & Semi-Public': {
-        'category': 'PUBLIC',
-        'description': 'Public and semi-public facilities',
-        'secondary_codes': [],
-        'examples': ['Government buildings', 'Public institutions', 'Semi-public facilities']
-    },
-    'Public Utilities': {
-        'category': 'UTILITIES',
-        'description': 'Public utility infrastructure',
-        'secondary_codes': [],
-        'examples': ['Power stations', 'Water treatment', 'Waste management']
-    },
-    'Railway Land': {
-        'category': 'TRANSPORT',
-        'description': 'Railway infrastructure',
-        'secondary_codes': [],
-        'examples': ['Railway tracks', 'Railway stations', 'Railway yards']
-    },
-    'Recreational': {
-        'category': 'PARKS_GREEN',
-        'description': 'Recreational facilities',
-        'secondary_codes': [],
-        'examples': ['Parks', 'Sports facilities', 'Recreation centers']
-    },
-    'Residential': {
-        'category': 'RESIDENTIAL',
-        'description': 'Residential areas',
-        'secondary_codes': [],
-        'examples': ['Housing areas', 'Residential colonies', 'Neighborhoods']
-    },
-    'Residential Expansion': {
-        'category': 'RESIDENTIAL',
-        'description': 'Planned residential expansion areas',
-        'secondary_codes': [],
-        'examples': ['Future residential zones', 'Residential development areas']
-    },
-    'Road Buffer': {
-        'category': 'TRANSPORT',
-        'description': 'Road buffer zones',
-        'secondary_codes': [],
-        'examples': ['Road side buffers', 'Highway buffers']
-    },
-    'Transportation': {
-        'category': 'TRANSPORT',
-        'description': 'Transportation infrastructure',
-        'secondary_codes': [],
-        'examples': ['Roads', 'Transportation hubs', 'Transit facilities']
-    },
-    'Water Bodies': {
+    'Lake_Tank': {
+        'name': 'Lakes & Tanks',
+        'color': '#BEE8FF',
         'category': 'WATER_BODIES',
-        'description': 'Water bodies',
-        'secondary_codes': [],
-        'examples': ['Lakes', 'Ponds', 'Reservoirs', 'Rivers']
+        'file_pattern': 'Lake_Tank.json',
+        'description': 'Lakes, tanks, and water bodies'
     },
-    'Water Body Buffer': {
+    'Parks_GreenSpaces_Sports_Playgrounds_Cemetery_BurialGrounds': {
+        'name': 'Parks & Green Spaces',
+        'color': '#98E600',
         'category': 'PARKS_GREEN',
-        'description': 'Water body buffer zones',
-        'secondary_codes': [],
-        'examples': ['Lake buffers', 'River buffers', 'Wetland buffers']
+        'file_pattern': 'Parks_GreenSpaces_Sports_Playgrounds_Cemetery_BurialGrounds.json',
+        'description': 'Parks, green spaces, sports facilities, and cemeteries'
     },
-    'Zoological park': {
-        'category': 'PARKS_GREEN',
-        'description': 'Zoological park',
-        'secondary_codes': [],
-        'examples': ['Zoo', 'Wildlife park', 'Animal sanctuary']
-    }
-}
-
-# Warangal Configuration
-WARANGAL_CONFIG = {
-    'city_info': {
-        'name': 'Warangal',
-        'slug': 'warangal',
-        'state': 'Telangana',
-        'center_lat': 17.9689,  # Warangal coordinates
-        'center_lng': 79.5941,
-    },
-    'data_format': 'GEOJSON',
-    'coordinate_precision': 8,
-    'plu_mapping': WARANGAL_PLU_MAPPING,
-    
-    # File mappings - mapping filename to category
-    'file_mappings': {
-        'Agriculture.geojson': 'AGRICULTURAL',
-        'AirStrip.geojson': 'TRANSPORT',
-        'Commercial.geojson': 'COMMERCIAL',
-        'Forest.geojson': 'PROTECTED',
-        'GrowthCorridor.geojson': 'SPECIAL',
-        'GrowthCorridor2.geojson': 'SPECIAL',
-        'Heritage.geojson': 'CULTURAL',
-        'HillBuffer.geojson': 'PARKS_GREEN',
-        'Hillocks.geojson': 'PROTECTED',
-        'Industrial.geojson': 'INDUSTRIAL',
-        'MixedUse.geojson': 'MIXED_USE',
-        'Public_and_SemiPublic.geojson': 'PUBLIC',
-        'PublicUtilities.geojson': 'UTILITIES',
-        'RailwayLand.geojson': 'TRANSPORT',
-        'Recreational.geojson': 'PARKS_GREEN',
-        'Residential.geojson': 'RESIDENTIAL',
-        'ResidentialExpansion.geojson': 'RESIDENTIAL',
-        'RoadBuffer.geojson': 'TRANSPORT',
-        'Transportation.geojson': 'TRANSPORT',
-        'Water_Bodies.geojson': 'WATER_BODIES',
-        'WaterBodyBuffer.geojson': 'PARKS_GREEN',
-        'ZoologicalPark.geojson': 'PARKS_GREEN',
-    },
-    
-    # Colors - converted from your provided colors
-    'colors': {
-        'AGRICULTURAL': '#D3FFBE',
-        'TRANSPORT': '#B2B2B2',  # Using Transportation color as default for transport
-        'COMMERCIAL': '#0070FF',
-        'PROTECTED': '#267300',  # Using Forest color for protected areas
-        'SPECIAL': '#FFBEE8',    # Using Growth Corridor color
-        'CULTURAL': '#FFA77F',   # Using Heritage solid fill color
-        'PARKS_GREEN': '#55FF00', # Using Recreational color
-        'INDUSTRIAL': '#C500FF',
-        'MIXED_USE': '#FFAA00',
-        'PUBLIC': '#FF0000',
-        'UTILITIES': '#E69800',  # Using Public Utilities solid fill color
-        'RESIDENTIAL': '#FFFF00',
-        'WATER_BODIES': '#00C5FF',
-        'GOVERNMENT': '#FF0000', # Same as public
-        'EDUCATION': '#FF0000',   # Same as public
-        'HEALTHCARE': '#FF0000',  # Same as public
-        'DEFENSE': '#666666',     # Default
-        'HIGH_TECH': '#C500FF',   # Same as industrial
-        'DRAINS': '#00C5FF',      # Same as water bodies
-        'HILLS': '#A87000',       # Using Hillocks color
-        'CEMETERY': '#55FF00',    # Same as parks/green
-        'UNCLASSIFIED': '#CCCCCC'
-    },
-    
-    # Attribute mappings for Warangal (based on your sample data structure)
-    'attribute_mappings': {
-        'land_use_fields': {
-            'PLU Code': 'plu_code',
-            'PLU': 'plu_name',
-            'PLU_NAME': 'plu_category',
-            'Name': 'name',
-            'Area': 'area',
-            'OBJECTID': 'object_id',
-        },
-        'geometry_fields': {
-            'Area': 'area',
-            'Shape_Length': 'perimeter',
-            'Shape_Area': 'shape_area',
-        },
-        'metadata_fields': {
-            'KUDA': 'authority',
-            'ELU': 'existing_land_use',
-            'Ex_PR': 'existing_proposed',
-            'Category': 'category',
-            'Sub_Catego': 'sub_category',
-            'Layout': 'layout',
-        }
-    }
-}
-
-DELHI_NAME_MAPPING = {
-    'AGRICULTURE': {
-        'category': 'AGRICULTURAL',
-        'description': 'Agricultural land use',
-        'examples': ['Farmland', 'Agricultural areas']
-    },
-    'AIR CITY': {
-        'category': 'TRANSPORT',
-        'description': 'Aviation and airport facilities',
-        'examples': ['Airport areas', 'Aviation facilities']
-    },
-    'CITY PARK': {
-        'category': 'PARKS_GREEN',
-        'description': 'City parks',
-        'examples': ['Public parks', 'Urban green spaces']
-    },
-    'COLD STORAGE': {
-        'category': 'INDUSTRIAL',
-        'description': 'Cold storage facilities',
-        'examples': ['Refrigeration facilities', 'Storage warehouses']
-    },
-    'COMMUNITY CENTRE': {
-        'category': 'PUBLIC',
-        'description': 'Community centers',
-        'examples': ['Community halls', 'Public meeting spaces']
-    },
-    'COMMUNITY PARK': {
-        'category': 'PARKS_GREEN',
-        'description': 'Community parks',
-        'examples': ['Neighborhood parks', 'Local green spaces']
-    },
-    'CULTURAL COMPLEX': {
-        'category': 'CULTURAL',
-        'description': 'Cultural facilities',
-        'examples': ['Cultural centers', 'Arts complexes']
-    },
-    'DISTRICT CENTRE': {
-        'category': 'COMMERCIAL',
-        'description': 'District commercial centers',
-        'examples': ['Shopping centers', 'Commercial hubs']
-    },
-    'EDUCATION AND RESEARCH': {
-        'category': 'EDUCATION',
-        'description': 'Educational and research institutions',
-        'examples': ['Schools', 'Universities', 'Research centers']
-    },
-    'ELECTRICITY (POWER HOUSE SUB STATION)': {
+    'Power_Water_GarbageFacility_TreatmentPlant': {
+        'name': 'Utilities & Infrastructure',
+        'color': '#D79E9E',
         'category': 'UTILITIES',
-        'description': 'Power infrastructure',
-        'examples': ['Power stations', 'Electrical substations']
+        'file_pattern': 'Power_Water_GarbageFacility_TreatmentPlant.json',
+        'description': 'Power, water, and waste treatment facilities'
     },
-    'FOREIGN MISSION': {
+    'Public_SemiPublic': {
+        'name': 'Public & Semi-Public',
+        'color': '#E60000',
         'category': 'GOVERNMENT',
-        'description': 'Foreign diplomatic missions',
-        'examples': ['Embassies', 'Consulates']
+        'file_pattern': 'Public_SemiPublic.json',
+        'description': 'Public and semi-public facilities'
     },
-    'GENERAL BUSINESS': {
-        'category': 'COMMERCIAL',
-        'description': 'General business areas',
-        'examples': ['Business districts', 'Commercial areas']
-    },
-    'GOVERNMENT LAND': {
-        'category': 'GOVERNMENT',
-        'description': 'Government owned land',
-        'examples': ['Government reserves', 'Public land']
-    },
-    'GOVERNMET OFFICE': {
-        'category': 'GOVERNMENT',
-        'description': 'Government offices',
-        'examples': ['Administrative buildings', 'Government facilities']
-    },
-    'HISTORICAL MONUMENTS': {
-        'category': 'CULTURAL',
-        'description': 'Historical monuments',
-        'examples': ['Heritage sites', 'Historical buildings']
-    },
-    'HOSPITAL': {
-        'category': 'HEALTHCARE',
-        'description': 'Healthcare facilities',
-        'examples': ['Hospitals', 'Medical centers']
-    },
-    'HOTEL': {
-        'category': 'COMMERCIAL',
-        'description': 'Hospitality services',
-        'examples': ['Hotels', 'Guest houses']
-    },
-    'INDUSTRY': {
-        'category': 'INDUSTRIAL',
-        'description': 'Industrial areas',
-        'examples': ['Factories', 'Manufacturing units']
-    },
-    'MANUFACTURING SERVICE AND REPAIR INDUSTRY': {
-        'category': 'INDUSTRIAL',
-        'description': 'Manufacturing and repair industries',
-        'examples': ['Service industries', 'Repair facilities']
-    },
-    'NON HIERARCHIALCOMMERCIAL CENTRE': {
-        'category': 'COMMERCIAL',
-        'description': 'Non-hierarchical commercial centers',
-        'examples': ['Local commercial areas', 'Mixed commercial zones']
-    },
-    'PARK': {
-        'category': 'PARKS_GREEN',
-        'description': 'Parks and green spaces',
-        'examples': ['Public parks', 'Recreation areas']
-    },
-    'PARLIAMENT HOUSE': {
-        'category': 'GOVERNMENT',
-        'description': 'Parliament facilities',
-        'examples': ['Legislative buildings', 'Parliament complex']
-    },
-    'POLICE': {
-        'category': 'GOVERNMENT',
-        'description': 'Police facilities',
-        'examples': ['Police stations', 'Law enforcement']
-    },
-    'POLICE HEADQUARTER': {
-        'category': 'GOVERNMENT',
-        'description': 'Police headquarters',
-        'examples': ['Police headquarters', 'Command centers']
-    },
-    'PRESIDENT HOUSE': {
-        'category': 'GOVERNMENT',
-        'description': 'Presidential residence',
-        'examples': ['Presidential palace', 'Executive residence']
-    },
-    'REGIONAL PARK': {
-        'category': 'PARKS_GREEN',
-        'description': 'Regional parks',
-        'examples': ['Large parks', 'Regional green areas']
-    },
-    'RELIGIOUS': {
-        'category': 'CULTURAL',
-        'description': 'Religious facilities',
-        'examples': ['Temples', 'Churches', 'Mosques', 'Religious buildings']
-    },
-    'RESIDENTIAL AREA': {
+    'ResidentialMain': {
+        'name': 'Residential Main',
+        'color': '#FFEBAF',
         'category': 'RESIDENTIAL',
-        'description': 'Residential areas',
-        'examples': ['Housing areas', 'Residential colonies']
+        'file_pattern': 'Residential_Main_.json',
+        'description': 'Primary residential areas'
     },
-    'SEWERAGE (TREATMENT PLANT)': {
-        'category': 'UTILITIES',
-        'description': 'Sewerage treatment facilities',
-        'examples': ['Water treatment plants', 'Sewage facilities']
-    },
-    'SOCIAL CULTURAL': {
-        'category': 'CULTURAL',
-        'description': 'Social and cultural facilities',
-        'examples': ['Social centers', 'Cultural institutions']
-    },
-    'SOLID WASTE (SANITERY LANDFILL)': {
-        'category': 'UTILITIES',
-        'description': 'Waste management facilities',
-        'examples': ['Landfills', 'Waste treatment']
-    },
-    'SPECIAL AREA': {
-        'category': 'SPECIAL',
-        'description': 'Special designated areas',
-        'examples': ['Special zones', 'Designated areas']
-    },
-    'SPORTS': {
-        'category': 'PARKS_GREEN',
-        'description': 'Sports facilities',
-        'examples': ['Sports grounds', 'Athletic facilities']
-    },
-    'SPORTS CENTRE': {
-        'category': 'PARKS_GREEN',
-        'description': 'Sports centers',
-        'examples': ['Sports complexes', 'Recreation centers']
-    },
-    'SPORTS FACILITIES': {
-        'category': 'PARKS_GREEN',
-        'description': 'Sports facilities',
-        'examples': ['Sports infrastructure', 'Athletic venues']
-    },
-    'STADIUM': {
-        'category': 'PARKS_GREEN',
-        'description': 'Stadiums',
-        'examples': ['Sports stadiums', 'Event venues']
-    },
-    'TERMINAL': {
-        'category': 'TRANSPORT',
-        'description': 'Transportation terminals',
-        'examples': ['Bus terminals', 'Transport hubs']
-    },
-    'TERMINAL RAIL': {
-        'category': 'TRANSPORT',
-        'description': 'Railway terminals',
-        'examples': ['Railway stations', 'Train terminals']
-    },
-    'TRANSMISSION CENTRE': {
-        'category': 'UTILITIES',
-        'description': 'Transmission centers',
-        'examples': ['Communication centers', 'Broadcasting facilities']
-    },
-    'TRANSMISSION SITE': {
-        'category': 'UTILITIES',
-        'description': 'Transmission sites',
-        'examples': ['Communication towers', 'Transmission infrastructure']
-    },
-    'UNIVERSITY CENTRE': {
-        'category': 'EDUCATION',
-        'description': 'University centers',
-        'examples': ['Higher education', 'University campuses']
-    },
-    'URBANISABLE AREA': {
-        'category': 'SPECIAL',
-        'description': 'Areas designated for urbanization',
-        'examples': ['Development zones', 'Urban expansion areas']
-    },
-    'WAREHOUSING': {
-        'category': 'INDUSTRIAL',
-        'description': 'Warehousing facilities',
-        'examples': ['Storage facilities', 'Distribution centers']
-    },
-    'WASTE LAND': {
-        'category': 'UNCLASSIFIED',
-        'description': 'Waste land',
-        'examples': ['Unused land', 'Barren areas']
-    },
-    'WATER BODIES': {
-        'category': 'WATER_BODIES',
-        'description': 'Water bodies',
-        'examples': ['Rivers', 'Lakes', 'Ponds']
-    },
-    'WATER TREATMENT PLANT': {
-        'category': 'UTILITIES',
-        'description': 'Water treatment facilities',
-        'examples': ['Water purification plants', 'Treatment facilities']
-    },
-    'WHOLE SALE': {
-        'category': 'COMMERCIAL',
-        'description': 'Wholesale markets',
-        'examples': ['Wholesale markets', 'Distribution centers']
-    }
-}
-
-# Delhi Configuration
-DELHI_CONFIG = {
-    'city_info': {
-        'name': 'Delhi',
-        'slug': 'delhi',
-        'state': 'Delhi',
-        'center_lat': 28.6139,  # New Delhi coordinates
-        'center_lng': 77.2090,
-    },
-    'data_format': 'GEOJSON',
-    'coordinate_precision': 8,
-    'name_mapping': DELHI_NAME_MAPPING,
-    
-    # File mappings - mapping filename to category based on NAME field
-    'file_mappings': {
-        'AGRICULTURE.geojson': 'AGRICULTURAL',
-        'AIR_CITY.geojson': 'TRANSPORT',
-        'CITY_PARK.geojson': 'PARKS_GREEN',
-        'COLD_STORAGE.geojson': 'INDUSTRIAL',
-        'COMMUNITY_CENTRE.geojson': 'PUBLIC',
-        'COMMUNITY_PARK.geojson': 'PARKS_GREEN',
-        'CULTURAL_COMPLEX.geojson': 'CULTURAL',
-        'DISTRICT_CENTRE.geojson': 'COMMERCIAL',
-        'EDUCATION_AND_RESEARCH.geojson': 'EDUCATION',
-        'ELECTRICITY__POWER_HOUSE_SUB_STATION__.geojson': 'UTILITIES',
-        'FOREIGN_MISSION.geojson': 'GOVERNMENT',
-        'GENERAL_BUSINESS.geojson': 'COMMERCIAL',
-        'GOVERNMENT_LAND.geojson': 'GOVERNMENT',
-        'GOVERNMET_OFFICE.geojson': 'GOVERNMENT',
-        'HISTORICAL_MONUMENTS.geojson': 'CULTURAL',
-        'HOSPITAL.geojson': 'HEALTHCARE',
-        'HOTEL.geojson': 'COMMERCIAL',
-        'INDUSTRY.geojson': 'INDUSTRIAL',
-        'MANUFACTURING_SERVICE_AND_REPAIR_INDUSTRY.geojson': 'INDUSTRIAL',
-        'NON_HIERARCHIALCOMMERCIAL_CENTRE.geojson': 'COMMERCIAL',
-        'PARK.geojson': 'PARKS_GREEN',
-        'PARLIAMENT_HOUSE.geojson': 'GOVERNMENT',
-        'POLICE.geojson': 'GOVERNMENT',
-        'POLICE_HEADQUARTER.geojson': 'GOVERNMENT',
-        'PRESIDENT_HOUSE.geojson': 'GOVERNMENT',
-        'REGIONAL_PARK.geojson': 'PARKS_GREEN',
-        'RELIGIOUS.geojson': 'CULTURAL',
-        'RESIDENTIAL_AREA.geojson': 'RESIDENTIAL',
-        'SEWERAGE__TREATMENT_PLANT__.geojson': 'UTILITIES',
-        'SOCIAL_CULTURAL.geojson': 'CULTURAL',
-        'SOLID_WASTE__SANITERY_LANDFILL__.geojson': 'UTILITIES',
-        'SPECIAL_AREA.geojson': 'SPECIAL',
-        'SPORTS.geojson': 'PARKS_GREEN',
-        'SPORTS_CENTRE.geojson': 'PARKS_GREEN',
-        'SPORTS_FACILITIES.geojson': 'PARKS_GREEN',
-        'STADIUM.geojson': 'PARKS_GREEN',
-        'TERMINAL.geojson': 'TRANSPORT',
-        'TERMINAL_RAIL_.geojson': 'TRANSPORT',
-        'TRANSMISSION_CENTRE.geojson': 'UTILITIES',
-        'TRANSMISSION_SITE.geojson': 'UTILITIES',
-        'UNIVERSITY_CENTRE.geojson': 'EDUCATION',
-        'URBANISABLE_AREA.geojson': 'SPECIAL',
-        'WAREHOUSING.geojson': 'INDUSTRIAL',
-        'WASTE_LAND.geojson': 'UNCLASSIFIED',
-        'WATER_BODIES.geojson': 'WATER_BODIES',
-        'WATER_TREATMENT_PLANT.geojson': 'UTILITIES',
-        'WHOLE_SALE.geojson': 'COMMERCIAL',
-    },
-    
-    # Colors - using the hex codes you provided
-    'colors': {
-        'AGRICULTURAL': '#005CE6',        # Agriculture
-        'TRANSPORT': '#FFFFFF',           # Air City, Terminal, Terminal Rail
-        'PARKS_GREEN': '#4CE600',         # City Park, Community Park, Park, Regional Park, Sports, Sports Centre, Sports Facilities, Stadium
-        'INDUSTRIAL': '#8400A8',          # Cold Storage, Industry, Manufacturing Service And Repair Industry, Warehousing
-        'PUBLIC': '#FF0000',              # Community Centre
-        'CULTURAL': '#4CE600',            # Cultural Complex, Historical Monuments, Religious, Social Cultural
-        'COMMERCIAL': '#FF0000',          # District Centre, General Business, Hotel, Non Hierarchical Commercial Centre, Whole Sale
-        'EDUCATION': '#005CE6',           # Education And Research, University Centre
-        'UTILITIES': '#FFFFFF',           # Electricity, Sewerage, Solid Waste, Transmission Centre, Transmission Site, Water Treatment Plant
-        'GOVERNMENT': '#FFFFFF',          # Foreign Mission, Government Land, Government Office, Parliament House, Police, Police Headquarter, President House
-        'HEALTHCARE': '#005CE6',          # Hospital
-        'RESIDENTIAL': '#FFFF00',         # Residential Area
-        'WATER_BODIES': '#73B2FF',        # Water Bodies
-        'SPECIAL': '#7AF5CA',             # Special Area, Urbanisable Area
-        'UNCLASSIFIED': '#000000',        # Waste Land
-        # Fallback colors
-        'MIXED_USE': '#FFAA00',
-        'PROTECTED': '#267300',
-        'DEFENSE': '#666666',
-        'HIGH_TECH': '#C500FF',
-        'DRAINS': '#00C5FF',
-        'HILLS': '#A87000',
-        'CEMETERY': '#55FF00',
-    },
-    
-    # Attribute mappings for Delhi (based on your sample data structure)
-    'attribute_mappings': {
-        'land_use_fields': {
-            'NAME': 'name',
-            'fid': 'source_fid',
-            'AREA_SQMTR': 'area_sqmtr',
-            'COLOR': 'original_color',
-        },
-        'geometry_fields': {
-            'AREA_SQMTR': 'area',
-        },
-        'metadata_fields': {
-            'fid': 'source_object_id',
-        }
-    }
-}
-
-GURGAON_CLASSTEXT_MAPPING = {
-    '100 Residential (Group Housing/Plotted)': {
+    'ResidentialMixed': {
+        'name': 'Residential Mixed',
+        'color': '#FFC400',
         'category': 'RESIDENTIAL',
-        'description': 'Residential areas with group housing and plotted development',
-        'examples': ['Group housing', 'Plotted development', 'Housing societies']
+        'file_pattern': 'Residential_Mixed_.json',
+        'description': 'Mixed residential areas'
     },
-    '200 Commercial': {
-        'category': 'COMMERCIAL',
-        'description': 'Commercial areas',
-        'examples': ['Shopping centers', 'Business districts', 'Commercial complexes']
-    },
-    '300 Industrial': {
-        'category': 'INDUSTRIAL',
-        'description': 'Industrial areas',
-        'examples': ['Manufacturing units', 'Industrial estates', 'Factories']
-    },
-    '400 Transport and Communication': {
+    'Road_Rail_Airport_Transport': {
+        'name': 'Transport Infrastructure',
+        'color': '#828282',
         'category': 'TRANSPORT',
-        'description': 'Transportation and communication infrastructure',
-        'examples': ['Roads', 'Railways', 'Communication facilities']
+        'file_pattern': 'Road_Rail_Airport_Transport.json',
+        'description': 'Roads, railways, airports, and transport infrastructure'
     },
-    '500 Public Utilities': {
-        'category': 'UTILITIES',
-        'description': 'Public utility infrastructure',
-        'examples': ['Power stations', 'Water treatment', 'Utility facilities']
-    },
-    '600 Public and Semi Public Use': {
-        'category': 'PUBLIC',
-        'description': 'Public and semi-public facilities',
-        'examples': ['Government buildings', 'Public institutions', 'Semi-public facilities']
-    },
-    '700 Open Spaces': {
-        'category': 'PARKS_GREEN',
-        'description': 'Open spaces and green areas',
-        'examples': ['Parks', 'Open grounds', 'Green spaces']
-    },
-    '800 Aggriculture Zone': {
-        'category': 'AGRICULTURAL',
-        'description': 'Agricultural zones',
-        'examples': ['Agricultural land', 'Farming areas']
-    },
-    '900 Special Zone': {
-        'category': 'SPECIAL',
-        'description': 'Special designated zones',
-        'examples': ['Special economic zones', 'Designated special areas']
-    },
-    '1000 Natural Conservation Zone Hubs': {
+    'StateForest_ValleyProtectedLand': {
+        'name': 'Protected Forest & Valley',
+        'color': '#70A800',
         'category': 'PROTECTED',
-        'description': 'Natural conservation areas',
-        'examples': ['Conservation zones', 'Protected natural areas', 'Environmental reserves']
+        'file_pattern': 'StateForest_Valley_ProtectedLand_.json',
+        'description': 'State forests and protected valley lands'
     },
-    'Hubs': {
-        'category': 'COMMERCIAL',
-        'description': 'Commercial and business hubs',
-        'examples': ['Business hubs', 'Commercial centers']
-    },
-    'H6 World Trade Hub': {
-        'category': 'COMMERCIAL',
-        'description': 'World Trade Hub',
-        'examples': ['International trade center', 'World trade facilities']
-    }
-}
-
-# Gurgaon Configuration
-GURGAON_CONFIG = {
-    'city_info': {
-        'name': 'Gurgaon',
-        'slug': 'gurgaon',
-        'state': 'Haryana',
-        'center_lat': 28.4595,  # Gurgaon coordinates
-        'center_lng': 77.0266,
-    },
-    'data_format': 'GEOJSON',
-    'coordinate_precision': 8,
-    'classtext_mapping': GURGAON_CLASSTEXT_MAPPING,
-    
-    # File mappings - mapping filename to category based on classtext field
-    'file_mappings': {
-        'Agriculture_Zone.geojson': 'AGRICULTURAL',
-        'Commercial.geojson': 'COMMERCIAL',
-        'Hubs.geojson': 'COMMERCIAL',
-        'Industrial.geojson': 'INDUSTRIAL',
-        'Natural_Conservation_Zone_Hubs.geojson': 'PROTECTED',
-        'Open_Spaces.geojson': 'PARKS_GREEN',
-        'Public_and_Semi_Public_Use.geojson': 'PUBLIC',
-        'Public_Utilities.geojson': 'UTILITIES',
-        'Residential_GroupHousing_Plotted.geojson': 'RESIDENTIAL',
-        'Special_Zone.geojson': 'SPECIAL',
-        'Transport_and_Communication.geojson': 'TRANSPORT',
-        'World_Trade_Hub.geojson': 'COMMERCIAL',
-    },
-    
-    # Colors - using the hex codes you provided
-    'colors': {
-        'RESIDENTIAL': '#FFFF73',        # 100 Residential (Group Housing/Plotted)
-        'COMMERCIAL': '#BED2FF',         # 200 Commercial, Hubs, H6 World Trade Hub
-        'INDUSTRIAL': '#A80084',         # 300 Industrial
-        'TRANSPORT': '#828282',          # 400 Transport and Communication
-        'UTILITIES': '#A83800',          # 500 Public Utilities
-        'PUBLIC': '#E60000',             # 600 Public and Semi Public Use
-        'PARKS_GREEN': '#F57A7A',        # 700 Open Spaces (using solid fill)
-        'AGRICULTURAL': '#4CE600',       # 800 Agriculture Zone (using dot fill)
-        'SPECIAL': '#DF73FF',            # 900 Special Zone
-        'PROTECTED': '#38A800',          # 1000 Natural Conservation Zone Hubs
-        # Fallback colors for other categories
-        'WATER_BODIES': '#00C5FF',
-        'GOVERNMENT': '#E60000',         # Same as public
-        'EDUCATION': '#E60000',          # Same as public
-        'HEALTHCARE': '#E60000',         # Same as public
-        'CULTURAL': '#FFAA00',           # Using Hubs color
-        'MIXED_USE': '#FFAA00',
-        'DEFENSE': '#666666',
-        'HIGH_TECH': '#A80084',          # Same as industrial
-        'DRAINS': '#00C5FF',
-        'HILLS': '#38A800',              # Same as protected
-        'CEMETERY': '#F57A7A',           # Same as parks/green
-        'UNCLASSIFIED': '#CCCCCC'
-    },
-    
-    # Attribute mappings for Gurgaon (based on your sample data structure)
-    'attribute_mappings': {
-        'land_use_fields': {
-            'classtext': 'classtext',
-            'class': 'class_code',
-            'code': 'code',
-            'name': 'sector_name',
-            'density': 'density',
-            'val': 'val',
-            'text_': 'text_code',
-            'codetext': 'codetext',
-        },
-        'geometry_fields': {
-            'Shape_Area': 'area',
-            'Shape_Length': 'perimeter',
-        },
-        'metadata_fields': {
-            'OBJECTID': 'object_id',
-            'objectid': 'object_id_alt',
-            'id': 'feature_id',
-            'final_gmda_jan17_sde_sector_no_': 'gmda_sector_no',
-        }
-    }
-}
-
-JAIPUR_LANDUSE_MAPPING = {
-    'Agriculture Land': {
-        'category': 'AGRICULTURAL',
-        'description': 'Agricultural land use including farming and cultivation areas',
-        'examples': ['Nursery Orchard', 'Cropland', 'Agricultural fields']
-    },
-    'Commercial': {
-        'category': 'COMMERCIAL',
-        'description': 'Commercial areas and business districts',
-        'examples': ['Shopping centers', 'Business districts', 'Commercial complexes']
-    },
-    'Communication': {
-        'category': 'UTILITIES',
-        'description': 'Communication infrastructure and facilities',
-        'examples': ['Telecommunication towers', 'Communication facilities', 'Radio stations']
-    },
-    'Eco-Sensitive  Zone': {
-        'category': 'PROTECTED',
-        'description': 'Environmentally sensitive and protected areas',
-        'examples': ['Protected forests', 'Wildlife sanctuaries', 'Conservation zones']
-    },
-    'Educational': {
-        'category': 'EDUCATION',
-        'description': 'Educational institutions and facilities',
-        'examples': ['Schools', 'Colleges', 'Universities', 'Research institutes']
-    },
-    'G1': {
-        'category': 'SPECIAL',
-        'description': 'G1 zoning classification',
-        'examples': ['Special zoning G1', 'Administrative zones']
-    },
-    'G2': {
-        'category': 'SPECIAL',
-        'description': 'G2 zoning classification',
-        'examples': ['Special zoning G2', 'Administrative zones']
-    },
-    'G3': {
-        'category': 'SPECIAL',
-        'description': 'G3 zoning classification',
-        'examples': ['Special zoning G3', 'Administrative zones']
-    },
-    'Govt and Semi Governmernt': {
-        'category': 'GOVERNMENT',
-        'description': 'Government and semi-government facilities',
-        'examples': ['Government offices', 'Administrative buildings', 'Public institutions']
-    },
-    'Green Areas': {
-        'category': 'PARKS_GREEN',
-        'description': 'Green spaces and park areas',
-        'examples': ['Parks', 'Gardens', 'Green belts', 'Open spaces']
-    },
-    'Health Services': {
-        'category': 'HEALTHCARE',
-        'description': 'Healthcare facilities and medical services',
-        'examples': ['Hospitals', 'Clinics', 'Health centers', 'Medical facilities']
-    },
-    'Heritage': {
-        'category': 'CULTURAL',
-        'description': 'Heritage sites and cultural monuments',
-        'examples': ['Historical monuments', 'Heritage buildings', 'Archaeological sites']
-    },
-    'Industrial': {
-        'category': 'INDUSTRIAL',
-        'description': 'Industrial areas and manufacturing zones',
-        'examples': ['Factories', 'Industrial estates', 'Manufacturing units']
-    },
-    'Mixed': {
-        'category': 'MIXED_USE',
-        'description': 'Mixed-use developments',
-        'examples': ['Mixed residential-commercial', 'Multi-purpose buildings']
-    },
-    'Others': {
+    'Unclassified_Use': {
+        'name': 'Unclassified Use',
+        'color': '#E1E1E1',
         'category': 'UNCLASSIFIED',
-        'description': 'Other miscellaneous land uses',
-        'examples': ['Miscellaneous uses', 'Unspecified areas']
-    },
-    'Public & Semi Public': {
-        'category': 'PUBLIC',
-        'description': 'Public and semi-public facilities',
-        'examples': ['Community centers', 'Public buildings', 'Semi-public institutions']
-    },
-    'Public Utilities': {
-        'category': 'UTILITIES',
-        'description': 'Public utility infrastructure',
-        'examples': ['Power plants', 'Water treatment', 'Sewage facilities', 'Utilities']
-    },
-    'Recreational': {
-        'category': 'PARKS_GREEN',
-        'description': 'Recreational facilities and areas',
-        'examples': ['Sports complexes', 'Recreation centers', 'Playgrounds']
-    },
-    'Religious': {
-        'category': 'CULTURAL',
-        'description': 'Religious facilities and places of worship',
-        'examples': ['Temples', 'Mosques', 'Churches', 'Religious complexes']
-    },
-    'Residential': {
-        'category': 'RESIDENTIAL',
-        'description': 'Residential areas and housing',
-        'examples': ['Housing colonies', 'Residential complexes', 'Apartments']
-    },
-    'Rural': {
-        'category': 'AGRICULTURAL',
-        'description': 'Rural areas and settlements',
-        'examples': ['Rural villages', 'Agricultural settlements', 'Rural land']
-    },
-    'Speccific Land Use': {
-        'category': 'SPECIAL',
-        'description': 'Specific designated land uses',
-        'examples': ['Special purpose areas', 'Designated zones']
-    },
-    'Transportation': {
+        'file_pattern': 'Unclassified_Use.json',
+        'description': 'Unclassified land use areas'
+    }
+}
+
+# Highway Layers (from your paste.txt)
+BENGALURU_HIGHWAY_LAYERS = {
+    'BellaryRoad_NH44': {
+        'name': 'Bellary Road (NH-44)',
+        'color': '#FF6B35',
         'category': 'TRANSPORT',
-        'description': 'Transportation infrastructure',
-        'examples': ['Roads', 'Railways', 'Airports', 'Transportation facilities']
+        'file_pattern': 'BellaryRoad_NH44.geojson',
+        'description': 'National Highway 44 - Bellary Road'
     },
-    'U1_2025': {
-        'category': 'SPECIAL',
-        'description': 'U1 zoning for 2025 development',
-        'examples': ['Urban development zone U1', 'Future development areas']
+    'BengaluruChennaiExpressway_NE7': {
+        'name': 'Bengaluru-Chennai Expressway (NE-7)',
+        'color': '#F7931E',
+        'category': 'TRANSPORT',
+        'file_pattern': 'BengaluruChennaiExpressway_NE7.geojson',
+        'description': 'Bengaluru to Chennai Expressway'
     },
-    'U2 HIZ': {
-        'category': 'SPECIAL',
-        'description': 'U2 High Intensity Zone',
-        'examples': ['High intensity development zone', 'Dense urban areas']
+    'BengaluruMysuruRoad_NH275': {
+        'name': 'Bengaluru-Mysuru Road (NH-275)',
+        'color': '#FFD700',
+        'category': 'TRANSPORT',
+        'file_pattern': 'BengaluruMysuruRoad_NH275.geojson',
+        'description': 'National Highway 275 - Bengaluru to Mysuru Road'
     },
-    'U2 LIZ': {
-        'category': 'SPECIAL',
-        'description': 'U2 Low Intensity Zone',
-        'examples': ['Low intensity development zone', 'Low density urban areas']
+    'HosurRoad_NH48': {
+        'name': 'Hosur Road (NH-48)',
+        'color': '#32CD32',
+        'category': 'TRANSPORT',
+        'file_pattern': 'HosurRoad_NH48.geojson',
+        'description': 'National Highway 48 - Hosur Road'
     },
-    'U3 HIZ': {
-        'category': 'SPECIAL',
-        'description': 'U3 High Intensity Zone',
-        'examples': ['High intensity development zone U3', 'Dense development areas']
+    'KanakpuraRoad_NH948': {
+        'name': 'Kanakpura Road (NH-948)',
+        'color': '#1E90FF',
+        'category': 'TRANSPORT',
+        'file_pattern': 'KanakpuraRoad_NH948.geojson',
+        'description': 'National Highway 948 - Kanakpura Road'
     },
-    'U3 LIZ': {
-        'category': 'SPECIAL',
-        'description': 'U3 Low Intensity Zone',
-        'examples': ['Low intensity development zone U3', 'Low density areas']
+    'MadrasRoad_NH75': {
+        'name': 'Madras Road (NH-75)',
+        'color': '#8A2BE2',
+        'category': 'TRANSPORT',
+        'file_pattern': 'MadrasRoad_NH75.geojson',
+        'description': 'National Highway 75 - Madras Road'
     },
-    'Vacant Land': {
-        'category': 'UNCLASSIFIED',
-        'description': 'Vacant and undeveloped land',
-        'examples': ['Empty plots', 'Undeveloped areas', 'Vacant lots']
+    'NICE_Road': {
+        'name': 'NICE Road',
+        'color': '#DC143C',
+        'category': 'TRANSPORT',
+        'file_pattern': 'NICE_Road.geojson',
+        'description': 'Nandi Infrastructure Corridor Enterprises Road'
     },
-    'Water Bodies': {
-        'category': 'WATER_BODIES',
-        'description': 'Water bodies and aquatic features',
-        'examples': ['Lakes', 'Rivers', 'Ponds', 'Water reservoirs']
+    'STRR': {
+        'name': 'Satellite Town Ring Road (STRR)',
+        'color': '#FF1493',
+        'category': 'TRANSPORT',
+        'file_pattern': 'STRR.geojson',
+        'description': 'Satellite Town Regional Ring Road'
+    },
+    'TumakuruRoad_NH48': {
+        'name': 'Tumakuru Road (NH-48)',
+        'color': '#00CED1',
+        'category': 'TRANSPORT',
+        'file_pattern': 'TumakuruRoad_NH48.geojson',
+        'description': 'National Highway 48 - Tumakuru Road'
     }
 }
 
-# Jaipur Configuration
-JAIPUR_CONFIG = {
-    'city_info': {
-        'name': 'Jaipur',
-        'slug': 'jaipur',
-        'state': 'Rajasthan',
-        'center_lat': 26.9124,  # Jaipur coordinates
-        'center_lng': 75.7873,
-        'is_active': True,
-    },
-    'data_format': 'GEOJSON',
-    'coordinate_precision': 8,
-    'landuse_mapping': JAIPUR_LANDUSE_MAPPING,
-    
-    # File mappings - mapping filename to category based on LANDUSE_CATEGORY field
-    'file_mappings': {
-        'Agriculture_Land.geojson': 'AGRICULTURAL',
-        'Commercial.geojson': 'COMMERCIAL',
-        'Communication.geojson': 'UTILITIES',
-        'Eco_Sensitive__Zone.geojson': 'PROTECTED',
-        'Educational.geojson': 'EDUCATION',
-        'G1.geojson': 'SPECIAL',
-        'G2.geojson': 'SPECIAL',
-        'G3.geojson': 'SPECIAL',
-        'Govt_and_Semi_Governmernt.geojson': 'GOVERNMENT',
-        'Green_Areas.geojson': 'PARKS_GREEN',
-        'Health_Services.geojson': 'HEALTHCARE',
-        'Heritage.geojson': 'CULTURAL',
-        'Industrial.geojson': 'INDUSTRIAL',
-        'Mixed.geojson': 'MIXED_USE',
-        'Others.geojson': 'UNCLASSIFIED',
-        'Public___Semi_Public.geojson': 'PUBLIC',
-        'Public_Utilities.geojson': 'UTILITIES',
-        'Recreational.geojson': 'PARKS_GREEN',
-        'Religious.geojson': 'CULTURAL',
-        'Residential.geojson': 'RESIDENTIAL',
-        'Rural.geojson': 'AGRICULTURAL',
-        'Specific_Land_Use.geojson': 'SPECIAL',
-        'Transportation.geojson': 'TRANSPORT',
-        'U1_2025.geojson': 'SPECIAL',
-        'U2_HIZ.geojson': 'SPECIAL',
-        'U2_LIZ.geojson': 'SPECIAL',
-        'U3_HIZ.geojson': 'SPECIAL',
-        'U3_LIZ.geojson': 'SPECIAL',
-        'Vacant_Land.geojson': 'UNCLASSIFIED',
-        'Water_Bodies.geojson': 'WATER_BODIES',
-    },
-    
-    # Colors - using your specified colors and logical defaults for missing ones
-    'colors': {
-        'AGRICULTURAL': '#D1FF73',        # Agriculture_Land + Rural
-        'COMMERCIAL': '#FF0000',          # Commercial
-        'UTILITIES': '#E69800',           # Communication + Public_Utilities  
-        'PROTECTED': '#38A800',           # Eco_Sensitive__Zone
-        'EDUCATION': '#005CE6',           # Educational
-        'SPECIAL': '#898944',             # G1 (using G1 color for all special zones)
-        'GOVERNMENT': '#A87000',          # Govt_and_Semi_Governmernt
-        'PARKS_GREEN': '#70A800',         # Green_Areas + Recreational
-        'HEALTHCARE': '#73FFDF',          # Health_Services
-        'CULTURAL': '#A3FF73',            # Heritage + Religious
-        'INDUSTRIAL': '#A900E6',          # Industrial
-        'MIXED_USE': '#FFAA00',           # Mixed
-        'UNCLASSIFIED': '#e38f8f',        # Others + Vacant_Land
-        'PUBLIC': '#FF6B6B',              # Public___Semi_Public (logical color)
-        'RESIDENTIAL': '#FFE135',         # Residential (logical residential color)
-        'TRANSPORT': '#666666',           # Transportation (logical transport color)
-        'WATER_BODIES': '#0084FF',        # Water_Bodies (logical water color)
-        
-        # Fallback colors for any missed categories
-        'DEFENSE': '#8B4513',
-        'HIGH_TECH': '#C500FF',
-        'DRAINS': '#00C5FF',
-        'HILLS': '#A87000',
-        'CEMETERY': '#55FF00',
-    },
-    
-    # Attribute mappings for Jaipur (based on your sample data structure)
-    'attribute_mappings': {
-        'land_use_fields': {
-            'LANDUSE_CATEGORY': 'land_use_type',
-            'LANDUSE_SUBCAT_LEVEL_1': 'sub_category_1',
-            'LANDUSE_SUBCAT_LEVEL_2': 'sub_category_2',
-            'LANDUSE_SUBCAT_LEVEL_3': 'sub_category_3',
-            'DISTRICT': 'district',
-            'ADMIN_ZONE': 'admin_zone',
-            'PLANNING_ZONE': 'planning_zone',
-            'FEATURE_NAME': 'feature_name',
-            'LABEL': 'label',
-            'REMARKS': 'remarks',
-        },
-        'geometry_fields': {
-            'SHAPE.AREA': 'area',
-            'SHAPE.LEN': 'perimeter',
-            'LANDUSE_AREA': 'landuse_area',
-        },
-        'metadata_fields': {
-            'OBJECTID_1': 'object_id_1',
-            'OBJECTID': 'object_id',
-            'ID': 'source_id',
-            'CREATED_USER': 'created_user',
-            'CREATED_DATE': 'created_date',
-            'LAST_EDITED_USER': 'last_edited_user',
-            'LAST_EDITED_DATE': 'last_edited_date',
-            'geom_Length': 'geometry_length',
-            'geom_Area': 'geometry_area',
-        }
+# Metro Layers
+BENGALURU_METRO_LAYERS = {
+    'metro_lines': {
+        'name': 'Bengaluru Metro Lines',
+        'color': '#0066CC',
+        'category': 'TRANSPORT',
+        'file_pattern': '*.geojson',
+        'description': 'Bengaluru Metro Phases 1, 2, 2A & 2B'
     }
 }
 
+# Workspace/Industrial Areas
+BENGALURU_WORKSPACE_LAYERS = {
+    'industrial_areas': {
+        'name': 'Industrial Areas & Workspaces',
+        'color': '#8B4513',
+        'category': 'INDUSTRIAL',
+        'file_pattern': 'Blr_Industrial_Area_processed.geojson',
+        'description': 'Industrial areas and business workspaces'
+    }
+}
 
-# Master configuration dictionary
+# ================================
+# BENGALURU LAYER GROUPS
+# ================================
+
+BENGALURU_LAYER_GROUPS = {
+    'master_plan': {
+        'name': 'Master Plan 2015',
+        'description': 'Bengaluru Master Plan 2015 - Land Use Categories',
+        'display_order': 1,
+        'layers': BENGALURU_MASTER_PLAN_LAYERS
+    },
+    'highways': {
+        'name': 'Highways & Major Roads',
+        'description': 'National highways and major road network',
+        'display_order': 2,
+        'layers': BENGALURU_HIGHWAY_LAYERS
+    },
+    'metro': {
+        'name': 'Metro Network',
+        'description': 'Bengaluru Metro rail network',
+        'display_order': 3,
+        'layers': BENGALURU_METRO_LAYERS
+    },
+    'workspaces': {
+        'name': 'Industrial Workspaces',
+        'description': 'Industrial areas and business workspaces',
+        'display_order': 4,
+        'layers': BENGALURU_WORKSPACE_LAYERS
+    }
+}
+
+# ================================
+# CITY CONFIGURATIONS
+# ================================
+
 CITY_CONFIGS = {
-    'bengaluru': BANGALORE_CONFIG,
-    'visakhapatnam': VIZAG_CONFIG,
-    'amaravati': AMARAVATI_CONFIG,
-    'hyderabad': HYDERABAD_CONFIG,
-    'warangal': WARANGAL_CONFIG,
-    'delhi': DELHI_CONFIG,
-    'gurgaon': GURGAON_CONFIG,
-    'jaipur':JAIPUR_CONFIG,
+    'bengaluru': {
+        'city_info': {
+            'name': 'Bengaluru',
+            'slug': 'bengaluru',
+            'state_ref_id': None,  # Will be set when state is created
+            'description': 'Silicon Valley of India - Garden City',
+            'center_lat': 12.9716,
+            'center_lng': 77.5946,
+            'zoom_level': 11
+        },
+        'layer_groups': BENGALURU_LAYER_GROUPS,
+        'coordinate_precision': 8,
+        'default_colors': {
+            'AGRICULTURAL': '#9DC1CB',
+            'COMMERCIAL': '#73B2FF', 
+            'GOVERNMENT': '#E60000',
+            'INDUSTRIAL': '#AA66B2',
+            'RESIDENTIAL': '#FFEBAF',
+            'TRANSPORT': '#828282',
+            'WATER_BODIES': '#BEE8FF',
+            'PARKS_GREEN': '#98E600',
+            'UTILITIES': '#D79E9E',
+            'PROTECTED': '#70A800',
+            'UNCLASSIFIED': '#E1E1E1'
+        }
+    }
 }
 
-def map_name_to_category_delhi(name_field):
-    """
-    Map Delhi NAME field to categories
-    Delhi uses simple NAME field mapping
-    """
-    # Clean input
-    name_field = (name_field or '').strip()
-    
-    # Check direct NAME mapping
-    if name_field and name_field in DELHI_NAME_MAPPING:
-        return DELHI_NAME_MAPPING[name_field]['category']
-    
-    return 'UNCLASSIFIED'
+# Alternative slug for Bengaluru
+CITY_CONFIGS['bangalore'] = CITY_CONFIGS['bengaluru']
 
-def map_classtext_to_category_gurgaon(classtext_field):
-    """
-    Map Gurgaon classtext field to categories
-    Gurgaon uses classtext field mapping with codes
-    """
-    # Clean input
-    classtext_field = (classtext_field or '').strip()
-    
-    # Check direct classtext mapping
-    if classtext_field and classtext_field in GURGAON_CLASSTEXT_MAPPING:
-        return GURGAON_CLASSTEXT_MAPPING[classtext_field]['category']
-    
-    return 'UNCLASSIFIED'
+# ================================
+# STATE CONFIGURATIONS  
+# ================================
+
+STATE_CONFIGS = {
+    'karnataka': {
+        'name': 'Karnataka',
+        'code': 'KA',
+        'cities': ['bengaluru']
+    }
+}
+
+# ================================
+# HELPER FUNCTIONS
+# ================================
 
 def get_city_config(city_slug):
     """Get configuration for a specific city"""
-    return CITY_CONFIGS.get(city_slug.lower())
+    return CITY_CONFIGS.get(city_slug)
+
+def get_layer_groups_config(city_slug):
+    """Get layer groups configuration for a city"""
+    config = get_city_config(city_slug)
+    if config:
+        return config.get('layer_groups', {})
+    return {}
+
+def get_layer_config(city_slug, layer_group, layer_slug):
+    """Get specific layer configuration"""
+    layer_groups = get_layer_groups_config(city_slug)
+    if layer_group in layer_groups:
+        layers = layer_groups[layer_group].get('layers', {})
+        return layers.get(layer_slug)
+    return None
+
+def get_all_layers_for_city(city_slug):
+    """Get all layers across all groups for a city"""
+    all_layers = {}
+    layer_groups = get_layer_groups_config(city_slug)
+    
+    for group_name, group_config in layer_groups.items():
+        layers = group_config.get('layers', {})
+        for layer_slug, layer_config in layers.items():
+            # Add group info to layer config
+            layer_with_group = layer_config.copy()
+            layer_with_group['layer_group'] = group_name
+            layer_with_group['group_name'] = group_config.get('name', group_name)
+            all_layers[layer_slug] = layer_with_group
+    
+    return all_layers
+
+def get_layer_color(city_slug, layer_slug, layer_group=None):
+    """Get color for a specific layer"""
+    if layer_group:
+        layer_config = get_layer_config(city_slug, layer_group, layer_slug)
+    else:
+        # Search all groups
+        all_layers = get_all_layers_for_city(city_slug)
+        layer_config = all_layers.get(layer_slug)
+    
+    if layer_config:
+        return layer_config.get('color', '#CCCCCC')
+    
+    return '#CCCCCC'  # Default gray
+
+def get_category_color(city_slug, category_code):
+    """Get default color for a category in a city"""
+    config = get_city_config(city_slug)
+    if config and 'default_colors' in config:
+        return config['default_colors'].get(category_code, '#CCCCCC')
+    
+    # Fallback to global category colors
+    category_info = LAYER_CATEGORIES.get(category_code, {})
+    return category_info.get('default_color', '#CCCCCC')
+
+# ================================
+# COMPATIBILITY FUNCTIONS
+# (For existing code that might reference these)
+# ================================
 
 def get_plu_mapping(city_slug):
-    """Get PLU code mapping for a city"""
-    config = get_city_config(city_slug)
-    return config.get('plu_mapping', {}) if config else {}
+    """Get PLU mappings for a city (compatibility function)"""
+    # For now, return empty dict since we're using layer-based approach
+    # This can be enhanced later if PLU mapping is needed
+    return {}
 
 def map_plu_code_to_category(city_slug, plu_code):
-    """Map a PLU code to a category for a specific city"""
-    plu_mapping = get_plu_mapping(city_slug)
-    plu_info = plu_mapping.get(plu_code, {})
-    return plu_info.get('category', 'UNCLASSIFIED')
+    """Map PLU code to category (compatibility function)"""
+    # Basic mapping - can be enhanced based on needs
+    plu_lower = str(plu_code).lower() if plu_code else ""
+    
+    if any(term in plu_lower for term in ['residential', 'r1', 'r2', 'r3', 'r4']):
+        return 'RESIDENTIAL'
+    elif any(term in plu_lower for term in ['commercial', 'c1', 'c2', 'c3']):
+        return 'COMMERCIAL'
+    elif any(term in plu_lower for term in ['industrial', 'i1', 'i2', 'i3']):
+        return 'INDUSTRIAL'
+    elif any(term in plu_lower for term in ['agricultural', 'agriculture']):
+        return 'AGRICULTURAL'
+    elif any(term in plu_lower for term in ['transport', 'road', 'rail']):
+        return 'TRANSPORT'
+    elif any(term in plu_lower for term in ['water', 'lake', 'tank', 'drain']):
+        return 'WATER_BODIES'
+    elif any(term in plu_lower for term in ['park', 'green', 'playground']):
+        return 'PARKS_GREEN'
+    elif any(term in plu_lower for term in ['government', 'public']):
+        return 'GOVERNMENT'
+    elif any(term in plu_lower for term in ['utility', 'power', 'treatment']):
+        return 'UTILITIES'
+    elif any(term in plu_lower for term in ['forest', 'protected']):
+        return 'PROTECTED'
+    else:
+        return 'UNCLASSIFIED'
 
 def get_attribute_mapping(city_slug):
-    """Get attribute field mappings for a city"""
-    config = get_city_config(city_slug)
-    return config.get('attribute_mappings', {}) if config else {}
-
-def optimize_coordinates(coords, precision=8):
-    """Optimize coordinate precision to reduce file size"""
-    if isinstance(coords, list):
-        if isinstance(coords[0], list):
-            # Nested array (polygon rings)
-            return [optimize_coordinates(ring, precision) for ring in coords]
-        elif isinstance(coords[0], (int, float)):
-            # Coordinate pair [lng, lat]
-            return [round(coord, precision) for coord in coords]
-    return coords
-
-def detect_data_format(data):
-    """Detect if data is ESRI JSON or standard GeoJSON"""
-    if isinstance(data, dict):
-        # Check for ESRI-specific fields
-        if 'features' in data:
-            first_feature = data['features'][0] if data['features'] else {}
-            if 'attributes' in first_feature and 'geometry' in first_feature:
-                geometry = first_feature.get('geometry', {})
-                if 'rings' in geometry:
-                    return 'ESRI_JSON'
-                elif 'type' in geometry and 'coordinates' in geometry:
-                    return 'GEOJSON'
-        elif 'displayFieldName' in data or 'fieldAliases' in data:
-            return 'ESRI_JSON'
-    return 'UNKNOWN'
-
-def convert_esri_to_geojson_geometry(esri_geometry):
-    """Convert ESRI geometry format to GeoJSON format"""
-    if not esri_geometry:
-        return None
-    
-    if 'rings' in esri_geometry:
-        # ESRI Polygon with rings
-        return {
-            'type': 'Polygon',
-            'coordinates': esri_geometry['rings']
-        }
-    elif 'paths' in esri_geometry:
-        # ESRI LineString with paths
-        if len(esri_geometry['paths']) == 1:
-            return {
-                'type': 'LineString',
-                'coordinates': esri_geometry['paths'][0]
-            }
-        else:
-            return {
-                'type': 'MultiLineString',
-                'coordinates': esri_geometry['paths']
-            }
-    elif 'x' in esri_geometry and 'y' in esri_geometry:
-        # ESRI Point
-        return {
-            'type': 'Point',
-            'coordinates': [esri_geometry['x'], esri_geometry['y']]
-        }
-    
-    # If already in GeoJSON format, return as-is
-    return esri_geometry
+    """Get attribute mappings for a city (compatibility function)"""
+    return {
+        'name_field': 'name',
+        'description_field': 'description',
+        'area_field': 'area',
+        'calculated_area': 'calculated_area',
+    }
 
 def validate_city_configuration(city_slug):
     """Validate that a city configuration is complete"""
@@ -2234,7 +485,7 @@ def validate_city_configuration(city_slug):
     if not config:
         return False, f"No configuration found for city: {city_slug}"
     
-    required_fields = ['city_info', 'file_mappings', 'colors']
+    required_fields = ['city_info', 'layer_groups']
     missing_fields = [field for field in required_fields if field not in config]
     
     if missing_fields:
@@ -2242,29 +493,17 @@ def validate_city_configuration(city_slug):
     
     return True, "Configuration is valid"
 
-def map_plu_code_to_category_warangal(plu_code, plu_name=None):
-    """
-    Map Warangal PLU codes to categories
-    Warangal uses simple PLU field mapping
-    """
-    # Clean inputs
-    plu_code = (plu_code or '').strip()
-    plu_name = (plu_name or '').strip()
-    
-    # Check direct PLU code mapping
-    if plu_code and plu_code in WARANGAL_PLU_MAPPING:
-        return WARANGAL_PLU_MAPPING[plu_code]['category']
-    
-    # Fallback to PLU_NAME if available
-    if plu_name and plu_name in WARANGAL_PLU_MAPPING:
-        return WARANGAL_PLU_MAPPING[plu_name]['category']
-    
-    return 'UNCLASSIFIED'
-
-# Export commonly used functions
+# Export commonly used functions for import compatibility
 __all__ = [
     'CITY_CONFIGS',
+    'STATE_CONFIGS',
+    'LAYER_CATEGORIES',
     'get_city_config',
+    'get_layer_groups_config',
+    'get_layer_config',
+    'get_all_layers_for_city',
+    'get_layer_color',
+    'get_category_color',
     'get_plu_mapping', 
     'map_plu_code_to_category',
     'get_attribute_mapping',
@@ -2272,5 +511,55 @@ __all__ = [
     'detect_data_format',
     'convert_esri_to_geojson_geometry',
     'validate_city_configuration',
-    'map_plu_code_to_category_warangal',
 ]
+
+def detect_data_format(file_path):
+    """Detect data format from file extension"""
+    file_path = str(file_path).lower()
+    if file_path.endswith('.geojson'):
+        return 'GEOJSON'
+    elif file_path.endswith('.json'):
+        return 'JSON'
+    elif file_path.endswith('.shp'):
+        return 'SHP'
+    else:
+        return 'GEOJSON'  # Default
+
+def optimize_coordinates(coords, precision=8):
+    """Optimize coordinate precision"""
+    if isinstance(coords, list):
+        return [optimize_coordinates(coord, precision) for coord in coords]
+    elif isinstance(coords, (int, float)):
+        return round(float(coords), precision)
+    return coords
+
+def convert_esri_to_geojson_geometry(esri_geometry):
+    """Convert ESRI geometry to GeoJSON format"""
+    # Basic conversion - can be enhanced based on needs
+    if 'rings' in esri_geometry:
+        # Polygon
+        return {
+            'type': 'Polygon',
+            'coordinates': esri_geometry['rings']
+        }
+    elif 'paths' in esri_geometry:
+        # LineString/MultiLineString
+        paths = esri_geometry['paths']
+        if len(paths) == 1:
+            return {
+                'type': 'LineString',
+                'coordinates': paths[0]
+            }
+        else:
+            return {
+                'type': 'MultiLineString',
+                'coordinates': paths
+            }
+    elif 'x' in esri_geometry and 'y' in esri_geometry:
+        # Point
+        return {
+            'type': 'Point',
+            'coordinates': [esri_geometry['x'], esri_geometry['y']]
+        }
+    
+    return None

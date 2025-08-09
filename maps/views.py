@@ -101,7 +101,7 @@ class CityViewSet(viewsets.ReadOnlyModelViewSet):
     """
     queryset = City.objects.annotate(
         layer_count=Count('layers'),
-        total_features=Count('layers__features')
+        total_features=Count('layers__geofeature_set')
     ).filter(is_active=True)
     serializer_class = CitySerializer
     lookup_field = 'slug'
@@ -3282,3 +3282,852 @@ class CombinedLayerCenterView(APIView):
                 'city': city_slug
             }
 
+class CompleteHierarchyAPIView(APIView):
+    """
+    Complete Hierarchy API - Returns all states, cities, layers with their status
+    
+    GET /api/hierarchy/
+    
+    Returns:
+    - All states with their cities
+    - Each city with its layers
+    - Status of each layer (processed, tiles available, live status)
+    - Statistics and metadata
+    """
+    
+    def get(self, request):
+        """Get complete hierarchy with status information"""
+        try:
+            # ❌ BROKEN: .annotate(feature_count=Count('geofeature_set'))
+            # ✅ FIXED: Don't annotate, use the existing feature_count field
+            states = State.objects.filter(is_active=True).prefetch_related(
+                Prefetch(
+                    'cities',
+                    queryset=City.objects.filter(is_active=True).prefetch_related(
+                        Prefetch(
+                            'layers',
+                            queryset=DataLayer.objects.select_related('category')
+                            # Removed conflicting annotation
+                        )
+                    )
+                )
+            ).annotate(
+                total_cities=Count('cities', filter=Q(cities__is_active=True)),
+                total_layers=Count('cities__layers'),
+                total_features=Count('cities__layers__geofeature_set')  # Fixed relationship
+            ).order_by('name')
+            
+            hierarchy_data = []
+            
+            for state in states:
+                state_data = {
+                    'state': {
+                        'name': state.name,
+                        'slug': state.slug,
+                        'code': state.code,
+                        'center_lat': state.center_lat,
+                        'center_lng': state.center_lng,
+                        'is_active': state.is_active
+                    },
+                    'statistics': {
+                        'total_cities': state.total_cities,
+                        'total_layers': state.total_layers,
+                        'total_features': state.total_features
+                    },
+                    'cities': []
+                }
+                
+                for city in state.cities.all():
+                    layers_data = []
+                    
+                    # Process layers for this city
+                    processed_layers = 0
+                    layers_with_tiles = 0
+                    total_city_features = 0
+                    
+                    for layer in city.layers.all():
+                        # Use existing feature_count field instead of annotation
+                        layer_feature_count = layer.feature_count or 0
+                        
+                        # Determine layer status
+                        is_live = layer.is_processed and layer.tiles_generated
+                        layer_status = 'live' if is_live else 'pending' if layer.is_processed else 'no_data'
+                        
+                        if layer.is_processed:
+                            processed_layers += 1
+                        if layer.tiles_generated:
+                            layers_with_tiles += 1
+                        
+                        total_city_features += layer_feature_count
+                        
+                        layers_data.append({
+                            'name': layer.name,
+                            'slug': layer.slug,
+                            'description': layer.description,
+                            'category': {
+                                'name': layer.category.name,
+                                'code': layer.category.code,
+                                'color': layer.category.default_color
+                            },
+                            'status': layer_status,
+                            'is_live': is_live,
+                            'is_processed': layer.is_processed,
+                            'tiles_generated': layer.tiles_generated,
+                            'feature_count': layer_feature_count,  # Use existing field
+                            'file_format': layer.file_format,
+                            'last_updated': layer.updated_at.isoformat() if layer.updated_at else None,
+                            'bounds': {
+                                'xmin': layer.bbox_xmin,
+                                'ymin': layer.bbox_ymin,
+                                'xmax': layer.bbox_xmax,
+                                'ymax': layer.bbox_ymax
+                            } if layer.has_valid_bbox() else None
+                        })
+                    
+                    # City status summary
+                    city_is_live = processed_layers > 0 and layers_with_tiles > 0
+                    
+                    city_data = {
+                        'name': city.name,
+                        'slug': city.slug,
+                        'center_lat': city.center_lat,
+                        'center_lng': city.center_lng,
+                        'is_active': city.is_active,
+                        'is_live': city_is_live,
+                        'statistics': {
+                            'total_layers': len(layers_data),
+                            'processed_layers': processed_layers,
+                            'layers_with_tiles': layers_with_tiles,
+                            'total_features': total_city_features
+                        },
+                        'status': 'live' if city_is_live else 'pending' if processed_layers > 0 else 'no_data',
+                        'layers': layers_data
+                    }
+                    
+                    state_data['cities'].append(city_data)
+                
+                hierarchy_data.append(state_data)
+            
+            return Response({
+                'status': 'success',
+                'total_states': len(hierarchy_data),
+                'hierarchy': hierarchy_data
+            })
+            
+        except Exception as e:
+            return Response({
+                'status': 'error',
+                'message': str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
+    def _get_layer_status(self, layer):
+        """Determine detailed layer status"""
+        if not layer.is_processed:
+            return 'not_processed'
+        elif layer.feature_count == 0:
+            return 'no_features'
+        elif not layer.tiles_generated:
+            return 'tiles_pending'
+        else:
+            return 'live'
+    
+    def _get_layer_tile_urls(self, state_slug, city_slug, layer_slug, tiles_available):
+        """Get tile URLs for a layer"""
+        if not tiles_available:
+            return None
+        
+        # Use your CloudFront domain or S3 bucket
+        base_url = getattr(settings, 'CLOUDFRONT_DOMAIN', 'd17yosovmfjm4.cloudfront.net')
+        
+        return {
+            'png_template': f"https://{base_url}/tiles/{state_slug}/{city_slug}/{layer_slug}/{{z}}/{{x}}/{{y}}.png",
+            'mvt_template': f"https://{base_url}/tiles/{state_slug}/{city_slug}/{layer_slug}/{{z}}/{{x}}/{{y}}.mvt",
+            'api_png_template': f"/api/tiles/{state_slug}/{city_slug}/{layer_slug}/{{z}}/{{x}}/{{y}}.png",
+            'api_mvt_template': f"/api/tiles/{state_slug}/{city_slug}/{layer_slug}/{{z}}/{{x}}/{{y}}.mvt"
+        }
+
+# ================================
+# API 2: HIERARCHICAL TILE SERVING API
+# ================================
+
+class HierarchicalTileView(APIView):
+    """
+    Hierarchical Tile Serving API
+    
+    Serves tiles using the hierarchical URL structure:
+    GET /api/tiles/<state_slug>/<city_slug>/<layer_slug>/<z>/<x>/<y>.<format>
+    
+    Examples:
+    - /api/tiles/karnataka/bengaluru/master_plan/12/2048/2048.png
+    - /api/tiles/andhra_pradesh/visakhapatnam/master_plan/12/2048/2048.png
+    - /api/tiles/telangana/hyderabad/rrr/12/2048/2048.mvt
+    """
+    
+    def get(self, request, state_slug, city_slug, layer_slug, z, x, y, format='png'):
+        """Serve hierarchical tiles with multiple fallback strategies"""
+        try:
+            z, x, y = int(z), int(x), int(y)
+            
+            # Validate tile coordinates
+            if not self._validate_tile_coordinates(z, x, y):
+                return self._return_error_tile(format, "Invalid tile coordinates")
+            
+            # Get layer information
+            layer = self._get_layer_by_hierarchy(state_slug, city_slug, layer_slug)
+            if not layer:
+                return self._return_error_tile(format, f"Layer not found: {state_slug}/{city_slug}/{layer_slug}")
+            
+            # Check if layer has tiles
+            if not layer.tiles_generated:
+                # Try to generate tile on-demand
+                generated_response = self._generate_hierarchical_tile_on_demand(layer, z, x, y, format)
+                if generated_response:
+                    return generated_response
+                
+                return self._return_empty_tile(format)
+            
+            # Try multiple serving strategies
+            
+            # 1. CloudFront redirect (fastest for production)
+            if self._should_use_cloudfront():
+                cloudfront_response = self._redirect_to_cloudfront_hierarchical(state_slug, city_slug, layer_slug, z, x, y, format)
+                if cloudfront_response:
+                    return cloudfront_response
+            
+            # 2. Direct S3 serving
+            s3_response = self._serve_from_s3_hierarchical(state_slug, city_slug, layer_slug, z, x, y, format)
+            if s3_response:
+                return s3_response
+            
+            # 3. Local file serving (backward compatibility)
+            local_response = self._serve_local_hierarchical_tile(state_slug, city_slug, layer_slug, z, x, y, format)
+            if local_response:
+                return local_response
+            
+            # 4. Generate and serve on-demand
+            on_demand_response = self._generate_hierarchical_tile_on_demand(layer, z, x, y, format)
+            if on_demand_response:
+                return on_demand_response
+            
+            # 5. Return empty tile as last resort
+            return self._return_empty_tile(format)
+            
+        except ValueError as e:
+            logger.error(f"Invalid coordinates for hierarchical tile: {e}")
+            return self._return_error_tile(format, "Invalid tile coordinates")
+        except Exception as e:
+            logger.error(f"Error serving hierarchical tile {state_slug}/{city_slug}/{layer_slug}/{z}/{x}/{y}.{format}: {e}")
+            return self._return_empty_tile(format)
+    
+    def _get_layer_by_hierarchy(self, state_slug, city_slug, layer_slug):
+        """Get layer using hierarchical slugs"""
+        try:
+            return DataLayer.objects.select_related('city__state_ref', 'category').get(
+                city__state_ref__slug=state_slug,
+                city__slug=city_slug,
+                slug=layer_slug,
+                city__is_active=True,
+                city__state_ref__is_active=True
+            )
+        except DataLayer.DoesNotExist:
+            logger.warning(f"Layer not found: {state_slug}/{city_slug}/{layer_slug}")
+            return None
+    
+    def _validate_tile_coordinates(self, z, x, y):
+        """Validate tile coordinates"""
+        if z < 0 or z > 20:
+            return False
+        if x < 0 or x >= (2 ** z):
+            return False
+        if y < 0 or y >= (2 ** z):
+            return False
+        return True
+    
+    def _should_use_cloudfront(self):
+        """Check if CloudFront should be used"""
+        return (
+            hasattr(settings, 'CLOUDFRONT_DOMAIN') and 
+            settings.CLOUDFRONT_DOMAIN and 
+            getattr(settings, 'USE_CLOUDFRONT', True)
+        )
+    
+    def _redirect_to_cloudfront_hierarchical(self, state_slug, city_slug, layer_slug, z, x, y, format):
+        """Redirect to CloudFront for hierarchical tiles"""
+        try:
+            from django.shortcuts import redirect
+            
+            cloudfront_url = f"https://{settings.CLOUDFRONT_DOMAIN}/tiles/{state_slug}/{city_slug}/{layer_slug}/{z}/{x}/{y}.{format}"
+            logger.info(f"☁️  Redirecting to CloudFront: {cloudfront_url}")
+            
+            response = redirect(cloudfront_url)
+            response['X-Tile-Source'] = 'cloudfront-hierarchical'
+            response['Cache-Control'] = 'max-age=3600'  # 1 hour cache
+            return response
+            
+        except Exception as e:
+            logger.error(f"CloudFront hierarchical redirect failed: {e}")
+            return None
+    
+    def _serve_from_s3_hierarchical(self, state_slug, city_slug, layer_slug, z, x, y, format):
+        """Serve hierarchical tiles directly from S3"""
+        try:
+            # Implementation would depend on your S3 setup
+            # This is a placeholder for S3 direct serving
+            logger.info(f"🪣 Attempting S3 hierarchical serve: {state_slug}/{city_slug}/{layer_slug}/{z}/{x}/{y}.{format}")
+            return None  # Implement based on your S3 configuration
+            
+        except Exception as e:
+            logger.error(f"S3 hierarchical serving failed: {e}")
+            return None
+    
+    def _serve_local_hierarchical_tile(self, state_slug, city_slug, layer_slug, z, x, y, format):
+        """Serve hierarchical tiles from local files"""
+        try:
+            # Try multiple possible local paths
+            possible_paths = [
+                f'static/tiles_{format}/{state_slug}/{city_slug}/{layer_slug}/{z}_{x}_{y}.{format}',
+                f'media/tiles_{format}/{state_slug}/{city_slug}/{layer_slug}/{z}_{x}_{y}.{format}',
+                f'static/tiles_{format}/{city_slug}/{layer_slug}/{z}_{x}_{y}.{format}',  # Fallback
+            ]
+            
+            for tile_path in possible_paths:
+                if os.path.exists(tile_path):
+                    logger.info(f"📁 Serving local hierarchical tile: {tile_path}")
+                    
+                    content_type = 'image/png' if format == 'png' else 'application/x-protobuf'
+                    response = FileResponse(
+                        open(tile_path, 'rb'), 
+                        content_type=content_type
+                    )
+                    response['Cache-Control'] = 'max-age=3600'
+                    response['X-Tile-Source'] = 'local-hierarchical'
+                    response['Access-Control-Allow-Origin'] = '*'
+                    return response
+            
+            return None
+            
+        except Exception as e:
+            logger.error(f"Error serving local hierarchical tile: {e}")
+            return None
+    
+    def _generate_hierarchical_tile_on_demand(self, layer, z, x, y, format):
+        """Generate hierarchical tile on-demand"""
+        try:
+            logger.info(f"🔄 Generating hierarchical tile on-demand: {layer.city.slug}/{layer.slug}/{z}/{x}/{y}.{format}")
+            
+            # Use existing vector tile service
+            vector_service = VectorTileService()
+            
+            # Generate MVT data for this specific layer
+            mvt_data = vector_service.generate_layer_tile([layer], z, x, y)
+            
+            if not mvt_data or len(mvt_data) == 0:
+                return self._return_empty_tile(format)
+            
+            if format == 'mvt':
+                # Return MVT directly
+                response = HttpResponse(mvt_data, content_type='application/x-protobuf')
+                response['Cache-Control'] = 'max-age=300'  # 5 minute cache for on-demand
+                response['X-Tile-Source'] = 'on-demand-hierarchical-mvt'
+                response['Access-Control-Allow-Origin'] = '*'
+                return response
+            
+            elif format == 'png':
+                # Convert MVT to PNG
+                render_service = TileRenderingService()
+                png_data = render_service.render_mvt_to_png(mvt_data, layer)
+                
+                response = HttpResponse(png_data, content_type='image/png')
+                response['Cache-Control'] = 'max-age=300'  # 5 minute cache for on-demand
+                response['X-Tile-Source'] = 'on-demand-hierarchical-png'
+                response['Access-Control-Allow-Origin'] = '*'
+                return response
+            
+            return None
+            
+        except Exception as e:
+            logger.error(f"Error generating hierarchical tile on-demand: {e}")
+            return None
+    
+    def _return_empty_tile(self, format):
+        """Return empty tile for the requested format"""
+        try:
+            if format == 'png':
+                render_service = TileRenderingService()
+                empty_png = render_service.create_empty_tile()
+                response = HttpResponse(empty_png, content_type='image/png')
+            elif format == 'mvt':
+                # Empty MVT tile
+                response = HttpResponse(b'', content_type='application/x-protobuf')
+            else:
+                response = HttpResponse(b'', content_type='application/octet-stream')
+            
+            response['Cache-Control'] = 'max-age=3600'
+            response['X-Tile-Source'] = 'empty-hierarchical'
+            response['Access-Control-Allow-Origin'] = '*'
+            return response
+            
+        except Exception as e:
+            logger.error(f"Error creating empty hierarchical tile: {e}")
+            return HttpResponse(b'', content_type='application/octet-stream', status=204)
+    
+    def _return_error_tile(self, format, error_message):
+        """Return error tile with message"""
+        logger.error(f"Hierarchical tile error: {error_message}")
+        return self._return_empty_tile(format)
+
+# ================================
+# ADDITIONAL UTILITY VIEWS
+# ================================
+
+class LayerStatusAPIView(APIView):
+    """Get status of a specific layer in the hierarchy"""
+    
+    def get(self, request, state_slug, city_slug, layer_slug):
+        """Get detailed status of a specific layer"""
+        try:
+            layer = DataLayer.objects.select_related('city__state_ref', 'category').get(
+                city__state_ref__slug=state_slug,
+                city__slug=city_slug,
+                slug=layer_slug
+            )
+            
+            return Response({
+                'state': layer.city.state_ref.name,
+                'city': layer.city.name,
+                'layer': {
+                    'name': layer.name,
+                    'slug': layer.slug,
+                    'category': layer.category.name,
+                    'is_processed': layer.is_processed,
+                    'tiles_generated': layer.tiles_generated,
+                    'feature_count': layer.feature_count,
+                    'is_live': layer.is_processed and layer.tiles_generated,
+                    'last_updated': layer.updated_at.isoformat() if layer.updated_at else None
+                }
+            })
+            
+        except DataLayer.DoesNotExist:
+            return Response({
+                'error': f'Layer not found: {state_slug}/{city_slug}/{layer_slug}'
+            }, status=status.HTTP_404_NOT_FOUND)
+        
+@api_view(['GET'])
+def state_list_api(request):
+    """
+    List all states for hierarchy navigation
+    GET /api/hierarchy/states/
+    """
+    try:
+        states = State.objects.filter(is_active=True).annotate(
+            city_count=Count('cities', filter=Q(cities__is_active=True)),
+            layer_count=Count('cities__layers'),
+            total_features=Count('cities__layers__geofeature_set')  # Fixed relationship
+        ).order_by('name')
+        
+        states_data = []
+        for state in states:
+            states_data.append({
+                'id': state.id,
+                'name': state.name,
+                'slug': state.slug,
+                'code': state.code,
+                'center_lat': state.center_lat,
+                'center_lng': state.center_lng,
+                'statistics': {
+                    'cities': state.city_count,
+                    'layers': state.layer_count,
+                    'features': state.total_features
+                }
+            })
+        
+        return Response({
+            'status': 'success',
+            'count': len(states_data),
+            'states': states_data
+        })
+        
+    except Exception as e:
+        return Response({
+            'status': 'error',
+            'message': str(e)
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+@api_view(['GET'])
+def state_cities_api(request, state_slug):
+    """
+    List all cities for a specific state
+    GET /api/hierarchy/states/<state_slug>/cities/
+    """
+    try:
+        try:
+            state = State.objects.get(slug=state_slug, is_active=True)
+        except State.DoesNotExist:
+            return Response({
+                'status': 'error',
+                'message': f'State not found: {state_slug}'
+            }, status=status.HTTP_404_NOT_FOUND)
+        
+        # Get cities with statistics
+        cities = City.objects.filter(state_ref=state, is_active=True).annotate(
+            layer_count=Count('layers'),
+            total_features=Count('layers__geofeature_set'),  # Fixed relationship
+            processed_layers=Count('layers', filter=Q(layers__is_processed=True)),
+            layers_with_tiles=Count('layers', filter=Q(layers__tiles_generated=True))
+        ).order_by('name')
+        
+        cities_data = []
+        for city in cities:
+            # Determine city status
+            is_live = city.processed_layers > 0 and city.layers_with_tiles > 0
+            
+            cities_data.append({
+                'id': city.id,
+                'name': city.name,
+                'slug': city.slug,
+                'center_lat': city.center_lat,
+                'center_lng': city.center_lng,
+                'is_active': city.is_active,
+                'status': 'live' if is_live else 'pending' if city.processed_layers > 0 else 'no_data',
+                'statistics': {
+                    'total_layers': city.layer_count,
+                    'processed_layers': city.processed_layers,
+                    'layers_with_tiles': city.layers_with_tiles,
+                    'total_features': city.total_features
+                }
+            })
+        
+        return Response({
+            'status': 'success',
+            'state': {
+                'id': state.id,
+                'name': state.name,
+                'slug': state.slug,
+                'code': state.code
+            },
+            'count': len(cities_data),
+            'cities': cities_data
+        })
+        
+    except Exception as e:
+        return Response({
+            'status': 'error',
+            'message': str(e)
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+@api_view(['GET'])
+def city_layers_api(request, city_slug):
+    """
+    List all layers for a specific city
+    GET /api/hierarchy/cities/<city_slug>/layers/
+    """
+    try:
+        try:
+            city = City.objects.select_related('state_ref').get(slug=city_slug, is_active=True)
+        except City.DoesNotExist:
+            return Response({
+                'status': 'error',
+                'message': f'City not found: {city_slug}'
+            }, status=status.HTTP_404_NOT_FOUND)
+        
+        # ❌ BROKEN: .annotate(feature_count=Count('geofeature_set'))
+        # ✅ FIXED: Use the existing feature_count field
+        layers = DataLayer.objects.filter(city=city).select_related('category')
+        
+        layers_data = []
+        for layer in layers:
+            # Use existing feature_count field
+            layer_feature_count = layer.feature_count or 0
+            
+            # Determine layer status
+            is_live = layer.is_processed and layer.tiles_generated
+            layer_status = 'live' if is_live else 'pending' if layer.is_processed else 'no_data'
+            
+            layers_data.append({
+                'id': layer.id,
+                'name': layer.name,
+                'slug': layer.slug,
+                'description': layer.description,
+                'category': {
+                    'name': layer.category.name,
+                    'code': layer.category.code,
+                    'color': layer.category.default_color
+                },
+                'status': layer_status,
+                'is_live': is_live,
+                'is_processed': layer.is_processed,
+                'tiles_generated': layer.tiles_generated,
+                'feature_count': layer_feature_count,  # Use existing field
+                'file_format': layer.file_format,
+                'created_at': layer.created_at.isoformat(),
+                'updated_at': layer.updated_at.isoformat() if layer.updated_at else None,
+                'bounds': {
+                    'xmin': layer.bbox_xmin,
+                    'ymin': layer.bbox_ymin,
+                    'xmax': layer.bbox_xmax,
+                    'ymax': layer.bbox_ymax
+                } if layer.has_valid_bbox() else None
+            })
+        
+        return Response({
+            'status': 'success',
+            'city': {
+                'id': city.id,
+                'name': city.name,
+                'slug': city.slug,
+                'state': city.state_ref.name if city.state_ref else city.state
+            },
+            'count': len(layers_data),
+            'layers': layers_data
+        })
+        
+    except Exception as e:
+        return Response({
+            'status': 'error',
+            'message': str(e)
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
+class OneCompleteHierarchyAPI(APIView):
+    """
+    🚀 SINGLE COMPLETE HIERARCHY API
+    
+    GET /api/complete-hierarchy/
+    
+    Returns EVERYTHING in one API call:
+    - All states with their cities
+    - All cities with their layers  
+    - All layers with their complete status
+    - Statistics at every level
+    - Ready-to-use frontend data structure
+    
+    No annotation conflicts, all relationships fixed!
+    """
+    
+    def get(self, request):
+        """Get the complete hierarchy in one optimized call"""
+        try:
+            # 🔥 OPTIMIZED QUERY - No annotation conflicts!
+            states = State.objects.filter(is_active=True).prefetch_related(
+                Prefetch(
+                    'cities',
+                    queryset=City.objects.filter(is_active=True).prefetch_related(
+                        Prefetch(
+                            'layers',
+                            queryset=DataLayer.objects.select_related('category').order_by('category__display_order', 'name')
+                        )
+                    ).order_by('name')
+                )
+            ).order_by('name')
+            
+            # 📊 Build the complete hierarchy
+            complete_hierarchy = {
+                'status': 'success',
+                'generated_at': timezone.now().isoformat(),
+                'summary': {
+                    'total_states': 0,
+                    'total_cities': 0,
+                    'total_layers': 0,
+                    'total_features': 0,
+                    'live_cities': 0,
+                    'pending_cities': 0
+                },
+                'hierarchy': []
+            }
+            
+            for state in states:
+                state_stats = {
+                    'total_cities': 0,
+                    'active_cities': 0,
+                    'total_layers': 0,
+                    'processed_layers': 0,
+                    'layers_with_tiles': 0,
+                    'total_features': 0
+                }
+                
+                cities_data = []
+                
+                for city in state.cities.all():
+                    city_stats = {
+                        'total_layers': 0,
+                        'processed_layers': 0,
+                        'layers_with_tiles': 0,
+                        'total_features': 0
+                    }
+                    
+                    layers_data = []
+                    
+                    # Process all layers for this city
+                    for layer in city.layers.all():
+                        # ✅ Use existing feature_count field (no annotation conflict!)
+                        layer_feature_count = layer.feature_count or 0
+                        
+                        # Determine layer status
+                        is_live = layer.is_processed and layer.tiles_generated
+                        
+                        if layer.is_processed:
+                            city_stats['processed_layers'] += 1
+                            state_stats['processed_layers'] += 1
+                            
+                        if layer.tiles_generated:
+                            city_stats['layers_with_tiles'] += 1
+                            state_stats['layers_with_tiles'] += 1
+                        
+                        city_stats['total_features'] += layer_feature_count
+                        state_stats['total_features'] += layer_feature_count
+                        
+                        # Layer data
+                        layer_data = {
+                            'id': layer.id,
+                            'name': layer.name,
+                            'slug': layer.slug,
+                            'description': layer.description or '',
+                            'category': {
+                                'id': layer.category.id,
+                                'name': layer.category.name,
+                                'code': layer.category.code,
+                                'color': layer.category.default_color,
+                                'display_order': layer.category.display_order
+                            },
+                            'status': {
+                                'is_live': is_live,
+                                'is_processed': layer.is_processed,
+                                'tiles_generated': layer.tiles_generated,
+                                'has_data': layer_feature_count > 0,
+                                'status_text': 'live' if is_live else 'pending' if layer.is_processed else 'no_data'
+                            },
+                            'data': {
+                                'feature_count': layer_feature_count,
+                                'file_format': layer.file_format,
+                                'geometry_type': layer.geometry_type or 'unknown',
+                                'categorization_method': layer.categorization_method
+                            },
+                            'spatial': {
+                                'has_bbox': layer.has_valid_bbox(),
+                                'bounds': {
+                                    'xmin': layer.bbox_xmin,
+                                    'ymin': layer.bbox_ymin,
+                                    'xmax': layer.bbox_xmax,
+                                    'ymax': layer.bbox_ymax
+                                } if layer.has_valid_bbox() else None
+                            },
+                            'timestamps': {
+                                'created_at': layer.created_at.isoformat(),
+                                'updated_at': layer.updated_at.isoformat() if layer.updated_at else None
+                            },
+                            'urls': {
+                                'vector_tile': f'/api/tiles/{state.slug}/{city.slug}/{layer.slug}/{{z}}/{{x}}/{{y}}.mvt',
+                                'raster_tile': f'/api/tiles/{state.slug}/{city.slug}/{layer.slug}/{{z}}/{{x}}/{{y}}.png',
+                                'features_api': f'/api/layers/{layer.id}/features/',
+                                'layer_detail': f'/api/layers/{layer.id}/'
+                            }
+                        }
+                        
+                        layers_data.append(layer_data)
+                        city_stats['total_layers'] += 1
+                        state_stats['total_layers'] += 1
+                    
+                    # City status determination
+                    city_is_live = city_stats['processed_layers'] > 0 and city_stats['layers_with_tiles'] > 0
+                    city_is_pending = city_stats['processed_layers'] > 0 and not city_is_live
+                    
+                    if city_is_live:
+                        complete_hierarchy['summary']['live_cities'] += 1
+                    elif city_is_pending:
+                        complete_hierarchy['summary']['pending_cities'] += 1
+                    
+                    # City data
+                    city_data = {
+                        'id': city.id,
+                        'name': city.name,
+                        'slug': city.slug,
+                        'state_name': state.name,
+                        'coordinates': {
+                            'center_lat': city.center_lat,
+                            'center_lng': city.center_lng,
+                            'zoom_range': {
+                                'min': city.min_zoom,
+                                'max': city.max_zoom
+                            }
+                        },
+                        'status': {
+                            'is_active': city.is_active,
+                            'is_live': city_is_live,
+                            'is_pending': city_is_pending,
+                            'status_text': 'live' if city_is_live else 'pending' if city_is_pending else 'no_data'
+                        },
+                        'statistics': city_stats,
+                        'urls': {
+                            'city_api': f'/api/cities/{city.slug}/',
+                            'layers_api': f'/api/hierarchy/cities/{city.slug}/layers/',
+                            'tiles_base': f'/api/tiles/{state.slug}/{city.slug}/'
+                        },
+                        'layers': layers_data
+                    }
+                    
+                    cities_data.append(city_data)
+                    state_stats['total_cities'] += 1
+                    if city.is_active:
+                        state_stats['active_cities'] += 1
+                
+                # State data
+                state_data = {
+                    'id': state.id,
+                    'name': state.name,
+                    'slug': state.slug,
+                    'code': state.code,
+                    'coordinates': {
+                        'center_lat': state.center_lat,
+                        'center_lng': state.center_lng,
+                        'default_zoom': state.default_zoom
+                    },
+                    'status': {
+                        'is_active': state.is_active,
+                        'has_data': state_stats['total_features'] > 0,
+                        'completion_percentage': round(
+                            (state_stats['processed_layers'] / state_stats['total_layers'] * 100) 
+                            if state_stats['total_layers'] > 0 else 0, 1
+                        )
+                    },
+                    'statistics': state_stats,
+                    'urls': {
+                        'state_api': f'/api/states/{state.slug}/',
+                        'cities_api': f'/api/hierarchy/states/{state.slug}/cities/',
+                        'tiles_base': f'/api/tiles/{state.slug}/'
+                    },
+                    'cities': cities_data
+                }
+                
+                complete_hierarchy['hierarchy'].append(state_data)
+                
+                # Update summary
+                complete_hierarchy['summary']['total_states'] += 1
+                complete_hierarchy['summary']['total_cities'] += state_stats['total_cities']
+                complete_hierarchy['summary']['total_layers'] += state_stats['total_layers']
+                complete_hierarchy['summary']['total_features'] += state_stats['total_features']
+            
+            # Add completion percentage to summary
+            complete_hierarchy['summary']['completion_percentage'] = round(
+                (complete_hierarchy['summary']['live_cities'] / complete_hierarchy['summary']['total_cities'] * 100)
+                if complete_hierarchy['summary']['total_cities'] > 0 else 0, 1
+            )
+            
+            # 🎯 Cache response for 5 minutes (optional)
+            # cache.set('complete_hierarchy', complete_hierarchy, 300)
+            
+            return Response(complete_hierarchy)
+            
+        except Exception as e:
+            import traceback
+            return Response({
+                'status': 'error',
+                'message': str(e),
+                'traceback': traceback.format_exc() if settings.DEBUG else None
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
+    def get_cache_key(self, request):
+        """Generate cache key for this response"""
+        return 'complete_hierarchy_v1'
+    
+    def should_cache(self, request):
+        """Determine if this response should be cached"""
+        return request.GET.get('no_cache', '').lower() != 'true'

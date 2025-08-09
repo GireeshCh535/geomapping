@@ -110,6 +110,55 @@ urlpatterns = [
     path('cities/<slug:city_slug>/tiles/coordinates/', 
          TileCoordinatesView.as_view(), name='tile_coordinates'),
 
+     path('hierarchy/', 
+         views.CompleteHierarchyAPIView.as_view(), 
+         name='complete_hierarchy_api'),
+    
+    # ================================
+    # NEW API 2: HIERARCHICAL TILE SERVING API
+    # ================================
+    
+    # PNG tiles with hierarchical structure
+    path('tiles/<slug:state_slug>/<slug:city_slug>/<slug:layer_slug>/<int:z>/<int:x>/<int:y>.png',
+         views.HierarchicalTileView.as_view(), 
+         {'format': 'png'}, 
+         name='hierarchical_tile_png'),
+    
+    # MVT tiles with hierarchical structure  
+    path('tiles/<slug:state_slug>/<slug:city_slug>/<slug:layer_slug>/<int:z>/<int:x>/<int:y>.mvt',
+         views.HierarchicalTileView.as_view(), 
+         {'format': 'mvt'}, 
+         name='hierarchical_tile_mvt'),
+    
+    # Generic format support (for future formats)
+    path('tiles/<slug:state_slug>/<slug:city_slug>/<slug:layer_slug>/<int:z>/<int:x>/<int:y>.<str:format>',
+         views.HierarchicalTileView.as_view(), 
+         name='hierarchical_tile_generic'),
+    
+    # ================================
+    # ADDITIONAL UTILITY ENDPOINTS
+    # ================================
+    
+    # Get status of specific layer in hierarchy
+    path('layers/<slug:state_slug>/<slug:city_slug>/<slug:layer_slug>/status/',
+         views.LayerStatusAPIView.as_view(), 
+         name='hierarchical_layer_status'),
+    
+    # Batch operations for hierarchical structure
+    path('hierarchy/states/', 
+         views.state_list_api, 
+         name='hierarchy_states_list'),
+    
+    path('hierarchy/states/<slug:state_slug>/cities/', 
+         views.state_cities_api, 
+         name='hierarchy_state_cities'),
+    
+    path('hierarchy/cities/<slug:city_slug>/layers/', 
+         views.city_layers_api, 
+         name='hierarchy_city_layers'),
+
+     path('complete-hierarchy/', views.OneCompleteHierarchyAPI.as_view(), name='one_complete_hierarchy'),
+
 ]
 
 # 📋 UPDATED API DOCUMENTATION
