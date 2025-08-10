@@ -150,7 +150,7 @@ class CityViewSet(viewsets.ReadOnlyModelViewSet):
         
         # PLU statistics (Bangalore only)
         plu_stats = {}
-        if city.slug == 'bangalore':
+        if city.slug == 'bengaluru':
             plu_codes = features.exclude(
                 Q(plu_primary_code='') | Q(plu_primary_code__isnull=True)
             ).values('plu_primary_code').annotate(
@@ -229,7 +229,7 @@ class DataLayerViewSet(viewsets.ReadOnlyModelViewSet):
         """
         layer = self.get_object()
         
-        if layer.city.slug != 'bangalore':
+        if layer.city.slug != 'bengaluru':
             return Response({
                 'error': 'PLU analysis only available for Bangalore layers'
             }, status=status.HTTP_400_BAD_REQUEST)

@@ -84,7 +84,7 @@ LAYER_CATEGORIES = {
 # BENGALURU LAYER CONFIGURATIONS
 # ================================
 
-# Master Plan Layers (FLEXIBLE PATTERNS to find your 16 files)
+# Master Plan Layers (from your paste.txt with exact colors)
 BENGALURU_MASTER_PLAN_LAYERS = {
     'Agricultural_Land': {
         'name': 'Agricultural Land',
@@ -200,7 +200,7 @@ BENGALURU_MASTER_PLAN_LAYERS = {
     }
 }
 
-# Highway Layers (from your paste.txt)
+# Highway Layer Configuration (separate STRR)
 BENGALURU_HIGHWAY_LAYERS = {
     'BellaryRoad_NH44': {
         'name': 'Bellary Road (NH-44)',
@@ -251,19 +251,23 @@ BENGALURU_HIGHWAY_LAYERS = {
         'file_pattern': 'NICE_Road.geojson',
         'description': 'Nandi Infrastructure Corridor Enterprises Road'
     },
-    'STRR': {
-        'name': 'Satellite Town Ring Road (STRR)',
-        'color': '#FF1493',
-        'category': 'TRANSPORT',
-        'file_pattern': 'STRR.geojson',
-        'description': 'Satellite Town Regional Ring Road'
-    },
     'TumakuruRoad_NH48': {
         'name': 'Tumakuru Road (NH-48)',
         'color': '#00CED1',
         'category': 'TRANSPORT',
         'file_pattern': 'TumakuruRoad_NH48.geojson',
         'description': 'National Highway 48 - Tumakuru Road'
+    }
+}
+
+# STRR as separate layer group (matches your folder structure)
+BENGALURU_STRR_LAYERS = {
+    'STRR': {
+        'name': 'Satellite Town Ring Road (STRR)',
+        'color': '#FF1493',
+        'category': 'TRANSPORT',
+        'file_pattern': 'STRR.geojson',
+        'description': 'Satellite Town Regional Ring Road'
     }
 }
 
@@ -278,7 +282,7 @@ BENGALURU_METRO_LAYERS = {
     }
 }
 
-# Workspace/Industrial Areas
+# Workspace/Industrial Areas (matches your "workspace" folder)
 BENGALURU_WORKSPACE_LAYERS = {
     'industrial_areas': {
         'name': 'Industrial Areas & Workspaces',
@@ -290,7 +294,7 @@ BENGALURU_WORKSPACE_LAYERS = {
 }
 
 # ================================
-# BENGALURU LAYER GROUPS
+# BENGALURU LAYER GROUPS (Updated to match your folder structure)
 # ================================
 
 BENGALURU_LAYER_GROUPS = {
@@ -302,20 +306,26 @@ BENGALURU_LAYER_GROUPS = {
     },
     'highways': {
         'name': 'Highways & Major Roads',
-        'description': 'National highways and major road network',
+        'description': 'National highways and major road network (excluding STRR)',
         'display_order': 2,
         'layers': BENGALURU_HIGHWAY_LAYERS
+    },
+    'strr': {
+        'name': 'STRR (Satellite Town Ring Road)',
+        'description': 'Satellite Town Regional Ring Road',
+        'display_order': 3,
+        'layers': BENGALURU_STRR_LAYERS
     },
     'metro': {
         'name': 'Metro Network',
         'description': 'Bengaluru Metro rail network',
-        'display_order': 3,
+        'display_order': 4,
         'layers': BENGALURU_METRO_LAYERS
     },
-    'workspaces': {
+    'workspace': {
         'name': 'Industrial Workspaces',
         'description': 'Industrial areas and business workspaces',
-        'display_order': 4,
+        'display_order': 5,
         'layers': BENGALURU_WORKSPACE_LAYERS
     }
 }
@@ -354,7 +364,7 @@ CITY_CONFIGS = {
 }
 
 # Alternative slug for Bengaluru
-CITY_CONFIGS['bangalore'] = CITY_CONFIGS['bengaluru']
+CITY_CONFIGS['bengaluru'] = CITY_CONFIGS['bengaluru']
 
 # ================================
 # STATE CONFIGURATIONS  
@@ -511,55 +521,171 @@ __all__ = [
     'detect_data_format',
     'convert_esri_to_geojson_geometry',
     'validate_city_configuration',
+    'detect_data_format_from_file_path',
 ]
 
-def detect_data_format(file_path):
-    """Detect data format from file extension"""
+def detect_data_format(data):
+    """
+    FIXED: Detect data format based on content structure (not file path)
+    
+    Args:
+        data: Loaded JSON data object (dict)
+        
+    Returns:
+        str: 'ESRI_JSON', 'GEOJSON', or 'UNKNOWN'
+    """
+    if not isinstance(data, dict):
+        return 'UNKNOWN'
+    
+    # Check for ESRI JSON indicators
+    esri_indicators = [
+        'displayFieldName',
+        'fieldAliases', 
+        'geometryType',
+        'spatialReference'
+    ]
+    
+    # If it has multiple ESRI indicators, it's ESRI JSON
+    esri_count = sum(1 for indicator in esri_indicators if indicator in data)
+    if esri_count >= 2:
+        return 'ESRI_JSON'
+    
+    # Check for GeoJSON format
+    if data.get('type') in ['FeatureCollection', 'Feature']:
+        return 'GEOJSON'
+    
+    # Check features structure to differentiate
+    features = data.get('features', [])
+    if features and isinstance(features, list) and features[0]:
+        first_feature = features[0]
+        
+        # ESRI JSON features have 'attributes' instead of 'properties'
+        if 'attributes' in first_feature and 'geometry' in first_feature:
+            # Check if geometry has ESRI-style structure
+            geometry = first_feature.get('geometry', {})
+            if 'rings' in geometry or 'paths' in geometry or ('x' in geometry and 'y' in geometry):
+                return 'ESRI_JSON'
+        
+        # GeoJSON features have 'properties' and standard geometry
+        if 'properties' in first_feature and 'geometry' in first_feature:
+            geometry = first_feature.get('geometry', {})
+            if 'type' in geometry and 'coordinates' in geometry:
+                return 'GEOJSON'
+    
+    return 'UNKNOWN'
+
+def detect_data_format_from_file_path(file_path):
+    """Detect data format from file extension (fallback method)"""
     file_path = str(file_path).lower()
     if file_path.endswith('.geojson'):
         return 'GEOJSON'
     elif file_path.endswith('.json'):
-        return 'JSON'
+        return 'JSON'  # Needs content-based detection
     elif file_path.endswith('.shp'):
         return 'SHP'
     else:
         return 'GEOJSON'  # Default
 
 def optimize_coordinates(coords, precision=8):
-    """Optimize coordinate precision"""
+    """
+    FIXED - Optimize coordinate precision for coordinate arrays (not geometry objects)
+    
+    Args:
+        coords: Coordinate array or nested arrays
+        precision: Decimal precision to round to
+        
+    Returns:
+        Optimized coordinate array
+    """
     if isinstance(coords, list):
         return [optimize_coordinates(coord, precision) for coord in coords]
     elif isinstance(coords, (int, float)):
         return round(float(coords), precision)
     return coords
 
-def convert_esri_to_geojson_geometry(esri_geometry):
-    """Convert ESRI geometry to GeoJSON format"""
-    # Basic conversion - can be enhanced based on needs
-    if 'rings' in esri_geometry:
-        # Polygon
-        return {
-            'type': 'Polygon',
-            'coordinates': esri_geometry['rings']
-        }
-    elif 'paths' in esri_geometry:
-        # LineString/MultiLineString
-        paths = esri_geometry['paths']
-        if len(paths) == 1:
-            return {
-                'type': 'LineString',
-                'coordinates': paths[0]
-            }
-        else:
-            return {
-                'type': 'MultiLineString',
-                'coordinates': paths
-            }
-    elif 'x' in esri_geometry and 'y' in esri_geometry:
-        # Point
-        return {
-            'type': 'Point',
-            'coordinates': [esri_geometry['x'], esri_geometry['y']]
-        }
+def optimize_geojson_geometry(geojson_geom, precision=8):
+    """
+    NEW - Optimize a GeoJSON geometry object's coordinates
     
-    return None
+    Args:
+        geojson_geom: GeoJSON geometry dict
+        precision: Decimal precision
+        
+    Returns:
+        Optimized GeoJSON geometry dict
+    """
+    if not isinstance(geojson_geom, dict) or 'coordinates' not in geojson_geom:
+        return geojson_geom
+    
+    optimized_geom = geojson_geom.copy()
+    optimized_geom['coordinates'] = optimize_coordinates(geojson_geom['coordinates'], precision)
+    
+    return optimized_geom
+
+def convert_esri_to_geojson_geometry(esri_geometry):
+    """
+    ENHANCED - Convert ESRI geometry to GeoJSON format with better error handling
+    
+    Args:
+        esri_geometry: ESRI geometry object
+        
+    Returns:
+        GeoJSON geometry dict or None if conversion fails
+    """
+    if not isinstance(esri_geometry, dict):
+        return None
+    
+    try:
+        # Handle ESRI Polygon (has 'rings')
+        if 'rings' in esri_geometry:
+            rings = esri_geometry['rings']
+            if not rings or not isinstance(rings, list):
+                return None
+                
+            # Ensure proper polygon structure
+            if len(rings) == 1:
+                # Simple polygon
+                return {
+                    'type': 'Polygon',
+                    'coordinates': rings
+                }
+            else:
+                # MultiPolygon or polygon with holes
+                return {
+                    'type': 'Polygon',
+                    'coordinates': rings
+                }
+        
+        # Handle ESRI LineString/MultiLineString (has 'paths')
+        elif 'paths' in esri_geometry:
+            paths = esri_geometry['paths']
+            if not paths or not isinstance(paths, list):
+                return None
+                
+            if len(paths) == 1:
+                return {
+                    'type': 'LineString',
+                    'coordinates': paths[0]
+                }
+            else:
+                return {
+                    'type': 'MultiLineString',
+                    'coordinates': paths
+                }
+        
+        # Handle ESRI Point (has 'x' and 'y')
+        elif 'x' in esri_geometry and 'y' in esri_geometry:
+            return {
+                'type': 'Point',
+                'coordinates': [esri_geometry['x'], esri_geometry['y']]
+            }
+        
+        # Handle already converted geometry
+        elif 'type' in esri_geometry and 'coordinates' in esri_geometry:
+            return esri_geometry
+        
+        return None
+        
+    except Exception as e:
+        print(f"    ❌ Geometry conversion error: {e}")
+        return None

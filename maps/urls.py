@@ -185,7 +185,7 @@ POST /api/direct-s3/generate/{city_slug}/ - Generate city-specific tiles to S3
     "action": "generate_city",
     "result": {
         "success": true,
-        "city": "bangalore",
+        "city": "bengaluru",
         "results": {
             "total_tiles": 1024,
             "generated_tiles": 1024,
@@ -196,8 +196,8 @@ POST /api/direct-s3/generate/{city_slug}/ - Generate city-specific tiles to S3
         },
         "success_rate": "100.0%",
         "sample_urls": {
-            "city_tile_example": "https://d17yosovmfjm4.cloudfront.net/bangalore/combined/12_2048_2048.png",
-            "template_png": "https://d17yosovmfjm4.cloudfront.net/bangalore/combined/{z}_{x}_{y}.png"
+            "city_tile_example": "https://d17yosovmfjm4.cloudfront.net/bengaluru/combined/12_2048_2048.png",
+            "template_png": "https://d17yosovmfjm4.cloudfront.net/bengaluru/combined/{z}_{x}_{y}.png"
         }
     }
 }

@@ -95,7 +95,7 @@ class Command(BaseCommand):
         """Upload tiles for all cities"""
         
         # List of cities (you can make this dynamic by querying the database)
-        cities = ['bangalore', 'hyderabad', 'vizag', 'amaravati']
+        cities = ['bengaluru', 'hyderabad', 'vizag', 'amaravati']
         
         self.stdout.write(f"\n🌍 Uploading {tile_type.upper()} tiles for all cities...")
         
