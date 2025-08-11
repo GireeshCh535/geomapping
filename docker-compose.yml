@@ -1,3 +1,6 @@
+# Docker Compose configuration for GeoMapping application
+# This setup includes nginx in Docker that will use existing SSL certificates
+# Host nginx will be stopped to avoid port conflicts
 version: '3.8'
 
 services:
@@ -13,13 +16,13 @@ services:
       - ./init-db.sql:/docker-entrypoint-initdb.d/01-init-db.sql
       - ./init-postgis.sql:/docker-entrypoint-initdb.d/02-init-postgis.sql
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"  # CHANGED: Bind to localhost only for security
     restart: unless-stopped
 
   redis:
     image: redis:7-alpine
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"  # CHANGED: Bind to localhost only for security
     volumes:
       - redis_data:/data
     command: >
@@ -39,7 +42,7 @@ services:
   web:
     build: .
     expose:
-      - "8000"
+      - "8000"  # CHANGED: Only expose, don't bind to host ports (nginx will proxy)
     environment:
       - DJANGO_DB_HOST=db
       - DJANGO_DB_NAME=geo_mapping_db
