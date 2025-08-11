@@ -114,14 +114,33 @@ class LayerCategory(models.Model):
 # CityLayerStyle: Per-city, per-category style overrides
 # -----------------------------
 class CityLayerStyle(models.Model):
-    """City-specific colors and styling for each category"""
+    """City-specific colors and styling for each category with pattern support"""
+
+    FILL_PATTERN_CHOICES = [
+        ('solid', 'Solid Fill'),
+        ('hatch', 'Hatch Fill'),
+        ('dot', 'Dot Fill'),
+        ('diagonal_hatch', 'Diagonal Hatch'),
+        ('cross_hatch', 'Cross Hatch'),
+    ]
+
     city = models.ForeignKey(City, on_delete=models.CASCADE, related_name='layer_styles')
     category = models.ForeignKey(LayerCategory, on_delete=models.CASCADE, related_name='city_styles')
-    # Style fields
+    
+    # Basic style fields
     fill_color = models.CharField(max_length=7)            # Fill color (hex)
     stroke_color = models.CharField(max_length=7, default='#333333')
     opacity = models.FloatField(default=0.7)
     stroke_width = models.IntegerField(default=1)
+
+    # Pattern support fields
+    fill_pattern = models.CharField(max_length=20, choices=FILL_PATTERN_CHOICES, default='solid')
+    pattern_color = models.CharField(max_length=7, blank=True)
+    pattern_density = models.IntegerField(default=5, help_text='Pattern density (1-10, lower = denser)')
+    pattern_size = models.IntegerField(default=3, help_text='Pattern element size in pixels')
+    pattern_rotation = models.FloatField(default=0.0)
+    render_notes = models.TextField(blank=True)
+
     # Visibility controls
     is_visible = models.BooleanField(default=True)
     min_zoom = models.IntegerField(null=True, blank=True)
@@ -133,6 +152,34 @@ class CityLayerStyle(models.Model):
     
     def __str__(self):
         return f"{self.city.name} - {self.category.name}"
+
+    def get_pattern_info(self):
+        """Get pattern information for rendering"""
+        return {
+            'type': self.fill_pattern,
+            'primary_color': self.fill_color,
+            'secondary_color': self.pattern_color or self.stroke_color,
+            'density': self.pattern_density,
+            'size': self.pattern_size,
+            'stroke_width': self.stroke_width,
+            'opacity': self.opacity,
+            'notes': self.render_notes,
+            'rotation': self.pattern_rotation,
+        }
+
+    def to_mapbox_style(self):
+        """Convert to MapBox style format"""
+        style = {
+            'fill-color': self.fill_color,
+            'fill-opacity': self.opacity,
+        }
+        if self.stroke_width > 0:
+            style.update({
+                'fill-outline-color': self.stroke_color,
+                'line-width': self.stroke_width,
+                'line-color': self.stroke_color,
+            })
+        return style
 
 # -----------------------------
 # LayerGroup: Groups related layers (e.g., all lakes, all masterplan files)
@@ -350,6 +397,31 @@ class GeoFeature(models.Model):
     
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+
+    # Validation and quality tracking
+    validation_status = models.CharField(
+        max_length=20,
+        choices=[
+            ('valid', 'Valid'),
+            ('warning', 'Has Warnings'),
+            ('error', 'Has Errors'),
+            ('missing_data', 'Missing Required Data'),
+        ],
+        default='valid'
+    )
+    validation_messages = models.JSONField(default=list, blank=True)
+    quality_score = models.FloatField(null=True, blank=True, help_text='Data quality score 0-100')
+    data_completeness = models.FloatField(default=100.0, help_text='Percentage of required fields present')
+    geometry_quality = models.CharField(
+        max_length=20,
+        choices=[
+            ('excellent', 'Excellent'),
+            ('good', 'Good'),
+            ('fair', 'Fair'),
+            ('poor', 'Poor'),
+        ],
+        default='good'
+    )
     
     class Meta:
         db_table = 'geo_features'
@@ -365,6 +437,8 @@ class GeoFeature(models.Model):
             models.Index(fields=['township', 'sector']),
             models.Index(fields=['plot_category']),
             models.Index(fields=['colony']),
+            models.Index(fields=['validation_status']),
+            models.Index(fields=['layer', 'validation_status']),
         ]
     
     def save(self, *args, **kwargs):
@@ -409,6 +483,108 @@ class GeoFeature(models.Model):
     
     def __str__(self):
         return f"Feature {self.source_fid or self.id} - {self.get_display_name()}"
+
+    def validate_feature_data(self):
+        """Validate feature data completeness and quality"""
+        issues = []
+        completeness_score = 0
+        total_fields = 0
+
+        # Basic required fields
+        required_fields = ['geometry', 'layer']
+        for field in required_fields:
+            total_fields += 1
+            if getattr(self, field, None):
+                completeness_score += 1
+            else:
+                issues.append(f"Missing required field: {field}")
+
+        # City-specific required attributes
+        city_slug = self.layer.city.slug if self.layer and self.layer.city else ''
+        if city_slug == 'warangal':
+            required_attrs = ['PLU', 'PLU_NAME', 'Area']
+        elif city_slug == 'visakhapatnam':
+            required_attrs = ['Category', 'Shape_Area']
+        elif city_slug == 'amaravati':
+            required_attrs = ['symbology', 'plot_categ']
+        else:
+            required_attrs = []
+
+        source_attrs = self.source_attributes or {}
+        for attr in required_attrs:
+            total_fields += 1
+            if attr in source_attrs and source_attrs[attr]:
+                completeness_score += 1
+            else:
+                issues.append(f"Missing {city_slug} required attribute: {attr}")
+
+        completeness = (completeness_score / total_fields * 100) if total_fields > 0 else 100
+
+        if not issues:
+            status = 'valid'
+        elif completeness >= 80:
+            status = 'warning'
+        else:
+            status = 'missing_data'
+
+        self.validation_status = status
+        self.validation_messages = issues
+        self.data_completeness = completeness
+
+        return {
+            'status': status,
+            'issues': issues,
+            'completeness': completeness
+        }
+
+class ValidationReport(models.Model):
+    """Track validation reports for cities and layers"""
+    city = models.ForeignKey(City, on_delete=models.CASCADE, related_name='validation_reports')
+    layer = models.ForeignKey(DataLayer, on_delete=models.CASCADE, null=True, blank=True, related_name='validation_reports')
+
+    report_type = models.CharField(
+        max_length=30,
+        choices=[
+            ('city_overview', 'City Overview'),
+            ('layer_specific', 'Layer Specific'),
+            ('missing_features', 'Missing Features'),
+            ('style_coverage', 'Style Coverage'),
+        ]
+    )
+
+    total_features = models.IntegerField(default=0)
+    valid_features = models.IntegerField(default=0)
+    features_with_warnings = models.IntegerField(default=0)
+    features_with_errors = models.IntegerField(default=0)
+    missing_data_features = models.IntegerField(default=0)
+
+    issues_summary = models.JSONField(default=list)
+    detailed_issues = models.JSONField(default=dict)
+
+    styled_categories = models.IntegerField(default=0)
+    unstyled_categories = models.IntegerField(default=0)
+    missing_patterns = models.JSONField(default=list)
+
+    generated_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'validation_reports'
+        ordering = ['-generated_at']
+        indexes = [
+            models.Index(fields=['city', 'report_type']),
+            models.Index(fields=['generated_at']),
+        ]
+
+    def __str__(self):
+        layer_info = f" - {self.layer.name}" if self.layer else ""
+        return f"{self.city.name} {self.report_type}{layer_info} ({self.generated_at.date()})"
+
+    @property
+    def overall_score(self):
+        if self.total_features == 0:
+            return 100.0
+        score = (self.valid_features / self.total_features) * 100
+        return round(score, 1)
 
 class PLUCodeMapping(models.Model):
     """Store PLU code mappings for different cities"""

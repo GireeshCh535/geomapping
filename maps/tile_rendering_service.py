@@ -216,11 +216,10 @@ class TileRenderingService:
             
             if len(scaled_coords) >= 3:  # A valid polygon needs at least 3 points
                 # Create colors with transparency
-                fill_color = rgb_color + (120,)  # Semi-transparent fill
-                outline_color = rgb_color + (255,)  # Solid outline
+                fill_color = rgb_color + (140,)
                 
-                # Draw polygon
-                draw.polygon(scaled_coords, fill=fill_color, outline=outline_color, width=1)
+                # Draw polygon with NO border as per requirement
+                draw.polygon(scaled_coords, fill=fill_color)
                 return True
                 
         except Exception as e:
