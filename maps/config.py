@@ -1,14 +1,14 @@
 # maps/config.py
 """
-Clean configuration for Karnataka Bengaluru layers only
-Contains layer definitions with specific colors for master plan, highways, metro, and workspaces
+Complete configuration with Telangana (Hyderabad & Warangal) support
+Preserves all existing Karnataka Bengaluru functionality without changes
 """
 
 from django.contrib.gis.geos import GEOSGeometry
 import json
 
 # ================================
-# LAYER CATEGORY MAPPINGS
+# LAYER CATEGORY MAPPINGS (UNCHANGED + EXTENDED)
 # ================================
 
 LAYER_CATEGORIES = {
@@ -72,6 +72,18 @@ LAYER_CATEGORIES = {
         'default_color': '#70A800',
         'default_opacity': 0.7
     },
+    'MIXED_USE': {
+        'name': 'Mixed Use',
+        'description': 'Mixed land use and development areas',
+        'default_color': '#FFB347',
+        'default_opacity': 0.7
+    },
+    'BOUNDARIES': {
+        'name': 'Administrative Boundaries',
+        'description': 'Administrative and development authority boundaries',
+        'default_color': '#FF6347',
+        'default_opacity': 0.7
+    },
     'UNCLASSIFIED': {
         'name': 'Unclassified',
         'description': 'Unclassified land use',
@@ -81,7 +93,7 @@ LAYER_CATEGORIES = {
 }
 
 # ================================
-# BENGALURU LAYER CONFIGURATIONS
+# BENGALURU LAYER CONFIGURATIONS (UNCHANGED)
 # ================================
 
 # Master Plan Layers (from your paste.txt with exact colors)
@@ -294,7 +306,7 @@ BENGALURU_WORKSPACE_LAYERS = {
 }
 
 # ================================
-# BENGALURU LAYER GROUPS (Updated to match your folder structure)
+# BENGALURU LAYER GROUPS (UNCHANGED)
 # ================================
 
 BENGALURU_LAYER_GROUPS = {
@@ -331,10 +343,315 @@ BENGALURU_LAYER_GROUPS = {
 }
 
 # ================================
-# CITY CONFIGURATIONS
+# NEW: HYDERABAD LAYER CONFIGURATIONS
+# ================================
+
+# Future City Development Areas (nested folder structure - FIXED to skip shapefile)
+HYDERABAD_FUTURE_CITY_LAYERS = {
+    'HMDA_Boundary': {
+        'name': 'HMDA Boundary',
+        'color': '#FF6347',
+        'category': 'BOUNDARIES',
+        'file_pattern': 'FCDA_Boundary_Villages/HMDA_Boundary.geojson',
+        'description': 'Hyderabad Metropolitan Development Authority boundary'
+    },
+    'HMDA_Villages_Clip': {
+        'name': 'HMDA Villages',
+        'color': '#FF7F50',
+        'category': 'BOUNDARIES',
+        'file_pattern': 'FCDA_Boundary_Villages/HMDA_Villages_Clip.geojson',
+        'description': 'HMDA village boundaries and administrative areas'
+    }
+    # NOTE: Removed FutureCityHyderabad_Boundary shapefile - system doesn't support shapefiles
+    # If needed, convert to GeoJSON: ogr2ogr -f GeoJSON output.geojson input.shp
+}
+
+# Highway Layers
+HYDERABAD_HIGHWAY_LAYERS = {
+    'hyd_highways_merged': {
+        'name': 'Hyderabad Highways',
+        'color': '#708090',
+        'category': 'TRANSPORT',
+        'file_pattern': 'hyd_highways_merged.geojson',
+        'description': 'Major highways including NH 163 Warangal Highway'
+    }
+}
+
+# Metro Lines (metro-lines folder)
+HYDERABAD_METRO_LINES_LAYERS = {
+    'metro_lines': {
+        'name': 'Hyderabad Metro Lines',
+        'color': '#4169E1',
+        'category': 'TRANSPORT', 
+        'file_pattern': 'Hyd_metro_lines_ph_1*2_Final.geojson',
+        'description': 'Hyderabad Metro Phase 1 & 2 lines'
+    },
+    'metro_stations': {
+        'name': 'Hyderabad Metro Stations',
+        'color': '#0000CD',
+        'category': 'TRANSPORT',
+        'file_pattern': 'Hyd_metro_stations_ph1*2.geojson', 
+        'description': 'Hyderabad Metro Phase 1 & 2 stations'
+    }
+}
+
+# Master Plan Roads (master-plan-roads folder)
+HYDERABAD_MASTER_PLAN_ROADS_LAYERS = {
+    'masterplan_roads': {
+        'name': 'HMDA Master Plan Roads',
+        'color': '#696969',
+        'category': 'TRANSPORT',
+        'file_pattern': 'HMDA_masterplan_roads_merged.geojson',
+        'description': 'HMDA master plan proposed roads'
+    }
+}
+
+# Regional Ring Road
+HYDERABAD_RRR_LAYERS = {
+    'regional_ring_road': {
+        'name': 'Regional Ring Road (RRR)',
+        'color': '#B22222',
+        'category': 'TRANSPORT',
+        'file_pattern': 'RRR_Final.geojson',
+        'description': 'Hyderabad Regional Ring Road (North & South parts)'
+    }
+}
+
+# Workspaces/SEZ
+HYDERABAD_WORKSPACE_LAYERS = {
+    'sez_areas': {
+        'name': 'Special Economic Zones',
+        'color': '#9370DB',
+        'category': 'INDUSTRIAL',
+        'file_pattern': 'Hyd_SEZs_Final.geojson',
+        'description': 'Special Economic Zones and industrial workspaces'
+    }
+}
+
+# ================================
+# NEW: WARANGAL LAYER CONFIGURATIONS  
+# ================================
+
+# Warangal Master Plan (all files in master_plan folder)
+WARANGAL_MASTER_PLAN_LAYERS = {
+    'Agriculture': {
+        'name': 'Agricultural Areas',
+        'color': '#9DC1CB',
+        'category': 'AGRICULTURAL',
+        'file_pattern': 'Agriculture.geojson',
+        'description': 'Agricultural and farming areas in Warangal'
+    },
+    'AirStrip': {
+        'name': 'Air Strip',
+        'color': '#FFB6C1',
+        'category': 'TRANSPORT',
+        'file_pattern': 'AirStrip.geojson',
+        'description': 'Airport and airstrip facilities'
+    },
+    'Commercial': {
+        'name': 'Commercial Areas',
+        'color': '#73B2FF',
+        'category': 'COMMERCIAL',
+        'file_pattern': 'Commercial.geojson',
+        'description': 'Commercial and business areas'
+    },
+    'Forest': {
+        'name': 'Forest Areas',
+        'color': '#228B22',
+        'category': 'PROTECTED',
+        'file_pattern': 'Forest.geojson',
+        'description': 'Forest and protected green areas'
+    },
+    'GrowthCorridor': {
+        'name': 'Growth Corridor',
+        'color': '#FF8C00',
+        'category': 'MIXED_USE',
+        'file_pattern': 'GrowthCorridor.geojson',
+        'description': 'Development growth corridors'
+    },
+    'GrowthCorridor2': {
+        'name': 'Growth Corridor 2',
+        'color': '#FFA500',
+        'category': 'MIXED_USE',
+        'file_pattern': 'GrowthCorridor2.geojson',
+        'description': 'Secondary development growth corridors'
+    },
+    'Heritage': {
+        'name': 'Heritage Areas',
+        'color': '#DEB887',
+        'category': 'PROTECTED',
+        'file_pattern': 'Heritage.geojson',
+        'description': 'Heritage and historically significant areas'
+    },
+    'HillBuffer': {
+        'name': 'Hill Buffer Zones',
+        'color': '#8FBC8F',
+        'category': 'PROTECTED',
+        'file_pattern': 'HillBuffer.geojson',
+        'description': 'Hill buffer and conservation zones'
+    },
+    'Hillocks': {
+        'name': 'Hillocks',
+        'color': '#A0522D',
+        'category': 'PROTECTED',
+        'file_pattern': 'Hillocks.geojson',
+        'description': 'Natural hillocks and elevated areas'
+    },
+    'Industrial': {
+        'name': 'Industrial Areas',
+        'color': '#AA66B2',
+        'category': 'INDUSTRIAL',
+        'file_pattern': 'Industrial.geojson',
+        'description': 'Industrial zones and manufacturing areas'
+    },
+    'MixedUse': {
+        'name': 'Mixed Use Areas',
+        'color': '#FFB347',
+        'category': 'MIXED_USE',
+        'file_pattern': 'MixedUse.geojson',
+        'description': 'Mixed-use development areas'
+    },
+    'Public_and_SemiPublic': {
+        'name': 'Public & Semi-Public',
+        'color': '#E60000',
+        'category': 'GOVERNMENT',
+        'file_pattern': 'Public_and_SemiPublic.geojson',
+        'description': 'Public and semi-public facilities'
+    },
+    'PublicUtilities': {
+        'name': 'Public Utilities',
+        'color': '#D79E9E',
+        'category': 'UTILITIES',
+        'file_pattern': 'PublicUtilities.geojson',
+        'description': 'Public utility infrastructure'
+    },
+    'RailwayLand': {
+        'name': 'Railway Land',
+        'color': '#2F4F4F',
+        'category': 'TRANSPORT',
+        'file_pattern': 'RailwayLand.geojson',
+        'description': 'Railway land and corridors'
+    },
+    'Recreational': {
+        'name': 'Recreational Areas',
+        'color': '#98E600',
+        'category': 'PARKS_GREEN',
+        'file_pattern': 'Recreational.geojson',
+        'description': 'Parks, recreational, and leisure areas'
+    },
+    'Residential': {
+        'name': 'Residential Areas',
+        'color': '#FFEBAF',
+        'category': 'RESIDENTIAL',
+        'file_pattern': 'Residential.geojson',
+        'description': 'Existing residential areas'
+    },
+    'ResidentialExpansion': {
+        'name': 'Residential Expansion',
+        'color': '#FFDEAD',
+        'category': 'RESIDENTIAL',
+        'file_pattern': 'ResidentialExpansion.geojson',
+        'description': 'Planned residential expansion areas'
+    },
+    'RoadBuffer': {
+        'name': 'Road Buffer Zones',
+        'color': '#708090',
+        'category': 'TRANSPORT',
+        'file_pattern': 'RoadBuffer.geojson',
+        'description': 'Road buffer and setback zones'
+    },
+    'Transportation': {
+        'name': 'Transportation Infrastructure',
+        'color': '#828282',
+        'category': 'TRANSPORT',
+        'file_pattern': 'Transportation.geojson',
+        'description': 'Transportation infrastructure and corridors'
+    },
+    'Water_Bodies': {
+        'name': 'Water Bodies',
+        'color': '#87CEEB',
+        'category': 'WATER_BODIES',
+        'file_pattern': 'Water_Bodies.geojson',
+        'description': 'Rivers, lakes, and water bodies'
+    },
+    'WaterBodyBuffer': {
+        'name': 'Water Body Buffer',
+        'color': '#B0E0E6',
+        'category': 'WATER_BODIES',
+        'file_pattern': 'WaterBodyBuffer.geojson',
+        'description': 'Water body buffer and protection zones'
+    },
+    'ZoologicalPark': {
+        'name': 'Zoological Park',
+        'color': '#90EE90',
+        'category': 'PARKS_GREEN',
+        'file_pattern': 'ZoologicalPark.geojson',
+        'description': 'Zoological park and wildlife areas'
+    }
+}
+
+# ================================
+# NEW: HYDERABAD LAYER GROUPS
+# ================================
+
+HYDERABAD_LAYER_GROUPS = {
+    'future-city': {
+        'name': 'Future City Development',
+        'description': 'Future City Hyderabad boundaries and administrative areas (FCDA)',
+        'display_order': 1,
+        'layers': HYDERABAD_FUTURE_CITY_LAYERS
+    },
+    'highways': {
+        'name': 'Highways & Major Roads',
+        'description': 'National highways and major road network',
+        'display_order': 2,
+        'layers': HYDERABAD_HIGHWAY_LAYERS
+    },
+    'metro-lines': {
+        'name': 'Metro Network',
+        'description': 'Hyderabad Metro lines and stations (Phase 1 & 2)',
+        'display_order': 3,
+        'layers': HYDERABAD_METRO_LINES_LAYERS
+    },
+    'master-plan-roads': {
+        'name': 'Master Plan Roads',
+        'description': 'HMDA master plan proposed roads',
+        'display_order': 4,
+        'layers': HYDERABAD_MASTER_PLAN_ROADS_LAYERS
+    },
+    'rrr': {
+        'name': 'Regional Ring Road',
+        'description': 'Hyderabad Regional Ring Road (RRR)',
+        'display_order': 5,
+        'layers': HYDERABAD_RRR_LAYERS
+    },
+    'workspaces': {
+        'name': 'Special Economic Zones',
+        'description': 'SEZs and industrial workspaces',
+        'display_order': 6,
+        'layers': HYDERABAD_WORKSPACE_LAYERS
+    }
+}
+
+# ================================
+# NEW: WARANGAL LAYER GROUPS
+# ================================
+
+WARANGAL_LAYER_GROUPS = {
+    'master_plan': {
+        'name': 'Warangal Master Plan',
+        'description': 'Complete Warangal urban master plan with all land use categories',
+        'display_order': 1,
+        'layers': WARANGAL_MASTER_PLAN_LAYERS
+    }
+}
+
+# ================================
+# UPDATED CITY CONFIGURATIONS
 # ================================
 
 CITY_CONFIGS = {
+    # Existing Bengaluru config (UNCHANGED)
     'bengaluru': {
         'city_info': {
             'name': 'Bengaluru',
@@ -360,26 +677,93 @@ CITY_CONFIGS = {
             'PROTECTED': '#70A800',
             'UNCLASSIFIED': '#E1E1E1'
         }
+    },
+    
+    # NEW: Hyderabad config
+    'hyderabad': {
+        'city_info': {
+            'name': 'Hyderabad',
+            'slug': 'hyderabad',
+            'state_ref_id': None,
+            'description': 'Cyberabad - City of Pearls',
+            'center_lat': 17.3850,
+            'center_lng': 78.4867,
+            'zoom_level': 11
+        },
+        'layer_groups': HYDERABAD_LAYER_GROUPS,
+        'coordinate_precision': 8,
+        'default_colors': {
+            'AGRICULTURAL': '#9DC1CB',
+            'COMMERCIAL': '#73B2FF',
+            'GOVERNMENT': '#E60000', 
+            'INDUSTRIAL': '#AA66B2',
+            'RESIDENTIAL': '#FFEBAF',
+            'TRANSPORT': '#828282',
+            'WATER_BODIES': '#BEE8FF',
+            'PARKS_GREEN': '#98E600',
+            'UTILITIES': '#D79E9E',
+            'PROTECTED': '#70A800',
+            'MIXED_USE': '#FFB347',
+            'BOUNDARIES': '#FF6347',
+            'UNCLASSIFIED': '#E1E1E1'
+        }
+    },
+    
+    # NEW: Warangal config
+    'warangal': {
+        'city_info': {
+            'name': 'Warangal',
+            'slug': 'warangal',
+            'state_ref_id': None,
+            'description': 'Historic city and urban development center',
+            'center_lat': 17.9784,
+            'center_lng': 79.6003,
+            'zoom_level': 12
+        },
+        'layer_groups': WARANGAL_LAYER_GROUPS,
+        'coordinate_precision': 8,
+        'default_colors': {
+            'AGRICULTURAL': '#9DC1CB',
+            'COMMERCIAL': '#73B2FF',
+            'GOVERNMENT': '#E60000',
+            'INDUSTRIAL': '#AA66B2',
+            'RESIDENTIAL': '#FFEBAF',
+            'TRANSPORT': '#828282',
+            'WATER_BODIES': '#BEE8FF',
+            'PARKS_GREEN': '#98E600',
+            'UTILITIES': '#D79E9E',
+            'PROTECTED': '#70A800',
+            'MIXED_USE': '#FFB347',
+            'UNCLASSIFIED': '#E1E1E1'
+        }
     }
 }
 
-# Alternative slug for Bengaluru
+# Alternative slug for Bengaluru (UNCHANGED)
 CITY_CONFIGS['bengaluru'] = CITY_CONFIGS['bengaluru']
 
 # ================================
-# STATE CONFIGURATIONS  
+# UPDATED STATE CONFIGURATIONS  
 # ================================
 
 STATE_CONFIGS = {
+    # Existing Karnataka (UNCHANGED)
     'karnataka': {
         'name': 'Karnataka',
         'code': 'KA',
         'cities': ['bengaluru']
+    },
+    
+    # NEW: Telangana state
+    'telangana': {
+        'name': 'Telangana', 
+        'code': 'TS',
+        'cities': ['hyderabad', 'warangal']
     }
 }
 
 # ================================
-# HELPER FUNCTIONS
+# HELPER FUNCTIONS (UNCHANGED + EXTENDED)
 # ================================
 
 def get_city_config(city_slug):
@@ -442,7 +826,7 @@ def get_category_color(city_slug, category_code):
     return category_info.get('default_color', '#CCCCCC')
 
 # ================================
-# COMPATIBILITY FUNCTIONS
+# COMPATIBILITY FUNCTIONS (UNCHANGED)
 # (For existing code that might reference these)
 # ================================
 
@@ -502,27 +886,6 @@ def validate_city_configuration(city_slug):
         return False, f"Missing required configuration fields: {missing_fields}"
     
     return True, "Configuration is valid"
-
-# Export commonly used functions for import compatibility
-__all__ = [
-    'CITY_CONFIGS',
-    'STATE_CONFIGS',
-    'LAYER_CATEGORIES',
-    'get_city_config',
-    'get_layer_groups_config',
-    'get_layer_config',
-    'get_all_layers_for_city',
-    'get_layer_color',
-    'get_category_color',
-    'get_plu_mapping', 
-    'map_plu_code_to_category',
-    'get_attribute_mapping',
-    'optimize_coordinates',
-    'detect_data_format',
-    'convert_esri_to_geojson_geometry',
-    'validate_city_configuration',
-    'detect_data_format_from_file_path',
-]
 
 def detect_data_format(data):
     """
@@ -689,3 +1052,25 @@ def convert_esri_to_geojson_geometry(esri_geometry):
     except Exception as e:
         print(f"    ❌ Geometry conversion error: {e}")
         return None
+
+# Export commonly used functions for import compatibility
+__all__ = [
+    'CITY_CONFIGS',
+    'STATE_CONFIGS',
+    'LAYER_CATEGORIES',
+    'get_city_config',
+    'get_layer_groups_config',
+    'get_layer_config',
+    'get_all_layers_for_city',
+    'get_layer_color',
+    'get_category_color',
+    'get_plu_mapping', 
+    'map_plu_code_to_category',
+    'get_attribute_mapping',
+    'optimize_coordinates',
+    'detect_data_format',
+    'convert_esri_to_geojson_geometry',
+    'validate_city_configuration',
+    'detect_data_format_from_file_path',
+    'optimize_geojson_geometry'
+]
