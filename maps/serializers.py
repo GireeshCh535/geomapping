@@ -216,40 +216,7 @@ class VectorTileLayerSerializer(serializers.ModelSerializer):
             'generated_at', 'updated_at'
         ]
 
-class ImportJobSerializer(serializers.ModelSerializer):
-    city_name = serializers.CharField(source='city.name', read_only=True)
-    duration_seconds = serializers.SerializerMethodField()
-    success_rate = serializers.SerializerMethodField()
-    
-    class Meta:
-        model = ImportJob
-        fields = [
-            'id', 'city_name', 'filename', 'file_format', 'category_mapped',
-            'categorization_method', 'status', 'features_imported', 
-            'features_failed', 'features_skipped', 'plu_codes_detected',
-            'plu_mapping_applied', 'geometry_conversions', 'coordinate_optimizations',
-            'duration_seconds', 'success_rate', 'error_message', 
-            'started_at', 'completed_at'
-        ]
-    
-    def get_duration_seconds(self, obj):
-        """Get processing duration in seconds"""
-        if obj.processing_duration:
-            return obj.processing_duration.total_seconds()
-        return None
-    
-    def get_success_rate(self, obj):
-        """Calculate import success rate"""
-        total = obj.features_imported + obj.features_failed + obj.features_skipped
-        if total > 0:
-            return round((obj.features_imported / total) * 100, 1)
-        return 0
 
-class ImportJobDetailSerializer(ImportJobSerializer):
-    """Detailed serializer with error details"""
-    
-    class Meta(ImportJobSerializer.Meta):
-        fields = ImportJobSerializer.Meta.fields + ['error_details']
 
 # Specialized serializers for different use cases
 
@@ -340,25 +307,3 @@ class CityConfigDetailSerializer(serializers.Serializer):
     data_format = serializers.CharField()
     coordinate_precision = serializers.IntegerField()
     plu_mapping = serializers.DictField(required=False)
-
-class PlotSerializer(GeoFeatureModelSerializer):
-    """GeoJSON serializer for Plot data"""
-    
-    class Meta:
-        model = Plot
-        geo_field = 'location'
-        fields = [
-            'plot_id', 'area_sq_yards', 'price_per_sq_yard', 'total_price',
-            'marker_title', 'marker_id', 'is_active'
-        ]
-
-class LandSerializer(GeoFeatureModelSerializer):
-    """GeoJSON serializer for Land data"""
-    
-    class Meta:
-        model = Land
-        geo_field = 'location'
-        fields = [
-            'land_id', 'area_text', 'price_text', 
-            'marker_title', 'marker_id', 'is_active'
-        ]

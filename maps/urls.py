@@ -13,9 +13,7 @@ router.register(r'categories', views.LayerCategoryViewSet)
 router.register(r'layer-groups', views.LayerGroupViewSet)
 router.register(r'layers', views.DataLayerViewSet)
 router.register(r'features', views.GeoFeatureViewSet)
-router.register(r'import-jobs', views.ImportJobViewSet)
-router.register(r'plots', PlotViewSet)
-router.register(r'lands', LandViewSet)
+
 
 urlpatterns = [
     
@@ -35,12 +33,6 @@ urlpatterns = [
     path('tiles/<slug:city_slug>/<slug:layer_slug>/<int:z>/<int:x>/<int:y>.mvt', 
          views.VectorTileView.as_view(), name='vector_tile'),
     
-    # 🚀 REAL ESTATE TILES (CloudFront-enabled)
-    path('real-estate-tiles/<str:tile_type>/<int:z>/<int:x>/<int:y>.mvt',
-         RealEstateVectorTileView.as_view(), name='real_estate_vector_tile'),
-         
-    path('real-estate-tiles/<str:tile_type>/<int:z>/<int:x>/<int:y>.png',
-         views.RealEstateRasterTileView.as_view(), name='real_estate_raster_tile'),
 
     # 🆕 NEW: DIRECT S3 GENERATION ENDPOINTS
     path('direct-s3/generate/',

@@ -1072,5 +1072,391 @@ __all__ = [
     'convert_esri_to_geojson_geometry',
     'validate_city_configuration',
     'detect_data_format_from_file_path',
-    'optimize_geojson_geometry'
+    'optimize_geojson_geometry',
+    'get_city_style_config'
 ]
+
+def get_visakhapatnam_styles():
+    """Get Visakhapatnam layer styles with pattern support"""
+    return {
+        'Agricultural Use Zone': {
+            'fill_color': '#D3FFBE',
+            'pattern': 'SOLID'
+        },
+        'Blue Zone Water Bodies': {
+            'fill_color': '#73FFDF',
+            'pattern': 'SOLID'
+        },
+        'Brown Zone Hills': {
+            'fill_color': '#A87000',
+            'pattern': 'SOLID'
+        },
+        'Commercial Use Zone': {
+            'fill_color': '#004DA8',
+            'pattern': 'SOLID'
+        },
+        'Existing Crematorium / Burial Ground / Graveyard': {
+            'pattern': 'HATCHED',
+            'pattern_color': '#FF0000',
+            'fill_color': '#FFFFFF',
+            'secondary_fill': '#FFFFFF'
+        },
+        'Existing Educational Facilities': {
+            'pattern': 'HATCHED',
+            'pattern_color': '#000000',
+            'fill_color': '#FF0000',
+            'secondary_fill': '#FF0000'
+        },
+        'Existing Government / Semi Government Facilities': {
+            'fill_color': '#FF0000',
+            'pattern': 'SOLID'
+        },
+        'Existing Health Facilities': {
+            'pattern': 'DOTTED',
+            'pattern_color': '#CCCCCC',
+            'fill_color': '#FF0000',
+            'secondary_fill': '#FF0000'
+        },
+        'Proposed Industrial Use Zone': {
+            'pattern': 'HATCHED',
+            'pattern_color': '#FFFFFF',
+            'fill_color': '#C500FF',
+            'secondary_fill': '#C500FF'
+        },
+        'Existing Industrial Area': {
+            'fill_color': '#C500FF',
+            'pattern': 'SOLID'
+        },
+        'Existing Public Utilities': {
+            'pattern': 'HATCHED',
+            'pattern_color': '#E60000',
+            'fill_color': '#FF7F7F',
+            'secondary_fill': '#FF7F7F'
+        },
+        'Existing Recreational / Playgrounds / Parks / Layout Open Space': {
+            'fill_color': '#55FF00',
+            'pattern': 'SOLID'
+        },
+        'Existing Religious Facilities': {
+            'pattern': 'HATCHED',
+            'pattern_color': '#55FF00',
+            'fill_color': '#FF0000',
+            'secondary_fill': '#FF0000'
+        },
+        'Existing Road / Railway Line Area': {
+            'pattern': 'HATCHED',
+            'pattern_color': '#828282',
+            'fill_color': '#FFFFFF',
+            'secondary_fill': '#FFFFFF'
+        },
+        'Existing Transportation Facility': {
+            'fill_color': '#686868',
+            'pattern': 'SOLID'
+        },
+        'Green Zone Forest': {
+            'fill_color': '#00734C',
+            'pattern': 'SOLID'
+        },
+        'Kambalakonda Eco Sensitive Zone / NAOB Buffer / Zoological Park': {
+            'fill_color': '#D7C29E',
+            'pattern': 'SOLID'
+        },
+        'Kambalakonda WildLife Sanctuary / Biodiversity Area': {
+            'fill_color': '#38A800',
+            'pattern': 'SOLID'
+        },
+        'Mixed Use Zone 1': {
+            'fill_color': '#FFAA00',
+            'pattern': 'SOLID'
+        },
+        'Mixed Use Zone 2': {
+            'fill_color': '#FFD37F',
+            'pattern': 'SOLID'
+        },
+        'Mixed Use Zone 3': {
+            'pattern': 'HATCHED',
+            'pattern_color': '#E1E1E1',
+            'fill_color': '#E69800',
+            'secondary_fill': '#E69800'
+        },
+        'Mixed Use Zone 4': {
+            'pattern': 'DOTTED',
+            'pattern_color': '#000000',
+            'fill_color': '#FFAA00',
+            'secondary_fill': '#FFAA00'
+        },
+        'Proposed PSP Use Zone': {
+            'pattern': 'HATCHED',
+            'pattern_color': '#FF0000',
+            'fill_color': '#FFFFFF',
+            'secondary_fill': '#FFFFFF'
+        },
+        'Proposed Public Utilities Use Zone': {
+            'pattern': 'HATCHED',
+            'pattern_color': '#FFFFFF',
+            'fill_color': '#F57A7A',
+            'secondary_fill': '#F57A7A'
+        },
+        'Proposed Recreational Use Zone': {
+            'fill_color': '#4C7300',
+            'pattern': 'SOLID'
+        },
+        'Proposed Road Network': {
+            'fill_color': '#000000',
+            'pattern': 'SOLID'
+        },
+        'Proposed Transportation Facility Use Zone': {
+            'pattern': 'HATCHED',
+            'pattern_color': '#FFFFFF',
+            'fill_color': '#343434',
+            'secondary_fill': '#343434'
+        },
+        'Residential Use Zone': {
+            'fill_color': '#FFFF73',
+            'pattern': 'SOLID'
+        },
+        'Sea / River / Accreted Land': {
+            'pattern': 'DOTTED',
+            'pattern_color': '#E39E00',
+            'fill_color': '#D7C29E',
+            'secondary_fill': '#D7C29E'
+        },
+        'Special Area Use Zone': {
+            'pattern': 'HATCHED',
+            'pattern_color': '#002673',
+            'fill_color': '#FFFFFF',
+            'secondary_fill': '#FFFFFF'
+        },
+        'Water Body Buffer': {
+            'pattern': 'DOTTED',
+            'pattern_color': '#267300',
+            'fill_color': '#4CE600',
+            'secondary_fill': '#4CE600'
+        }
+    }
+
+def get_amaravati_styles():
+    """Get Amaravati layer styles with pattern support"""
+    return {
+        'Burial Ground': {
+            'pattern': 'DOTTED',
+            'pattern_color': '#E39E00',
+            'fill_color': '#FFFFFF',
+            'secondary_fill': '#FFFFFF'
+        },
+        'C1 - Mixed Use Zone': {
+            'fill_color': '#73B2FF',
+            'pattern': 'SOLID'
+        },
+        'C2 - General Commercial Zone': {
+            'fill_color': '#00C5FF',
+            'pattern': 'SOLID',
+            'stroke_color': '#000000',
+            'stroke_width': 1
+        },
+        'C3 - Neighbourhood Centre Zone': {
+            'fill_color': '#00C5FF',
+            'pattern': 'SOLID'
+        },
+        'C4 - Town Centre Zone': {
+            'fill_color': '#00A9E6',
+            'pattern': 'SOLID'
+        },
+        'C5 - Regional Centre Zone': {
+            'fill_color': '#0070FF',
+            'pattern': 'SOLID'
+        },
+        'C6 - Central Business District Zone': {
+            'fill_color': '#005CE6',
+            'pattern': 'SOLID'
+        },
+        'Commercial Vacant': {
+            'fill_color': '#C5E2FF',
+            'pattern': 'SOLID'
+        },
+        'I1 - Business Park Zone': {
+            'fill_color': '#FFBEE8',
+            'pattern': 'SOLID'
+        },
+        'I2 - Logistics Zone': {
+            'fill_color': '#FF73DF',
+            'pattern': 'SOLID'
+        },
+        'I3 - Non Polluting Industry Zone': {
+            'fill_color': '#A900E6',
+            'pattern': 'SOLID'
+        },
+        'P1 - Passive Zone': {
+            'fill_color': '#267300',
+            'pattern': 'SOLID'
+        },
+        'P2 - Active Zone': {
+            'fill_color': '#38A800',
+            'pattern': 'SOLID'
+        },
+        'P3 - Protected Zone': {
+            'fill_color': '#BEE8FF',
+            'pattern': 'SOLID'
+        },
+        'P3 - Protected Zone Hills': {
+            'fill_color': '#4C7300',
+            'pattern': 'SOLID'
+        },
+        'PGN-G': {
+            'fill_color': '#4C7300',
+            'pattern': 'SOLID'
+        },
+        'PGN-V': {
+            'fill_color': '#897044',
+            'pattern': 'SOLID'
+        },
+        'R1 - Village Planning Zone': {
+            'pattern': 'HATCHED',
+            'pattern_color': '#000000',
+            'fill_color': '#FFFFFF',
+            'secondary_fill': '#FFFFFF'
+        },
+        'R3 - Medium to High Density Zone': {
+            'fill_color': '#F5CA7A',
+            'pattern': 'SOLID'
+        },
+        'R4 - High Density Zone': {
+            'fill_color': '#E69800',
+            'pattern': 'SOLID'
+        },
+        'RAA': {
+            'fill_color': '#FFAA00',
+            'pattern': 'SOLID'
+        },
+        'Residential Vacant': {
+            'fill_color': '#FFD37F',
+            'pattern': 'SOLID'
+        },
+        'S2 - Education Zone': {
+            'fill_color': '#FF7F7F',
+            'pattern': 'SOLID'
+        },
+        'S3 - Special Zone': {
+            'fill_color': '#D7B09E',
+            'pattern': 'SOLID'
+        },
+        'SC1a - Mixed Use': {
+            'fill_color': '#0070FF',
+            'pattern': 'SOLID'
+        },
+        'SC1b - Mixed Use': {
+            'fill_color': '#73B2FF',
+            'pattern': 'SOLID'
+        },
+        'SP1 - Passive Zone': {
+            'fill_color': '#267300',
+            'pattern': 'SOLID'
+        },
+        'SP2 - Active Zone': {
+            'fill_color': '#38A800',
+            'pattern': 'SOLID'
+        },
+        'SP3 - Protected Zone': {
+            'fill_color': '#00C5FF',
+            'pattern': 'SOLID'
+        },
+        'SR2 - Low Density Housing': {
+            'fill_color': '#FFFFBE',
+            'pattern': 'SOLID'
+        },
+        'SR4 - High Density Private': {
+            'fill_color': '#FFAA00',
+            'pattern': 'SOLID'
+        },
+        'SS1 - Government Zone': {
+            'fill_color': '#E60000',
+            'pattern': 'SOLID'
+        },
+        'SS2a - Education Zone': {
+            'fill_color': '#FF7F7F',
+            'pattern': 'SOLID'
+        },
+        'SS2b - Cultural Zone': {
+            'fill_color': '#C500FF',
+            'pattern': 'SOLID'
+        },
+        'SS2c - Health Zone': {
+            'fill_color': '#D3FFBE',
+            'pattern': 'SOLID'
+        },
+        'SS3 - Special Zone': {
+            'fill_color': '#A83800',
+            'pattern': 'SOLID'
+        },
+        'SU1 - Reserve Zone': {
+            'fill_color': '#E1E1E1',
+            'pattern': 'SOLID'
+        },
+        'SU2 - Road Network': {
+            'fill_color': '#FFFFFF',
+            'pattern': 'SOLID',
+            'stroke_color': '#000000',
+            'stroke_width': 1
+        },
+        'U1 - Reserve Zone': {
+            'fill_color': '#CCCCCC',
+            'pattern': 'SOLID'
+        },
+        'U2 - Road Reserve Zone': {
+            'fill_color': '#000000',
+            'pattern': 'SOLID'
+        }
+    }
+
+def get_city_style_config(city_slug: str, zone_name: str) -> dict:
+    """
+    Get style configuration for a specific zone in a city.
+    This includes pattern information if applicable.
+    """
+    if city_slug == 'visakhapatnam':
+        styles = get_visakhapatnam_styles()
+    elif city_slug == 'amaravati':
+        styles = get_amaravati_styles()
+    else:
+        # Default solid styles for other cities
+        return {
+            'fill_color': '#CCCCCC',
+            'pattern': 'SOLID',
+            'stroke_width': 0
+        }
+    
+    # Get the style for the specific zone
+    style = styles.get(zone_name, {
+        'fill_color': '#CCCCCC',
+        'pattern': 'SOLID',
+        'stroke_width': 0
+    })
+    
+    # Ensure stroke_width is 0 unless explicitly set
+    if 'stroke_width' not in style:
+        style['stroke_width'] = 0
+    
+    return style
+
+# Pattern rendering parameters
+PATTERN_DEFAULTS = {
+    'HATCHED': {
+        'spacing': 12,
+        'angle': 45,
+        'line_width': 2
+    },
+    'DOTTED': {
+        'spacing': 15,
+        'dot_size': 3
+    },
+    'STRIPED': {
+        'spacing': 20,
+        'angle': 45,
+        'stripe_width': 8
+    },
+    'CROSS_HATCHED': {
+        'spacing': 12,
+        'angle': 45,
+        'line_width': 2
+    }
+}
