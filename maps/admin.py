@@ -73,8 +73,10 @@ class CityAdmin(admin.ModelAdmin):
     get_layers_count.short_description = 'Total Layers'
     
     def get_features_count(self, obj):
+        """FIXED: Format number with commas safely"""
         count = obj.get_features_count()
-        return format_html('{:,} features', count)
+        formatted_count = f"{count:,}"
+        return format_html('{} features', formatted_count)
     get_features_count.short_description = 'Total Features'
 
 # ================================

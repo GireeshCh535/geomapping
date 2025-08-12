@@ -266,9 +266,9 @@ class Command(BaseCommand):
         """Normalize city name to slug"""
         # Handle special cases
         if 'BMRDA' in city_name:
-            return 'bengaluru'
+            return 'bmrda'
         elif city_name.lower() == 'bangalore':
-            return 'bengaluru'  
+            return 'bengaluru'
         elif '(HR)' in city_name or '(UP)' in city_name or '(RJ)' in city_name:
             # Remove state suffix and normalize
             clean_name = city_name.split('(')[0].strip()
@@ -279,7 +279,7 @@ class Command(BaseCommand):
     def clean_city_name(self, city_name: str) -> str:
         """Clean city name for display"""
         if 'BMRDA' in city_name:
-            return 'Bengaluru'
+            return 'BMRDA'
         elif '(HR)' in city_name or '(UP)' in city_name or '(RJ)' in city_name:
             # Remove state suffix 
             return city_name.split('(')[0].strip()
@@ -347,6 +347,7 @@ class Command(BaseCommand):
             'warangal': (17.9784, 79.6000),
             'bengaluru': (12.9716, 77.5946),
             'bangalore': (12.9716, 77.5946),
+            'bmrda': (12.8406, 77.6602),
             'delhi': (28.6139, 77.2090),
             'gurgaon': (28.4595, 77.0266),
             'noida': (28.5355, 77.3910),
@@ -447,8 +448,9 @@ class Command(BaseCommand):
                         'name': layer_info['name'],
                         'city': city,
                         'category': category,
-                        'is_active': True,
-                        'is_premium': layer_info.get('access', '').lower() == 'premium'
+                        'description': f"{layer_info['name']} layer for {city.name}"
+                        # 'is_active': True,
+                        # 'is_premium': layer_info.get('access', '').lower() == 'premium'
                     }
                 )
                 if created:
