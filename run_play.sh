@@ -3,8 +3,8 @@
 # Enhanced deployment script with better debugging
 # Configuration
 SSH_KEY="oneacre-prod.pem"
-SERVER_HOST="13.201.23.9"
-DOMAIN="gis-portal2.1acre.in"
+SERVER_HOST="3.110.137.254"
+DOMAIN="geomaps.1acre.in"
 ANSIBLE_USER="ubuntu"
 
 echo "🚀 Enhanced GeoDjango deployment to AWS EC2..."

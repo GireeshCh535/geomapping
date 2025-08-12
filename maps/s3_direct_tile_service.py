@@ -30,7 +30,7 @@ class S3DirectTileGenerationService:
     """
     
     def __init__(self):
-        self.bucket_name = getattr(settings, 'AWS_STORAGE_BUCKET_NAME', 'gis-portal')
+        self.bucket_name = getattr(settings, 'AWS_STORAGE_BUCKET_NAME')
         self.region = getattr(settings, 'AWS_S3_REGION_NAME', 'ap-south-1')
         self.cloudfront_domain = getattr(settings, 'CLOUDFRONT_DOMAIN', None)
         

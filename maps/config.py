@@ -4,85 +4,72 @@ Complete configuration with Telangana (Hyderabad & Warangal) support
 Preserves all existing Karnataka Bengaluru functionality without changes
 """
 
-from django.contrib.gis.geos import GEOSGeometry
-import json
-
-# ================================
-# LAYER CATEGORY MAPPINGS (UNCHANGED + EXTENDED)
-# ================================
-
 LAYER_CATEGORIES = {
-    'AGRICULTURAL': {
-        'name': 'Agricultural',
-        'description': 'Agricultural and farming areas',
-        'default_color': '#9DC1CB',
-        'default_opacity': 0.7
+    'RESIDENTIAL': {
+        'name': 'Residential',
+        'description': 'Residential areas',
+        'default_color': '#FFFF73',
+        'default_opacity': 0.8
     },
     'COMMERCIAL': {
         'name': 'Commercial',
         'description': 'Commercial and business areas',
-        'default_color': '#73B2FF',
-        'default_opacity': 0.7
+        'default_color': '#004DA8',
+        'default_opacity': 0.8
+    },
+    'INDUSTRIAL': {
+        'name': 'Industrial',
+        'description': 'Industrial zones',
+        'default_color': '#C500FF',
+        'default_opacity': 0.8
+    },
+    'AGRICULTURAL': {
+        'name': 'Agricultural',
+        'description': 'Agricultural lands',
+        'default_color': '#D3FFBE',
+        'default_opacity': 0.8
+    },
+    'TRANSPORT': {
+        'name': 'Transportation',
+        'description': 'Transport infrastructure',
+        'default_color': '#686868',
+        'default_opacity': 0.9
+    },
+    'PARKS_GREEN': {
+        'name': 'Parks & Green Spaces',
+        'description': 'Parks and recreational areas',
+        'default_color': '#55FF00',
+        'default_opacity': 0.8
+    },
+    'WATER_BODIES': {
+        'name': 'Water Bodies',
+        'description': 'Water bodies',
+        'default_color': '#73FFDF',
+        'default_opacity': 0.9
     },
     'GOVERNMENT': {
         'name': 'Government',
         'description': 'Government and public facilities',
         'default_color': '#E60000',
-        'default_opacity': 0.7
-    },
-    'INDUSTRIAL': {
-        'name': 'Industrial',
-        'description': 'Industrial and manufacturing areas',
-        'default_color': '#AA66B2',
-        'default_opacity': 0.7
-    },
-    'RESIDENTIAL': {
-        'name': 'Residential',
-        'description': 'Residential areas',
-        'default_color': '#FFEBAF',
-        'default_opacity': 0.7
-    },
-    'TRANSPORT': {
-        'name': 'Transport',
-        'description': 'Transportation infrastructure',
-        'default_color': '#828282',
-        'default_opacity': 0.7
-    },
-    'WATER_BODIES': {
-        'name': 'Water Bodies',
-        'description': 'Lakes, tanks, drains, and water features',
-        'default_color': '#BEE8FF',
-        'default_opacity': 0.7
-    },
-    'PARKS_GREEN': {
-        'name': 'Parks & Green Spaces',
-        'description': 'Parks, playgrounds, and green spaces',
-        'default_color': '#98E600',
-        'default_opacity': 0.7
-    },
-    'UTILITIES': {
-        'name': 'Utilities',
-        'description': 'Power, water, and utility facilities',
-        'default_color': '#D79E9E',
-        'default_opacity': 0.7
-    },
-    'PROTECTED': {
-        'name': 'Protected Areas',
-        'description': 'Protected forests and conservation areas',
-        'default_color': '#70A800',
-        'default_opacity': 0.7
+        'default_opacity': 0.8
     },
     'MIXED_USE': {
         'name': 'Mixed Use',
-        'description': 'Mixed land use and development areas',
-        'default_color': '#FFB347',
-        'default_opacity': 0.7
+        'description': 'Mixed use zones',
+        'default_color': '#FFAA00',
+        'default_opacity': 0.8
     },
-    'BOUNDARIES': {
-        'name': 'Administrative Boundaries',
-        'description': 'Administrative and development authority boundaries',
-        'default_color': '#FF6347',
-        'default_opacity': 0.7
+    'PROTECTED': {
+        'name': 'Protected',
+        'description': 'Protected areas',
+        'default_color': '#267300',
+        'default_opacity': 0.8
+    },
+    'UTILITIES': {
+        'name': 'Utilities',
+        'description': 'Public utilities and infrastructure',
+        'default_color': '#D79E9E',
+        'default_opacity': 0.8
     },
     'UNCLASSIFIED': {
         'name': 'Unclassified',
@@ -93,672 +80,646 @@ LAYER_CATEGORIES = {
 }
 
 # ================================
-# BENGALURU LAYER CONFIGURATIONS (UNCHANGED)
+# COMPLETE DATA IMPORT CONFIGURATION
 # ================================
 
-# Master Plan Layers (from your paste.txt with exact colors)
-BENGALURU_MASTER_PLAN_LAYERS = {
-    'Agricultural_Land': {
-        'name': 'Agricultural Land',
-        'color': '#9DC1CB',
-        'category': 'AGRICULTURAL',
-        'file_pattern': '*gricultural*.json',  # Flexible pattern
-        'description': 'Agricultural and farming lands'
-    },
-    'CommercialBusiness': {
-        'name': 'Commercial Business',
-        'color': '#73B2FF',
-        'category': 'COMMERCIAL',
-        'file_pattern': 'Commercial_Business_.json',
-        'description': 'Commercial business areas'
-    },
-    'CommercialCentral': {
-        'name': 'Commercial Central',
-        'color': '#004DA8',
-        'category': 'COMMERCIAL',
-        'file_pattern': 'Commercial_Central_.json',
-        'description': 'Central commercial districts'
-    },
-    'Defense': {
-        'name': 'Defense',
-        'color': '#E0B8FC',
-        'category': 'GOVERNMENT',
-        'file_pattern': 'Defense.json',
-        'description': 'Defense establishments'
-    },
-    'Drains': {
-        'name': 'Drains',
-        'color': '#267300',
-        'category': 'WATER_BODIES',
-        'file_pattern': 'Drains.json',
-        'description': 'Drainage systems and channels'
-    },
-    'HighTech': {
-        'name': 'High Tech',
-        'color': '#C29ED7',
-        'category': 'INDUSTRIAL',
-        'file_pattern': 'HighTech.json',
-        'description': 'High-tech industrial areas'
-    },
-    'Industrial': {
-        'name': 'Industrial',
-        'color': '#AA66B2',
-        'category': 'INDUSTRIAL',
-        'file_pattern': 'Industrial.json',
-        'description': 'Industrial zones'
-    },
-    'Lake_Tank': {
-        'name': 'Lakes & Tanks',
-        'color': '#BEE8FF',
-        'category': 'WATER_BODIES',
-        'file_pattern': 'Lake_Tank.json',
-        'description': 'Lakes, tanks, and water bodies'
-    },
-    'Parks_GreenSpaces_Sports_Playgrounds_Cemetery_BurialGrounds': {
-        'name': 'Parks & Green Spaces',
-        'color': '#98E600',
-        'category': 'PARKS_GREEN',
-        'file_pattern': 'Parks_GreenSpaces_Sports_Playgrounds_Cemetery_BurialGrounds.json',
-        'description': 'Parks, green spaces, sports facilities, and cemeteries'
-    },
-    'Power_Water_GarbageFacility_TreatmentPlant': {
-        'name': 'Utilities & Infrastructure',
-        'color': '#D79E9E',
-        'category': 'UTILITIES',
-        'file_pattern': 'Power_Water_GarbageFacility_TreatmentPlant.json',
-        'description': 'Power, water, and waste treatment facilities'
-    },
-    'Public_SemiPublic': {
-        'name': 'Public & Semi-Public',
-        'color': '#E60000',
-        'category': 'GOVERNMENT',
-        'file_pattern': 'Public_SemiPublic.json',
-        'description': 'Public and semi-public facilities'
-    },
-    'ResidentialMain': {
-        'name': 'Residential Main',
-        'color': '#FFEBAF',
-        'category': 'RESIDENTIAL',
-        'file_pattern': 'Residential_Main_.json',
-        'description': 'Primary residential areas'
-    },
-    'ResidentialMixed': {
-        'name': 'Residential Mixed',
-        'color': '#FFC400',
-        'category': 'RESIDENTIAL',
-        'file_pattern': 'Residential_Mixed_.json',
-        'description': 'Mixed residential areas'
-    },
-    'Road_Rail_Airport_Transport': {
-        'name': 'Transport Infrastructure',
-        'color': '#828282',
-        'category': 'TRANSPORT',
-        'file_pattern': 'Road_Rail_Airport_Transport.json',
-        'description': 'Roads, railways, airports, and transport infrastructure'
-    },
-    'StateForest_ValleyProtectedLand': {
-        'name': 'Protected Forest & Valley',
-        'color': '#70A800',
-        'category': 'PROTECTED',
-        'file_pattern': 'StateForest_Valley_ProtectedLand_.json',
-        'description': 'State forests and protected valley lands'
-    },
-    'Unclassified_Use': {
-        'name': 'Unclassified Use',
-        'color': '#E1E1E1',
-        'category': 'UNCLASSIFIED',
-        'file_pattern': 'Unclassified_Use.json',
-        'description': 'Unclassified land use areas'
-    }
-}
-
-# Highway Layer Configuration (separate STRR)
-BENGALURU_HIGHWAY_LAYERS = {
-    'BellaryRoad_NH44': {
-        'name': 'Bellary Road (NH-44)',
-        'color': '#FF6B35',
-        'category': 'TRANSPORT',
-        'file_pattern': 'BellaryRoad_NH44.geojson',
-        'description': 'National Highway 44 - Bellary Road'
-    },
-    'BengaluruChennaiExpressway_NE7': {
-        'name': 'Bengaluru-Chennai Expressway (NE-7)',
-        'color': '#F7931E',
-        'category': 'TRANSPORT',
-        'file_pattern': 'BengaluruChennaiExpressway_NE7.geojson',
-        'description': 'Bengaluru to Chennai Expressway'
-    },
-    'BengaluruMysuruRoad_NH275': {
-        'name': 'Bengaluru-Mysuru Road (NH-275)',
-        'color': '#FFD700',
-        'category': 'TRANSPORT',
-        'file_pattern': 'BengaluruMysuruRoad_NH275.geojson',
-        'description': 'National Highway 275 - Bengaluru to Mysuru Road'
-    },
-    'HosurRoad_NH48': {
-        'name': 'Hosur Road (NH-48)',
-        'color': '#32CD32',
-        'category': 'TRANSPORT',
-        'file_pattern': 'HosurRoad_NH48.geojson',
-        'description': 'National Highway 48 - Hosur Road'
-    },
-    'KanakpuraRoad_NH948': {
-        'name': 'Kanakpura Road (NH-948)',
-        'color': '#1E90FF',
-        'category': 'TRANSPORT',
-        'file_pattern': 'KanakpuraRoad_NH948.geojson',
-        'description': 'National Highway 948 - Kanakpura Road'
-    },
-    'MadrasRoad_NH75': {
-        'name': 'Madras Road (NH-75)',
-        'color': '#8A2BE2',
-        'category': 'TRANSPORT',
-        'file_pattern': 'MadrasRoad_NH75.geojson',
-        'description': 'National Highway 75 - Madras Road'
-    },
-    'NICE_Road': {
-        'name': 'NICE Road',
-        'color': '#DC143C',
-        'category': 'TRANSPORT',
-        'file_pattern': 'NICE_Road.geojson',
-        'description': 'Nandi Infrastructure Corridor Enterprises Road'
-    },
-    'TumakuruRoad_NH48': {
-        'name': 'Tumakuru Road (NH-48)',
-        'color': '#00CED1',
-        'category': 'TRANSPORT',
-        'file_pattern': 'TumakuruRoad_NH48.geojson',
-        'description': 'National Highway 48 - Tumakuru Road'
-    }
-}
-
-# STRR as separate layer group (matches your folder structure)
-BENGALURU_STRR_LAYERS = {
-    'STRR': {
-        'name': 'Satellite Town Ring Road (STRR)',
-        'color': '#FF1493',
-        'category': 'TRANSPORT',
-        'file_pattern': 'STRR.geojson',
-        'description': 'Satellite Town Regional Ring Road'
-    }
-}
-
-# Metro Layers
-BENGALURU_METRO_LAYERS = {
-    'metro_lines': {
-        'name': 'Bengaluru Metro Lines',
-        'color': '#0066CC',
-        'category': 'TRANSPORT',
-        'file_pattern': '*.geojson',
-        'description': 'Bengaluru Metro Phases 1, 2, 2A & 2B'
-    }
-}
-
-# Workspace/Industrial Areas (matches your "workspace" folder)
-BENGALURU_WORKSPACE_LAYERS = {
-    'industrial_areas': {
-        'name': 'Industrial Areas & Workspaces',
-        'color': '#8B4513',
-        'category': 'INDUSTRIAL',
-        'file_pattern': 'Blr_Industrial_Area_processed.geojson',
-        'description': 'Industrial areas and business workspaces'
-    }
-}
-
-# ================================
-# BENGALURU LAYER GROUPS (UNCHANGED)
-# ================================
-
-BENGALURU_LAYER_GROUPS = {
-    'master_plan': {
-        'name': 'Master Plan 2015',
-        'description': 'Bengaluru Master Plan 2015 - Land Use Categories',
-        'display_order': 1,
-        'layers': BENGALURU_MASTER_PLAN_LAYERS
-    },
-    'highways': {
-        'name': 'Highways & Major Roads',
-        'description': 'National highways and major road network (excluding STRR)',
-        'display_order': 2,
-        'layers': BENGALURU_HIGHWAY_LAYERS
-    },
-    'strr': {
-        'name': 'STRR (Satellite Town Ring Road)',
-        'description': 'Satellite Town Regional Ring Road',
-        'display_order': 3,
-        'layers': BENGALURU_STRR_LAYERS
-    },
-    'metro': {
-        'name': 'Metro Network',
-        'description': 'Bengaluru Metro rail network',
-        'display_order': 4,
-        'layers': BENGALURU_METRO_LAYERS
-    },
-    'workspace': {
-        'name': 'Industrial Workspaces',
-        'description': 'Industrial areas and business workspaces',
-        'display_order': 5,
-        'layers': BENGALURU_WORKSPACE_LAYERS
-    }
-}
-
-# ================================
-# NEW: HYDERABAD LAYER CONFIGURATIONS
-# ================================
-
-# Future City Development Areas (nested folder structure - FIXED to skip shapefile)
-HYDERABAD_FUTURE_CITY_LAYERS = {
-    'HMDA_Boundary': {
-        'name': 'HMDA Boundary',
-        'color': '#FF6347',
-        'category': 'BOUNDARIES',
-        'file_pattern': 'FCDA_Boundary_Villages/HMDA_Boundary.geojson',
-        'description': 'Hyderabad Metropolitan Development Authority boundary'
-    },
-    'HMDA_Villages_Clip': {
-        'name': 'HMDA Villages',
-        'color': '#FF7F50',
-        'category': 'BOUNDARIES',
-        'file_pattern': 'FCDA_Boundary_Villages/HMDA_Villages_Clip.geojson',
-        'description': 'HMDA village boundaries and administrative areas'
-    }
-    # NOTE: Removed FutureCityHyderabad_Boundary shapefile - system doesn't support shapefiles
-    # If needed, convert to GeoJSON: ogr2ogr -f GeoJSON output.geojson input.shp
-}
-
-# Highway Layers
-HYDERABAD_HIGHWAY_LAYERS = {
-    'hyd_highways_merged': {
-        'name': 'Hyderabad Highways',
-        'color': '#708090',
-        'category': 'TRANSPORT',
-        'file_pattern': 'hyd_highways_merged.geojson',
-        'description': 'Major highways including NH 163 Warangal Highway'
-    }
-}
-
-# Metro Lines (metro-lines folder)
-HYDERABAD_METRO_LINES_LAYERS = {
-    'metro_lines': {
-        'name': 'Hyderabad Metro Lines',
-        'color': '#4169E1',
-        'category': 'TRANSPORT', 
-        'file_pattern': 'Hyd_metro_lines_ph_1*2_Final.geojson',
-        'description': 'Hyderabad Metro Phase 1 & 2 lines'
-    },
-    'metro_stations': {
-        'name': 'Hyderabad Metro Stations',
-        'color': '#0000CD',
-        'category': 'TRANSPORT',
-        'file_pattern': 'Hyd_metro_stations_ph1*2.geojson', 
-        'description': 'Hyderabad Metro Phase 1 & 2 stations'
-    }
-}
-
-# Master Plan Roads (master-plan-roads folder)
-HYDERABAD_MASTER_PLAN_ROADS_LAYERS = {
-    'masterplan_roads': {
-        'name': 'HMDA Master Plan Roads',
-        'color': '#696969',
-        'category': 'TRANSPORT',
-        'file_pattern': 'HMDA_masterplan_roads_merged.geojson',
-        'description': 'HMDA master plan proposed roads'
-    }
-}
-
-# Regional Ring Road
-HYDERABAD_RRR_LAYERS = {
-    'regional_ring_road': {
-        'name': 'Regional Ring Road (RRR)',
-        'color': '#B22222',
-        'category': 'TRANSPORT',
-        'file_pattern': 'RRR_Final.geojson',
-        'description': 'Hyderabad Regional Ring Road (North & South parts)'
-    }
-}
-
-# Workspaces/SEZ
-HYDERABAD_WORKSPACE_LAYERS = {
-    'sez_areas': {
-        'name': 'Special Economic Zones',
-        'color': '#9370DB',
-        'category': 'INDUSTRIAL',
-        'file_pattern': 'Hyd_SEZs_Final.geojson',
-        'description': 'Special Economic Zones and industrial workspaces'
-    }
-}
-
-# ================================
-# NEW: WARANGAL LAYER CONFIGURATIONS  
-# ================================
-
-# Warangal Master Plan (all files in master_plan folder)
-WARANGAL_MASTER_PLAN_LAYERS = {
-    'Agriculture': {
-        'name': 'Agricultural Areas',
-        'color': '#9DC1CB',
-        'category': 'AGRICULTURAL',
-        'file_pattern': 'Agriculture.geojson',
-        'description': 'Agricultural and farming areas in Warangal'
-    },
-    'AirStrip': {
-        'name': 'Air Strip',
-        'color': '#FFB6C1',
-        'category': 'TRANSPORT',
-        'file_pattern': 'AirStrip.geojson',
-        'description': 'Airport and airstrip facilities'
-    },
-    'Commercial': {
-        'name': 'Commercial Areas',
-        'color': '#73B2FF',
-        'category': 'COMMERCIAL',
-        'file_pattern': 'Commercial.geojson',
-        'description': 'Commercial and business areas'
-    },
-    'Forest': {
-        'name': 'Forest Areas',
-        'color': '#228B22',
-        'category': 'PROTECTED',
-        'file_pattern': 'Forest.geojson',
-        'description': 'Forest and protected green areas'
-    },
-    'GrowthCorridor': {
-        'name': 'Growth Corridor',
-        'color': '#FF8C00',
-        'category': 'MIXED_USE',
-        'file_pattern': 'GrowthCorridor.geojson',
-        'description': 'Development growth corridors'
-    },
-    'GrowthCorridor2': {
-        'name': 'Growth Corridor 2',
-        'color': '#FFA500',
-        'category': 'MIXED_USE',
-        'file_pattern': 'GrowthCorridor2.geojson',
-        'description': 'Secondary development growth corridors'
-    },
-    'Heritage': {
-        'name': 'Heritage Areas',
-        'color': '#DEB887',
-        'category': 'PROTECTED',
-        'file_pattern': 'Heritage.geojson',
-        'description': 'Heritage and historically significant areas'
-    },
-    'HillBuffer': {
-        'name': 'Hill Buffer Zones',
-        'color': '#8FBC8F',
-        'category': 'PROTECTED',
-        'file_pattern': 'HillBuffer.geojson',
-        'description': 'Hill buffer and conservation zones'
-    },
-    'Hillocks': {
-        'name': 'Hillocks',
-        'color': '#A0522D',
-        'category': 'PROTECTED',
-        'file_pattern': 'Hillocks.geojson',
-        'description': 'Natural hillocks and elevated areas'
-    },
-    'Industrial': {
-        'name': 'Industrial Areas',
-        'color': '#AA66B2',
-        'category': 'INDUSTRIAL',
-        'file_pattern': 'Industrial.geojson',
-        'description': 'Industrial zones and manufacturing areas'
-    },
-    'MixedUse': {
-        'name': 'Mixed Use Areas',
-        'color': '#FFB347',
-        'category': 'MIXED_USE',
-        'file_pattern': 'MixedUse.geojson',
-        'description': 'Mixed-use development areas'
-    },
-    'Public_and_SemiPublic': {
-        'name': 'Public & Semi-Public',
-        'color': '#E60000',
-        'category': 'GOVERNMENT',
-        'file_pattern': 'Public_and_SemiPublic.geojson',
-        'description': 'Public and semi-public facilities'
-    },
-    'PublicUtilities': {
-        'name': 'Public Utilities',
-        'color': '#D79E9E',
-        'category': 'UTILITIES',
-        'file_pattern': 'PublicUtilities.geojson',
-        'description': 'Public utility infrastructure'
-    },
-    'RailwayLand': {
-        'name': 'Railway Land',
-        'color': '#2F4F4F',
-        'category': 'TRANSPORT',
-        'file_pattern': 'RailwayLand.geojson',
-        'description': 'Railway land and corridors'
-    },
-    'Recreational': {
-        'name': 'Recreational Areas',
-        'color': '#98E600',
-        'category': 'PARKS_GREEN',
-        'file_pattern': 'Recreational.geojson',
-        'description': 'Parks, recreational, and leisure areas'
-    },
-    'Residential': {
-        'name': 'Residential Areas',
-        'color': '#FFEBAF',
-        'category': 'RESIDENTIAL',
-        'file_pattern': 'Residential.geojson',
-        'description': 'Existing residential areas'
-    },
-    'ResidentialExpansion': {
-        'name': 'Residential Expansion',
-        'color': '#FFDEAD',
-        'category': 'RESIDENTIAL',
-        'file_pattern': 'ResidentialExpansion.geojson',
-        'description': 'Planned residential expansion areas'
-    },
-    'RoadBuffer': {
-        'name': 'Road Buffer Zones',
-        'color': '#708090',
-        'category': 'TRANSPORT',
-        'file_pattern': 'RoadBuffer.geojson',
-        'description': 'Road buffer and setback zones'
-    },
-    'Transportation': {
-        'name': 'Transportation Infrastructure',
-        'color': '#828282',
-        'category': 'TRANSPORT',
-        'file_pattern': 'Transportation.geojson',
-        'description': 'Transportation infrastructure and corridors'
-    },
-    'Water_Bodies': {
-        'name': 'Water Bodies',
-        'color': '#87CEEB',
-        'category': 'WATER_BODIES',
-        'file_pattern': 'Water_Bodies.geojson',
-        'description': 'Rivers, lakes, and water bodies'
-    },
-    'WaterBodyBuffer': {
-        'name': 'Water Body Buffer',
-        'color': '#B0E0E6',
-        'category': 'WATER_BODIES',
-        'file_pattern': 'WaterBodyBuffer.geojson',
-        'description': 'Water body buffer and protection zones'
-    },
-    'ZoologicalPark': {
-        'name': 'Zoological Park',
-        'color': '#90EE90',
-        'category': 'PARKS_GREEN',
-        'file_pattern': 'ZoologicalPark.geojson',
-        'description': 'Zoological park and wildlife areas'
-    }
-}
-
-# ================================
-# NEW: HYDERABAD LAYER GROUPS
-# ================================
-
-HYDERABAD_LAYER_GROUPS = {
-    'future-city': {
-        'name': 'Future City Development',
-        'description': 'Future City Hyderabad boundaries and administrative areas (FCDA)',
-        'display_order': 1,
-        'layers': HYDERABAD_FUTURE_CITY_LAYERS
-    },
-    'highways': {
-        'name': 'Highways & Major Roads',
-        'description': 'National highways and major road network',
-        'display_order': 2,
-        'layers': HYDERABAD_HIGHWAY_LAYERS
-    },
-    'metro-lines': {
-        'name': 'Metro Network',
-        'description': 'Hyderabad Metro lines and stations (Phase 1 & 2)',
-        'display_order': 3,
-        'layers': HYDERABAD_METRO_LINES_LAYERS
-    },
-    'master-plan-roads': {
-        'name': 'Master Plan Roads',
-        'description': 'HMDA master plan proposed roads',
-        'display_order': 4,
-        'layers': HYDERABAD_MASTER_PLAN_ROADS_LAYERS
-    },
-    'rrr': {
-        'name': 'Regional Ring Road',
-        'description': 'Hyderabad Regional Ring Road (RRR)',
-        'display_order': 5,
-        'layers': HYDERABAD_RRR_LAYERS
-    },
-    'workspaces': {
-        'name': 'Special Economic Zones',
-        'description': 'SEZs and industrial workspaces',
-        'display_order': 6,
-        'layers': HYDERABAD_WORKSPACE_LAYERS
-    }
-}
-
-# ================================
-# NEW: WARANGAL LAYER GROUPS
-# ================================
-
-WARANGAL_LAYER_GROUPS = {
-    'master_plan': {
-        'name': 'Warangal Master Plan',
-        'description': 'Complete Warangal urban master plan with all land use categories',
-        'display_order': 1,
-        'layers': WARANGAL_MASTER_PLAN_LAYERS
-    }
-}
-
-# ================================
-# UPDATED CITY CONFIGURATIONS
-# ================================
-
-CITY_CONFIGS = {
-    # Existing Bengaluru config (UNCHANGED)
-    'bengaluru': {
-        'city_info': {
-            'name': 'Bengaluru',
-            'slug': 'bengaluru',
-            'state_ref_id': None,  # Will be set when state is created
-            'description': 'Silicon Valley of India - Garden City',
-            'center_lat': 12.9716,
-            'center_lng': 77.5946,
-            'zoom_level': 11
+DATA_IMPORT_CONFIG = {
+    'states': {
+        'karnataka': {
+            'name': 'Karnataka',
+            'code': 'KA',
+            'cities': {
+                'bengaluru': {
+                    'name': 'Bengaluru',
+                    'center_lat': 12.9716,
+                    'center_lng': 77.5946,
+                    'zoom_level': 11,
+                    'data_format': 'esri_json',
+                    'plu_field': 'PLU_Tp_pro',
+                    'layer_groups': {
+                        'master-plan': {
+                            'name': 'Master Plan 2015',
+                            'description': 'Bengaluru Master Plan 2015 - Land Use Categories',
+                            'path': 'karnataka/bengaluru/master_plan',
+                            'display_order': 1,
+                            'files': {
+                                'Residential_Mixed_.json': {
+                                    'name': 'Residential Mixed',
+                                    'color': '#FFC400',
+                                    'category': 'RESIDENTIAL'
+                                },
+                                'Residential_Main_.json': {
+                                    'name': 'Residential Main',
+                                    'color': '#FFEB4F',
+                                    'category': 'RESIDENTIAL'
+                                },
+                                'Commercial_Central_.json': {
+                                    'name': 'Commercial Central',
+                                    'color': '#004DA8',
+                                    'category': 'COMMERCIAL'
+                                },
+                                'Commercial_Business_.json': {
+                                    'name': 'Commercial Business',
+                                    'color': '#73B2FF',
+                                    'category': 'COMMERCIAL'
+                                },
+                                'Industrial.json': {
+                                    'name': 'Industrial',
+                                    'color': '#AA66B2',
+                                    'category': 'INDUSTRIAL'
+                                },
+                                'HighTech.json': {
+                                    'name': 'High Tech',
+                                    'color': '#C29ED7',
+                                    'category': 'INDUSTRIAL'
+                                },
+                                'Public_SemiPublic.json': {
+                                    'name': 'Public & Semi Public',
+                                    'color': '#E60000',
+                                    'category': 'GOVERNMENT'
+                                },
+                                'Defense.json': {
+                                    'name': 'Defense',
+                                    'color': '#E0B8FC',
+                                    'category': 'GOVERNMENT'
+                                },
+                                'StateForest_Valley_ProtectedLand_.json': {
+                                    'name': 'State Forest Valley Protected Land',
+                                    'color': '#70A800',
+                                    'category': 'PROTECTED'
+                                },
+                                'Parks_GreenSpaces_Sports_Playgrounds_Cemetery_BurialGrounds.json': {
+                                    'name': 'Parks Green Spaces',
+                                    'color': '#98E600',
+                                    'category': 'PARKS_GREEN'
+                                },
+                                'Lake_Tank.json': {
+                                    'name': 'Lake Tank',
+                                    'color': '#BEE8FF',
+                                    'category': 'WATER_BODIES'
+                                },
+                                'Road_Rail_Airport_Transport.json': {
+                                    'name': 'Road Rail Airport Transport',
+                                    'color': '#828282',
+                                    'category': 'TRANSPORT'
+                                },
+                                'Power_Water_GarbageFacility_TreatmentPlant.json': {
+                                    'name': 'Power Water Garbage Facility',
+                                    'color': '#D79E9E',
+                                    'category': 'UTILITIES'
+                                },
+                                'Agricultural_Land.json': {
+                                    'name': 'Agricultural Land',
+                                    'color': '#9DC1CB',
+                                    'category': 'AGRICULTURAL'
+                                },
+                                'Unclassified_Use.json': {
+                                    'name': 'Unclassified Use',
+                                    'color': '#E1E1E1',
+                                    'category': 'UNCLASSIFIED'
+                                },
+                                'Drains.json': {
+                                    'name': 'Drains',
+                                    'color': '#267300',
+                                    'category': 'WATER_BODIES'
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         },
-        'layer_groups': BENGALURU_LAYER_GROUPS,
-        'coordinate_precision': 8,
-        'default_colors': {
-            'AGRICULTURAL': '#9DC1CB',
-            'COMMERCIAL': '#73B2FF', 
-            'GOVERNMENT': '#E60000',
-            'INDUSTRIAL': '#AA66B2',
-            'RESIDENTIAL': '#FFEBAF',
-            'TRANSPORT': '#828282',
-            'WATER_BODIES': '#BEE8FF',
-            'PARKS_GREEN': '#98E600',
-            'UTILITIES': '#D79E9E',
-            'PROTECTED': '#70A800',
-            'UNCLASSIFIED': '#E1E1E1'
-        }
-    },
-    
-    # NEW: Hyderabad config
-    'hyderabad': {
-        'city_info': {
-            'name': 'Hyderabad',
-            'slug': 'hyderabad',
-            'state_ref_id': None,
-            'description': 'Cyberabad - City of Pearls',
-            'center_lat': 17.3850,
-            'center_lng': 78.4867,
-            'zoom_level': 11
+        'telangana': {
+            'name': 'Telangana',
+            'code': 'TS',
+            'cities': {
+                'warangal': {
+                    'name': 'Warangal',
+                    'center_lat': 17.9784,
+                    'center_lng': 79.6003,
+                    'zoom_level': 12,
+                    'data_format': 'geojson',
+                    'plu_field': 'PLU',
+                    'layer_groups': {
+                        'master-plan': {
+                            'name': 'Master Plan',
+                            'description': 'Warangal Master Plan - Land Use Categories',
+                            'path': 'telangana/warangal/master_plan',
+                            'display_order': 1,
+                            'files': {
+                                'Agriculture.geojson': {
+                                    'name': 'Agriculture',
+                                    'color': '#D3FFBE',
+                                    'category': 'AGRICULTURAL'
+                                },
+                                'AirStrip.geojson': {
+                                    'name': 'Air Strip',
+                                    'color': {'hatch': '#FFFFFF', 'solid': '#FF00C5'},
+                                    'category': 'TRANSPORT'
+                                },
+                                'Commercial.geojson': {
+                                    'name': 'Commercial',
+                                    'color': '#0070FF',
+                                    'category': 'COMMERCIAL'
+                                },
+                                'Forest.geojson': {
+                                    'name': 'Forest',
+                                    'color': '#267300',
+                                    'category': 'PROTECTED'
+                                },
+                                'GrowthCorridor.geojson': {
+                                    'name': 'Growth Corridor',
+                                    'color': '#FFBEE8',
+                                    'category': 'MIXED_USE'
+                                },
+                                'GrowthCorridor2.geojson': {
+                                    'name': 'Growth Corridor 2',
+                                    'color': '#FF73DF',
+                                    'category': 'MIXED_USE'
+                                },
+                                'Heritage.geojson': {
+                                    'name': 'Heritage',
+                                    'color': {'hatch': '#732600', 'solid': '#FFA77F'},
+                                    'category': 'PROTECTED'
+                                },
+                                'HillBuffer.geojson': {
+                                    'name': 'Hill Buffer',
+                                    'color': '#55FF00',
+                                    'category': 'PROTECTED'
+                                },
+                                'Hillocks.geojson': {
+                                    'name': 'Hillocks',
+                                    'color': '#A87000',
+                                    'category': 'PROTECTED'
+                                },
+                                'Industrial.geojson': {
+                                    'name': 'Industrial',
+                                    'color': '#C500FF',
+                                    'category': 'INDUSTRIAL'
+                                },
+                                'MixedUse.geojson': {
+                                    'name': 'Mixed Use',
+                                    'color': '#FFAA00',
+                                    'category': 'MIXED_USE'
+                                },
+                                'Public_and_SemiPublic.geojson': {
+                                    'name': 'Public and Semi Public',
+                                    'color': '#FF0000',
+                                    'category': 'GOVERNMENT'
+                                },
+                                'PublicUtilities.geojson': {
+                                    'name': 'Public Utilities',
+                                    'color': {'hatch': '#FF0000', 'solid': '#E69800'},
+                                    'category': 'UTILITIES'
+                                },
+                                'RailwayLand.geojson': {
+                                    'name': 'Railway Land',
+                                    'color': '#CCCCCC',
+                                    'category': 'TRANSPORT'
+                                },
+                                'Recreational.geojson': {
+                                    'name': 'Recreational',
+                                    'color': '#55FF00',
+                                    'category': 'PARKS_GREEN'
+                                },
+                                'Residential.geojson': {
+                                    'name': 'Residential',
+                                    'color': '#FFFF00',
+                                    'category': 'RESIDENTIAL'
+                                },
+                                'ResidentialExpansion.geojson': {
+                                    'name': 'Residential Expansion',
+                                    'color': '#9C9C9C',
+                                    'category': 'RESIDENTIAL'
+                                },
+                                'RoadBuffer.geojson': {
+                                    'name': 'Road Buffer',
+                                    'color': '#4E4E4E',
+                                    'category': 'TRANSPORT'
+                                },
+                                'Transportation.geojson': {
+                                    'name': 'Transportation',
+                                    'color': '#B2B2B2',
+                                    'category': 'TRANSPORT'
+                                },
+                                'Water_Bodies.geojson': {
+                                    'name': 'Water Bodies',
+                                    'color': '#00C5FF',
+                                    'category': 'WATER_BODIES'
+                                },
+                                'WaterBodyBuffer.geojson': {
+                                    'name': 'Water Body Buffer',
+                                    'color': '#55FF00',
+                                    'category': 'WATER_BODIES'
+                                },
+                                'ZoologicalPark.geojson': {
+                                    'name': 'Zoological Park',
+                                    'color': '#38A800',
+                                    'category': 'PARKS_GREEN'
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         },
-        'layer_groups': HYDERABAD_LAYER_GROUPS,
-        'coordinate_precision': 8,
-        'default_colors': {
-            'AGRICULTURAL': '#9DC1CB',
-            'COMMERCIAL': '#73B2FF',
-            'GOVERNMENT': '#E60000', 
-            'INDUSTRIAL': '#AA66B2',
-            'RESIDENTIAL': '#FFEBAF',
-            'TRANSPORT': '#828282',
-            'WATER_BODIES': '#BEE8FF',
-            'PARKS_GREEN': '#98E600',
-            'UTILITIES': '#D79E9E',
-            'PROTECTED': '#70A800',
-            'MIXED_USE': '#FFB347',
-            'BOUNDARIES': '#FF6347',
-            'UNCLASSIFIED': '#E1E1E1'
+        'andhra-pradesh': {
+            'name': 'Andhra Pradesh',
+            'code': 'AP',
+            'cities': {
+                'visakhapatnam': {
+                    'name': 'Visakhapatnam',
+                    'center_lat': 17.6868,
+                    'center_lng': 83.2185,
+                    'zoom_level': 11,
+                    'data_format': 'geojson',
+                    'plu_field': 'Category',
+                    'layer_groups': {
+                        'master-plan': {
+                            'name': 'Master Plan',
+                            'description': 'Visakhapatnam Master Plan - Land Use Categories',
+                            'path': 'andhra_pradesh/visakhapatnam/master_plan',
+                            'display_order': 1,
+                            'files': {
+                                'Agricultural_Use_Zone.geojson': {
+                                    'name': 'Agricultural Use Zone',
+                                    'color': '#D3FFBE',
+                                    'category': 'AGRICULTURAL'
+                                },
+                                'Blue_Zone_Water_Bodies.geojson': {
+                                    'name': 'Blue Zone Water Bodies',
+                                    'color': '#73FFDF',
+                                    'category': 'WATER_BODIES'
+                                },
+                                'Brown_Zone_Hills.geojson': {
+                                    'name': 'Brown Zone Hills',
+                                    'color': '#A87000',
+                                    'category': 'PROTECTED'
+                                },
+                                'Commercial_Use_Zone.geojson': {
+                                    'name': 'Commercial Use Zone',
+                                    'color': '#004DA8',
+                                    'category': 'COMMERCIAL'
+                                },
+                                'Existing_Crematorium_Burial_Ground_Graveyard.geojson': {
+                                    'name': 'Existing Crematorium',
+                                    'color': {'hatch': '#FF0000', 'solid': '#FFFFFF'},
+                                    'category': 'GOVERNMENT'
+                                },
+                                'Existing_Educational_Facilities.geojson': {
+                                    'name': 'Existing Educational',
+                                    'color': {'hatch': '#000000', 'solid': '#FF0000'},
+                                    'category': 'GOVERNMENT'
+                                },
+                                'Existing_Government_Semi_Government_Facilities.geojson': {
+                                    'name': 'Existing Government',
+                                    'color': '#FF0000',
+                                    'category': 'GOVERNMENT'
+                                },
+                                'Existing_Health_Facilities.geojson': {
+                                    'name': 'Existing Health',
+                                    'color': {'dot': '#CCCCCC', 'solid': '#FF0000'},
+                                    'category': 'GOVERNMENT'
+                                },
+                                'Proposed_Industrial_Use_Zone.geojson': {
+                                    'name': 'Proposed Industrial',
+                                    'color': {'hatch': '#FFFFFF', 'solid': '#C500FF'},
+                                    'category': 'INDUSTRIAL'
+                                },
+                                'Existing_Industrial_Area.geojson': {
+                                    'name': 'Existing Industrial',
+                                    'color': '#C500FF',
+                                    'category': 'INDUSTRIAL'
+                                },
+                                'Existing_Public_Utilities.geojson': {
+                                    'name': 'Existing Public Utilities',
+                                    'color': {'hatch': '#E60000', 'solid': '#FF7F7F'},
+                                    'category': 'UTILITIES'
+                                },
+                                'Existing_Recreational_Playgrounds_Parks_Layout_OpenSpace.geojson': {
+                                    'name': 'Existing Recreational',
+                                    'color': '#55FF00',
+                                    'category': 'PARKS_GREEN'
+                                },
+                                'Existing_Religious_Facilities.geojson': {
+                                    'name': 'Existing Religious',
+                                    'color': {'hatch': '#55FF00', 'solid': '#FF0000'},
+                                    'category': 'GOVERNMENT'
+                                },
+                                'Existing_Road_Railway_Line_Area.geojson': {
+                                    'name': 'Existing Road Railway',
+                                    'color': {'hatch': '#828282'},
+                                    'category': 'TRANSPORT'
+                                },
+                                'Existing_Transportation_Facility.geojson': {
+                                    'name': 'Existing Transportation',
+                                    'color': '#686868',
+                                    'category': 'TRANSPORT'
+                                },
+                                'Green_Zone_Forest.geojson': {
+                                    'name': 'Green Zone Forest',
+                                    'color': '#00734C',
+                                    'category': 'PROTECTED'
+                                },
+                                'Kambalakonda_Eco_Sensitive_Zone_NAOB_Buffer_Zoological_Park.geojson': {
+                                    'name': 'Kambalakonda Eco',
+                                    'color': '#D7C29E',
+                                    'category': 'PROTECTED'
+                                },
+                                'Kambalakonda_WildLife_Sanctuary_Biodiversity_Area.geojson': {
+                                    'name': 'Kambalakonda Wildlife',
+                                    'color': '#38A800',
+                                    'category': 'PROTECTED'
+                                },
+                                'Mixed_Use_Zone_1.geojson': {
+                                    'name': 'Mixed Use Zone 1',
+                                    'color': '#FFAA00',
+                                    'category': 'MIXED_USE'
+                                },
+                                'Mixed_Use_Zone_2_BAIA.geojson': {
+                                    'name': 'Mixed Use Zone 2',
+                                    'color': '#FFD37F',
+                                    'category': 'MIXED_USE'
+                                },
+                                'Mixed_Use_Zone_3_BAIA.geojson': {
+                                    'name': 'Mixed Use Zone 3',
+                                    'color': {'hatch': '#E1E1E1', 'solid': '#E69800'},
+                                    'category': 'MIXED_USE'
+                                },
+                                'Mixed_Use_Zone_4_BAIA.geojson': {
+                                    'name': 'Mixed Use Zone 4',
+                                    'color': {'dot': '#000000', 'solid': '#FFAA00'},
+                                    'category': 'MIXED_USE'
+                                },
+                                'Proposed_PSP_Use_Zone.geojson': {
+                                    'name': 'Proposed PSP',
+                                    'color': {'hatch': '#FF0000'},
+                                    'category': 'GOVERNMENT'
+                                },
+                                'Proposed_Public_Utilities_Use_Zone.geojson': {
+                                    'name': 'Proposed Public Utilities',
+                                    'color': {'hatch': '#FFFFFF', 'solid': '#F57A7A'},
+                                    'category': 'UTILITIES'
+                                },
+                                'Proposed_Recreational_Use_Zone.geojson': {
+                                    'name': 'Proposed Recreational',
+                                    'color': '#4C7300',
+                                    'category': 'PARKS_GREEN'
+                                },
+                                'Proposed_Road_Network.geojson': {
+                                    'name': 'Proposed Road Network',
+                                    'color': '#000000',
+                                    'category': 'TRANSPORT'
+                                },
+                                'Proposed_Transportation_Facility_Use_Zone.geojson': {
+                                    'name': 'Proposed Transportation',
+                                    'color': {'hatch': '#FFFFFF', 'solid': '#343434'},
+                                    'category': 'TRANSPORT'
+                                },
+                                'Residential_Use_Zone.geojson': {
+                                    'name': 'Residential Use Zone',
+                                    'color': '#FFFF73',
+                                    'category': 'RESIDENTIAL'
+                                },
+                                'Sea_River_Accreted_Land.geojson': {
+                                    'name': 'Sea River Accreted Land',
+                                    'color': {'dot': '#E39E00', 'solid': '#D7C29E'},
+                                    'category': 'WATER_BODIES'
+                                },
+                                'Special_Area_Use_Zone.geojson': {
+                                    'name': 'Special Area Use Zone',
+                                    'color': {'hatch': '#002673', 'solid': '#FFFFFF'},
+                                    'category': 'MIXED_USE'
+                                },
+                                'Water_Body_Buffer.geojson': {
+                                    'name': 'Water Body Buffer',
+                                    'color': {'dot': '#267300', 'solid': '#4CE600'},
+                                    'category': 'WATER_BODIES'
+                                }
+                            }
+                        }
+                    }
+                },
+                'amaravati': {
+                    'name': 'Amaravati',
+                    'center_lat': 16.5131,
+                    'center_lng': 80.5165,
+                    'zoom_level': 11,
+                    'data_format': 'geojson',
+                    'plu_field': 'symbology',
+                    'layer_groups': {
+                        'master-plan': {
+                            'name': 'Master Plan',
+                            'description': 'Amaravati Capital City Master Plan',
+                            'path': 'andhra_pradesh/amaravati/master_plan',
+                            'display_order': 1,
+                            'files': {
+                                'Burial_Ground.geojson': {
+                                    'name': 'Burial Ground',
+                                    'color': {'dot': '#E39E00', 'solid': '#FFFFFF'},
+                                    'category': 'GOVERNMENT'
+                                },
+                                'C1__Mixed_use_zone.geojson': {
+                                    'name': 'C1 Mixed Use Zone',
+                                    'color': '#73B2FF',
+                                    'category': 'MIXED_USE'
+                                },
+                                'C2__General_commercial_zone.geojson': {
+                                    'name': 'C2 General Commercial Zone',
+                                    'color': '#00C5FF',
+                                    'category': 'COMMERCIAL'
+                                },
+                                'C3_Neighbourhood_centre_zone.geojson': {
+                                    'name': 'C3 Neighbourhood Centre Zone',
+                                    'color': '#00C5FF',
+                                    'category': 'COMMERCIAL'
+                                },
+                                'C4_Town_centre_zone.geojson': {
+                                    'name': 'C4 Town Centre Zone',
+                                    'color': '#00A9E6',
+                                    'category': 'COMMERCIAL'
+                                },
+                                'C5_Regional_centre_zone.geojson': {
+                                    'name': 'C5 Regional Centre Zone',
+                                    'color': '#0070FF',
+                                    'category': 'COMMERCIAL'
+                                },
+                                'C6_Central_business_district_zone.geojson': {
+                                    'name': 'C6 Central Business District',
+                                    'color': '#005CE6',
+                                    'category': 'COMMERCIAL'
+                                },
+                                'Commercial_Vacant.geojson': {
+                                    'name': 'Commercial Vacant',
+                                    'color': '#C5E2FF',
+                                    'category': 'COMMERCIAL'
+                                },
+                                'I1_Business_park_zone.geojson': {
+                                    'name': 'I1 Business Park Zone',
+                                    'color': '#FFBEE8',
+                                    'category': 'INDUSTRIAL'
+                                },
+                                'I2_Logistics_zone.geojson': {
+                                    'name': 'I2 Logistics Zone',
+                                    'color': '#FF73DF',
+                                    'category': 'INDUSTRIAL'
+                                },
+                                'I3_Non_polluting_industry_zone.geojson': {
+                                    'name': 'I3 Non Polluting Industry Zone',
+                                    'color': '#A900E6',
+                                    'category': 'INDUSTRIAL'
+                                },
+                                'P1_Passive_zone.geojson': {
+                                    'name': 'P1 Passive Zone',
+                                    'color': '#267300',
+                                    'category': 'PARKS_GREEN'
+                                },
+                                'P2_Active_zone.geojson': {
+                                    'name': 'P2 Active Zone',
+                                    'color': '#38A800',
+                                    'category': 'PARKS_GREEN'
+                                },
+                                'P3_Protected_zone.geojson': {
+                                    'name': 'P3 Protected Zone',
+                                    'color': '#BEE8FF',
+                                    'category': 'PROTECTED'
+                                },
+                                'P3_Protected_zone_Hills.geojson': {
+                                    'name': 'P3 Protected Zone Hills',
+                                    'color': '#4C7300',
+                                    'category': 'PROTECTED'
+                                },
+                                'PGN_G.geojson': {
+                                    'name': 'PGN G',
+                                    'color': '#4C7300',
+                                    'category': 'PARKS_GREEN'
+                                },
+                                'PGN_V.geojson': {
+                                    'name': 'PGN V',
+                                    'color': '#897044',
+                                    'category': 'PARKS_GREEN'
+                                },
+                                'R1_Village_planning_zone.geojson': {
+                                    'name': 'R1 Village Planning Zone',
+                                    'color': {'solid': '#FFFFFF', 'hatch': '#000000'},
+                                    'category': 'RESIDENTIAL'
+                                },
+                                'R3_Medium_to_high_density_zone.geojson': {
+                                    'name': 'R3 Medium to High Density Zone',
+                                    'color': '#F5CA7A',
+                                    'category': 'RESIDENTIAL'
+                                },
+                                'R4_High_density_zone.geojson': {
+                                    'name': 'R4 High Density Zone',
+                                    'color': '#E69800',
+                                    'category': 'RESIDENTIAL'
+                                },
+                                'RAA.geojson': {
+                                    'name': 'RAA',
+                                    'color': '#FFAA00',
+                                    'category': 'RESIDENTIAL'
+                                },
+                                'Residential_Vacant.geojson': {
+                                    'name': 'Residential Vacant',
+                                    'color': '#FFD37F',
+                                    'category': 'RESIDENTIAL'
+                                },
+                                'S2_Education_zone.geojson': {
+                                    'name': 'S2 Education Zone',
+                                    'color': '#FFF7F7',
+                                    'category': 'GOVERNMENT'
+                                },
+                                'S3_Special_zone.geojson': {
+                                    'name': 'S3 Special Zone',
+                                    'color': '#D7B09E',
+                                    'category': 'GOVERNMENT'
+                                },
+                                'SC1a_Mixed_Use.geojson': {
+                                    'name': 'SC1a Mixed Use',
+                                    'color': '#0070FF',
+                                    'category': 'MIXED_USE'
+                                },
+                                'SC1b___Mixed_Use.geojson': {
+                                    'name': 'SC1b Mixed Use',
+                                    'color': '#73B2FF',
+                                    'category': 'MIXED_USE'
+                                },
+                                'SP1__Passive_Zone.geojson': {
+                                    'name': 'SP1 Passive Zone',
+                                    'color': '#267300',
+                                    'category': 'PARKS_GREEN'
+                                },
+                                'SP2__Active_Zone.geojson': {
+                                    'name': 'SP2 Active Zone',
+                                    'color': '#38A800',
+                                    'category': 'PARKS_GREEN'
+                                },
+                                'SP3_Protected_Zone.geojson': {
+                                    'name': 'SP3 Protected Zone',
+                                    'color': '#00C5FF',
+                                    'category': 'PROTECTED'
+                                },
+                                'SR2_Low_Density_Housing.geojson': {
+                                    'name': 'SR2 Low Density Housing',
+                                    'color': '#FFFFBE',
+                                    'category': 'RESIDENTIAL'
+                                },
+                                'SR4___High_Density_Private.geojson': {
+                                    'name': 'SR4 High Density Private',
+                                    'color': '#FFAA00',
+                                    'category': 'RESIDENTIAL'
+                                },
+                                'SS1___Government_Zone.geojson': {
+                                    'name': 'SS1 Government Zone',
+                                    'color': '#E60000',
+                                    'category': 'GOVERNMENT'
+                                },
+                                'SS2a__Education_Zone.geojson': {
+                                    'name': 'SS2a Education Zone',
+                                    'color': '#FFF7F7',
+                                    'category': 'GOVERNMENT'
+                                },
+                                'SS2b_Cultural_Zone.geojson': {
+                                    'name': 'SS2b Cultural Zone',
+                                    'color': '#C500FF',
+                                    'category': 'GOVERNMENT'
+                                },
+                                'SS2c_Health_Zone.geojson': {
+                                    'name': 'SS2c Health Zone',
+                                    'color': '#D3FFBE',
+                                    'category': 'GOVERNMENT'
+                                },
+                                'SS3___Special_Zone.geojson': {
+                                    'name': 'SS3 Special Zone',
+                                    'color': '#A83800',
+                                    'category': 'GOVERNMENT'
+                                },
+                                'SU1__Reserve_Zone.geojson': {
+                                    'name': 'SU1 Reserve Zone',
+                                    'color': '#E1E1E1',
+                                    'category': 'MIXED_USE'
+                                },
+                                'SU2___Road_Network.geojson': {
+                                    'name': 'SU2 Road Network',
+                                    'color': '#FFFFFF',
+                                    'category': 'TRANSPORT'
+                                },
+                                'U1_Reserve_zone.geojson': {
+                                    'name': 'U1 Reserve Zone',
+                                    'color': '#CCCCCC',
+                                    'category': 'MIXED_USE'
+                                },
+                                'U2__Road_reserve_zone.geojson': {
+                                    'name': 'U2 Road Reserve Zone',
+                                    'color': '#000000',
+                                    'category': 'TRANSPORT'
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
-    },
-    
-    # NEW: Warangal config
-    'warangal': {
-        'city_info': {
-            'name': 'Warangal',
-            'slug': 'warangal',
-            'state_ref_id': None,
-            'description': 'Historic city and urban development center',
-            'center_lat': 17.9784,
-            'center_lng': 79.6003,
-            'zoom_level': 12
-        },
-        'layer_groups': WARANGAL_LAYER_GROUPS,
-        'coordinate_precision': 8,
-        'default_colors': {
-            'AGRICULTURAL': '#9DC1CB',
-            'COMMERCIAL': '#73B2FF',
-            'GOVERNMENT': '#E60000',
-            'INDUSTRIAL': '#AA66B2',
-            'RESIDENTIAL': '#FFEBAF',
-            'TRANSPORT': '#828282',
-            'WATER_BODIES': '#BEE8FF',
-            'PARKS_GREEN': '#98E600',
-            'UTILITIES': '#D79E9E',
-            'PROTECTED': '#70A800',
-            'MIXED_USE': '#FFB347',
-            'UNCLASSIFIED': '#E1E1E1'
-        }
-    }
-}
-
-# Alternative slug for Bengaluru (UNCHANGED)
-CITY_CONFIGS['bengaluru'] = CITY_CONFIGS['bengaluru']
-
-# ================================
-# UPDATED STATE CONFIGURATIONS  
-# ================================
-
-STATE_CONFIGS = {
-    # Existing Karnataka (UNCHANGED)
-    'karnataka': {
-        'name': 'Karnataka',
-        'code': 'KA',
-        'cities': ['bengaluru']
-    },
-    
-    # NEW: Telangana state
-    'telangana': {
-        'name': 'Telangana', 
-        'code': 'TS',
-        'cities': ['hyderabad', 'warangal']
     }
 }
 
@@ -766,16 +727,16 @@ STATE_CONFIGS = {
 # HELPER FUNCTIONS (UNCHANGED + EXTENDED)
 # ================================
 
-def get_city_config(city_slug):
-    """Get configuration for a specific city"""
-    return CITY_CONFIGS.get(city_slug)
+def get_state_config(state_slug):
+    """Get configuration for a specific state"""
+    return DATA_IMPORT_CONFIG.get('states', {}).get(state_slug)
 
-def get_layer_groups_config(city_slug):
-    """Get layer groups configuration for a city"""
-    config = get_city_config(city_slug)
-    if config:
-        return config.get('layer_groups', {})
-    return {}
+def get_city_config(state_slug, city_slug):
+    """Get configuration for a specific city"""
+    state_config = get_state_config(state_slug)
+    if state_config:
+        return state_config.get('cities', {}).get(city_slug)
+    return None
 
 def get_layer_config(city_slug, layer_group, layer_slug):
     """Get specific layer configuration"""
@@ -800,20 +761,70 @@ def get_all_layers_for_city(city_slug):
             all_layers[layer_slug] = layer_with_group
     
     return all_layers
+def get_layer_group_config(state_slug, city_slug, group_slug):
+    """Get configuration for a specific layer group"""
+    city_config = get_city_config(state_slug, city_slug)
+    if city_config:
+        return city_config.get('layer_groups', {}).get(group_slug)
+    return None
 
-def get_layer_color(city_slug, layer_slug, layer_group=None):
-    """Get color for a specific layer"""
-    if layer_group:
-        layer_config = get_layer_config(city_slug, layer_group, layer_slug)
-    else:
-        # Search all groups
-        all_layers = get_all_layers_for_city(city_slug)
-        layer_config = all_layers.get(layer_slug)
-    
-    if layer_config:
-        return layer_config.get('color', '#CCCCCC')
-    
-    return '#CCCCCC'  # Default gray
+def get_layer_file_config(state_slug, city_slug, group_slug, filename):
+    """Get configuration for a specific file"""
+    group_config = get_layer_group_config(state_slug, city_slug, group_slug)
+    if group_config:
+        return group_config.get('files', {}).get(filename)
+    return None
+
+def get_layer_group_config(state_slug, city_slug, group_slug):
+    """Get configuration for a specific layer group"""
+    city_config = get_city_config(state_slug, city_slug)
+    if city_config:
+        return city_config.get('layer_groups', {}).get(group_slug)
+    return None
+
+def get_all_cities():
+    """Get all cities from configuration"""
+    cities = []
+    for state_slug, state_config in DATA_IMPORT_CONFIG.get('states', {}).items():
+        for city_slug, city_config in state_config.get('cities', {}).items():
+            cities.append({
+                'state_slug': state_slug,
+                'state_name': state_config['name'],
+                'city_slug': city_slug,
+                'city_name': city_config['name']
+            })
+    return cities
+
+def get_layer_color(state_slug, city_slug, group_slug, filename):
+    """Get color for a specific layer file"""
+    file_config = get_layer_file_config(state_slug, city_slug, group_slug, filename)
+    if file_config:
+        color = file_config.get('color', '#CCCCCC')
+        # If it's a pattern dict, return it as is
+        if isinstance(color, dict):
+            return color
+        # Otherwise return solid color
+        return {'solid': color}
+    return {'solid': '#CCCCCC'}
+
+def get_pattern_style(city_slug, layer_name):
+    """Get pattern style for a layer if it exists"""
+    # Search all states for the city
+    for state_slug, state_config in DATA_IMPORT_CONFIG.get('states', {}).items():
+        if city_slug in state_config.get('cities', {}):
+            city_config = state_config['cities'][city_slug]
+            # Search all layer groups
+            for group_slug, group_config in city_config.get('layer_groups', {}).items():
+                # Search all files
+                for filename, file_config in group_config.get('files', {}).items():
+                    # Check if layer name matches
+                    if layer_name in filename or layer_name == file_config.get('name', '').lower().replace(' ', '_'):
+                        color = file_config.get('color')
+                        if isinstance(color, dict):
+                            return color
+    return None
+
+CITY_CONFIGS = {}
 
 def get_category_color(city_slug, category_code):
     """Get default color for a category in a city"""
@@ -824,6 +835,46 @@ def get_category_color(city_slug, category_code):
     # Fallback to global category colors
     category_info = LAYER_CATEGORIES.get(category_code, {})
     return category_info.get('default_color', '#CCCCCC')
+
+for state_slug, state_config in DATA_IMPORT_CONFIG.get('states', {}).items():
+    for city_slug, city_config in state_config.get('cities', {}).items():
+        CITY_CONFIGS[city_slug] = {
+            'city_info': {
+                'name': city_config['name'],
+                'slug': city_slug,
+                'state_ref_id': None,
+                'center_lat': city_config.get('center_lat', 0),
+                'center_lng': city_config.get('center_lng', 0),
+                'zoom_level': city_config.get('zoom_level', 11)
+            },
+            'data_format': city_config.get('data_format', 'geojson'),
+            'plu_field': city_config.get('plu_field', 'PLU'),
+            'layer_groups': city_config.get('layer_groups', {})
+        }
+
+# State configurations for backwards compatibility
+STATE_CONFIGS = {}
+
+for state_slug, state_config in DATA_IMPORT_CONFIG.get('states', {}).items():
+    STATE_CONFIGS[state_slug] = {
+        'name': state_config['name'],
+        'code': state_config['code'],
+        'cities': list(state_config.get('cities', {}).keys())
+    }
+
+def get_layer_groups_config(city_slug):
+    """Backwards compatibility function"""
+    city_config = CITY_CONFIGS.get(city_slug)
+    if city_config:
+        return city_config.get('layer_groups', {})
+    return {}
+
+def get_state_for_city(city_slug):
+    """Get state for a city"""
+    for state_slug, state_config in DATA_IMPORT_CONFIG.get('states', {}).items():
+        if city_slug in state_config.get('cities', {}):
+            return state_slug, state_config
+    return None, None
 
 # ================================
 # COMPATIBILITY FUNCTIONS (UNCHANGED)
@@ -1058,6 +1109,7 @@ __all__ = [
     'CITY_CONFIGS',
     'STATE_CONFIGS',
     'LAYER_CATEGORIES',
+    'DATA_IMPORT_CONFIG',  # Added this
     'get_city_config',
     'get_layer_groups_config',
     'get_layer_config',
@@ -1073,7 +1125,13 @@ __all__ = [
     'validate_city_configuration',
     'detect_data_format_from_file_path',
     'optimize_geojson_geometry',
-    'get_city_style_config'
+    'get_city_style_config',  # Fixed: added comma here
+    'get_state_config',
+    'get_state_for_city',
+    'get_pattern_style',
+    'get_visakhapatnam_styles',
+    'get_amaravati_styles',
+    'PATTERN_DEFAULTS'
 ]
 
 def get_visakhapatnam_styles():

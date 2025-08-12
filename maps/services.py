@@ -14,11 +14,12 @@ import os
 from pathlib import Path
 from datetime import datetime, timedelta
 from collections import Counter
-from django.contrib.gis.geos import GEOSGeometry
+from django.contrib.gis.geos import GEOSGeometry, MultiPolygon, Polygon
 from django.core.files.storage import default_storage
 from django.contrib.gis.db.models import Extent
 from django.utils import timezone
 from django.utils.text import slugify
+from django.db import transaction
 import mercantile
 import mapbox_vector_tile
 from django.contrib.gis.geos import Polygon
@@ -1621,6 +1622,397 @@ class DataImportService:
             return 'ATTRIBUTE'
         else:
             return 'FILENAME'
+
+class HierarchicalDataImportService:
+    """
+    Service for importing geographic data following hierarchical structure:
+    State → City → Layer Group → Files
+    """
+    
+    def __init__(self):
+        self.errors = []
+        self.statistics = {
+            'states_processed': 0,
+            'cities_processed': 0,
+            'layer_groups_processed': 0,
+            'layers_created': 0,
+            'features_imported': 0,
+            'styles_created': 0
+        }
+    
+    def import_from_config(self, data_dir, state_slug=None, city_slug=None, layer_group_slug='master-plan'):
+        """
+        Import data based on hierarchical configuration
+        
+        Args:
+            data_dir: Base directory containing data
+            state_slug: Optional specific state to import
+            city_slug: Optional specific city to import
+            layer_group_slug: Layer group to import (default: master-plan)
+        """
+        data_path = Path(data_dir)
+        
+        if not data_path.exists():
+            raise ValueError(f"Data directory not found: {data_dir}")
+        
+        # Get states to process
+        states_config = DATA_IMPORT_CONFIG.get('states', {})
+        
+        if state_slug:
+            if state_slug not in states_config:
+                raise ValueError(f"State '{state_slug}' not found in configuration")
+            states_to_process = {state_slug: states_config[state_slug]}
+        else:
+            states_to_process = states_config
+        
+        # Process each state
+        with transaction.atomic():
+            for state_key, state_config in states_to_process.items():
+                self._process_state(
+                    state_key, 
+                    state_config, 
+                    data_path, 
+                    city_slug, 
+                    layer_group_slug
+                )
+        
+        return self.statistics
+    
+    def _process_state(self, state_slug, state_config, data_path, city_slug_filter, layer_group_slug):
+        """Process a single state"""
+        
+        # Create or get state
+        state = self._ensure_state(state_slug, state_config)
+        self.statistics['states_processed'] += 1
+        
+        # Get cities to process
+        cities_config = state_config.get('cities', {})
+        
+        if city_slug_filter:
+            if city_slug_filter not in cities_config:
+                self.errors.append(f"City '{city_slug_filter}' not found in state '{state_slug}'")
+                return
+            cities_to_process = {city_slug_filter: cities_config[city_slug_filter]}
+        else:
+            cities_to_process = cities_config
+        
+        # Process each city
+        for city_key, city_config in cities_to_process.items():
+            self._process_city(
+                state, 
+                city_key, 
+                city_config, 
+                data_path, 
+                layer_group_slug
+            )
+    
+    def _process_city(self, state, city_slug, city_config, data_path, layer_group_slug):
+        """Process a single city"""
+        
+        # Create or get city
+        city = self._ensure_city(state, city_slug, city_config)
+        self.statistics['cities_processed'] += 1
+        
+        # Get layer groups to process
+        layer_groups = city_config.get('layer_groups', {})
+        
+        if layer_group_slug not in layer_groups:
+            self.errors.append(f"Layer group '{layer_group_slug}' not found for city '{city_slug}'")
+            return
+        
+        layer_group_config = layer_groups[layer_group_slug]
+        
+        # Process layer group
+        self._process_layer_group(
+            city, 
+            layer_group_slug, 
+            layer_group_config, 
+            data_path,
+            city_config
+        )
+    
+    def _process_layer_group(self, city, group_slug, group_config, data_path, city_config):
+        """Process a layer group and its files"""
+        
+        # Create or get layer group
+        layer_group = self._ensure_layer_group(city, group_slug, group_config)
+        self.statistics['layer_groups_processed'] += 1
+        
+        # Get data directory for this layer group
+        group_data_path = data_path / group_config['path']
+        
+        if not group_data_path.exists():
+            self.errors.append(f"Data path not found: {group_data_path}")
+            return
+        
+        # Process each file in the layer group
+        files = group_config.get('files', {})
+        
+        for filename, file_config in files.items():
+            file_path = group_data_path / filename
+            
+            if not file_path.exists():
+                self.errors.append(f"File not found: {file_path}")
+                continue
+            
+            try:
+                self._import_layer_file(
+                    city,
+                    layer_group,
+                    file_path,
+                    file_config,
+                    city_config
+                )
+            except Exception as e:
+                self.errors.append(f"Error importing {filename}: {str(e)}")
+    
+    def _import_layer_file(self, city, layer_group, file_path, file_config, city_config):
+        """Import a single layer file"""
+        
+        # Create layer slug from filename
+        layer_slug = slugify(file_path.stem)
+        
+        # Check if layer exists
+        existing_layer = DataLayer.objects.filter(
+            city=city,
+            layer_group=layer_group,
+            slug=layer_slug
+        ).first()
+        
+        if existing_layer:
+            # Update existing layer
+            layer = existing_layer
+            # Clear existing features
+            GeoFeature.objects.filter(layer=layer).delete()
+        else:
+            # Create new layer
+            category = self._ensure_category(file_config.get('category', 'MIXED_USE'))
+            
+            layer = DataLayer.objects.create(
+                name=file_config['name'],
+                slug=layer_slug,
+                city=city,
+                layer_group=layer_group,
+                category=category,
+                description=file_config.get('description', ''),
+                source_file=file_path.name,
+                data_format=city_config.get('data_format', 'geojson'),
+                feature_count=0,
+                is_active=True
+            )
+            self.statistics['layers_created'] += 1
+        
+        # Create or update style
+        self._ensure_layer_style(city, layer, file_config)
+        
+        # Import features
+        with open(file_path, 'r') as f:
+            data = json.load(f)
+        
+        feature_count = self._import_features(layer, data, city_config)
+        
+        # Update layer statistics
+        layer.feature_count = feature_count
+        layer.save()
+        
+        self.statistics['features_imported'] += feature_count
+    
+    def _import_features(self, layer, data, city_config):
+        """Import features from data file"""
+        
+        features_to_create = []
+        plu_field = city_config.get('plu_field', 'PLU')
+        data_format = city_config.get('data_format', 'geojson')
+        
+        if data_format == 'esri_json':
+            features_to_create = self._parse_esri_json(data, plu_field)
+        else:
+            features_to_create = self._parse_geojson(data, plu_field)
+        
+        # Bulk create features
+        if features_to_create:
+            for feature_data in features_to_create:
+                feature_data['layer'] = layer
+            
+            GeoFeature.objects.bulk_create(
+                [GeoFeature(**f) for f in features_to_create],
+                batch_size=500
+            )
+        
+        return len(features_to_create)
+    
+    def _parse_esri_json(self, data, plu_field):
+        """Parse ESRI JSON format (Bengaluru)"""
+        features = []
+        
+        if 'features' not in data:
+            return features
+        
+        for feature in data['features']:
+            geometry_data = feature.get('geometry', {})
+            properties = feature.get('attributes', {})
+            
+            if 'rings' in geometry_data:
+                try:
+                    rings = geometry_data['rings']
+                    if rings and len(rings) > 0:
+                        # Convert rings to Polygon
+                        polygon = Polygon(rings[0])
+                        
+                        # Get PLU value
+                        plu_value = properties.get(plu_field, '')
+                        
+                        features.append({
+                            'geometry': polygon,
+                            'properties': properties,
+                            'plu_code': str(plu_value)[:50] if plu_value else None
+                        })
+                except Exception:
+                    continue
+        
+        return features
+    
+    def _parse_geojson(self, data, plu_field):
+        """Parse standard GeoJSON format"""
+        features = []
+        
+        if 'features' not in data:
+            return features
+        
+        for feature in data['features']:
+            geometry_data = feature.get('geometry', {})
+            properties = feature.get('properties', {})
+            
+            try:
+                geom_type = geometry_data.get('type')
+                
+                if geom_type == 'Polygon':
+                    coords = geometry_data.get('coordinates', [])
+                    if coords and len(coords) > 0:
+                        polygon = Polygon(coords[0])
+                        
+                        # Get PLU value
+                        plu_value = properties.get(plu_field, '')
+                        
+                        features.append({
+                            'geometry': polygon,
+                            'properties': properties,
+                            'plu_code': str(plu_value)[:50] if plu_value else None
+                        })
+                
+                elif geom_type == 'MultiPolygon':
+                    coords = geometry_data.get('coordinates', [])
+                    polygons = []
+                    for polygon_coords in coords:
+                        if polygon_coords and len(polygon_coords) > 0:
+                            polygons.append(Polygon(polygon_coords[0]))
+                    
+                    if polygons:
+                        multi_polygon = MultiPolygon(polygons)
+                        plu_value = properties.get(plu_field, '')
+                        
+                        features.append({
+                            'geometry': multi_polygon,
+                            'properties': properties,
+                            'plu_code': str(plu_value)[:50] if plu_value else None
+                        })
+                        
+            except Exception:
+                continue
+        
+        return features
+    
+    def _ensure_state(self, state_slug, state_config):
+        """Create or get state"""
+        state, created = State.objects.get_or_create(
+            slug=state_slug,
+            defaults={
+                'name': state_config['name'],
+                'code': state_config['code'],
+                'is_active': True
+            }
+        )
+        return state
+    
+    def _ensure_city(self, state, city_slug, city_config):
+        """Create or get city"""
+        city, created = City.objects.get_or_create(
+            slug=city_slug,
+            defaults={
+                'name': city_config['name'],
+                'state': city_config['name'],  # Legacy field
+                'state_ref': state,
+                'center_lat': city_config.get('center_lat', 0),
+                'center_lng': city_config.get('center_lng', 0),
+                'min_zoom': 8,
+                'max_zoom': 18,
+                'is_active': True
+            }
+        )
+        return city
+    
+    def _ensure_layer_group(self, city, group_slug, group_config):
+        """Create or get layer group"""
+        layer_group, created = LayerGroup.objects.get_or_create(
+            city=city,
+            slug=group_slug,
+            defaults={
+                'name': group_config['name'],
+                'description': group_config.get('description', ''),
+                'display_order': group_config.get('display_order', 1),
+                'is_active': True
+            }
+        )
+        return layer_group
+    
+    def _ensure_category(self, category_code):
+        """Create or get layer category"""
+        category_info = LAYER_CATEGORIES.get(category_code, {})
+        category, created = LayerCategory.objects.get_or_create(
+            code=category_code,
+            defaults={
+                'name': category_info.get('name', category_code),
+                'description': category_info.get('description', ''),
+                'default_color': category_info.get('default_color', '#CCCCCC'),
+                'default_opacity': category_info.get('default_opacity', 0.8)
+            }
+        )
+        return category
+    
+    def _ensure_layer_style(self, city, layer, file_config):
+        """Create or update layer style"""
+        
+        # Delete existing style if any
+        CityLayerStyle.objects.filter(city=city, layer=layer).delete()
+        
+        # Get color configuration
+        color_config = file_config.get('color', '#CCCCCC')
+        
+        if isinstance(color_config, dict):
+            # Pattern style
+            style_type = 'pattern'
+            style_config = color_config
+        else:
+            # Solid color
+            style_type = 'solid'
+            style_config = {'color': color_config}
+        
+        CityLayerStyle.objects.create(
+            city=city,
+            layer=layer,
+            style_type=style_type,
+            style_config=style_config
+        )
+        
+        self.statistics['styles_created'] += 1
+    
+    def get_import_summary(self):
+        """Get summary of import operation"""
+        return {
+            'statistics': self.statistics,
+            'errors': self.errors,
+            'success': len(self.errors) == 0
+        }
 
 class VectorTileService:
     """CORRECTED - Vector tile generation service"""

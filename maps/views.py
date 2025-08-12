@@ -1955,7 +1955,7 @@ class AvailableTilesView(APIView):
             aws_access_key_id=getattr(settings, 'AWS_ACCESS_KEY_ID', None),
             aws_secret_access_key=getattr(settings, 'AWS_SECRET_ACCESS_KEY', None)
         )
-        self.bucket_name = getattr(settings, 'AWS_STORAGE_BUCKET_NAME', 'gis-portal')
+        self.bucket_name = getattr(settings, 'AWS_STORAGE_BUCKET_NAME')
         self.cloudfront_domain = getattr(settings, 'CLOUDFRONT_DOMAIN', None)
     
     def get(self, request, city_slug):
