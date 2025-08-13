@@ -44,7 +44,7 @@ class CityAdmin(admin.ModelAdmin):
     list_filter = ['state_ref', 'is_active', 'created_at']
     search_fields = ['name', 'slug', 'state']
     prepopulated_fields = {'slug': ('name',)}
-    readonly_fields = ['get_layers_count', 'get_processed_layers_count', 'get_features_count']
+    readonly_fields = ['get_layers_count', 'get_processed_layers_count', 'get_features_count', 'created_at']
     
     fieldsets = (
         ('Basic Information', {
@@ -473,7 +473,7 @@ if LayerGroup._meta.app_label == 'maps':  # Only register if model exists
         prepopulated_fields = {'slug': ('name',)}
         
         def get_layers_count(self, obj):
-            return obj.get_layers_count()
+            return obj.layers.count()
         get_layers_count.short_description = 'Layers'
 
 admin.site.site_header = "GIS Data Management"

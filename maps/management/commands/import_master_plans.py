@@ -225,7 +225,7 @@ class Command(BaseCommand):
                     file_path,
                     file_config,
                     city_config,
-                    options
+                    options  # Pass options for verbose flag
                 )
                 
                 if result:
@@ -278,7 +278,7 @@ class Command(BaseCommand):
         )
         
         # Create style configuration
-        self._create_layer_style(city, layer, file_config)
+        self._create_layer_style(city, layer, file_config, options.get('verbose', False))
         
         # Import features using the service
         with open(file_path, 'r') as f:
@@ -292,6 +292,7 @@ class Command(BaseCommand):
         
         # Update feature count
         layer.feature_count = feature_count
+        layer.is_processed = True  # Mark as processed
         layer.save()
         
         return {'features': feature_count}
@@ -361,26 +362,52 @@ class Command(BaseCommand):
         
         return len(features_to_create)
     
-    def _create_layer_style(self, city, layer, file_config):
+    def _create_layer_style(self, city, layer, file_config, verbose=False):
         """Create style configuration for a layer"""
         
         color_config = file_config.get('color', '#CCCCCC')
         
-        if isinstance(color_config, dict):
-            # Pattern style (hatch, dot, etc.)
-            style_type = 'pattern'
-            style_config = color_config
-        else:
-            # Solid color
-            style_type = 'solid'
-            style_config = {'color': color_config}
-        
-        CityLayerStyle.objects.create(
-            city=city,
-            layer=layer,
-            style_type=style_type,
-            style_config=style_config
-        )
+        # Check if CityLayerStyle model exists and create appropriately
+        try:
+            from maps.models import CityLayerStyle
+            
+            # Delete existing style if any
+            CityLayerStyle.objects.filter(city=city, category=layer.category).delete()
+            
+            if isinstance(color_config, dict):
+                # Pattern style
+                if 'hatch' in color_config:
+                    pattern = 'HATCHED'
+                    pattern_color = color_config.get('hatch', '#000000')
+                elif 'dot' in color_config:
+                    pattern = 'DOTTED'
+                    pattern_color = color_config.get('dot', '#000000')
+                else:
+                    pattern = 'SOLID'
+                    pattern_color = None
+                
+                fill_color = color_config.get('solid', '#CCCCCC')
+            else:
+                # Solid color
+                pattern = 'SOLID'
+                fill_color = color_config
+                pattern_color = None
+            
+            CityLayerStyle.objects.create(
+                city=city,
+                category=layer.category,  # Use category instead of layer
+                fill_color=fill_color,
+                fill_pattern=pattern,
+                pattern_color=pattern_color or fill_color,
+                stroke_color=fill_color,
+                stroke_width=1,
+                fill_opacity=0.7,
+                stroke_opacity=1.0
+            )
+        except Exception as e:
+            # If CityLayerStyle doesn't exist or has different fields, skip
+            if verbose:
+                self.stdout.write(f"        ⚠️ Could not create style: {e}")
     
     def _ensure_state(self, state_slug, state_config):
         """Create or get state"""
@@ -419,14 +446,25 @@ class Command(BaseCommand):
     
     def _ensure_layer_group(self, city, group_slug, group_config):
         """Create or get layer group"""
+        # Create a default category for layer groups
+        category = self._ensure_category('MIXED_USE')
+        
+        # Get directory path from config
+        directory_path = group_config.get('path', f"{city.state_ref.slug}/{city.slug}/{group_slug.replace('-', '_')}")
+        
         layer_group, created = LayerGroup.objects.get_or_create(
             city=city,
             slug=group_slug,
             defaults={
                 'name': group_config['name'],
                 'description': group_config.get('description', ''),
+                'category': category,  # Required field
+                'directory_path': directory_path,  # Required field
                 'display_order': group_config.get('display_order', 1),
-                'is_active': True
+                'is_visible': True,  # This field exists
+                'default_color': '#666666',
+                'default_stroke': '#333333',
+                'default_opacity': 0.7
             }
         )
         if created:

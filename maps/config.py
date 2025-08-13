@@ -694,7 +694,7 @@ DATA_IMPORT_CONFIG = {
                                     'color': '#A83800',
                                     'category': 'GOVERNMENT'
                                 },
-                                'SU1__Reserve_Zone.geojson': {
+                                'SU1_Reserve_Zone.geojson': {
                                     'name': 'SU1 Reserve Zone',
                                     'color': '#E1E1E1',
                                     'category': 'MIXED_USE'
