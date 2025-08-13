@@ -21,6 +21,7 @@ from django.contrib.gis.geos import GEOSGeometry, Polygon
 from django.contrib.gis.db.models import Extent
 from django.conf import settings
 import mercantile
+import time
 import mapbox_vector_tile
 from PIL import Image, ImageDraw
 from botocore.exceptions import ClientError
