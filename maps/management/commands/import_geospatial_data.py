@@ -228,31 +228,6 @@ class Command(BaseCommand):
         )
         
         self.stdout.write(f"      ✅ Created layer: {layer_name} (slug: {layer_slug})")
-
-        # Ensure a city-level style exists for this category (used by renderers)
-        try:
-            # Preferred palette per group
-            group_colors = {
-                'master-plan': '#FFAA00',  # orange
-                'highways': '#00A000',     # green
-                'metro': '#0070FF',        # blue
-                'strr': '#FF0000',         # red
-                'workspace': '#00A000'     # green
-            }
-            preferred_color = group_colors.get(group_slug, category.default_color)
-            CityLayerStyle.objects.get_or_create(
-                city=city,
-                category=category,
-                defaults={
-                    'fill_color': preferred_color,
-                    'stroke_color': category.default_stroke,
-                    'opacity': category.default_opacity,
-                    'fill_pattern': 'SOLID'
-                }
-            )
-        except Exception as e:
-            if options.get('verbose'):
-                self.stdout.write(f"      ⚠️  Could not ensure style for {layer_name}: {e}")
         
         # Process all files and collect features
         all_features = []
@@ -318,7 +293,7 @@ class Command(BaseCommand):
         features = []
         plu_field = city_config.get('plu_field', 'PLU')
         
-        # Determine data format using content-based detection (robust per-file)
+        # Determine data format
         detected_format = detect_data_format(data)
         
         if detected_format == 'ESRI_JSON' and 'features' in data:

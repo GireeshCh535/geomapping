@@ -7,6 +7,7 @@ import logging
 import math
 from typing import Dict, Tuple, Optional, Any
 from .config import get_city_config
+from .models import DataLayer
 
 logger = logging.getLogger(__name__)
 
@@ -231,6 +232,64 @@ class TileRenderingService:
             logger.error(f"Error rendering MVT with patterns: {e}")
             return self.create_empty_tile()
     
+    def combined_mvt_to_png(self, mvt_data: bytes, layers: list, z: int, x: int, y: int) -> bytes:
+        """Render combined MVT to PNG with per-feature styling for combined layers"""
+        try:
+            decoded_data = mapbox_vector_tile.decode(mvt_data)
+            if not decoded_data:
+                return self.create_empty_tile()
+            
+            img = Image.new('RGBA', (self.tile_size, self.tile_size), self.background_color)
+            
+            # Get city config for per-feature styling lookup
+            city_config = None
+            if layers:
+                city = layers[0].city
+                city_config = get_city_config(city.state, city.slug)
+            
+            # Process each layer
+            features_drawn = 0
+            errors = []
+            
+            for layer_name, layer_data in decoded_data.items():
+                features = layer_data.get('features', [])
+                
+                # Find the corresponding DataLayer
+                layer = next((l for l in layers if l.slug == layer_name), None)
+                if not layer:
+                    continue
+                
+                # Check if this is a combined layer (has multiple file types)
+                is_combined_layer = layer.category.code in ['MASTER_PLAN', 'HIGHWAYS', 'METRO', 'STRR', 'WORKSPACE']
+                
+                for feature in features:
+                    try:
+                        # Determine styling for this feature
+                        if is_combined_layer and city_config:
+                            # For combined layers, use per-feature styling from config
+                            style_config = self._get_feature_style_from_config(feature, layer, city_config)
+                        else:
+                            # For regular layers, use layer-level styling
+                            style_config = self._get_layer_style(layer)
+                        
+                        if self._draw_feature_with_pattern(img, feature, style_config):
+                            features_drawn += 1
+                    except Exception as e:
+                        errors.append(f"Layer {layer_name}: {str(e)}")
+            
+            # Log any errors for tracking
+            if errors:
+                logger.warning(f"Pattern rendering issues at {z}/{x}/{y}: {errors[:5]}")
+            
+            logger.info(f"Drew {features_drawn} features with patterns at {z}/{x}/{y}")
+            
+            # Save with compression
+            return self._save_compressed_png(img)
+            
+        except Exception as e:
+            logger.error(f"Error rendering combined MVT with patterns: {e}")
+            return self.create_empty_tile()
+    
     def _draw_feature_with_pattern(self, img: Image.Image, feature: Dict, 
                                    style_config: Dict) -> bool:
         """Draw a single feature with pattern support"""
@@ -301,3 +360,57 @@ class TileRenderingService:
         """Create an empty/transparent PNG tile"""
         img = Image.new('RGBA', (self.tile_size, self.tile_size), self.background_color)
         return self._save_compressed_png(img, optimize_level=2)
+    
+    def _get_feature_style_from_config(self, feature: Dict, layer: DataLayer, city_config: Dict) -> Dict:
+        """Get styling for a feature based on its source file from the config"""
+        try:
+            # Get the source layer name from feature properties
+            source_layer_name = feature.get('properties', {}).get('source_layer_name', '')
+            if not source_layer_name:
+                # Fallback to layer-level styling
+                return self._get_layer_style(layer)
+            
+            # Find the layer group in city config
+            layer_groups = city_config.get('layer_groups', {})
+            for group_key, group_config in layer_groups.items():
+                if group_config.get('path', '').endswith(layer.category.slug.lower().replace('_', '-')):
+                    # Found the matching group, now look for the file
+                    files = group_config.get('files', {})
+                    for filename, file_config in files.items():
+                        if source_layer_name in filename or filename.replace('.json', '').replace('.geojson', '') in source_layer_name:
+                            # Found matching file, return its styling
+                            return {
+                                'fill_color': file_config.get('color', '#CCCCCC'),
+                                'stroke_color': '#000000',
+                                'pattern_type': 'SOLID',
+                                'opacity': 0.8
+                            }
+            
+            # If no match found, fallback to layer-level styling
+            return self._get_layer_style(layer)
+            
+        except Exception as e:
+            logger.warning(f"Error getting feature style from config: {e}")
+            return self._get_layer_style(layer)
+    
+    def _get_layer_style(self, layer: DataLayer) -> Dict:
+        """Get styling for a layer from its CityLayerStyle"""
+        try:
+            style = layer.get_style()
+            if hasattr(style, 'get_pattern_config'):
+                return style.get_pattern_config()
+            else:
+                return {
+                    'fill_color': style.get('fill_color', '#CCCCCC'),
+                    'stroke_color': style.get('stroke_color', '#000000'),
+                    'pattern_type': 'SOLID',
+                    'opacity': style.get('opacity', 0.8)
+                }
+        except Exception as e:
+            logger.warning(f"Error getting layer style: {e}")
+            return {
+                'fill_color': '#CCCCCC',
+                'stroke_color': '#000000',
+                'pattern_type': 'SOLID',
+                'opacity': 0.8
+            }

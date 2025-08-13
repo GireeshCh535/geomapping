@@ -2151,10 +2151,11 @@ class VectorTileService:
                     properties = {
                         'name': feature.name or '',
                         'category': feature.layer.category.name if feature.layer.category else 'Unknown',
-                        'land_use': feature.land_use_type or '',
+                        'zone_category': feature.zone_category or '',
                         'plu_code': feature.plu_primary_code or '',
-                        'area': float(feature.calculated_area) if feature.calculated_area else 0.0,
-                        'id': feature.id
+                        'area': float(feature.area) if feature.area else 0.0,
+                        'id': feature.id,
+                        'source_layer_name': feature.source_layer_name or ''
                     }
                     
                     mvt_feature = {
@@ -2259,11 +2260,12 @@ class VectorTileService:
                             properties = {
                                 'name': feature.name or '',
                                 'category': feature.layer.category.name if feature.layer.category else 'Unknown',
-                                'land_use': feature.land_use_type or '',
+                                'zone_category': feature.zone_category or '',
                                 'plu_code': feature.plu_primary_code or '',
-                                'area': float(feature.calculated_area) if feature.calculated_area else 0.0,
+                                'area': float(feature.area) if feature.area else 0.0,
                                 'id': feature.id,
-                                'layer': layer_slug
+                                'layer': layer_slug,
+                                'source_layer_name': feature.source_layer_name or ''
                             }
                             mvt_features.append({
                                 'geometry': transformed_geom,

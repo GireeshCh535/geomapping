@@ -190,6 +190,7 @@ DATA_IMPORT_CONFIG = {
                             'description': 'National Highways and Major Roads',
                             'path': 'karnataka/bengaluru/highways',
                             'display_order': 2,
+                            'data_format': 'geojson',
                             'files': {
                                 'BellaryRoad_NH44.geojson': {
                                     'name': 'Bellary Road (NH-44)',

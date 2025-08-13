@@ -1,35 +1,32 @@
 """
-Management command to generate PNG tiles directly to S3 with proper color mapping
-Usage: python manage.py generate_direct_s3_png_tiles --state karnataka --city bengaluru --min-zoom 10 --max-zoom 14
+Management command to generate PNG tiles locally with proper color mapping
+Usage: python manage.py generate_local_png_tiles --state karnataka --city bengaluru --min-zoom 10 --max-zoom 14
 
-FIXED S3 VERSION - Same logic as local PNG generation but uploads to S3
-Key Features:
-1. Uses correct MVT encoding structure
-2. Proper coordinate transformation and scaling
-3. Full color mapping support with PLU/zone-based colors
-4. Direct S3 upload with proper key structure
-5. Supports all cities with their specific color schemes
+COMPLETELY FIXED VERSION - All issues resolved
+Key Fixes:
+1. Fixed variable scope errors
+2. Proper error handling for missing attributes
+3. Correct MVT encoding structure
+4. Full color mapping with fallbacks
+5. Robust coordinate transformation
 """
 
 import os
 import json
 import io
-import boto3
 from typing import Dict, List, Tuple, Optional
 from django.core.management.base import BaseCommand
 from django.contrib.gis.geos import GEOSGeometry, Polygon
 from django.contrib.gis.db.models import Extent
-from django.conf import settings
 import mercantile
 import mapbox_vector_tile
 from PIL import Image, ImageDraw
-from botocore.exceptions import ClientError
 from maps.models import State, City, DataLayer, GeoFeature, CityLayerStyle
 from maps.config import get_city_style_config, PATTERN_DEFAULTS
 
 
 class Command(BaseCommand):
-    help = 'Generate PNG tiles directly to S3 with proper color mapping from imported data'
+    help = 'Generate PNG tiles locally with proper color mapping from imported data'
     
     def __init__(self):
         super().__init__()
@@ -38,22 +35,10 @@ class Command(BaseCommand):
         self.statistics = {
             'tiles_generated': 0,
             'tiles_failed': 0,
-            'tiles_uploaded': 0,
             'layers_processed': 0,
             'features_processed': 0,
-            'features_failed': 0,
-            's3_upload_errors': 0
+            'features_failed': 0
         }
-        
-        # Initialize S3 client
-        self.bucket_name = getattr(settings, 'AWS_STORAGE_BUCKET_NAME')
-        self.region = getattr(settings, 'AWS_S3_REGION_NAME', 'ap-south-1')
-        self.s3_client = boto3.client(
-            's3',
-            region_name=self.region,
-            aws_access_key_id=getattr(settings, 'AWS_ACCESS_KEY_ID', None),
-            aws_secret_access_key=getattr(settings, 'AWS_SECRET_ACCESS_KEY', None)
-        )
     
     def add_arguments(self, parser):
         parser.add_argument('--state', type=str, required=True, help='State slug')
@@ -61,8 +46,8 @@ class Command(BaseCommand):
         parser.add_argument('--layer', type=str, help='Optional specific layer slug')
         parser.add_argument('--min-zoom', type=int, default=10, help='Minimum zoom level')
         parser.add_argument('--max-zoom', type=int, default=14, help='Maximum zoom level')
+        parser.add_argument('--output-dir', type=str, default='static/tiles_png', help='Output directory')
         parser.add_argument('--verbose', action='store_true', help='Verbose output')
-        parser.add_argument('--dry-run', action='store_true', help='Generate tiles but do not upload to S3')
     
     def handle(self, *args, **options):
         state_slug = options['state']
@@ -70,21 +55,14 @@ class Command(BaseCommand):
         layer_slug = options.get('layer')
         min_zoom = options['min_zoom']
         max_zoom = options['max_zoom']
+        output_dir = options['output_dir']
         verbose = options['verbose']
-        dry_run = options['dry_run']
         
         self.stdout.write(self.style.SUCCESS('=' * 70))
-        self.stdout.write(self.style.SUCCESS('🗺️  DIRECT S3 PNG TILE GENERATION'))
+        self.stdout.write(self.style.SUCCESS('🗺️  LOCAL PNG TILE GENERATION'))
         self.stdout.write(self.style.SUCCESS('=' * 70))
-        
-        if dry_run:
-            self.stdout.write(self.style.WARNING('🔄 DRY RUN MODE - No S3 uploads will be performed'))
         
         try:
-            # Test S3 connection first
-            if not dry_run:
-                self._test_s3_connection()
-            
             # Get city and layers
             state = State.objects.get(slug=state_slug)
             city = City.objects.get(slug=city_slug, state_ref=state)
@@ -101,7 +79,6 @@ class Command(BaseCommand):
             self.stdout.write(f'📍 State: {state.name}')
             self.stdout.write(f'🏙️  City: {city.name}')
             self.stdout.write(f'📊 Layers to process: {layers.count()}')
-            self.stdout.write(f'☁️  S3 Bucket: {self.bucket_name}')
             
             # Show layer information
             for layer in layers:
@@ -137,14 +114,10 @@ class Command(BaseCommand):
                     
                     tiles_generated = 0
                     for tile in tiles:
-                        success = self._generate_and_upload_single_tile(
-                            city, layer, tile.z, tile.x, tile.y, verbose, dry_run
-                        )
+                        success = self._generate_single_tile(city, layer, tile.z, tile.x, tile.y, output_dir, verbose)
                         if success:
                             tiles_generated += 1
                             self.statistics['tiles_generated'] += 1
-                            if not dry_run:
-                                self.statistics['tiles_uploaded'] += 1
                         else:
                             self.statistics['tiles_failed'] += 1
                     
@@ -155,13 +128,9 @@ class Command(BaseCommand):
             self.stdout.write(self.style.SUCCESS('📈 GENERATION COMPLETE'))
             self.stdout.write(f'✅ Layers processed: {self.statistics["layers_processed"]}')
             self.stdout.write(f'✅ Tiles generated: {self.statistics["tiles_generated"]}')
-            if not dry_run:
-                self.stdout.write(f'☁️  Tiles uploaded to S3: {self.statistics["tiles_uploaded"]}')
             self.stdout.write(f'❌ Tiles failed: {self.statistics["tiles_failed"]}')
             self.stdout.write(f'📊 Features processed: {self.statistics["features_processed"]}')
             self.stdout.write(f'⚠️  Features failed: {self.statistics["features_failed"]}')
-            if self.statistics['s3_upload_errors'] > 0:
-                self.stdout.write(f'☁️  S3 upload errors: {self.statistics["s3_upload_errors"]}')
             
         except (State.DoesNotExist, City.DoesNotExist) as e:
             self.stdout.write(self.style.ERROR(f'❌ Error: {str(e)}'))
@@ -170,32 +139,8 @@ class Command(BaseCommand):
             import traceback
             self.stdout.write(traceback.format_exc())
     
-    def _test_s3_connection(self):
-        """Test S3 connection and permissions"""
-        try:
-            self.stdout.write('🔗 Testing S3 connection...')
-            
-            # Try to list buckets to test connection
-            response = self.s3_client.head_bucket(Bucket=self.bucket_name)
-            self.stdout.write(f'   ✅ S3 connection successful')
-            self.stdout.write(f'   📦 Bucket: {self.bucket_name}')
-            self.stdout.write(f'   🌍 Region: {self.region}')
-            
-        except ClientError as e:
-            error_code = e.response['Error']['Code']
-            if error_code == '404':
-                self.stdout.write(self.style.ERROR(f'❌ Bucket {self.bucket_name} not found'))
-            elif error_code == '403':
-                self.stdout.write(self.style.ERROR(f'❌ Access denied to bucket {self.bucket_name}'))
-            else:
-                self.stdout.write(self.style.ERROR(f'❌ S3 error: {e}'))
-            raise
-        except Exception as e:
-            self.stdout.write(self.style.ERROR(f'❌ S3 connection failed: {e}'))
-            raise
-    
-    def _generate_and_upload_single_tile(self, city, layer, z, x, y, verbose, dry_run):
-        """Generate a single PNG tile and upload to S3"""
+    def _generate_single_tile(self, city, layer, z, x, y, output_dir, verbose):
+        """Generate a single PNG tile for a layer"""
         try:
             # Create MVT data
             mvt_data = self._create_mvt_tile(city, layer, z, x, y, verbose)
@@ -207,16 +152,18 @@ class Command(BaseCommand):
             if not png_data:
                 return False
             
-            # Upload to S3 if not dry run
-            if not dry_run:
-                success = self._upload_png_to_s3(png_data, city, layer, z, x, y, verbose)
-                if not success:
-                    self.statistics['s3_upload_errors'] += 1
-                    return False
+            # Save PNG file
+            # Structure: state->city->layer->tiles_png
+            state_slug = city.state_ref.slug if city.state_ref else 'unknown'
+            tile_path = os.path.join(output_dir, state_slug, city.slug, layer.slug, 'tiles_png')
+            os.makedirs(tile_path, exist_ok=True)
+            
+            file_path = os.path.join(tile_path, f"{z}_{x}_{y}.png")
+            with open(file_path, 'wb') as f:
+                f.write(png_data)
             
             if verbose and self.statistics['tiles_generated'] % 50 == 0:
-                s3_status = "uploaded" if not dry_run else "generated (dry-run)"
-                self.stdout.write(f"      ✅ Tile {z}/{x}/{y} {s3_status}")
+                self.stdout.write(f"      ✅ Generated: {file_path}")
             
             return True
             
@@ -225,47 +172,8 @@ class Command(BaseCommand):
                 self.stdout.write(self.style.ERROR(f"      ❌ Error on tile {z}/{x}/{y}: {str(e)}"))
             return False
     
-    def _upload_png_to_s3(self, png_data, city, layer, z, x, y, verbose):
-        """Upload PNG data to S3 with proper key structure"""
-        try:
-            # S3 key structure: state/city/layer/z/x/y.png
-            state_slug = city.state_ref.slug if city.state_ref else 'unknown'
-            s3_key = f"{state_slug}/{city.slug}/{layer.slug}/{z}/{x}/{y}.png"
-            
-            # Upload to S3
-            self.s3_client.put_object(
-                Bucket=self.bucket_name,
-                Key=s3_key,
-                Body=png_data,
-                ContentType='image/png',
-                CacheControl='public, max-age=31536000',  # Cache for 1 year
-                Metadata={
-                    'state': state_slug,
-                    'city': city.slug,
-                    'layer': layer.slug,
-                    'zoom': str(z),
-                    'tile_x': str(x),
-                    'tile_y': str(y),
-                    'generated_at': str(int(time.time()))
-                }
-            )
-            
-            if verbose and self.statistics['tiles_uploaded'] % 100 == 0:
-                self.stdout.write(f"      ☁️  Uploaded: s3://{self.bucket_name}/{s3_key}")
-            
-            return True
-            
-        except ClientError as e:
-            if verbose:
-                self.stdout.write(self.style.ERROR(f"      ❌ S3 upload failed: {e}"))
-            return False
-        except Exception as e:
-            if verbose:
-                self.stdout.write(self.style.ERROR(f"      ❌ Upload error: {e}"))
-            return False
-    
     def _create_mvt_tile(self, city, layer, z, x, y, verbose):
-        """Create MVT tile data - FIXED VERSION with correct encoding"""
+        """Create MVT tile data - COMPLETELY FIXED VERSION"""
         try:
             # Get tile bounds
             bounds = mercantile.bounds(x, y, z)
@@ -304,6 +212,7 @@ class Command(BaseCommand):
                     transformed_geom = self._transform_geometry_to_tile(geom_dict, bounds)
                     
                     # Get comprehensive properties including color mapping info
+                    # FIXED: Pass city as parameter to avoid scope issues
                     properties = self._get_feature_properties(feature, city)
                     
                     mvt_features.append({
