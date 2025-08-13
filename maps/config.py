@@ -184,6 +184,93 @@ DATA_IMPORT_CONFIG = {
                                     'category': 'WATER_BODIES'
                                 }
                             }
+                        },
+                        'highways': {
+                            'name': 'Highways',
+                            'description': 'National Highways and Major Roads',
+                            'path': 'karnataka/bengaluru/highways',
+                            'display_order': 2,
+                            'files': {
+                                'BellaryRoad_NH44.geojson': {
+                                    'name': 'Bellary Road (NH-44)',
+                                    'color': '#14e098',
+                                    'category': 'TRANSPORT'
+                                },
+                                'BengaluruChennaiExpressway_NE7.geojson': {
+                                    'name': 'Bengaluru-Chennai Expressway (NE-7)',
+                                    'color': '#14e098',
+                                    'category': 'TRANSPORT'
+                                },
+                                'BengaluruMysuruRoad_NH275.geojson': {
+                                    'name': 'Bengaluru-Mysuru Road (NH-275)',
+                                    'color': '#14e098',
+                                    'category': 'TRANSPORT'
+                                },
+                                'HosurRoad_NH48.geojson': {
+                                    'name': 'Hosur Road (NH-48)',
+                                    'color': '#14e098',
+                                    'category': 'TRANSPORT'
+                                },
+                                'KanakpuraRoad_NH948.geojson': {
+                                    'name': 'Kanakpura Road (NH-948)',
+                                    'color': '#14e098',
+                                    'category': 'TRANSPORT'
+                                },
+                                'MadrasRoad_NH75.geojson': {
+                                    'name': 'Madras Road (NH-75)',
+                                    'color': '#14e098',
+                                    'category': 'TRANSPORT'
+                                },
+                                'NICE_Road.geojson': {
+                                    'name': 'NICE Road',
+                                    'color': '#14e098',
+                                    'category': 'TRANSPORT'
+                                },
+                                'TumakuruRoad_NH48.geojson': {
+                                    'name': 'Tumakuru Road (NH-48)',
+                                    'color': '#14e098',
+                                    'category': 'TRANSPORT'
+                                }
+                            }
+                        },
+                        'metro': {
+                            'name': 'Metro',
+                            'description': 'Bengaluru Metro Lines',
+                            'path': 'karnataka/bengaluru/metro',
+                            'display_order': 3,
+                            'files': {
+                                'Bangalore Metro Phases 1,2,2A&2B.geojson': {
+                                    'name': 'Bangalore Metro Phases 1, 2, 2A & 2B',
+                                    'color': '#14e098',
+                                    'category': 'TRANSPORT'
+                                }
+                            }
+                        },
+                        'strr': {
+                            'name': 'STRR',
+                            'description': 'Satellite Town Ring Road',
+                            'path': 'karnataka/bengaluru/strr',
+                            'display_order': 4,
+                            'files': {
+                                'STRR.geojson': {
+                                    'name': 'Satellite Town Ring Road',
+                                    'color': '#14e098',
+                                    'category': 'TRANSPORT'
+                                }
+                            }
+                        },
+                        'workspace': {
+                            'name': 'Workspace',
+                            'description': 'Industrial Areas and Workspaces',
+                            'path': 'karnataka/bengaluru/workspace',
+                            'display_order': 5,
+                            'files': {
+                                'Blr_Industrial_Area_processed.geojson': {
+                                    'name': 'Bengaluru Industrial Areas',
+                                    'color': '#14e098',
+                                    'category': 'INDUSTRIAL'
+                                }
+                            }
                         }
                     }
                 }

@@ -26,6 +26,7 @@ class Command(BaseCommand):
         parser.add_argument('--data-dir', required=True, help='Base data directory')
         parser.add_argument('--state', help='State slug (e.g., karnataka)')
         parser.add_argument('--city', help='City slug (e.g., bengaluru)')
+        parser.add_argument('--layer-group', help='Specific layer group (e.g., highways, metro)')
         parser.add_argument('--force', action='store_true', help='Force re-import')
         parser.add_argument('--dry-run', action='store_true', help='Test without saving')
         parser.add_argument('--verbose', action='store_true', help='Verbose output')
@@ -178,13 +179,22 @@ class Command(BaseCommand):
                 self.stats['cities'] += 1
                 self.stdout.write(f"    ✅ Created city: {city.name}")
         
-        # Process master-plan layer group
+        # Process layer groups
         layer_groups = city_config.get('layer_groups', {})
-        if 'master-plan' in layer_groups:
-            group_config = layer_groups['master-plan']
-            self._process_layer_group(city, 'master-plan', group_config, data_dir, city_config, options)
+        
+        # If specific layer group requested
+        if options.get('layer_group'):
+            group_slug = options['layer_group']
+            if group_slug in layer_groups:
+                group_config = layer_groups[group_slug]
+                self._process_layer_group(city, group_slug, group_config, data_dir, city_config, options)
+            else:
+                self.stdout.write(self.style.ERROR(f"    ❌ Layer group '{group_slug}' not found"))
+                self.stdout.write(f"      Available groups: {', '.join(layer_groups.keys())}")
         else:
-            self.stdout.write(self.style.ERROR(f"    ❌ No master-plan configuration found"))
+            # Process all layer groups
+            for group_slug, group_config in layer_groups.items():
+                self._process_layer_group(city, group_slug, group_config, data_dir, city_config, options)
     
     def _process_layer_group(self, city, group_slug, group_config, data_dir, city_config, options):
         """Process a layer group and its files"""
