@@ -26,7 +26,7 @@ import mapbox_vector_tile
 from PIL import Image, ImageDraw
 from botocore.exceptions import ClientError
 from maps.models import State, City, DataLayer, GeoFeature, CityLayerStyle
-from maps.config import get_city_style_config, PATTERN_DEFAULTS
+from maps.config import get_city_style_config, PATTERN_DEFAULTS, get_pattern_style
 
 
 class Command(BaseCommand):
@@ -465,6 +465,9 @@ class Command(BaseCommand):
                         properties['PLU_NAME'] = ''
                 else:
                     properties['PLU_NAME'] = ''
+                
+                # Add source_layer_name for color mapping
+                properties['source_layer_name'] = getattr(feature, 'source_layer_name', '') or ''
             
             elif city_slug == 'visakhapatnam':
                 # Visakhapatnam uses Category from properties JSON  
@@ -476,12 +479,16 @@ class Command(BaseCommand):
                         properties['Category'] = ''
                 else:
                     properties['Category'] = ''
+                
+                # Add source_layer_name for color mapping
+                properties['source_layer_name'] = getattr(feature, 'source_layer_name', '') or ''
             
             elif city_slug == 'amaravati':
                 # Amaravati uses symbology and plot_category
                 properties.update({
                     'symbology': getattr(feature, 'symbology', '') or '',
-                    'plot_category': getattr(feature, 'plot_category', '') or ''
+                    'plot_category': getattr(feature, 'plot_category', '') or '',
+                    'source_layer_name': getattr(feature, 'source_layer_name', '') or ''
                 })
             
             return properties
@@ -702,7 +709,7 @@ class Command(BaseCommand):
             return False
     
     def _draw_hatching_pattern(self, draw, coords, color):
-        """Draw hatching pattern on polygon area"""
+        """Draw hatching pattern on polygon area - CLIPPED version"""
         if not coords:
             return
         
@@ -713,19 +720,88 @@ class Command(BaseCommand):
             min_x, max_x = min(xs), max(xs)
             min_y, max_y = min(ys), max(ys)
             
-            # Draw diagonal lines
+            # Create a mask for the polygon to clip the hatching
+            from PIL import Image
+            
+            # Create a temporary image for the mask
+            mask_img = Image.new('L', (self.tile_size, self.tile_size), 0)
+            mask_draw = ImageDraw.Draw(mask_img)
+            
+            # Draw the polygon on the mask
+            mask_draw.polygon(coords, fill=255)
+            
+            # Draw diagonal lines with clipping
             spacing = 6
             for i in range(int(min_x - max_y), int(max_x + max_y), spacing):
-                draw.line(
-                    [(i, min_y), (i + (max_y - min_y), max_y)],
-                    fill=color + (180,),
-                    width=1
-                )
-        except:
-            pass  # Fail silently for pattern errors
+                # Calculate line endpoints
+                start_x = i
+                start_y = min_y
+                end_x = i + (max_y - min_y)
+                end_y = max_y
+                
+                # Clip the line to the polygon using the mask
+                self._draw_clipped_line(draw, mask_img, start_x, start_y, end_x, end_y, color + (180,), 1)
+                
+        except Exception as e:
+            # Fallback to simple hatching without clipping
+            try:
+                spacing = 6
+                for i in range(int(min_x - max_y), int(max_x + max_y), spacing):
+                    draw.line(
+                        [(i, min_y), (i + (max_y - min_y), max_y)],
+                        fill=color + (180,),
+                        width=1
+                    )
+            except:
+                pass  # Fail silently for pattern errors
+    
+    def _draw_clipped_line(self, draw, mask_img, start_x, start_y, end_x, end_y, color, width):
+        """Draw a line that is clipped to the polygon mask"""
+        try:
+            # Sample points along the line
+            import math
+            
+            # Calculate line length
+            dx = end_x - start_x
+            dy = end_y - start_y
+            length = math.sqrt(dx * dx + dy * dy)
+            
+            if length == 0:
+                return
+            
+            # Sample points every pixel
+            num_points = int(length) + 1
+            points = []
+            
+            for i in range(num_points):
+                t = i / (num_points - 1) if num_points > 1 else 0
+                x = int(start_x + t * dx)
+                y = int(start_y + t * dy)
+                
+                # Check if point is within bounds
+                if 0 <= x < self.tile_size and 0 <= y < self.tile_size:
+                    # Check if point is inside the polygon mask
+                    if mask_img.getpixel((x, y)) > 0:
+                        points.append((x, y))
+            
+            # Draw line segments only within the polygon
+            if len(points) >= 2:
+                for i in range(len(points) - 1):
+                    draw.line([points[i], points[i + 1]], fill=color, width=width)
+            elif len(points) == 1:
+                # Single point - draw a small dot
+                x, y = points[0]
+                draw.point((x, y), fill=color)
+                
+        except Exception as e:
+            # Fallback to simple line drawing
+            try:
+                draw.line([(start_x, start_y), (end_x, end_y)], fill=color, width=width)
+            except:
+                pass
     
     def _draw_dotted_pattern(self, draw, coords, color):
-        """Draw dotted pattern on polygon area"""
+        """Draw dotted pattern on polygon area - CLIPPED version"""
         if not coords:
             return
         
@@ -736,17 +812,41 @@ class Command(BaseCommand):
             min_x, max_x = min(xs), max(xs)
             min_y, max_y = min(ys), max(ys)
             
-            # Draw dots in a grid
+            # Create a mask for the polygon to clip the dots
+            from PIL import Image
+            
+            # Create a temporary image for the mask
+            mask_img = Image.new('L', (self.tile_size, self.tile_size), 0)
+            mask_draw = ImageDraw.Draw(mask_img)
+            
+            # Draw the polygon on the mask
+            mask_draw.polygon(coords, fill=255)
+            
+            # Draw dots in a grid, but only inside the polygon
             spacing = 8
             dot_size = 2
             for x in range(int(min_x), int(max_x), spacing):
                 for y in range(int(min_y), int(max_y), spacing):
-                    draw.ellipse(
-                        [(x - dot_size, y - dot_size), (x + dot_size, y + dot_size)],
-                        fill=color + (200,)
-                    )
-        except:
-            pass  # Fail silently for pattern errors
+                    # Check if the center of the dot is inside the polygon
+                    if 0 <= x < self.tile_size and 0 <= y < self.tile_size:
+                        if mask_img.getpixel((x, y)) > 0:
+                            draw.ellipse(
+                                [(x - dot_size, y - dot_size), (x + dot_size, y + dot_size)],
+                                fill=color + (200,)
+                            )
+        except Exception as e:
+            # Fallback to simple dotting without clipping
+            try:
+                spacing = 8
+                dot_size = 2
+                for x in range(int(min_x), int(max_x), spacing):
+                    for y in range(int(min_y), int(max_y), spacing):
+                        draw.ellipse(
+                            [(x - dot_size, y - dot_size), (x + dot_size, y + dot_size)],
+                            fill=color + (200,)
+                        )
+            except:
+                pass  # Fail silently for pattern errors
     
     def _get_feature_color(self, city, layer, properties):
         """Get color configuration for a feature - ENHANCED with debugging and better mapping"""
@@ -849,6 +949,166 @@ class Command(BaseCommand):
                                 return style_config
                         except:
                             continue
+            
+            # For Andhra Pradesh cities
+            elif city_slug == 'amaravati':
+                # Use pattern style function for Amaravati
+                source_layer = properties.get('source_layer_name', '').strip()
+                if source_layer:
+                    try:
+                        # Try with the source layer name first
+                        pattern_style = get_pattern_style('amaravati', source_layer)
+                        if not pattern_style:
+                            # Try with filename pattern (replace spaces with underscores and add .geojson)
+                            filename_pattern = source_layer.replace(' ', '_').replace('___', '_').replace('__', '_') + '.geojson'
+                            pattern_style = get_pattern_style('amaravati', filename_pattern)
+                            if not pattern_style:
+                                # Try with lowercase planning and zone (as in config)
+                                filename_pattern = source_layer.replace(' ', '_').replace('___', '_').replace('__', '_').replace('Planning', 'planning').replace('Zone', 'zone') + '.geojson'
+                                pattern_style = get_pattern_style('amaravati', filename_pattern)
+                        if pattern_style:
+                            if 'hatch' in pattern_style:
+                                return {
+                                    'fill_color': pattern_style.get('solid', '#FFFFFF'),
+                                    'stroke_color': '#2C3E50',
+                                    'pattern': 'HATCHED',
+                                    'hatch_color': pattern_style['hatch']
+                                }
+                            elif 'solid' in pattern_style:
+                                return {
+                                    'fill_color': pattern_style['solid'],
+                                    'stroke_color': '#2C3E50',
+                                    'pattern': 'SOLID'
+                                }
+                    except:
+                        pass
+                    
+                    # Fallback to direct mapping
+                    amaravati_file_colors = {
+                        'SC1a Mixed Use': '#0070FF',
+                        'SC1b Mixed Use': '#73B2FF',
+                        'C1 Mixed Use Zone': '#73B2FF',
+                        'C2 General Commercial Zone': '#00C5FF',
+                        'C3 Neighbourhood Centre Zone': '#00C5FF',
+                        'C4 Town Centre Zone': '#00A9E6',
+                        'C5 Regional Centre Zone': '#0070FF',
+                        'C6 Central Business District': '#005CE6',
+                        'Commercial Vacant': '#C5E2FF',
+                        'I1 Business Park Zone': '#FFBEE8',
+                        'I2 Logistics Zone': '#FF73DF',
+                        'I3 Non Polluting Industry Zone': '#A900E6',
+                        'P1 Passive Zone': '#267300',
+                        'P2 Active Zone': '#38A800',
+                        'P3 Protected Zone': '#BEE8FF',
+                        'P3 Protected Zone Hills': '#4C7300',
+                        'PGN G': '#4C7300',
+                        'PGN V': '#897044',
+                        'R1 Village Planning Zone': '#FFFFFF',
+                        'R3 Medium to High Density Zone': '#F5CA7A',
+                        'R4 High Density Zone': '#E69800',
+                        'RAA': '#FFAA00',
+                        'Residential Vacant': '#FFD37F',
+                        'S2 Education Zone': '#FFF7F7',
+                        'S3 Special Zone': '#D7B09E',
+                        'SP1 Passive Zone': '#267300',
+                        'SP2 Active Zone': '#38A800',
+                        'SP3 Protected Zone': '#00C5FF',
+                        'SR2 Low Density Housing': '#FFFFBE',
+                        'SR4 High Density Private': '#FFAA00',
+                        'SS1 Government Zone': '#E60000',
+                        'SS2a Education Zone': '#FFF7F7',
+                        'SS2b Cultural Zone': '#C500FF',
+                        'SS2c Health Zone': '#D3FFBE',
+                        'SS3 Special Zone': '#A83800',
+                        'SU1 Reserve Zone': '#E1E1E1',
+                        'SU2 Road Network': '#FFFFFF',
+                        'U1 Reserve Zone': '#CCCCCC',
+                        'U2 Road Reserve Zone': '#000000',
+                        'Burial Ground': '#FFFFFF'
+                    }
+                    
+                    # Direct match first
+                    if source_layer in amaravati_file_colors:
+                        return {
+                            'fill_color': amaravati_file_colors[source_layer],
+                            'stroke_color': '#2C3E50',
+                            'pattern': 'SOLID'
+                        }
+            
+            elif city_slug == 'visakhapatnam':
+                # Use pattern style function for Visakhapatnam
+                source_layer = properties.get('source_layer_name', '').strip()
+                if source_layer:
+                    try:
+                        # Try with the source layer name first
+                        pattern_style = get_pattern_style('visakhapatnam', source_layer)
+                        if not pattern_style:
+                            # Try with filename pattern (replace spaces with underscores and add .geojson)
+                            filename_pattern = source_layer.replace(' ', '_').replace('___', '_').replace('__', '_') + '.geojson'
+                            pattern_style = get_pattern_style('visakhapatnam', filename_pattern)
+                            if not pattern_style:
+                                # Try with lowercase planning and zone (as in config)
+                                filename_pattern = source_layer.replace(' ', '_').replace('___', '_').replace('__', '_').replace('Planning', 'planning').replace('Zone', 'zone') + '.geojson'
+                                pattern_style = get_pattern_style('visakhapatnam', filename_pattern)
+                        if pattern_style:
+                            if 'hatch' in pattern_style:
+                                return {
+                                    'fill_color': pattern_style.get('solid', '#FFFFFF'),
+                                    'stroke_color': '#2C3E50',
+                                    'pattern': 'HATCHED',
+                                    'hatch_color': pattern_style['hatch']
+                                }
+                            elif 'solid' in pattern_style:
+                                return {
+                                    'fill_color': pattern_style['solid'],
+                                    'stroke_color': '#2C3E50',
+                                    'pattern': 'SOLID'
+                                }
+                    except:
+                        pass
+                    
+                    # Fallback to direct mapping
+                    visakhapatnam_file_colors = {
+                        'Agricultural Use Zone': '#D3FFBE',
+                        'Blue Zone Water Bodies': '#73FFDF',
+                        'Brown Zone Hills': '#A87000',
+                        'Commercial Use Zone': '#004DA8',
+                        'Existing Crematorium': '#FFFFFF',
+                        'Existing Educational': '#FF0000',
+                        'Existing Government': '#FF0000',
+                        'Existing Health': '#FF0000',
+                        'Proposed Industrial': '#C500FF',
+                        'Existing Industrial': '#C500FF',
+                        'Existing Public Utilities': '#FF7F7F',
+                        'Existing Recreational': '#55FF00',
+                        'Existing Religious': '#FF0000',
+                        'Existing Road Railway': '#828282',
+                        'Existing Transportation': '#686868',
+                        'Green Zone Forest': '#00734C',
+                        'Kambalakonda Eco Sensitive Zone': '#267300',
+                        'Kambalakonda WildLife Sanctuary': '#267300',
+                        'Mixed Use Zone 1': '#FFAA00',
+                        'Mixed Use Zone 2 BAIA': '#FFAA00',
+                        'Mixed Use Zone 3 BAIA': '#FFAA00',
+                        'Mixed Use Zone 4 BAIA': '#FFAA00',
+                        'Proposed PSP Use Zone': '#E60000',
+                        'Proposed Public Utilities Use Zone': '#D79E9E',
+                        'Proposed Recreational Use Zone': '#55FF00',
+                        'Proposed Road Network': '#828282',
+                        'Proposed Transportation Facility Use Zone': '#686868',
+                        'Residential Use Zone': '#FFFF73',
+                        'Sea River Accreted Land': '#E1E1E1',
+                        'Special Area Use Zone': '#C500FF',
+                        'Water Body Buffer': '#73FFDF'
+                    }
+                    
+                    # Direct match first
+                    if source_layer in visakhapatnam_file_colors:
+                        return {
+                            'fill_color': visakhapatnam_file_colors[source_layer],
+                            'stroke_color': '#2C3E50',
+                            'pattern': 'SOLID'
+                        }
             
             # For other cities
             elif city_slug == 'warangal':
