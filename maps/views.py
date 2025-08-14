@@ -935,7 +935,7 @@ class RasterTileView(APIView):
             
             if mvt_data:
                 try:
-                    png_data = render_service.mvt_to_png(mvt_data, layer, z, x, y)
+                    png_data = render_service.combined_mvt_to_png(mvt_data, [layer], z, x, y)
                     
                     if png_data and len(png_data) > 0:
                         response = HttpResponse(png_data, content_type='image/png')
@@ -1229,7 +1229,7 @@ class SimpleRasterTileView(APIView):
             if not mvt_data:
                 return HttpResponse(renderer.create_empty_tile(), content_type='image/png')
             
-            png_data = renderer.mvt_to_png(mvt_data, layer, z, x, y)
+            png_data = renderer.combined_mvt_to_png(mvt_data, [layer], z, x, y)
             
             return HttpResponse(png_data, content_type='image/png')
             
@@ -2852,7 +2852,7 @@ class HierarchicalTileView(APIView):
             elif format == 'png':
                 # Convert MVT to PNG
                 render_service = TileRenderingService()
-                png_data = render_service.render_mvt_to_png(mvt_data, layer)
+                png_data = render_service.combined_mvt_to_png(mvt_data, [layer], z, x, y)
                 
                 response = HttpResponse(png_data, content_type='image/png')
                 response['Cache-Control'] = 'max-age=300'  # 5 minute cache for on-demand

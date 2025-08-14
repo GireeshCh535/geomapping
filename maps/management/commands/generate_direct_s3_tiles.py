@@ -761,41 +761,37 @@ class Command(BaseCommand):
                 source_layer = properties.get('source_layer_name', '').strip()
                 if source_layer:
                     bengaluru_file_colors = {
-                        'residential_mixed': '#FFC400',
-                        'residential_main': '#FFEB4F', 
-                        'commercial_central': '#004DA8',
-                        'commercial_business': '#73B2FF',
-                        'industrial': '#AA66B2',
-                        'hightech': '#C29ED7',
-                        'public_semipublic': '#E60000',
-                        'defense': '#E0B8FC',
-                        'stateforest': '#70A800',
-                        'valley': '#70A800',
-                        'protected': '#70A800',
-                        'parks': '#98E600',
-                        'green': '#98E600',
-                        'sport': '#98E600',
-                        'playground': '#98E600',
-                        'cemetery': '#98E600',
-                        'burial': '#98E600',
-                        'lake': '#BEE8FF',
-                        'tank': '#BEE8FF',
-                        'road': '#828282',
-                        'rail': '#828282',
-                        'airport': '#828282',
-                        'transport': '#828282',
-                        'power': '#D79E9E',
-                        'water': '#D79E9E',
-                        'garbage': '#D79E9E',
-                        'treatment': '#D79E9E',
-                        'agricultural': '#9DC1CB',
-                        'unclassified': '#E1E1E1',
-                        'drains': '#267300'
+                        'Residential Mixed': '#FFC400',
+                        'Residential Main': '#FFEB4F', 
+                        'Commercial Central': '#004DA8',
+                        'Commercial Business': '#73B2FF',
+                        'Industrial': '#AA66B2',
+                        'High Tech': '#C29ED7',
+                        'Public & Semi Public': '#E60000',
+                        'Defense': '#E0B8FC',
+                        'State Forest Valley Protected Land': '#70A800',
+                        'Parks Green Spaces Sports Playgrounds Cemetery Burial Grounds': '#98E600',
+                        'Lake Tank': '#BEE8FF',
+                        'Road Rail Airport Transport': '#828282',
+                        'Power Water Garbage Facility Treatment Plant': '#D79E9E',
+                        'Agricultural Land': '#9DC1CB',
+                        'Unclassified Use': '#E1E1E1',
+                        'Drains': '#267300'
                     }
                     
+                    # Direct match first
+                    if source_layer in bengaluru_file_colors:
+                        return {
+                            'fill_color': bengaluru_file_colors[source_layer],
+                            'stroke_color': '#2C3E50',
+                            'pattern': 'SOLID'
+                        }
+                    
+                    # Fallback to pattern matching
                     source_lower = source_layer.lower().replace('_', '').replace(' ', '')
                     for pattern, color in bengaluru_file_colors.items():
-                        if pattern in source_lower:
+                        pattern_lower = pattern.lower().replace('_', '').replace(' ', '')
+                        if pattern_lower in source_lower or source_lower in pattern_lower:
                             return {
                                 'fill_color': color,
                                 'stroke_color': '#2C3E50',

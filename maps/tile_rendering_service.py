@@ -6,7 +6,7 @@ import io
 import logging
 import math
 from typing import Dict, Tuple, Optional, Any
-from .config import get_city_config
+from .config import get_city_config, get_pattern_style
 from .models import DataLayer
 
 logger = logging.getLogger(__name__)
@@ -245,7 +245,7 @@ class TileRenderingService:
             city_config = None
             if layers:
                 city = layers[0].city
-                city_config = get_city_config(city.state, city.slug)
+                city_config = get_city_config(city.state_ref.slug, city.slug)
             
             # Process each layer
             features_drawn = 0
@@ -260,7 +260,7 @@ class TileRenderingService:
                     continue
                 
                 # Check if this is a combined layer (has multiple file types)
-                is_combined_layer = layer.category.code in ['MASTER_PLAN', 'HIGHWAYS', 'METRO', 'STRR', 'WORKSPACE']
+                is_combined_layer = layer.category.code in ['MIXED_USE', 'TRANSPORT', 'UNCLASSIFIED'] or layer.slug.endswith('_master_plan_2015') or layer.slug.endswith('_highways') or layer.slug.endswith('_metro_lines') or layer.slug.endswith('_strr') or layer.slug.endswith('_workspaces')
                 
                 for feature in features:
                     try:
@@ -366,28 +366,42 @@ class TileRenderingService:
         try:
             # Get the source layer name from feature properties
             source_layer_name = feature.get('properties', {}).get('source_layer_name', '')
-            if not source_layer_name:
-                # Fallback to layer-level styling
-                return self._get_layer_style(layer)
             
-            # Find the layer group in city config
-            layer_groups = city_config.get('layer_groups', {})
-            for group_key, group_config in layer_groups.items():
-                if group_config.get('path', '').endswith(layer.category.slug.lower().replace('_', '-')):
-                    # Found the matching group, now look for the file
-                    files = group_config.get('files', {})
-                    for filename, file_config in files.items():
-                        if source_layer_name in filename or filename.replace('.json', '').replace('.geojson', '') in source_layer_name:
-                            # Found matching file, return its styling
-                            return {
-                                'fill_color': file_config.get('color', '#CCCCCC'),
-                                'stroke_color': '#000000',
-                                'pattern_type': 'SOLID',
-                                'opacity': 0.8
-                            }
+            # Use the pattern style function to get color
+            pattern_style = get_pattern_style(layer.city.slug, source_layer_name)
+            if pattern_style and 'solid' in pattern_style:
+                color = pattern_style['solid']
+            else:
+                # Fallback to hardcoded colors based on source layer name
+                color_map = {
+                    'Residential Mixed': '#FFC400',
+                    'Residential Main': '#FFEB4F',
+                    'Commercial Central': '#004DA8',
+                    'Commercial Business': '#73B2FF',
+                    'Industrial': '#AA66B2',
+                    'High Tech': '#C29ED7',
+                    'Public & Semi Public': '#E60000',
+                    'Defense': '#E0B8FC',
+                    'State Forest Valley Protected Land': '#70A800',
+                    'Parks Green Spaces': '#98E600',
+                    'Lake Tank': '#BEE8FF',
+                    'Road Rail Airport Transport': '#828282',
+                    'Power Water Garbage Facility': '#D79E9E',
+                    'Agricultural Land': '#9DC1CB',
+                    'Unclassified Use': '#E1E1E1',
+                    'Drains': '#267300'
+                }
+                color = color_map.get(source_layer_name, '#CCCCCC')
             
-            # If no match found, fallback to layer-level styling
-            return self._get_layer_style(layer)
+            # Debug logging (commented out for production)
+            # print(f"DEBUG: Feature source_layer_name='{source_layer_name}' -> color='{color}'")
+            
+            return {
+                'fill_color': color,
+                'stroke_color': '#000000',
+                'pattern_type': 'SOLID',
+                'opacity': 0.8
+            }
             
         except Exception as e:
             logger.warning(f"Error getting feature style from config: {e}")
