@@ -286,7 +286,7 @@
         mode: '0755'
 
     - name: Create Docker nginx configuration
-      template:
+      copy:
         dest: "{{ project_dir }}/nginx/conf.d/default.conf"
         content: |
           server {
