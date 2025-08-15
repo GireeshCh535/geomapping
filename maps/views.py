@@ -728,7 +728,7 @@ class CloudFrontTileView(APIView):
             return Response({
                 'error': f'Error returning error tile: {str(e)}',
                 'status': 'error'
-        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 class CombinedLayerCenterView(APIView):

@@ -1022,6 +1022,67 @@ class Command(BaseCommand):
             
             # For other cities
             elif city_slug == 'warangal':
+                # Warangal uses source_layer_name for color mapping
+                source_layer = properties.get('source_layer_name', '').strip()
+                if source_layer:
+                    # Warangal color mappings based on config
+                    warangal_colors = {
+                        'Agriculture': '#D3FFBE',
+                        'Air Strip': '#FF00C5',
+                        'Commercial': '#0070FF',
+                        'Forest': '#267300',
+                        'Growth Corridor': '#FFBEE8',
+                        'Growth Corridor 2': '#FF73DF',
+                        'Heritage': '#FFA77F',
+                        'Hill Buffer': '#55FF00',
+                        'Hillocks': '#A87000',
+                        'Industrial': '#C500FF',
+                        'Mixed Use': '#FFAA00',
+                        'Public and Semi Public': '#FF0000',
+                        'Public Utilities': '#E69800',
+                        'Railway Land': '#CCCCCC',
+                        'Recreational': '#55FF00',
+                        'Residential': '#FFFF00',
+                        'Residential Expansion': '#9C9C9C',
+                        'Road Buffer': '#4E4E4E',
+                        'Transportation': '#B2B2B2',
+                        'Water Bodies': '#00C5FF',
+                        'Water Body Buffer': '#55FF00',
+                        'Zoological Park': '#38A800'
+                    }
+                    
+                    # Check for exact match first
+                    if source_layer in warangal_colors:
+                        return {
+                            'fill_color': warangal_colors[source_layer],
+                            'stroke_color': '#2C3E50',
+                            'pattern': 'SOLID'
+                        }
+                    
+                    # Check for pattern styles (hatched patterns)
+                    warangal_patterns = {
+                        'Air Strip': {'hatch': '#FFFFFF', 'solid': '#FF00C5'},
+                        'Heritage': {'hatch': '#732600', 'solid': '#FFA77F'},
+                        'Public Utilities': {'hatch': '#FF0000', 'solid': '#E69800'}
+                    }
+                    
+                    if source_layer in warangal_patterns:
+                        pattern_config = warangal_patterns[source_layer]
+                        if 'hatch' in pattern_config:
+                            return {
+                                'fill_color': pattern_config.get('solid', '#FFFFFF'),
+                                'stroke_color': '#2C3E50',
+                                'pattern': 'HATCHED',
+                                'hatch_color': pattern_config['hatch']
+                            }
+                        else:
+                            return {
+                                'fill_color': pattern_config['solid'],
+                                'stroke_color': '#2C3E50',
+                                'pattern': 'SOLID'
+                            }
+                
+                # Fallback to zone name if source_layer not found
                 zone_name = (
                     properties.get('zone_category', '').strip() or 
                     properties.get('PLU_NAME', '').strip()
