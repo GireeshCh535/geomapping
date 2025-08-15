@@ -548,19 +548,19 @@ class Command(BaseCommand):
             # Draw each ring with proper pattern
             for ring in pixel_coords:
                 if pattern == 'SOLID':
-                    # Solid fill with good opacity
-                    draw.polygon(ring, fill=fill_color + (200,), outline=stroke_color)
+                    # Solid fill with good opacity - no outline to remove borders between features
+                    draw.polygon(ring, fill=fill_color + (200,), outline=None)
                 elif pattern == 'HATCHED':
-                    # Draw base fill first, then add hatching
-                    draw.polygon(ring, fill=fill_color + (100,), outline=stroke_color)
+                    # Draw base fill first, then add hatching - no outline to remove borders between features
+                    draw.polygon(ring, fill=fill_color + (100,), outline=None)
                     self._draw_hatching_pattern(draw, ring, stroke_color)
                 elif pattern == 'DOTTED':
-                    # Draw base fill first, then add dots
-                    draw.polygon(ring, fill=fill_color + (100,), outline=stroke_color)
+                    # Draw base fill first, then add dots - no outline to remove borders between features
+                    draw.polygon(ring, fill=fill_color + (100,), outline=None)
                     self._draw_dotted_pattern(draw, ring, stroke_color)
                 else:
-                    # Default to solid
-                    draw.polygon(ring, fill=fill_color + (200,), outline=stroke_color)
+                    # Default to solid - no outline to remove borders between features
+                    draw.polygon(ring, fill=fill_color + (200,), outline=None)
             
             return True
             

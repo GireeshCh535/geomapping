@@ -187,19 +187,17 @@ class EnhancedTileRenderer:
             else:
                 # Solid fill
                 try:
-                    # Add transparency for overlapping features
+                    # Add transparency for overlapping features - no outline to remove borders between features
                     fill_with_alpha = (*color[:3], 200)  # 78% opacity
-                    outline_color = (*color[:3], 255)
-                    draw.polygon(points, fill=fill_with_alpha, outline=outline_color)
+                    draw.polygon(points, fill=fill_with_alpha, outline=None)
                 except:
                     pass
         else:
             # Regular solid fill
             try:
-                # Add transparency for overlapping features
+                # Add transparency for overlapping features - no outline to remove borders between features
                 fill_with_alpha = (*color[:3], 200)  # 78% opacity
-                outline_color = (*color[:3], 255)
-                draw.polygon(points, fill=fill_with_alpha, outline=outline_color)
+                draw.polygon(points, fill=fill_with_alpha, outline=None)
             except:
                 pass
     
