@@ -242,7 +242,7 @@ DATA_IMPORT_CONFIG = {
                             'files': {
                                 'Bangalore Metro Phases 1,2,2A&2B.geojson': {
                                     'name': 'Bangalore Metro Phases 1, 2, 2A & 2B',
-                                    'color': '#14e098',
+                                    'color': '#14b8a6',
                                     'category': 'TRANSPORT'
                                 }
                             }
@@ -255,7 +255,7 @@ DATA_IMPORT_CONFIG = {
                             'files': {
                                 'STRR.geojson': {
                                     'name': 'Satellite Town Ring Road',
-                                    'color': '#14e098',
+                                    'color': '#14b8a6',
                                     'category': 'TRANSPORT'
                                 }
                             }
@@ -281,6 +281,55 @@ DATA_IMPORT_CONFIG = {
             'name': 'Telangana',
             'code': 'TS',
             'cities': {
+                'hyderabad': {
+                    'name': 'Hyderabad',
+                    'center_lat': 17.3850,
+                    'center_lng': 78.4867,
+                    'zoom_level': 11,
+                    'data_format': 'geojson',
+                    'plu_field': 'name',
+                    'layer_groups': {
+                        'rrr': {
+                            'name': 'RRR (Regional Ring Road)',
+                            'description': 'Hyderabad Regional Ring Road',
+                            'path': 'telangana/hyderabad/rrr',
+                            'display_order': 1,
+                            'files': {
+                                'RRR_Final.geojson': {
+                                    'name': 'RRR Final',
+                                    'color': '#14E098',
+                                    'category': 'TRANSPORT'
+                                }
+                            }
+                        },
+                        'ratan-tata-roads': {
+                            'name': 'Ratan Tata Roads',
+                            'description': 'Hyderabad Ratan Tata Roads',
+                            'path': 'telangana/hyderabad/ratan-tata-road',
+                            'display_order': 2,
+                            'files': {
+                                'RatanTataRoad.geojson': {
+                                    'name': 'Ratan Tata Road',
+                                    'color': '#14E098',
+                                    'category': 'TRANSPORT'
+                                }
+                            }
+                        },
+                        'highways': {
+                            'name': 'Highways',
+                            'description': 'Hyderabad Highways',
+                            'path': 'telangana/hyderabad/highways',
+                            'display_order': 3,
+                            'files': {
+                                'hyd_highways_merged.geojson': {
+                                    'name': 'Hyderabad Highways',
+                                    'color': '#14E098',
+                                    'category': 'TRANSPORT'
+                                }
+                            }
+                        }
+                    }
+                },
                 'warangal': {
                     'name': 'Warangal',
                     'center_lat': 17.9784,

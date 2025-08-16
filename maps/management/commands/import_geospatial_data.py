@@ -346,31 +346,75 @@ class Command(BaseCommand):
                     coords = geom.get('coordinates')
                     geometry_obj = None
                     
+                    # Helper function to convert 3D coordinates to 2D
+                    def convert_to_2d(coordinate_list):
+                        """Convert 3D coordinates to 2D by dropping Z dimension"""
+                        if isinstance(coordinate_list[0], (list, tuple)):
+                            return [convert_to_2d(coord) for coord in coordinate_list]
+                        else:
+                            # Single coordinate - take only x, y
+                            return coordinate_list[:2]
+                    
                     if geom_type == 'Polygon' and coords:
                         if len(coords) > 0 and len(coords[0]) > 3:
-                            geometry_obj = Polygon(coords[0])
+                            # Convert to 2D coordinates
+                            coords_2d = convert_to_2d(coords)
+                            geometry_obj = Polygon(coords_2d[0])
                     
                     elif geom_type == 'MultiPolygon' and coords:
                         polygons = []
                         for poly_coords in coords:
                             if poly_coords and len(poly_coords) > 0 and len(poly_coords[0]) > 3:
-                                polygons.append(Polygon(poly_coords[0]))
+                                # Convert to 2D coordinates
+                                poly_coords_2d = convert_to_2d(poly_coords)
+                                polygons.append(Polygon(poly_coords_2d[0]))
                         if polygons:
                             geometry_obj = MultiPolygon(polygons)
                     
                     elif geom_type == 'LineString' and coords:
                         if len(coords) >= 2:
-                            geometry_obj = LineString(coords)
+                            # Convert to 2D coordinates
+                            coords_2d = convert_to_2d(coords)
+                            geometry_obj = LineString(coords_2d)
                     
                     elif geom_type == 'MultiLineString' and coords:
                         lines = []
                         for line_coords in coords:
                             if len(line_coords) >= 2:
-                                lines.append(LineString(line_coords))
+                                # Convert to 2D coordinates
+                                line_coords_2d = convert_to_2d(line_coords)
+                                lines.append(LineString(line_coords_2d))
                         if lines:
                             geometry_obj = MultiLineString(lines)
                     
                     if geometry_obj:
+                        # Check if coordinates need transformation (Web Mercator to Geographic)
+                        try:
+                            # Check if coordinates are in Web Mercator (EPSG:3857) range
+                            # Web Mercator X: -20037508 to 20037508, Y: -20037508 to 20037508
+                            # Geographic X: -180 to 180, Y: -90 to 90
+                            coords_sample = coords[0][0] if isinstance(coords[0], list) else coords[0]
+                            x, y = coords_sample[0], coords_sample[1]
+                            
+                            # If coordinates are in Web Mercator range, transform to geographic
+                            if abs(x) > 180 or abs(y) > 90:
+                                from django.contrib.gis.gdal import SpatialReference, CoordTransform
+                                from django.contrib.gis.geos import GEOSGeometry
+                                
+                                # Create coordinate transformation from Web Mercator to WGS84
+                                web_mercator = SpatialReference('EPSG:3857')
+                                wgs84 = SpatialReference('EPSG:4326')
+                                transform = CoordTransform(web_mercator, wgs84)
+                                
+                                # Transform the geometry
+                                geometry_obj.transform(transform)
+                                
+                                if options.get('verbose'):
+                                    self.stdout.write(f"          🔄 Transformed coordinates from Web Mercator to WGS84")
+                        except Exception as transform_error:
+                            if options.get('verbose'):
+                                self.stdout.write(f"          ⚠️  Coordinate transformation failed: {transform_error}")
+                        
                         # Add metadata
                         if props and plu_field in props:
                             props['_plu_code'] = str(props[plu_field])[:50]

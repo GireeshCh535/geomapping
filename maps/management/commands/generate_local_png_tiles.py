@@ -305,6 +305,21 @@ class Command(BaseCommand):
                     'coordinates': transformed_coords
                 }
             
+            elif geom_type == 'MultiLineString':
+                transformed_coords = []
+                for line in coordinates:
+                    transformed_line = []
+                    for coord in line:
+                        tile_x = int((coord[0] - bounds.west) / (bounds.east - bounds.west) * 4096)
+                        tile_y = int((bounds.north - coord[1]) / (bounds.north - bounds.south) * 4096)
+                        transformed_line.append([tile_x, tile_y])
+                    transformed_coords.append(transformed_line)
+                
+                return {
+                    'type': 'MultiLineString',
+                    'coordinates': transformed_coords
+                }
+            
             elif geom_type == 'Point':
                 coord = coordinates
                 tile_x = int((coord[0] - bounds.west) / (bounds.east - bounds.west) * 4096)
@@ -377,6 +392,18 @@ class Command(BaseCommand):
                 # Add source_layer_name for color mapping
                 properties['source_layer_name'] = getattr(feature, 'source_layer_name', '') or ''
             
+            elif city_slug == 'hyderabad':
+                # Hyderabad uses _source_file for color mapping (not source_layer_name)
+                properties['source_layer_name'] = getattr(feature, 'source_layer_name', '') or ''
+                
+                # Add _source_file from the feature properties for Hyderabad color mapping
+                if hasattr(feature, 'properties') and feature.properties:
+                    try:
+                        props = feature.properties if isinstance(feature.properties, dict) else {}
+                        properties['_source_file'] = props.get('_source_file', '') or ''
+                        properties['name'] = props.get('Name', '') or properties.get('name', '')
+                    except:
+                        pass
             elif city_slug == 'visakhapatnam':
                 # Visakhapatnam uses Category from properties JSON  
                 if hasattr(feature, 'properties') and feature.properties:
@@ -435,6 +462,8 @@ class Command(BaseCommand):
             if not decoded_data:
                 return None
             
+
+            
             # Create blank image with transparent background
             img = Image.new('RGBA', (self.tile_size, self.tile_size), (255, 255, 255, 0))
             draw = ImageDraw.Draw(img)
@@ -445,10 +474,15 @@ class Command(BaseCommand):
             for layer_name, layer_data in decoded_data.items():
                 features = layer_data.get('features', [])
                 
+
+                
                 for feature in features:
                     try:
                         # Get feature-specific color based on properties
                         feature_props = feature.get('properties', {})
+                        
+
+                        
                         color_config = self._get_feature_color(city, layer, feature_props)
                         
                         # DEBUG: Show color mapping for first few features
@@ -462,6 +496,8 @@ class Command(BaseCommand):
                                 zone_info = f" | source: {source_layer}"
                             
                             self.stdout.write(f"        🎨 Feature {features_drawn}: {color_config.get('fill_color', 'N/A')}{zone_info}")
+                        
+
                         
                         # Draw the feature with proper colors
                         if self._draw_feature_with_color(draw, feature, color_config):
@@ -499,6 +535,8 @@ class Command(BaseCommand):
             fill_color = self._hex_to_rgb(color_config.get('fill_color', '#CCCCCC'))
             stroke_color = self._hex_to_rgb(color_config.get('stroke_color', '#666666'))
             pattern = color_config.get('pattern', 'SOLID')
+            
+
             
             # Scale factor from MVT extent (4096) to tile pixels (256)
             scale_factor = self.tile_size / self.mvt_extent
@@ -575,6 +613,7 @@ class Command(BaseCommand):
             else:  # MultiLineString
                 coords_list = coordinates
             
+            drawn_lines = 0
             for line_coords in coords_list:
                 pixel_coords = []
                 for coord in line_coords:
@@ -584,11 +623,17 @@ class Command(BaseCommand):
                     pixel_y = max(0, min(self.tile_size - 1, pixel_y))
                     pixel_coords.append((pixel_x, pixel_y))
                 
+
+                
                 if len(pixel_coords) >= 2:
                     for i in range(len(pixel_coords) - 1):
-                        draw.line([pixel_coords[i], pixel_coords[i + 1]], fill=stroke_color, width=2)
+                        draw.line([pixel_coords[i], pixel_coords[i + 1]], fill=stroke_color, width=4)
+                        # Also draw a thicker line for better visibility
+                        draw.line([pixel_coords[i], pixel_coords[i + 1]], fill=stroke_color, width=1)
+                        drawn_lines += 1
+
             
-            return True
+            return drawn_lines > 0
         except Exception as e:
             return False
     
@@ -760,6 +805,7 @@ class Command(BaseCommand):
     
     def _get_feature_color(self, city, layer, properties):
         """Get color configuration for a feature - ENHANCED with debugging and better mapping"""
+        
         try:
             city_slug = city.slug
             
@@ -1021,6 +1067,39 @@ class Command(BaseCommand):
                         }
             
             # For other cities
+            elif city_slug == 'hyderabad':
+                # Hyderabad uses _source_file for color mapping (not source_layer_name)
+                source_file = properties.get('_source_file', '').strip()
+                if source_file:
+                    # Hyderabad color mappings based on config - all transport layers use #14E098
+                    hyderabad_colors = {
+                        'RRR Final': '#14E098',
+                        'Ratan Tata Road': '#14E098',
+                        'Hyderabad Highways': '#14E098'
+                    }
+                    
+                    # Check for exact match first
+                    if source_file in hyderabad_colors:
+                        return {
+                            'fill_color': hyderabad_colors[source_file],
+                            'stroke_color': hyderabad_colors[source_file],  # Use same color for stroke
+                            'pattern': 'SOLID'
+                        }
+                    
+                    # Check for partial matches
+                    source_lower = source_file.lower()
+                    if any(keyword in source_lower for keyword in ['rrr', 'ratan', 'tata', 'highway', 'road']):
+                        return {
+                            'fill_color': '#14E098',
+                            'stroke_color': '#14E098',  # Use same color for stroke
+                            'pattern': 'SOLID'
+                        }
+                
+                # Fallback to zone name if _source_file not found
+                zone_name = (
+                    properties.get('zone_category', '').strip() or 
+                    properties.get('name', '').strip()
+                )
             elif city_slug == 'warangal':
                 # Warangal uses source_layer_name for color mapping
                 source_layer = properties.get('source_layer_name', '').strip()
@@ -1106,24 +1185,25 @@ class Command(BaseCommand):
                     except:
                         pass
             
-            # Enhanced layer-based color assignment (more vibrant colors)
-            layer_colors = {
-                'master_plan': '#FF6B6B',     # Bright red
-                'highways': '#4ECDC4',        # Turquoise
-                'metro': '#45B7D1',           # Blue
-                'strr': '#96CEB4',            # Green
-                'workspace': '#FCEA2B',       # Yellow
-                'railways': '#FF9FF3',        # Pink
-                'suburban': '#F38BA8',        # Light pink
-            }
-            
-            for key, color in layer_colors.items():
-                if key in layer.slug.lower():
-                    return {
-                        'fill_color': color,
-                        'stroke_color': '#2C3E50',
-                        'pattern': 'SOLID'
-                    }
+            # Enhanced layer-based color assignment (more vibrant colors) - ONLY for cities without specific color mapping
+            if city_slug not in ['hyderabad', 'bengaluru', 'warangal', 'visakhapatnam', 'amaravati']:
+                layer_colors = {
+                    'master_plan': '#FF6B6B',     # Bright red
+                    'highways': '#4ECDC4',        # Turquoise
+                    'metro': '#45B7D1',           # Blue
+                    'strr': '#96CEB4',            # Green
+                    'workspace': '#FCEA2B',       # Yellow
+                    'railways': '#FF9FF3',        # Pink
+                    'suburban': '#F38BA8',        # Light pink
+                }
+                
+                for key, color in layer_colors.items():
+                    if key in layer.slug.lower():
+                        return {
+                            'fill_color': color,
+                            'stroke_color': '#2C3E50',
+                            'pattern': 'SOLID'
+                        }
             
             # Fallback to layer default style from CityLayerStyle
             try:
