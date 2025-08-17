@@ -43,6 +43,7 @@ INSTALLED_APPS = [
     'corsheaders',
     'rest_framework',
     'django_filters',
+    'drf_spectacular',
     'maps',
 ]
 
@@ -128,6 +129,7 @@ REST_FRAMEWORK = {
         'rest_framework.throttling.AnonRateThrottle',
         'rest_framework.throttling.UserRateThrottle'
     ],
+    'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
 }
 
 # PASSWORD VALIDATION
@@ -264,3 +266,30 @@ LOGGING = {
 # Data directory
 DATA_DIR = BASE_DIR / 'data'
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+# ===================================
+# DRF SPECTACULAR - API DOCUMENTATION
+# ===================================
+
+SPECTACULAR_SETTINGS = {
+    'TITLE': 'Geo Mapping API',
+    'DESCRIPTION': 'A comprehensive API for geospatial data management and tile serving',
+    'VERSION': '1.0.0',
+    'SERVE_INCLUDE_SCHEMA': False,
+    'COMPONENT_SPLIT_REQUEST': True,
+    'SCHEMA_PATH_PREFIX': '/api/',
+    'SWAGGER_UI_SETTINGS': {
+        'deepLinking': True,
+        'persistAuthorization': True,
+        'displayOperationId': True,
+    },
+    'TAGS': [
+        {'name': 'states', 'description': 'State management endpoints'},
+        {'name': 'cities', 'description': 'City management endpoints'},
+        {'name': 'categories', 'description': 'Layer category management'},
+        {'name': 'layers', 'description': 'Data layer management'},
+        {'name': 'features', 'description': 'Geospatial features'},
+        {'name': 'tiles', 'description': 'Map tile serving endpoints'},
+        {'name': 'hierarchy', 'description': 'Hierarchical data structure'},
+    ],
+}

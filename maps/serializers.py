@@ -54,8 +54,8 @@ class LayerCategorySerializer(serializers.ModelSerializer):
         model = LayerCategory
         fields = [
             'name', 'code', 'description', 'default_color', 
-            'default_stroke', 'default_opacity', 'min_zoom', 'max_zoom',
-            'display_order', 'is_active', 'layer_count'
+            'default_stroke', 'default_opacity', 'display_order', 
+            'is_active', 'layer_count'
         ]
     
     def get_layer_count(self, obj):
@@ -149,11 +149,11 @@ class GeoFeatureSerializer(GeoFeatureModelSerializer):
         geo_field = 'geometry'
         fields = [
             'id', 'layer_name', 'city_name', 'category_name', 'display_name',
-            'source_fid', 'name', 'derived_category', 'land_use_type',
+            'name', 'zone_category', 'zone_subcategory',
             'plu_primary_code', 'plu_secondary_1', 'plu_secondary_2',
             'plu_proposed_use', 'plu_authority', 'plu_description',
-            'calculated_area', 'calculated_perimeter', 'source_area_value',
-            'is_valid', 'geometry_simplified', 'created_at', 'color'
+            'area', 'shape_length', 'shape_area', 'objectid', 'fid',
+            'is_valid', 'created_at', 'color'
         ]
     
     def get_color(self, obj):
@@ -190,17 +190,14 @@ class GeoFeatureListSerializer(serializers.ModelSerializer):
     class Meta:
         model = GeoFeature
         fields = [
-            'id', 'layer_name', 'display_name', 'derived_category',
-            'plu_primary_code', 'calculated_area', 'centroid', 'is_valid'
+            'id', 'layer_name', 'display_name', 'zone_category',
+            'plu_primary_code', 'area', 'is_valid'
         ]
     
     def get_centroid(self, obj):
         """Get feature centroid coordinates"""
-        if obj.calculated_centroid_lat and obj.calculated_centroid_lng:
-            return {
-                'lat': obj.calculated_centroid_lat,
-                'lng': obj.calculated_centroid_lng
-            }
+        # For now, return None since we don't have calculated centroid fields
+        # This can be enhanced later if needed
         return None
 
 class VectorTileLayerSerializer(serializers.ModelSerializer):

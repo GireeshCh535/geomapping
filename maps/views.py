@@ -8,6 +8,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from django.http import HttpResponseRedirect
 from django.contrib.gis.geos import Point
+from drf_spectacular.utils import extend_schema, extend_schema_view, OpenApiParameter, OpenApiExample
 from .models import *
 from .serializers import *
 import logging
@@ -19,35 +20,107 @@ logger = logging.getLogger(__name__)
 # VIEWSETS (Router endpoints)
 # ================================
 
+@extend_schema_view(
+    list=extend_schema(
+        summary="List all states",
+        description="Retrieve a list of all active states",
+        tags=['states']
+    ),
+    retrieve=extend_schema(
+        summary="Get state details",
+        description="Retrieve detailed information about a specific state",
+        tags=['states']
+    )
+)
 class StateViewSet(viewsets.ReadOnlyModelViewSet):
     """API endpoint for states"""
     queryset = State.objects.filter(is_active=True)
     serializer_class = StateSerializer
     lookup_field = 'slug'
 
+@extend_schema_view(
+    list=extend_schema(
+        summary="List all layer groups",
+        description="Retrieve a list of all layer groups",
+        tags=['layers']
+    ),
+    retrieve=extend_schema(
+        summary="Get layer group details",
+        description="Retrieve detailed information about a specific layer group",
+        tags=['layers']
+    )
+)
 class LayerGroupViewSet(viewsets.ReadOnlyModelViewSet):
     """API endpoint for layer groups"""
     queryset = LayerGroup.objects.all()
     serializer_class = LayerGroupSerializer
     lookup_field = 'slug'
 
+@extend_schema_view(
+    list=extend_schema(
+        summary="List all cities",
+        description="Retrieve a list of all active cities",
+        tags=['cities']
+    ),
+    retrieve=extend_schema(
+        summary="Get city details",
+        description="Retrieve detailed information about a specific city",
+        tags=['cities']
+    )
+)
 class CityViewSet(viewsets.ReadOnlyModelViewSet):
     """API endpoint for cities"""
     queryset = City.objects.filter(is_active=True).select_related('state_ref')
     serializer_class = CitySerializer
     lookup_field = 'slug'
 
+@extend_schema_view(
+    list=extend_schema(
+        summary="List all layer categories",
+        description="Retrieve a list of all layer categories",
+        tags=['categories']
+    ),
+    retrieve=extend_schema(
+        summary="Get layer category details",
+        description="Retrieve detailed information about a specific layer category",
+        tags=['categories']
+    )
+)
 class LayerCategoryViewSet(viewsets.ReadOnlyModelViewSet):
     """API endpoint for layer categories"""
     queryset = LayerCategory.objects.all()
     serializer_class = LayerCategorySerializer
     lookup_field = 'code'
 
+@extend_schema_view(
+    list=extend_schema(
+        summary="List all data layers",
+        description="Retrieve a list of all processed data layers",
+        tags=['layers']
+    ),
+    retrieve=extend_schema(
+        summary="Get data layer details",
+        description="Retrieve detailed information about a specific data layer",
+        tags=['layers']
+    )
+)
 class DataLayerViewSet(viewsets.ReadOnlyModelViewSet):
     """API endpoint for data layers"""
     queryset = DataLayer.objects.filter(is_processed=True).select_related('city', 'category')
     serializer_class = DataLayerSerializer
 
+@extend_schema_view(
+    list=extend_schema(
+        summary="List all geo features",
+        description="Retrieve a list of all valid geo features",
+        tags=['features']
+    ),
+    retrieve=extend_schema(
+        summary="Get geo feature details",
+        description="Retrieve detailed information about a specific geo feature",
+        tags=['features']
+    )
+)
 class GeoFeatureViewSet(viewsets.ReadOnlyModelViewSet):
     """API endpoint for geo features"""
     queryset = GeoFeature.objects.filter(is_valid=True).select_related('layer', 'layer__city')
@@ -493,6 +566,80 @@ class TileCoordinatesView(APIView):
                 'message': str(e)
             }, status=500)
 
+@extend_schema(
+    summary="Get complete hierarchy",
+    description="Retrieve the complete hierarchy of states, cities, and layers in a single API call. This endpoint provides a comprehensive view of the entire geospatial data structure including statistics and tile availability.",
+    tags=['hierarchy'],
+    responses={
+        200: {
+            'description': 'Complete hierarchy data',
+            'content': {
+                'application/json': {
+                    'example': {
+                        'states': [
+                            {
+                                'state': {
+                                    'name': 'Karnataka',
+                                    'slug': 'karnataka',
+                                    'is_active': True
+                                },
+                                'cities': [
+                                    {
+                                        'name': 'Bengaluru',
+                                        'slug': 'bengaluru',
+                                        'center_lat': 12.9716,
+                                        'center_lng': 77.5946,
+                                        'is_active': True,
+                                        'is_live': True,
+                                        'statistics': {
+                                            'total_layers': 5,
+                                            'processed_layers': 5,
+                                            'layers_with_tiles': 5,
+                                            'total_features': 1250
+                                        },
+                                        'status': 'live',
+                                        'layers': [
+                                            {
+                                                'name': 'Master Plan 2015',
+                                                'slug': 'master_plan_2015',
+                                                'status': 'live',
+                                                'is_live': True,
+                                                'tiles_generated': True,
+                                                'feature_count': 250,
+                                                'category': 'Master Plan',
+                                                'bounds': {
+                                                    'xmin': 77.4,
+                                                    'ymin': 12.8,
+                                                    'xmax': 77.8,
+                                                    'ymax': 13.2
+                                                },
+                                                'tile_urls': {
+                                                    'png': 'https://d17yosovmfjm4.cloudfront.net/tiles/karnataka/bengaluru/master_plan_2015/{z}/{x}/{y}.png',
+                                                    'mvt': 'https://d17yosovmfjm4.cloudfront.net/tiles/karnataka/bengaluru/master_plan_2015/{z}/{x}/{y}.mvt'
+                                                }
+                                            }
+                                        ]
+                                    }
+                                ],
+                                'statistics': {
+                                    'total_cities': 1,
+                                    'total_layers': 5,
+                                    'total_features': 1250
+                                }
+                            }
+                        ],
+                        'summary': {
+                            'total_states': 1,
+                            'total_cities': 1,
+                            'total_layers': 5,
+                            'total_features': 1250
+                        }
+                    }
+                }
+            }
+        }
+    }
+)
 class CompleteHierarchyAPIView(APIView):
     """
     Complete Hierarchy API
@@ -633,6 +780,83 @@ class CompleteHierarchyAPIView(APIView):
             'api_base': f"/api/tiles/{state_slug}/{city_slug}/{layer_slug}/"
         }
 
+@extend_schema(
+    summary="Serve map tiles",
+    description="Serve map tiles (PNG or MVT format) from CloudFront CDN with hierarchical URL structure. This endpoint redirects to CloudFront URLs for optimal performance.",
+    tags=['tiles'],
+    parameters=[
+        OpenApiParameter(
+            name='state_slug',
+            location=OpenApiParameter.PATH,
+            description='State slug (e.g., karnataka)',
+            required=True,
+            type=str
+        ),
+        OpenApiParameter(
+            name='city_slug',
+            location=OpenApiParameter.PATH,
+            description='City slug (e.g., bengaluru)',
+            required=True,
+            type=str
+        ),
+        OpenApiParameter(
+            name='layer_slug',
+            location=OpenApiParameter.PATH,
+            description='Layer slug (e.g., master_plan_2015)',
+            required=True,
+            type=str
+        ),
+        OpenApiParameter(
+            name='z',
+            location=OpenApiParameter.PATH,
+            description='Zoom level (0-22)',
+            required=True,
+            type=int
+        ),
+        OpenApiParameter(
+            name='x',
+            location=OpenApiParameter.PATH,
+            description='Tile X coordinate',
+            required=True,
+            type=int
+        ),
+        OpenApiParameter(
+            name='y',
+            location=OpenApiParameter.PATH,
+            description='Tile Y coordinate',
+            required=True,
+            type=int
+        ),
+    ],
+    responses={
+        302: {
+            'description': 'Redirect to CloudFront tile URL',
+        },
+        404: {
+            'description': 'Tile or layer not found',
+            'content': {
+                'application/json': {
+                    'example': {
+                        'error': 'Layer not found: karnataka/bengaluru/master_plan',
+                        'status': 'error'
+                    }
+                }
+            }
+        }
+    },
+    examples=[
+        OpenApiExample(
+            'PNG Tile',
+            value='PNG tile image',
+            description='Example: /api/tiles/karnataka/bengaluru/master_plan_2015/12/2048/2048.png'
+        ),
+        OpenApiExample(
+            'MVT Tile',
+            value='MVT tile data',
+            description='Example: /api/tiles/karnataka/bengaluru/master_plan_2015/12/2048/2048.mvt'
+        )
+    ]
+)
 class CloudFrontTileView(APIView):
     """
     CloudFront Tile Serving API
