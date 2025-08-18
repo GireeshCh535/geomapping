@@ -6,13 +6,15 @@ from rest_framework.permissions import AllowAny
 from django.conf import settings
 from rest_framework.response import Response
 from rest_framework.views import APIView
-from django.http import HttpResponseRedirect
+from django.http import HttpResponseRedirect, HttpResponse
 from django.contrib.gis.geos import Point
 from drf_spectacular.utils import extend_schema, extend_schema_view, OpenApiParameter, OpenApiExample
 from .models import *
 from .serializers import *
+from .tile_path_service import TilePathService
 import logging
 import boto3
+import requests
 
 logger = logging.getLogger(__name__)
 
@@ -859,27 +861,31 @@ class CompleteHierarchyAPIView(APIView):
 )
 class CloudFrontTileView(APIView):
     """
-    CloudFront Tile Serving API
+    Enhanced CloudFront Tile Serving API with Fallback
     
     Serves tiles from CloudFront CDN with hierarchical URL structure:
     GET /api/tiles/<state_slug>/<city_slug>/<layer_slug>/<z>/<x>/<y>.png
     GET /api/tiles/<state_slug>/<city_slug>/<layer_slug>/<z>/<x>/<y>.mvt
     
     Examples:
-    - /api/tiles/karnataka/bengaluru/master_plan/12/2048/2048.png
+    - /api/tiles/karnataka/bengaluru/bengaluru_master_plan_2015/12/2926/1899.png
     - /api/tiles/andhra-pradesh/visakhapatnam/master_plan/12/2048/2048.png
     - /api/tiles/telangana/hyderabad/rrr/12/2048/2048.mvt
     
-    This API redirects to CloudFront URLs for optimal performance.
+    This API tries CloudFront first, then S3 direct, then local generation as fallback.
     """
     
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.tile_path_service = TilePathService()
+    
     def get(self, request, state_slug, city_slug, layer_slug, z, x, y):
-        """Serve tiles via CloudFront with fallback to local generation"""
+        """Serve tiles with multiple fallback options"""
         try:
             z, x, y = int(z), int(x), int(y)
             
             # Validate tile coordinates
-            if not self._validate_tile_coordinates(z, x, y):
+            if not self.tile_path_service.validate_tile_coordinates(z, x, y):
                 return self._return_error_tile("Invalid tile coordinates")
             
             # Determine format from URL
@@ -890,33 +896,83 @@ class CloudFrontTileView(APIView):
             if not layer:
                 return self._return_error_tile(f"Layer not found: {state_slug}/{city_slug}/{layer_slug}")
             
-            # Check if layer has tiles generated or is processed
-            # Note: tiles_generated flag might not be updated when tiles are uploaded to S3
-            if not layer.tiles_generated and not layer.is_processed:
-                return self._return_error_tile(f"Layer not ready: {layer_slug}")
+            # Try multiple sources in order of preference
+            tile_data = self._get_tile_with_fallback(state_slug, city_slug, layer_slug, z, x, y, format_type, layer)
             
-            # Get CloudFront URL
-            cloudfront_url = self._get_cloudfront_tile_url(state_slug, city_slug, layer_slug, z, x, y, format_type)
-            
-            # Redirect to CloudFront for optimal performance
-            return HttpResponseRedirect(cloudfront_url)
+            if tile_data:
+                # Return the tile data with appropriate headers
+                headers = self.tile_path_service.get_tile_cache_headers(format_type)
+                response = HttpResponse(tile_data, content_type=headers['ContentType'])
+                response['Cache-Control'] = headers['CacheControl']
+                return response
+            else:
+                return self._return_error_tile(f"Tile not found: {state_slug}/{city_slug}/{layer_slug}/{z}/{x}/{y}.{format_type}")
             
         except Exception as e:
+            logger.error(f"Error serving tile: {str(e)}")
             return self._return_error_tile(f"Error serving tile: {str(e)}")
     
-    def _validate_tile_coordinates(self, z, x, y):
-        """Validate tile coordinates"""
+    def _get_tile_with_fallback(self, state_slug, city_slug, layer_slug, z, x, y, format_type, layer):
+        """
+        Try to get tile from multiple sources in order:
+        1. CloudFront CDN (primary)
+        2. S3 Direct (fallback)
+        3. Generate on-demand (if enabled)
+        """
+        
+        # 1. Try CloudFront first (primary source)
+        cloudfront_url = self.tile_path_service.generate_cloudfront_url(
+            state_slug, city_slug, layer_slug, z, x, y, format_type
+        )
+        
+        tile_data = self._fetch_url(cloudfront_url)
+        if tile_data:
+            logger.info(f"✅ Served from CloudFront: {cloudfront_url}")
+            return tile_data
+        
+        # 2. Try S3 Direct (fallback)
+        s3_url = self.tile_path_service.generate_s3_url(
+            state_slug, city_slug, layer_slug, z, x, y, format_type
+        )
+        
+        tile_data = self._fetch_url(s3_url)
+        if tile_data:
+            logger.info(f"✅ Served from S3: {s3_url}")
+            return tile_data
+        
+        # 3. Generate on-demand (optional - can be disabled for performance)
+        if getattr(settings, 'ENABLE_ON_DEMAND_TILE_GENERATION', False):
+            tile_data = self._generate_tile_on_demand(layer, z, x, y, format_type)
+            if tile_data:
+                logger.info(f"✅ Generated on-demand: {z}/{x}/{y}.{format_type}")
+                return tile_data
+        
+        return None
+    
+    def _fetch_url(self, url, timeout=5):
+        """Fetch data from URL with timeout"""
         try:
-            # Basic validation
-            if z < 0 or z > 22:  # Reasonable zoom range
-                return False
-            if x < 0 or y < 0:
-                return False
-            if x >= 2 ** z or y >= 2 ** z:  # Tile bounds for zoom level
-                return False
-            return True
+            response = requests.get(url, timeout=timeout)
+            if response.status_code == 200:
+                return response.content
         except Exception as e:
-            return False
+            logger.debug(f"Failed to fetch {url}: {e}")
+        return None
+    
+    def _read_local_file(self, file_path):
+        """Read tile from local file system (disabled - S3/CloudFront only)"""
+        # Local file reading disabled - using S3/CloudFront only
+        return None
+    
+    def _generate_tile_on_demand(self, layer, z, x, y, format_type):
+        """Generate tile on-demand (optional feature)"""
+        try:
+            # This would integrate with your existing tile generation services
+            # For now, return None to disable on-demand generation
+            return None
+        except Exception as e:
+            logger.error(f"On-demand tile generation failed: {e}")
+            return None
     
     def _get_layer_by_hierarchy(self, state_slug, city_slug, layer_slug):
         """Get layer by hierarchical path"""
@@ -930,16 +986,6 @@ class CloudFrontTileView(APIView):
             )
         except DataLayer.DoesNotExist:
             return None
-            
-    def _get_cloudfront_tile_url(self, state_slug, city_slug, layer_slug, z, x, y, format_type):
-        """Generate CloudFront URL for tile"""
-        # Get CloudFront domain from settings
-        cloudfront_domain = getattr(settings, 'CLOUDFRONT_DOMAIN', 'd17yosovmfjm4.cloudfront.net')
-        
-        # Use CloudFront URL without /tiles/ prefix to match S3 structure
-        cloudfront_url = f"https://{cloudfront_domain}/{state_slug}/{city_slug}/{layer_slug}/{z}/{x}/{y}.{format_type}"
-        
-        return cloudfront_url
     
     def _return_error_tile(self, error_message):
         """Return an error response"""

@@ -27,6 +27,7 @@ from PIL import Image, ImageDraw
 from botocore.exceptions import ClientError
 from maps.models import State, City, DataLayer, GeoFeature, CityLayerStyle
 from maps.config import get_city_style_config, PATTERN_DEFAULTS, get_pattern_style
+from maps.tile_path_service import TilePathService
 
 
 class Command(BaseCommand):
@@ -55,6 +56,9 @@ class Command(BaseCommand):
             aws_access_key_id=getattr(settings, 'AWS_ACCESS_KEY_ID', None),
             aws_secret_access_key=getattr(settings, 'AWS_SECRET_ACCESS_KEY', None)
         )
+        
+        # Initialize tile path service
+        self.tile_path_service = TilePathService()
     
     def add_arguments(self, parser):
         parser.add_argument('--state', type=str, required=True, help='State slug')
@@ -229,17 +233,22 @@ class Command(BaseCommand):
     def _upload_png_to_s3(self, png_data, city, layer, z, x, y, verbose):
         """Upload PNG data to S3 with proper key structure"""
         try:
-            # S3 key structure: state/city/layer/z/x/y.png
+            # Use tile path service for consistent S3 key generation
             state_slug = city.state_ref.slug if city.state_ref else 'unknown'
-            s3_key = f"{state_slug}/{city.slug}/{layer.slug}/{z}/{x}/{y}.png"
+            s3_key = self.tile_path_service.generate_s3_key(
+                state_slug, city.slug, layer.slug, z, x, y, 'png'
+            )
+            
+            # Get cache headers from service
+            headers = self.tile_path_service.get_tile_cache_headers('png')
             
             # Upload to S3
             self.s3_client.put_object(
                 Bucket=self.bucket_name,
                 Key=s3_key,
                 Body=png_data,
-                ContentType='image/png',
-                CacheControl='public, max-age=31536000',  # Cache for 1 year
+                ContentType=headers['ContentType'],
+                CacheControl=headers['CacheControl'],
                 Metadata={
                     'state': state_slug,
                     'city': city.slug,

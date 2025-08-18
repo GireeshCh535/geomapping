@@ -210,6 +210,31 @@ AWS_S3_CUSTOM_DOMAIN = f'{AWS_STORAGE_BUCKET_NAME}.s3.{AWS_S3_REGION_NAME}.amazo
 CLOUDFRONT_DOMAIN = 'd17yosovmfjm4.cloudfront.net'
 USE_CLOUDFRONT = os.getenv('USE_CLOUDFRONT', 'True').lower() == 'true'
 
+# S3-Only Tile Serving Configuration
+S3_ONLY_TILE_SERVING = True
+DISABLE_LOCAL_TILES = True
+GENERATE_TILES_DIRECT_TO_S3 = True
+SKIP_LOCAL_TILE_STORAGE = True
+
+# Tile Serving Fallback Configuration
+TILE_SERVING_FALLBACK_ORDER = [
+    'cloudfront',  # Primary: CloudFront CDN
+    's3_direct',   # Secondary: S3 Direct
+    'on_demand'    # Tertiary: On-demand generation (optional)
+]
+
+# Tile Cache Headers
+TILE_CACHE_HEADERS = {
+    'png': {
+        'CacheControl': 'public, max-age=31536000',  # 1 year
+        'ContentType': 'image/png'
+    },
+    'mvt': {
+        'CacheControl': 'public, max-age=86400',     # 1 day
+        'ContentType': 'application/vnd.mapbox-vector-tile'
+    }
+}
+
 
 if not DEBUG:
     SECURE_BROWSER_XSS_FILTER = True
