@@ -16,6 +16,11 @@ DEBUG = os.getenv('DJANGO_DEBUG', 'False').lower() == 'true'
 # ALLOWED HOSTS
 ALLOWED_HOSTS = ['*']
 
+CSRF_TRUSTED_ORIGINS = [
+    'https://gis-map.1acre.in',
+    'http://gis-map.1acre.in',  # if you also use HTTP
+]
+
 # GDAL/GEOS Configuration for Docker
 if os.getenv('DJANGO_DB_HOST'):  # Docker environment
     pass  # Let Django auto-detect
