@@ -292,7 +292,7 @@ DATA_IMPORT_CONFIG = {
                         'rrr': {
                             'name': 'RRR (Regional Ring Road)',
                             'description': 'Hyderabad Regional Ring Road',
-                            'path': 'telangana/hyderabad/rrr',
+                            'path': 'Telangana/Hyderabad/rrr',
                             'display_order': 1,
                             'files': {
                                 'RRR_Final.geojson': {
@@ -305,7 +305,7 @@ DATA_IMPORT_CONFIG = {
                         'ratan-tata-roads': {
                             'name': 'Ratan Tata Roads',
                             'description': 'Hyderabad Ratan Tata Roads',
-                            'path': 'telangana/hyderabad/ratan-tata-road',
+                            'path': 'Telangana/Hyderabad/ratan-tata-road',
                             'display_order': 2,
                             'files': {
                                 'RatanTataRoad.geojson': {
@@ -318,7 +318,7 @@ DATA_IMPORT_CONFIG = {
                         'highways': {
                             'name': 'Highways',
                             'description': 'Hyderabad Highways',
-                            'path': 'telangana/hyderabad/highways',
+                            'path': 'Telangana/Hyderabad/highways',
                             'display_order': 3,
                             'files': {
                                 'hyd_highways_merged.geojson': {
@@ -341,7 +341,7 @@ DATA_IMPORT_CONFIG = {
                         'master-plan': {
                             'name': 'Master Plan',
                             'description': 'Warangal Master Plan - Land Use Categories',
-                            'path': 'telangana/warangal/master_plan',
+                            'path': 'Telangana/warangal/master_plan',
                             'display_order': 1,
                             'files': {
                                 'Agriculture.geojson': {
