@@ -20,6 +20,9 @@ CSRF_TRUSTED_ORIGINS = [
     'https://gis-map.1acre.in',
     'http://gis-map.1acre.in',  # if you also use HTTP
 ]
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+USE_X_FORWARDED_HOST = True
+
 
 # GDAL/GEOS Configuration for Docker
 if os.getenv('DJANGO_DB_HOST'):  # Docker environment
