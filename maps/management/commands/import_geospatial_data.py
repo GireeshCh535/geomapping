@@ -94,18 +94,20 @@ class Command(BaseCommand):
         self.stdout.write(f"\n📦 State: {state_config['name']} ({state_slug})")
         
         # Get or create state
-        try:
-            state = State.objects.get(slug=state_slug)
-            self.stdout.write(f"  ✓ Using existing state: {state.name}")
-        except State.DoesNotExist:
-            state = State.objects.create(
-                slug=state_slug,
-                name=state_config['name'],
-                code=state_config['code'],
-                is_active=True
-            )
+        state, created = State.objects.get_or_create(
+            slug=state_slug,
+            defaults={
+                'name': state_config['name'],
+                'code': state_config['code'],
+                'is_active': True
+            }
+        )
+        
+        if created:
             self.stats['states'] += 1
             self.stdout.write(f"  ✅ Created state: {state.name}")
+        else:
+            self.stdout.write(f"  ✓ Using existing state: {state.name}")
         
         # Process cities
         cities_config = state_config.get('cities', {})
@@ -133,23 +135,25 @@ class Command(BaseCommand):
         self.stdout.write(f"\n  🏙️  City: {city_config['name']} ({city_slug})")
         
         # Get or create city
-        try:
-            city = City.objects.get(slug=city_slug)
-            self.stdout.write(f"    ✓ Using existing city: {city.name}")
-        except City.DoesNotExist:
-            city = City.objects.create(
-                slug=city_slug,
-                name=city_config['name'],
-                state=city_config['name'],  # Legacy field
-                state_ref=state,
-                center_lat=city_config.get('center_lat', 0),
-                center_lng=city_config.get('center_lng', 0),
-                min_zoom=8,
-                max_zoom=18,
-                is_active=True
-            )
+        city, created = City.objects.get_or_create(
+            slug=city_slug,
+            defaults={
+                'name': city_config['name'],
+                'state': city_config['name'],  # Legacy field
+                'state_ref': state,
+                'center_lat': city_config.get('center_lat', 0),
+                'center_lng': city_config.get('center_lng', 0),
+                'min_zoom': 8,
+                'max_zoom': 18,
+                'is_active': True
+            }
+        )
+        
+        if created:
             self.stats['cities'] += 1
             self.stdout.write(f"    ✅ Created city: {city.name}")
+        else:
+            self.stdout.write(f"    ✓ Using existing city: {city.name}")
         
         # Process layer groups
         layer_groups = city_config.get('layer_groups', {})
