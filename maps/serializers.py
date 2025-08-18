@@ -140,18 +140,16 @@ class GeoFeatureSerializer(GeoFeatureModelSerializer):
     layer_name = serializers.CharField(source='layer.name', read_only=True)
     city_name = serializers.CharField(source='layer.city.name', read_only=True)
     category_name = serializers.CharField(source='layer.category.name', read_only=True)
-    display_name = serializers.CharField(source='get_display_name', read_only=True)
-    plu_description = serializers.CharField(source='get_plu_description', read_only=True)
     color = serializers.SerializerMethodField()
     
     class Meta:
         model = GeoFeature
         geo_field = 'geometry'
         fields = [
-            'id', 'layer_name', 'city_name', 'category_name', 'display_name',
+            'id', 'layer_name', 'city_name', 'category_name',
             'name', 'zone_category', 'zone_subcategory',
             'plu_primary_code', 'plu_secondary_1', 'plu_secondary_2',
-            'plu_proposed_use', 'plu_authority', 'plu_description',
+            'plu_proposed_use', 'plu_authority',
             'area', 'shape_length', 'shape_area', 'objectid', 'fid',
             'is_valid', 'created_at', 'color'
         ]
@@ -161,12 +159,17 @@ class GeoFeatureSerializer(GeoFeatureModelSerializer):
         from .config import get_city_config
         
         city_slug = obj.layer.city.slug
-        category_code = obj.derived_category
+        state_slug = obj.layer.city.state_ref.slug if obj.layer.city.state_ref else None
+        category_code = obj.zone_category or obj.layer.category.code if obj.layer.category else None
         
         # Get city-specific color
-        city_config = get_city_config(city_slug)
-        if city_config and 'colors' in city_config:
-            return city_config['colors'].get(category_code, '#666666')
+        if state_slug:
+            try:
+                city_config = get_city_config(state_slug, city_slug)
+                if city_config and 'colors' in city_config and category_code:
+                    return city_config['colors'].get(category_code, '#666666')
+            except:
+                pass
         
         # Fallback to layer style
         try:
@@ -184,13 +187,12 @@ class GeoFeatureSerializer(GeoFeatureModelSerializer):
 class GeoFeatureListSerializer(serializers.ModelSerializer):
     """Lightweight serializer for listing features without geometry"""
     layer_name = serializers.CharField(source='layer.name', read_only=True)
-    display_name = serializers.CharField(source='get_display_name', read_only=True)
     centroid = serializers.SerializerMethodField()
     
     class Meta:
         model = GeoFeature
         fields = [
-            'id', 'layer_name', 'display_name', 'zone_category',
+            'id', 'layer_name', 'name', 'zone_category',
             'plu_primary_code', 'area', 'is_valid'
         ]
     
