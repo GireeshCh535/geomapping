@@ -328,11 +328,27 @@ DATA_IMPORT_CONFIG = {
                                 }
                             }
                         },
+                        'future-city': {
+                            'name': 'Future City Development',
+                            'description': 'Hyderabad Future City Development Authority (FCDA) Boundary',
+                            'path': 'Telangana/Hyderabad/future-city',
+                            'display_order': 4,
+                            'files': {
+                                'FCDA Boundary.geojson': {
+                                    'name': 'FCDA Boundary',
+                                    'color': '#7D7D7D',
+                                    'category': 'PLANNING',
+                                    'border_color': '#C3C3C3',
+                                    'opacity': 0.5,
+                                    'type': 'boundary'
+                                }
+                            }
+                        },
                         'metro': {
                             'name': 'Metro Lines',
                             'description': 'Hyderabad Metro - All Phases',
                             'path': 'Telangana/Hyderabad/metro-lines',
-                            'display_order': 4,
+                            'display_order': 5,
                             'files': {
                                 'Hyd_metro_lines_ph_1&2_Final.geojson': {
                                     'name': 'Hyderabad Metro - All Phases',

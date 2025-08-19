@@ -406,6 +406,11 @@ class Command(BaseCommand):
                         # Add metro line color information for Hyderabad metro
                         properties['line_color'] = props.get('line_color', '')
                         properties['color_hex'] = props.get('color_hex', '')
+                        
+                        # Add Future City styling properties
+                        properties['fill_color'] = props.get('fill_color', '')
+                        properties['border_color'] = props.get('border_color', '')
+                        properties['opacity'] = props.get('opacity', 1.0)
                     except:
                         pass
             elif city_slug == 'visakhapatnam':
@@ -1072,7 +1077,20 @@ class Command(BaseCommand):
             
             # For other cities
             elif city_slug == 'hyderabad':
-                # Check for metro line colors first (highest priority)
+                # Check for Future City FCDA Boundary styling first (highest priority)
+                fill_color = properties.get('fill_color', '').strip()
+                border_color = properties.get('border_color', '').strip()
+                opacity = properties.get('opacity', 1.0)
+                
+                if fill_color and border_color:
+                    return {
+                        'fill_color': fill_color,
+                        'stroke_color': border_color,
+                        'pattern': 'SOLID',
+                        'opacity': opacity
+                    }
+                
+                # Check for metro line colors (second priority)
                 line_color = properties.get('line_color', '').strip()
                 color_hex = properties.get('color_hex', '').strip()
                 
