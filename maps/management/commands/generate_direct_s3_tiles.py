@@ -503,6 +503,10 @@ class Command(BaseCommand):
                         props = feature.properties if isinstance(feature.properties, dict) else {}
                         properties['_source_file'] = props.get('_source_file', '') or ''
                         properties['name'] = props.get('Name', '') or properties.get('name', '')
+                        
+                        # Add metro line color information for Hyderabad metro
+                        properties['line_color'] = props.get('line_color', '')
+                        properties['color_hex'] = props.get('color_hex', '')
                     except:
                         pass
             elif city_slug == 'visakhapatnam':
@@ -1150,6 +1154,29 @@ class Command(BaseCommand):
             
             # For other cities
             elif city_slug == 'hyderabad':
+                # Check for metro line colors first (highest priority)
+                line_color = properties.get('line_color', '').strip()
+                color_hex = properties.get('color_hex', '').strip()
+                
+                if line_color and color_hex:
+                    # Metro line color mapping
+                    metro_colors = {
+                        'Green Line': '#00933D',
+                        'Blue Line': '#2D6BA1', 
+                        'Red Line': '#E40D17',
+                        'Purple Line': '#8C06ED',
+                        'Orange Line': '#EF6908'
+                    }
+                    
+                    # Use the stored color_hex or fallback to metro_colors mapping
+                    final_color = color_hex if color_hex else metro_colors.get(line_color, '#00933D')
+                    
+                    return {
+                        'fill_color': final_color,
+                        'stroke_color': final_color,  # Use same color for stroke
+                        'pattern': 'SOLID'
+                    }
+                
                 # Hyderabad uses _source_file for color mapping (not source_layer_name)
                 source_file = properties.get('_source_file', '').strip()
                 if source_file:

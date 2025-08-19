@@ -367,31 +367,47 @@ class TileRenderingService:
             # Get the source layer name from feature properties
             source_layer_name = feature.get('properties', {}).get('source_layer_name', '')
             
-            # Use the pattern style function to get color
-            pattern_style = get_pattern_style(layer.city.slug, source_layer_name)
-            if pattern_style and 'solid' in pattern_style:
-                color = pattern_style['solid']
-            else:
-                # Fallback to hardcoded colors based on source layer name
-                color_map = {
-                    'Residential Mixed': '#FFC400',
-                    'Residential Main': '#FFEB4F',
-                    'Commercial Central': '#004DA8',
-                    'Commercial Business': '#73B2FF',
-                    'Industrial': '#AA66B2',
-                    'High Tech': '#C29ED7',
-                    'Public & Semi Public': '#E60000',
-                    'Defense': '#E0B8FC',
-                    'State Forest Valley Protected Land': '#70A800',
-                    'Parks Green Spaces': '#98E600',
-                    'Lake Tank': '#BEE8FF',
-                    'Road Rail Airport Transport': '#828282',
-                    'Power Water Garbage Facility': '#D79E9E',
-                    'Agricultural Land': '#9DC1CB',
-                    'Unclassified Use': '#E1E1E1',
-                    'Drains': '#267300'
+            # Check for metro line colors first (from feature properties)
+            feature_properties = feature.get('properties', {})
+            if 'color_hex' in feature_properties:
+                color = feature_properties['color_hex']
+            elif 'line_color' in feature_properties:
+                # Metro line color mapping
+                line_color = feature_properties['line_color']
+                metro_colors = {
+                    'Green Line': '#00933D',
+                    'Blue Line': '#2D6BA1', 
+                    'Red Line': '#E40D17',
+                    'Purple Line': '#8C06ED',
+                    'Orange Line': '#EF6908'
                 }
-                color = color_map.get(source_layer_name, '#CCCCCC')
+                color = metro_colors.get(line_color, '#00933D')
+            else:
+                # Use the pattern style function to get color
+                pattern_style = get_pattern_style(layer.city.slug, source_layer_name)
+                if pattern_style and 'solid' in pattern_style:
+                    color = pattern_style['solid']
+                else:
+                    # Fallback to hardcoded colors based on source layer name
+                    color_map = {
+                        'Residential Mixed': '#FFC400',
+                        'Residential Main': '#FFEB4F',
+                        'Commercial Central': '#004DA8',
+                        'Commercial Business': '#73B2FF',
+                        'Industrial': '#AA66B2',
+                        'High Tech': '#C29ED7',
+                        'Public & Semi Public': '#E60000',
+                        'Defense': '#E0B8FC',
+                        'State Forest Valley Protected Land': '#70A800',
+                        'Parks Green Spaces': '#98E600',
+                        'Lake Tank': '#BEE8FF',
+                        'Road Rail Airport Transport': '#828282',
+                        'Power Water Garbage Facility': '#D79E9E',
+                        'Agricultural Land': '#9DC1CB',
+                        'Unclassified Use': '#E1E1E1',
+                        'Drains': '#267300'
+                    }
+                    color = color_map.get(source_layer_name, '#CCCCCC')
             
             # Debug logging (commented out for production)
             # print(f"DEBUG: Feature source_layer_name='{source_layer_name}' -> color='{color}'")

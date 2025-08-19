@@ -327,6 +327,97 @@ DATA_IMPORT_CONFIG = {
                                     'category': 'TRANSPORT'
                                 }
                             }
+                        },
+                        'metro': {
+                            'name': 'Metro Lines',
+                            'description': 'Hyderabad Metro - All Phases',
+                            'path': 'Telangana/Hyderabad/metro-lines',
+                            'display_order': 4,
+                            'files': {
+                                'Hyd_metro_lines_ph_1&2_Final.geojson': {
+                                    'name': 'Hyderabad Metro - All Phases',
+                                    'color': '#00933D',
+                                    'category': 'TRANSPORT',
+                                    'line_colors': {
+                                        'Green Line': '#00933D',  # Green Line: JBS Parade Ground ↔ MG Bus Station
+                                        'Blue Line': '#2D6BA1',  # Blue Line: Nagole ↔ Raidurg
+                                        'Red Line': '#E40D17',   # Red Line: Miyapur ↔ L.B. Nagar
+                                        'Purple Line': '#8C06ED', # Purple Line (Phase 2A): Nagole ↔ RGIA
+                                        'Orange Line': '#EF6908'  # Future City Line (Phase 2B): RGIA ↔ Future City
+                                    },
+                                    'phases': {
+                                        'phase_1': {
+                                            'name': 'Phase 1 (Existing)',
+                                            'lines': {
+                                                'green_line': {
+                                                    'name': 'Green Line',
+                                                    'route': 'JBS Parade Ground ↔ MG Bus Station',
+                                                    'color': '#00933D',
+                                                    'status': 'Existing'
+                                                },
+                                                'blue_line': {
+                                                    'name': 'Blue Line',
+                                                    'route': 'Nagole ↔ Raidurg',
+                                                    'color': '#2D6BA1',
+                                                    'status': 'Existing'
+                                                },
+                                                'red_line': {
+                                                    'name': 'Red Line',
+                                                    'route': 'Miyapur ↔ L.B. Nagar',
+                                                    'color': '#E40D17',
+                                                    'status': 'Existing'
+                                                }
+                                            }
+                                        },
+                                        'phase_2a': {
+                                            'name': 'Phase 2A (Upcoming)',
+                                            'lines': {
+                                                'green_line_extension': {
+                                                    'name': 'Green Line Extension',
+                                                    'route': 'MG Bus Station ↔ Chandrayangutta',
+                                                    'color': '#00933D',
+                                                    'status': 'Upcoming'
+                                                },
+                                                'purple_line': {
+                                                    'name': 'Purple Line',
+                                                    'route': 'Nagole ↔ RGIA (Shamshabad Airport)',
+                                                    'color': '#8C06ED',
+                                                    'status': 'Upcoming'
+                                                }
+                                            }
+                                        },
+                                        'phase_2b': {
+                                            'name': 'Phase 2B (Upcoming)',
+                                            'lines': {
+                                                'future_city_line': {
+                                                    'name': 'Future City Line',
+                                                    'route': 'RGIA (Shamshabad) ↔ Future City',
+                                                    'color': '#EF6908',
+                                                    'status': 'Upcoming'
+                                                },
+                                                'blue_line_extension': {
+                                                    'name': 'Blue Line Extension',
+                                                    'route': 'JBS Parade Ground ↔ Shamirpet',
+                                                    'color': '#2D6BA1',
+                                                    'status': 'Upcoming'
+                                                },
+                                                'green_line_extension_2': {
+                                                    'name': 'Green Line Extension',
+                                                    'route': 'Paradise ↔ Medchal',
+                                                    'color': '#00933D',
+                                                    'status': 'Upcoming'
+                                                }
+                                            }
+                                        }
+                                    }
+                                },
+                                'Hyd_metro_stations_ph1&2.geojson': {
+                                    'name': 'Hyderabad Metro Stations',
+                                    'color': '#00933D',
+                                    'category': 'TRANSPORT',
+                                    'type': 'stations'
+                                }
+                            }
                         }
                     }
                 },
