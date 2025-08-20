@@ -6,11 +6,13 @@ Each layer group (master_plan, highways, etc.) becomes ONE layer with ALL featur
 Example:
 - master_plan (16 files) → bengaluru_master_plan_2015 (1 layer with all features)
 - highways (8 files) → bengaluru_highways (1 layer with all features)
+- metro (lines + stations) → hyderabad_metro (1 layer with all features)
+- future-city (FCDA Boundary) → hyderabad_future_city (1 layer with styling)
 """
 
 from django.core.management.base import BaseCommand
 from django.db import transaction
-from django.contrib.gis.geos import Polygon, MultiPolygon, LineString, MultiLineString
+from django.contrib.gis.geos import Polygon, MultiPolygon, LineString, MultiLineString, Point
 from django.utils.text import slugify
 from django.utils import timezone
 from maps.models import (
@@ -24,7 +26,7 @@ from pathlib import Path
 import traceback
 
 class Command(BaseCommand):
-    help = 'Import geospatial data - combines multiple files into single layers'
+    help = 'Import geospatial data - combines multiple files into single layers with custom styling'
     
     def add_arguments(self, parser):
         parser.add_argument('--data-dir', required=True, help='Base data directory')
@@ -171,7 +173,7 @@ class Command(BaseCommand):
                 self._process_layer_group_combined(city, group_slug, group_config, data_dir, city_config, options)
     
     def _process_layer_group_combined(self, city, group_slug, group_config, data_dir, city_config, options):
-        """Process a layer group - combines ALL files into ONE layer"""
+        """Process a layer group - combines ALL files into ONE layer with custom styling"""
         
         self.stdout.write(f"\n    📂 Processing Layer Group: {group_config['name']}")
         
@@ -181,13 +183,14 @@ class Command(BaseCommand):
             self.stdout.write(self.style.ERROR(f"      ❌ Path not found: {files_path}"))
             return
         
-        # Generate layer slug based on group
+        # Generate layer slug based on group and city
         layer_slugs = {
             'master-plan': f"{city.slug}_master_plan_2015" if city.slug == 'bengaluru' else f"{city.slug}_master_plan",
             'highways': f"{city.slug}_highways",
-            'metro': f"{city.slug}_metro_lines",
+            'metro': f"{city.slug}_metro",
             'strr': f"{city.slug}_strr",
-            'workspace': f"{city.slug}_workspaces"
+            'workspace': f"{city.slug}_workspaces",
+            'future-city': f"{city.slug}_future_city"
         }
         
         layer_slug = layer_slugs.get(group_slug, f"{city.slug}_{group_slug.replace('-', '_')}")
@@ -211,8 +214,9 @@ class Command(BaseCommand):
             'master-plan': 'MIXED_USE',
             'highways': 'TRANSPORT',
             'metro': 'TRANSPORT',
-            'strr': 'UNCLASSIFIED',  # Based on your hierarchy output
-            'workspace': 'UNCLASSIFIED'  # Based on your hierarchy output
+            'strr': 'UNCLASSIFIED',
+            'workspace': 'UNCLASSIFIED',
+            'future-city': 'PLANNING'
         }
         category_code = category_map.get(group_slug, 'MIXED_USE')
         category = self._get_or_create_category(category_code)
@@ -250,13 +254,15 @@ class Command(BaseCommand):
                 with open(file_path, 'r', encoding='utf-8') as f:
                     data = json.load(f)
                 
-                # Extract features from this file
-                file_features = self._extract_features_from_file(
+                # Extract features from this file with custom styling
+                file_features = self._extract_features_with_custom_styling(
                     data, 
                     layer,
                     city_config, 
                     group_config,
                     file_config,
+                    city.slug,
+                    group_slug,
                     options
                 )
                 
@@ -291,8 +297,8 @@ class Command(BaseCommand):
             self.stdout.write(self.style.WARNING(f"      ⚠️  No features found in any files"))
             layer.delete()  # Remove empty layer
     
-    def _extract_features_from_file(self, data, layer, city_config, group_config, file_config, options):
-        """Extract features from a single file (but don't save yet)"""
+    def _extract_features_with_custom_styling(self, data, layer, city_config, group_config, file_config, city_slug, group_slug, options):
+        """Extract features from a single file with custom styling logic"""
         
         features = []
         plu_field = city_config.get('plu_field', 'PLU')
@@ -334,7 +340,7 @@ class Command(BaseCommand):
                         self.stdout.write(f"          Error: {e}")
         
         elif detected_format == 'GEOJSON' and 'features' in data:
-            # Standard GeoJSON format
+            # Standard GeoJSON format with custom styling
             for feature in data['features']:
                 if not feature:
                     continue
@@ -353,6 +359,8 @@ class Command(BaseCommand):
                     # Helper function to convert 3D coordinates to 2D
                     def convert_to_2d(coordinate_list):
                         """Convert 3D coordinates to 2D by dropping Z dimension"""
+                        if not coordinate_list:
+                            return coordinate_list
                         if isinstance(coordinate_list[0], (list, tuple)):
                             return [convert_to_2d(coord) for coord in coordinate_list]
                         else:
@@ -360,76 +368,126 @@ class Command(BaseCommand):
                             return coordinate_list[:2]
                     
                     if geom_type == 'Polygon' and coords:
-                        if len(coords) > 0 and len(coords[0]) > 3:
-                            # Convert to 2D coordinates
-                            coords_2d = convert_to_2d(coords)
-                            geometry_obj = Polygon(coords_2d[0])
+                        try:
+                            if len(coords) > 0 and len(coords[0]) > 3:
+                                # Convert to 2D coordinates
+                                coords_2d = convert_to_2d(coords)
+                                geometry_obj = Polygon(coords_2d[0])
+                        except Exception as e:
+                            if options.get('verbose'):
+                                self.stdout.write(f"          ⚠️  Polygon creation failed: {e}")
                     
                     elif geom_type == 'MultiPolygon' and coords:
-                        polygons = []
-                        for poly_coords in coords:
-                            if poly_coords and len(poly_coords) > 0 and len(poly_coords[0]) > 3:
-                                # Convert to 2D coordinates
-                                poly_coords_2d = convert_to_2d(poly_coords)
-                                polygons.append(Polygon(poly_coords_2d[0]))
-                        if polygons:
-                            geometry_obj = MultiPolygon(polygons)
+                        try:
+                            polygons = []
+                            for poly_coords in coords:
+                                if poly_coords and len(poly_coords) > 0 and len(poly_coords[0]) > 3:
+                                    # Convert to 2D coordinates
+                                    poly_coords_2d = convert_to_2d(poly_coords)
+                                    polygons.append(Polygon(poly_coords_2d[0]))
+                            if polygons:
+                                geometry_obj = MultiPolygon(polygons)
+                        except Exception as e:
+                            if options.get('verbose'):
+                                self.stdout.write(f"          ⚠️  MultiPolygon creation failed: {e}")
                     
                     elif geom_type == 'LineString' and coords:
-                        if len(coords) >= 2:
-                            # Convert to 2D coordinates
-                            coords_2d = convert_to_2d(coords)
-                            geometry_obj = LineString(coords_2d)
+                        try:
+                            if len(coords) >= 2:
+                                # Convert to 2D coordinates
+                                coords_2d = convert_to_2d(coords)
+                                geometry_obj = LineString(coords_2d)
+                        except Exception as e:
+                            if options.get('verbose'):
+                                self.stdout.write(f"          ⚠️  LineString creation failed: {e}")
                     
                     elif geom_type == 'MultiLineString' and coords:
-                        lines = []
-                        for line_coords in coords:
-                            if len(line_coords) >= 2:
+                        try:
+                            lines = []
+                            for line_coords in coords:
+                                if len(line_coords) >= 2:
+                                    # Convert to 2D coordinates
+                                    line_coords_2d = convert_to_2d(line_coords)
+                                    lines.append(LineString(line_coords_2d))
+                            if lines:
+                                geometry_obj = MultiLineString(lines)
+                        except Exception as e:
+                            if options.get('verbose'):
+                                self.stdout.write(f"          ⚠️  MultiLineString creation failed: {e}")
+                    
+                    elif geom_type == 'Point' and coords:
+                        try:
+                            if len(coords) >= 2:
                                 # Convert to 2D coordinates
-                                line_coords_2d = convert_to_2d(line_coords)
-                                lines.append(LineString(line_coords_2d))
-                        if lines:
-                            geometry_obj = MultiLineString(lines)
+                                coords_2d = convert_to_2d(coords)
+                                geometry_obj = Point(coords_2d)
+                        except Exception as e:
+                            if options.get('verbose'):
+                                self.stdout.write(f"          ⚠️  Point creation failed: {e}")
                     
                     if geometry_obj:
                         # Check if coordinates need transformation (Web Mercator to Geographic)
                         try:
+                            # Safely extract sample coordinates for checking
+                            coords_sample = None
+                            if geom_type == 'Polygon' and coords and len(coords) > 0 and len(coords[0]) > 0:
+                                coords_sample = coords[0][0]
+                            elif geom_type == 'MultiPolygon' and coords and len(coords) > 0 and len(coords[0]) > 0 and len(coords[0][0]) > 0:
+                                coords_sample = coords[0][0][0]
+                            elif geom_type == 'LineString' and coords and len(coords) > 0:
+                                coords_sample = coords[0]
+                            elif geom_type == 'MultiLineString' and coords and len(coords) > 0 and len(coords[0]) > 0:
+                                coords_sample = coords[0][0]
+                            elif geom_type == 'Point' and coords and len(coords) >= 2:
+                                coords_sample = coords
+                            
                             # Check if coordinates are in Web Mercator (EPSG:3857) range
                             # Web Mercator X: -20037508 to 20037508, Y: -20037508 to 20037508
                             # Geographic X: -180 to 180, Y: -90 to 90
-                            coords_sample = coords[0][0] if isinstance(coords[0], list) else coords[0]
-                            x, y = coords_sample[0], coords_sample[1]
-                            
-                            # If coordinates are in Web Mercator range, transform to geographic
-                            if abs(x) > 180 or abs(y) > 90:
-                                from django.contrib.gis.gdal import SpatialReference, CoordTransform
-                                from django.contrib.gis.geos import GEOSGeometry
+                            if coords_sample and len(coords_sample) >= 2:
+                                x, y = coords_sample[0], coords_sample[1]
                                 
-                                # Create coordinate transformation from Web Mercator to WGS84
-                                web_mercator = SpatialReference('EPSG:3857')
-                                wgs84 = SpatialReference('EPSG:4326')
-                                transform = CoordTransform(web_mercator, wgs84)
+                                # Ensure x and y are numbers, not lists
+                                if isinstance(x, (list, tuple)):
+                                    x = x[0] if x else 0
+                                if isinstance(y, (list, tuple)):
+                                    y = y[0] if y else 0
                                 
-                                # Transform the geometry
-                                geometry_obj.transform(transform)
-                                
-                                if options.get('verbose'):
-                                    self.stdout.write(f"          🔄 Transformed coordinates from Web Mercator to WGS84")
+                                # If coordinates are in Web Mercator range, transform to geographic
+                                if abs(float(x)) > 180 or abs(float(y)) > 90:
+                                    from django.contrib.gis.gdal import SpatialReference, CoordTransform
+                                    from django.contrib.gis.geos import GEOSGeometry
+                                    
+                                    # Create coordinate transformation from Web Mercator to WGS84
+                                    web_mercator = SpatialReference('EPSG:3857')
+                                    wgs84 = SpatialReference('EPSG:4326')
+                                    transform = CoordTransform(web_mercator, wgs84)
+                                    
+                                    # Transform the geometry
+                                    geometry_obj.transform(transform)
+                                    
+                                    if options.get('verbose'):
+                                        self.stdout.write(f"          🔄 Transformed coordinates from Web Mercator to WGS84")
                         except Exception as transform_error:
                             if options.get('verbose'):
                                 self.stdout.write(f"          ⚠️  Coordinate transformation failed: {transform_error}")
                         
+                        # Apply custom styling based on city and group
+                        styled_props = self._apply_custom_styling(
+                            props, file_config, city_slug, group_slug, options
+                        )
+                        
                         # Add metadata
                         if props and plu_field in props:
-                            props['_plu_code'] = str(props[plu_field])[:50]
-                        props['_source_file'] = file_config.get('name', '')
+                            styled_props['_plu_code'] = str(props[plu_field])[:50]
+                        styled_props['_source_file'] = file_config.get('name', '')
                         
                         features.append(GeoFeature(
                             layer=layer,
                             geometry=geometry_obj,
                             source_layer_name=file_config.get('name', ''),
                             zone_category=file_config.get('name', ''),
-                            properties=props or {}
+                            properties=styled_props or {}
                         ))
                         
                 except Exception as e:
@@ -437,6 +495,70 @@ class Command(BaseCommand):
                         self.stdout.write(f"          Error: {e}")
         
         return features
+    
+    def _apply_custom_styling(self, props, file_config, city_slug, group_slug, options):
+        """Apply custom styling properties based on city and group"""
+        
+        styled_props = props.copy() if props else {}
+        
+        # Hyderabad Metro styling
+        if city_slug == 'hyderabad' and group_slug == 'metro':
+            # Check if this is a metro line feature (has linecolour field)
+            if props.get('linecolour'):
+                line_name = props.get('name', '').strip()
+                line_color = props.get('linecolour', '').strip()
+                
+                # Map line colors
+                metro_colors = {
+                    'Green Line': '#00933D',
+                    'Blue Line': '#2D6BA1',
+                    'Red Line': '#E40D17',
+                    'Purple Line': '#8C06ED',
+                    'Orange Line': '#EF6908'
+                }
+                
+                color_hex = metro_colors.get(line_color, '#00933D')
+                
+                styled_props.update({
+                    'feature_type': 'metro_line',
+                    'line_color': line_color,
+                    'color_hex': color_hex,
+                    'line_name': line_name,
+                    'phase': props.get('Status', ''),
+                    'station_count': props.get('noofstatio', 0),
+                    'length_km': props.get('length_km', 0)
+                })
+                
+            # Check if this is a metro station feature (has station-specific fields)
+            elif props.get('Station_Name') or props.get('station_name'):
+                station_name = props.get('Station_Name', props.get('station_name', props.get('name', ''))).strip()
+                station_type = props.get('StationType', props.get('stationtype', '')).strip()
+                
+                styled_props.update({
+                    'feature_type': 'metro_station',
+                    'station_name': station_name,
+                    'station_type': station_type or 'General Station',
+                    'color_hex': '#00933D',  # Default station color
+                    'line_name': props.get('Line_Name', props.get('line_name', '')),
+                    'phase': props.get('Phase', props.get('Status', ''))
+                })
+        
+        # Hyderabad Future City styling
+        elif city_slug == 'hyderabad' and group_slug == 'future-city':
+            # Apply Future City styling to all features in this group
+            styled_props.update({
+                'name': props.get('Name', 'FCDA'),
+                'object_id': props.get('OBJECTID', 1),
+                'shape_length': props.get('Shape_Leng', 0),
+                'shape_area': props.get('Shape_Area', 0),
+                'fill_color': file_config.get('color', '#7D7D7D'),
+                'border_color': file_config.get('border_color', '#C3C3C3'),
+                'opacity': file_config.get('opacity', 0.5),
+                'type': file_config.get('type', 'boundary'),
+                'original_properties': props
+            })
+        
+        return styled_props
     
     def _get_or_create_category(self, category_code):
         """Get or create category"""

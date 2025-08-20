@@ -1091,7 +1091,7 @@ class Command(BaseCommand):
                     }
                 
                 # Check for metro line colors (second priority)
-                line_color = properties.get('line_color', '').strip()
+                line_color = properties.get('line_color', properties.get('linecolour', '')).strip()
                 color_hex = properties.get('color_hex', '').strip()
                 
                 if line_color and color_hex:
