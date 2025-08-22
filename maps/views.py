@@ -132,10 +132,81 @@ class GeoFeatureViewSet(viewsets.ReadOnlyModelViewSet):
 # API VIEWS
 # ================================
 
+@extend_schema_view(
+    get=extend_schema(
+        summary="Search coordinates across all states and cities",
+        description="Find which state, city, layer, and feature a given coordinate belongs to, including detailed category information",
+        tags=['coordinates'],
+        parameters=[
+            OpenApiParameter(name='lat', location=OpenApiParameter.QUERY, required=True, type=float, description='Latitude coordinate'),
+            OpenApiParameter(name='lng', location=OpenApiParameter.QUERY, required=True, type=float, description='Longitude coordinate'),
+            OpenApiParameter(name='city_slug', location=OpenApiParameter.PATH, required=False, type=str, description='Optional: Limit search to specific city'),
+        ],
+        responses={
+            200: {
+                'description': 'Coordinate search results',
+                'examples': [
+                    {
+                        'application/json': {
+                            'search_point': {
+                                'latitude': 12.9716,
+                                'longitude': 77.5946
+                            },
+                            'found': True,
+                            'state': {
+                                'slug': 'karnataka',
+                                'name': 'Karnataka'
+                            },
+                            'city': {
+                                'slug': 'bengaluru',
+                                'name': 'Bangalore'
+                            },
+                            'features': [
+                                {
+                                    'feature_id': 12345,
+                                    'feature_name': 'Commercial Zone A',
+                                    'layer_slug': 'bengaluru_master_plan',
+                                    'layer_name': 'Master Plan',
+                                    'category': 'COMMERCIAL',
+                                    'category_name': 'Commercial',
+                                    'land_use': 'Commercial',
+                                    'plu_code': 'C1',
+                                    'area': 12500.5,
+                                    'color': '#FF0000'
+                                }
+                            ],
+                            'summary': 'Location is within Bangalore Master Plan: Commercial Zone A'
+                        }
+                    }
+                ]
+            },
+            400: {
+                'description': 'Invalid coordinates or parameters'
+            },
+            404: {
+                'description': 'No features found at the given coordinates'
+            }
+        }
+    )
+)
 class CoordinateSearchTestView(APIView):
-    """Test version using GET parameters for coordinate search"""
+    """
+    Enhanced coordinate search that finds which state, city, layer, and feature a coordinate belongs to.
     
-    def get(self, request, city_slug):
+    URL: /api/cities/{city_slug}/search-coords-test/?lat={latitude}&lng={longitude}
+    
+    If city_slug is provided, searches only within that city.
+    If no city_slug is provided, searches across all states and cities.
+    
+    Returns detailed information about the feature including:
+    - State and city information
+    - Layer details
+    - Feature information (name, category, land use, etc.)
+    - Geographic properties (area, color, etc.)
+    """
+    permission_classes = [AllowAny]
+    
+    def get(self, request, city_slug=None):
         try:
             # Get coordinates from query parameters
             lat = request.GET.get('lat')
@@ -145,7 +216,7 @@ class CoordinateSearchTestView(APIView):
                 return Response({
                     'error': 'Missing coordinates',
                     'message': 'Please provide lat and lng parameters',
-                    'example': f'/api/cities/{city_slug}/search-coords-test/?lat=12.9716&lng=77.5946'
+                    'example': f'/api/cities/{city_slug or "any"}/search-coords-test/?lat=12.9716&lng=77.5946'
                 }, status=400)
             
             try:
@@ -157,9 +228,6 @@ class CoordinateSearchTestView(APIView):
                     'message': 'Coordinates must be valid numbers'
                 }, status=400)
             
-            # Get city
-            city = get_object_or_404(City, slug=city_slug, is_active=True)
-            
             # Validate coordinate ranges
             if not (-90 <= latitude <= 90) or not (-180 <= longitude <= 180):
                 return Response({
@@ -170,7 +238,29 @@ class CoordinateSearchTestView(APIView):
             # Create point geometry
             search_point = Point(longitude, latitude, srid=4326)
             
-            # Find all features containing this point
+            # Search for features
+            if city_slug:
+                # Search within specific city
+                result = self._search_in_city(city_slug, search_point, latitude, longitude)
+            else:
+                # Search across all states and cities
+                result = self._search_across_all_cities(search_point, latitude, longitude)
+            
+            return Response(result)
+            
+        except Exception as e:
+            logger.error(f"Error in CoordinateSearchTestView: {e}")
+            return Response({
+                'error': 'Failed to search coordinates',
+                'message': str(e)
+            }, status=500)
+    
+    def _search_in_city(self, city_slug, search_point, latitude, longitude):
+        """Search for features within a specific city"""
+        try:
+            city = get_object_or_404(City, slug=city_slug, is_active=True)
+            
+            # Find containing features
             containing_features = self._find_containing_features(city, search_point)
             
             # Find nearby features if no exact match
@@ -183,28 +273,109 @@ class CoordinateSearchTestView(APIView):
                 'search_point': {
                     'latitude': latitude,
                     'longitude': longitude,
-                    'coordinates': [longitude, latitude]  # GeoJSON format
+                    'coordinates': [longitude, latitude]
                 },
-                'city': city_slug,
                 'found': len(containing_features) > 0,
-                'containing_features': containing_features,
-                'nearby_features': nearby_features[:5],  # Limit to 5 nearby
+                'state': {
+                    'slug': city.state_ref.slug,
+                    'name': city.state_ref.name
+                },
+                'city': {
+                    'slug': city_slug,
+                    'name': city.name
+                },
+                'features': containing_features,
+                'nearby_features': nearby_features[:5] if nearby_features else [],
                 'summary': self._create_search_summary(containing_features, nearby_features),
-                'method': 'GET'  # To distinguish from POST version
+                'search_scope': 'city_specific'
             }
             
-            return Response(response_data)
+            if not containing_features and not nearby_features:
+                return Response(response_data, status=404)
+            
+            return response_data
+            
+        except City.DoesNotExist:
+            return Response({
+                'error': f'City not found: {city_slug}',
+                'city': city_slug
+            }, status=404)
+    
+    def _search_across_all_cities(self, search_point, latitude, longitude):
+        """Search for features across all states and cities"""
+        try:
+            # Find all features that contain the point
+            features = GeoFeature.objects.filter(
+                layer__city__is_active=True,
+                layer__city__state_ref__is_active=True,
+                layer__is_processed=True,
+                is_valid=True,
+                geometry__contains=search_point
+            ).select_related(
+                'layer', 
+                'layer__category', 
+                'layer__city', 
+                'layer__city__state_ref'
+            ).order_by('-area')
+            
+            if not features.exists():
+                # Try nearby search across all cities
+                nearby_features = self._find_nearby_across_all_cities(search_point)
+                
+                return {
+                    'search_point': {
+                        'latitude': latitude,
+                        'longitude': longitude,
+                        'coordinates': [longitude, latitude]
+                    },
+                    'found': False,
+                    'features': [],
+                    'nearby_features': nearby_features[:10],
+                    'summary': 'No features found at this location',
+                    'search_scope': 'global'
+                }
+            
+            # Get the primary feature (largest by area)
+            primary_feature = features.first()
+            city = primary_feature.layer.city
+            state = city.state_ref
+            
+            # Process all containing features
+            containing_features = []
+            for feature in features:
+                feature_data = self._process_feature_data(feature)
+                containing_features.append(feature_data)
+            
+            return {
+                'search_point': {
+                    'latitude': latitude,
+                    'longitude': longitude,
+                    'coordinates': [longitude, latitude]
+                },
+                'found': True,
+                'state': {
+                    'slug': state.slug,
+                    'name': state.name
+                },
+                'city': {
+                    'slug': city.slug,
+                    'name': city.name
+                },
+                'features': containing_features,
+                'nearby_features': [],
+                'summary': self._create_search_summary(containing_features, []),
+                'search_scope': 'global'
+            }
             
         except Exception as e:
-            print(f"Error in CoordinateSearchTestView: {e}")
+            logger.error(f"Error in global search: {e}")
             return Response({
-                'error': 'Failed to load city data',
+                'error': 'Failed to search across all cities',
                 'message': str(e)
             }, status=500)
     
     def _find_containing_features(self, city, point):
         """Find all features that contain the search point"""
-        
         containing_features = []
         
         # Query features that contain the point
@@ -216,33 +387,13 @@ class CoordinateSearchTestView(APIView):
         ).select_related('layer', 'layer__category').order_by('-area')
         
         for feature in features:
-            try:
-                # Get layer color using existing config system
-                layer_color = self._get_feature_color_from_config(feature, city.slug)
-                
-                feature_data = {
-                    'feature_id': feature.id,
-                    'feature_name': feature.name or 'Unnamed',
-                    'layer_slug': feature.layer.slug,
-                    'layer_name': feature.layer.name,
-                    'category': feature.layer.category.name if feature.layer.category else 'Unknown',
-                    'color': layer_color,
-                    'area': float(feature.area) if feature.area else 0.0,
-                    'land_use': feature.land_use_type or '',
-                    'plu_code': feature.plu_primary_code or ''
-                }
-                
-                containing_features.append(feature_data)
-                
-            except Exception as e:
-                print(f"Error processing feature {feature.id}: {e}")
-                continue
+            feature_data = self._process_feature_data(feature)
+            containing_features.append(feature_data)
         
         return containing_features
     
     def _find_nearby_features(self, city, point, radius_meters=100):
-        """Find features near the search point"""
-        
+        """Find features near the search point within a city"""
         nearby_features = []
         
         # Create a buffer around the point for nearby search
@@ -264,29 +415,157 @@ class CoordinateSearchTestView(APIView):
                 feature_centroid = feature.geometry.centroid
                 distance = point.distance(feature_centroid) * 111000  # Rough conversion to meters
                 
-                layer_color = self._get_feature_color_from_config(feature, city.slug)
+                feature_data = self._process_feature_data(feature)
+                feature_data['distance_meters'] = round(distance, 1)
                 
-                nearby_data = {
-                    'feature_id': feature.id,
-                    'feature_name': feature.name or 'Unnamed',
-                    'layer_slug': feature.layer.slug,
-                    'layer_name': feature.layer.name,
-                    'category': feature.layer.category.name if feature.layer.category else 'Unknown',
-                    'color': layer_color,
-                    'distance_meters': round(distance, 1),
-                    'area': float(feature.area) if feature.area else 0.0
-                }
-                
-                nearby_features.append(nearby_data)
+                nearby_features.append(feature_data)
                 
             except Exception as e:
-                print(f"Error processing nearby feature {feature.id}: {e}")
+                logger.error(f"Error processing nearby feature {feature.id}: {e}")
                 continue
         
         # Sort by distance
         nearby_features.sort(key=lambda x: x['distance_meters'])
         
         return nearby_features
+    
+    def _find_nearby_across_all_cities(self, point, radius_meters=1000):
+        """Find nearby features across all cities"""
+        nearby_features = []
+        
+        # Create a buffer around the point for nearby search
+        buffer_point = point.transform(3857, clone=True)
+        buffered_area = buffer_point.buffer(radius_meters)
+        buffered_area.transform(4326)
+        
+        # Find features that intersect with the buffer
+        features = GeoFeature.objects.filter(
+            layer__city__is_active=True,
+            layer__city__state_ref__is_active=True,
+            layer__is_processed=True,
+            is_valid=True,
+            geometry__intersects=buffered_area
+        ).select_related(
+            'layer', 
+            'layer__category', 
+            'layer__city', 
+            'layer__city__state_ref'
+        )
+        
+        for feature in features:
+            try:
+                # Calculate approximate distance
+                feature_centroid = feature.geometry.centroid
+                distance = point.distance(feature_centroid) * 111000
+                
+                feature_data = self._process_feature_data(feature)
+                feature_data['distance_meters'] = round(distance, 1)
+                feature_data['state'] = {
+                    'slug': feature.layer.city.state_ref.slug,
+                    'name': feature.layer.city.state_ref.name
+                }
+                feature_data['city'] = {
+                    'slug': feature.layer.city.slug,
+                    'name': feature.layer.city.name
+                }
+                
+                nearby_features.append(feature_data)
+                
+            except Exception as e:
+                logger.error(f"Error processing global nearby feature {feature.id}: {e}")
+                continue
+        
+        # Sort by distance
+        nearby_features.sort(key=lambda x: x['distance_meters'])
+        
+        return nearby_features
+    
+    def _process_feature_data(self, feature):
+        """Process feature data into a standardized format"""
+        try:
+            # Get layer color using existing config system
+            layer_color = self._get_feature_color_from_config(feature, feature.layer.city.slug)
+            
+            # Get detailed category information
+            category_info = self._get_detailed_category_info(feature)
+            
+            feature_data = {
+                'feature_id': feature.id,
+                'feature_name': feature.name or 'Unnamed',
+                'layer_slug': feature.layer.slug,
+                'layer_name': feature.layer.name,
+                'category': feature.layer.category.code if feature.layer.category else 'UNKNOWN',
+                'category_name': feature.layer.category.name if feature.layer.category else 'Unknown',
+                'color': layer_color,
+                'area': float(feature.area) if feature.area else 0.0,
+                'zone_category': feature.zone_category or '',
+                'zone_subcategory': feature.zone_subcategory or '',
+                'plu_code': feature.plu_primary_code or '',
+                'plu_name': feature.plu_secondary_1 or '',
+                'plot_category': feature.plot_category or '',
+                'symbology': feature.symbology or '',
+                'detailed_category': category_info
+            }
+            
+            return feature_data
+            
+        except Exception as e:
+            logger.error(f"Error processing feature {feature.id}: {e}")
+            return {
+                'feature_id': feature.id,
+                'feature_name': 'Error processing feature',
+                'layer_slug': feature.layer.slug if feature.layer else 'unknown',
+                'layer_name': feature.layer.name if feature.layer else 'Unknown',
+                'category': 'ERROR',
+                'category_name': 'Error',
+                'color': '#FF0000',
+                'area': 0.0,
+                'error': str(e)
+            }
+    
+    def _get_detailed_category_info(self, feature):
+        """Get detailed category information for a feature"""
+        category_info = {}
+        
+        # Basic category info
+        if feature.layer.category:
+            category_info['layer_category'] = {
+                'code': feature.layer.category.code,
+                'name': feature.layer.category.name,
+                'description': feature.layer.category.description or ''
+            }
+        
+        # Zone information
+        if feature.zone_category:
+            category_info['zone'] = {
+                'category': feature.zone_category,
+                'subcategory': feature.zone_subcategory or ''
+            }
+        
+        # PLU (Primary Land Use) information
+        if feature.plu_primary_code:
+            category_info['plu'] = {
+                'primary_code': feature.plu_primary_code,
+                'secondary_1': feature.plu_secondary_1 or '',
+                'secondary_2': feature.plu_secondary_2 or '',
+                'proposed_use': feature.plu_proposed_use or ''
+            }
+        
+        # Amaravati specific fields
+        if feature.plot_category:
+            category_info['plot_category'] = feature.plot_category
+        
+        if feature.symbology:
+            category_info['symbology'] = feature.symbology
+        
+        # Get zone name using the model method
+        category_info['zone_name'] = feature.get_zone_name()
+        
+        # Properties (if available)
+        if hasattr(feature, 'properties') and feature.properties:
+            category_info['properties'] = feature.properties
+        
+        return category_info
     
     def _get_feature_color_from_config(self, feature, city_slug):
         """Get feature color from configuration using existing system"""
@@ -320,7 +599,7 @@ class CoordinateSearchTestView(APIView):
             return '#0066CC'  # Default blue
             
         except Exception as e:
-            print(f"Error getting feature color: {e}")
+            logger.error(f"Error getting feature color: {e}")
             return '#0066CC'
     
     def _create_search_summary(self, containing_features, nearby_features):
@@ -329,10 +608,10 @@ class CoordinateSearchTestView(APIView):
         if containing_features:
             if len(containing_features) == 1:
                 feature = containing_features[0]
-                return f"Location is within {feature['layer_name']}: {feature['feature_name']}"
+                return f"Location is within {feature['layer_name']}: {feature['feature_name']} ({feature['category_name']})"
             else:
                 primary = containing_features[0]  # Largest by area
-                return f"Location is within {primary['layer_name']}: {primary['feature_name']}. Also overlaps with {len(containing_features) - 1} other features."
+                return f"Location is within {primary['layer_name']}: {primary['feature_name']} ({primary['category_name']}). Also overlaps with {len(containing_features) - 1} other features."
             
         elif nearby_features:
             nearest = nearby_features[0]
@@ -1001,59 +1280,76 @@ class CloudFrontTileView(APIView):
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
-class CombinedLayerCenterView(APIView):
+@extend_schema_view(
+    get=extend_schema(
+        summary="Get layer bounds",
+        description="Retrieve the geographic bounds for a specific layer based on actual data",
+        tags=['layers'],
+        parameters=[
+            OpenApiParameter(name='state_slug', location=OpenApiParameter.PATH, required=True, type=str, description='State slug'),
+            OpenApiParameter(name='city_slug', location=OpenApiParameter.PATH, required=True, type=str, description='City slug'),
+            OpenApiParameter(name='layer_slug', location=OpenApiParameter.PATH, required=True, type=str, description='Layer slug'),
+        ],
+        responses={
+            200: {
+                'description': 'Layer bounds retrieved successfully',
+                'examples': [
+                    {
+                        'application/json': {
+                            'state': 'telangana',
+                            'state_name': 'Telangana',
+                            'city': 'hyderabad',
+                            'city_name': 'Hyderabad',
+                            'layer': 'hyderabad_highways',
+                            'layer_name': 'Hyderabad Highways',
+                            'bounds': {
+                                'west': 78.2673,
+                                'south': 17.2345,
+                                'east': 78.5678,
+                                'north': 17.4567
+                            },
+                            'center': {
+                                'lat': 17.3456,
+                                'lng': 78.4175
+                            },
+                            'dimensions': {
+                                'width': 0.3005,
+                                'height': 0.2222
+                            },
+                            'feature_count': 1234,
+                            'data_source': 'calculated_from_features'
+                        }
+                    }
+                ]
+            },
+            404: {
+                'description': 'State, city, or layer not found',
+                'examples': [
+                    {
+                        'application/json': {
+                            'error': 'Layer not found: hyderabad_highways in city: hyderabad',
+                            'state': 'telangana',
+                            'city': 'hyderabad',
+                            'layer': 'hyderabad_highways'
+                        }
+                    }
+                ]
+            }
+        }
+    )
+)
+class LayerBoundsAPIView(APIView):
     """
-    API endpoint to get the center coordinates of combined layers
-    URL: /api/cities/{city_slug}/combined-layer-center/
+    API endpoint to get the geographic bounds for a specific layer based on actual data.
+    
+    URL: /api/layers/{state_slug}/{city_slug}/{layer_slug}/bounds/
+    
+    Returns the bounding box coordinates (west, south, east, north) for the layer,
+    calculated from the actual feature geometries in the database.
     """
     permission_classes = [AllowAny]
     
-    def get(self, request, state_slug, city_slug):
-        """
-        Get center coordinates of all combined layers for a city
-        
-        Returns:
-        {
-            "city": "bangalore",
-            "city_name": "Bangalore",
-            "center": {
-                "lat": 12.9716,
-                "lng": 77.5946
-            },
-            "bounds": {
-                "west": 77.4846,
-                "south": 12.8716,
-                "east": 77.7046,
-                "north": 13.0716
-            },
-            "dimensions": {
-                "width": 0.22,
-                "height": 0.20
-            },
-            "layers_count": 15,
-            "layers": ["parks", "roads", "buildings", ...]
-        }
-        """
-        result = self.get_combined_layer_center(state_slug, city_slug)
-        
-        if 'error' in result:
-            return Response(result, status=400)
-        
-        return Response(result, status=200)
-    
-    def get_combined_layer_center(self, state_slug, city_slug):
-        """
-        Calculate the center coordinates of the combined bounds of all layers for a city.
-        
-        Args:
-            state_slug: The slug identifier for the state
-            city_slug: The slug identifier for the city
-            
-        Returns:
-            dict: Center coordinates and bounds information
-        """
-        from maps.models import City, DataLayer, State
-        
+    def get(self, request, state_slug, city_slug, layer_slug):
         try:
             # Get the state
             state = State.objects.get(slug=state_slug, is_active=True)
@@ -1061,100 +1357,114 @@ class CombinedLayerCenterView(APIView):
             # Get the city within the state
             city = City.objects.get(slug=city_slug, state_ref=state, is_active=True)
             
-            # Get all processed layers for this city
-            layers = DataLayer.objects.filter(
+            # Get the specific layer
+            layer = DataLayer.objects.get(
+                slug=layer_slug,
                 city=city,
                 is_processed=True
             )
             
-            if not layers.exists():
-                return {
-                    'error': f'No processed layers found for {city_slug}',
-                    'state': state_slug,
-                    'city': city_slug
+            # Check if layer has cached bounds
+            if all([layer.bbox_xmin, layer.bbox_ymin, layer.bbox_xmax, layer.bbox_ymax]):
+                bounds = {
+                    'west': layer.bbox_xmin,
+                    'south': layer.bbox_ymin,
+                    'east': layer.bbox_xmax,
+                    'north': layer.bbox_ymax
                 }
-            
-            # Check if any layers have bounds data
-            layers_with_bounds = layers.exclude(
-                bbox_xmin__isnull=True,
-                bbox_ymin__isnull=True,
-                bbox_xmax__isnull=True,
-                bbox_ymax__isnull=True
-            )
-            
-            # If no layers have bounds, calculate bounds from city center
-            if not layers_with_bounds.exists():
-                # Use city center coordinates to create a reasonable bounding box
-                city_center_lng = city.center_lng or 77.5946  # Default to Bangalore if not set
-                city_center_lat = city.center_lat or 12.9716
-                
-                # Create a bounding box around the city center (±0.2 degrees)
-                buffer_degrees = 0.2
-                combined_bounds = {
-                    'west': city_center_lng - buffer_degrees,
-                    'south': city_center_lat - buffer_degrees,
-                    'east': city_center_lng + buffer_degrees,
-                    'north': city_center_lat + buffer_degrees
-                }
+                data_source = 'cached_bounds'
             else:
-                # Use actual bounds from layers
-                combined_bounds = {
-                    'west': float('inf'),
-                    'south': float('inf'),
-                    'east': float('-inf'),
-                    'north': float('-inf')
-                }
+                # Calculate bounds from actual features
+                from django.contrib.gis.db.models import Extent
                 
-                # Iterate through all layers to find the overall bounds
-                for layer in layers_with_bounds:
-                    combined_bounds['west'] = min(combined_bounds['west'], layer.bbox_xmin)
-                    combined_bounds['south'] = min(combined_bounds['south'], layer.bbox_ymin)
-                    combined_bounds['east'] = max(combined_bounds['east'], layer.bbox_xmax)
-                    combined_bounds['north'] = max(combined_bounds['north'], layer.bbox_ymax)
-            
-
+                extent = GeoFeature.objects.filter(
+                    layer=layer,
+                    is_valid=True
+                ).aggregate(extent=Extent('geometry'))['extent']
+                
+                if not extent:
+                    return Response({
+                        'error': f'No valid features found for layer: {layer_slug}',
+                        'state': state_slug,
+                        'city': city_slug,
+                        'layer': layer_slug
+                    }, status=status.HTTP_404_NOT_FOUND)
+                
+                bounds = {
+                    'west': extent[0],
+                    'south': extent[1],
+                    'east': extent[2],
+                    'north': extent[3]
+                }
+                data_source = 'calculated_from_features'
             
             # Calculate center coordinates
-            center_lng = (combined_bounds['west'] + combined_bounds['east']) / 2
-            center_lat = (combined_bounds['south'] + combined_bounds['north']) / 2
+            center_lng = (bounds['west'] + bounds['east']) / 2
+            center_lat = (bounds['south'] + bounds['north']) / 2
             
             # Calculate dimensions
-            width = combined_bounds['east'] - combined_bounds['west']
-            height = combined_bounds['north'] - combined_bounds['south']
+            width = bounds['east'] - bounds['west']
+            height = bounds['north'] - bounds['south']
             
-            return {
+            # Get feature count
+            feature_count = GeoFeature.objects.filter(
+                layer=layer,
+                is_valid=True
+            ).count()
+            
+            return Response({
                 'state': state_slug,
                 'state_name': state.name,
                 'city': city_slug,
                 'city_name': city.name,
+                'layer': layer_slug,
+                'layer_name': layer.name,
+                'bounds': bounds,
                 'center': {
                     'lat': center_lat,
                     'lng': center_lng
                 },
-                'bounds': combined_bounds,
                 'dimensions': {
                     'width': width,
                     'height': height
                 },
-                'layers_count': layers.count(),
-                'layers': list(layers.values_list('name', flat=True))
-            }
+                'feature_count': feature_count,
+                'data_source': data_source,
+                'layer_info': {
+                    'category': layer.category.code if layer.category else None,
+                    'category_name': layer.category.name if layer.category else None,
+                    'feature_count': layer.feature_count,
+                    'is_processed': layer.is_processed,
+                    'created_at': layer.created_at.isoformat() if layer.created_at else None
+                }
+            })
             
         except State.DoesNotExist:
-            return {
+            return Response({
                 'error': f'State not found: {state_slug}',
                 'state': state_slug,
-                'city': city_slug
-            }
+                'city': city_slug,
+                'layer': layer_slug
+            }, status=status.HTTP_404_NOT_FOUND)
         except City.DoesNotExist:
-            return {
+            return Response({
                 'error': f'City not found: {city_slug} in state: {state_slug}',
                 'state': state_slug,
-                'city': city_slug
-            }
-        except Exception as e:
-            return {
-                'error': f'Error calculating combined layer center: {str(e)}',
+                'city': city_slug,
+                'layer': layer_slug
+            }, status=status.HTTP_404_NOT_FOUND)
+        except DataLayer.DoesNotExist:
+            return Response({
+                'error': f'Layer not found: {layer_slug} in city: {city_slug}',
                 'state': state_slug,
-                'city': city_slug
-            }
+                'city': city_slug,
+                'layer': layer_slug
+            }, status=status.HTTP_404_NOT_FOUND)
+        except Exception as e:
+            logger.error(f"Error getting layer bounds: {str(e)}")
+            return Response({
+                'error': f'Error calculating layer bounds: {str(e)}',
+                'state': state_slug,
+                'city': city_slug,
+                'layer': layer_slug
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

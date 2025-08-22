@@ -47,8 +47,13 @@ urlpatterns = [
     
     path('cities/<slug:city_slug>/search-coords-test/',
          views.CoordinateSearchTestView.as_view(), name='coordinate_search_test'),
-
-     path('center/<slug:state_slug>/<slug:city_slug>/', 
-          views.CombinedLayerCenterView.as_view(), name='combined_layer_center'),
+    
+    # Global coordinate search (across all states/cities)
+    path('search-coords-test/',
+         views.CoordinateSearchTestView.as_view(), name='global_coordinate_search_test'),
+    
+    # Layer bounds API - Get bounds for a specific layer based on actual data
+    path('layers/<slug:state_slug>/<slug:city_slug>/<slug:layer_slug>/bounds/',
+         views.LayerBoundsAPIView.as_view(), name='layer_bounds'),
     
 ]
