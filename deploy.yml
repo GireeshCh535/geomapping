@@ -23,11 +23,11 @@
       run_once: true
       become: no
 
-    - name: Clone repository to local machine (change_of_pattern branch)
+    - name: Clone repository to local machine (master branch)
       git:
         repo: "{{ repo_url }}"
         dest: "{{ temp_dir }}"
-        version: "change_of_pattern"
+        version: "master"
         depth: 1
       delegate_to: localhost
       run_once: true
@@ -558,7 +558,7 @@
         msg: |
           🎉 DATA-SAFE DEPLOYMENT COMPLETED SUCCESSFULLY!
           
-          📦 Deployed Branch: change_of_pattern
+          📦 Deployed Branch: master
           
           🌐 Application URLs:
             - HTTPS: https://{{ domain }}
