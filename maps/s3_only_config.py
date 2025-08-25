@@ -29,14 +29,18 @@ TILE_SERVING_FALLBACK_ORDER = [
     'on_demand'    # Tertiary: On-demand generation (optional)
 ]
 
-# Cache Settings
+# No-Cache Settings
 TILE_CACHE_HEADERS = {
     'png': {
-        'CacheControl': 'public, max-age=31536000',  # 1 year
+        'CacheControl': 'no-cache, no-store, must-revalidate',  # No caching
+        'Pragma': 'no-cache',
+        'Expires': '0',
         'ContentType': 'image/png'
     },
     'mvt': {
-        'CacheControl': 'public, max-age=86400',     # 1 day
+        'CacheControl': 'no-cache, no-store, must-revalidate',  # No caching
+        'Pragma': 'no-cache',
+        'Expires': '0',
         'ContentType': 'application/vnd.mapbox-vector-tile'
     }
 }

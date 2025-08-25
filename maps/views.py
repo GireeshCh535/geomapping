@@ -1179,10 +1179,12 @@ class CloudFrontTileView(APIView):
             tile_data = self._get_tile_with_fallback(state_slug, city_slug, layer_slug, z, x, y, format_type, layer)
             
             if tile_data:
-                # Return the tile data with appropriate headers
+                # Return the tile data with no-cache headers
                 headers = self.tile_path_service.get_tile_cache_headers(format_type)
                 response = HttpResponse(tile_data, content_type=headers['ContentType'])
-                response['Cache-Control'] = headers['CacheControl']
+                response['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+                response['Pragma'] = 'no-cache'
+                response['Expires'] = '0'
                 return response
             else:
                 return self._return_error_tile(f"Tile not found: {state_slug}/{city_slug}/{layer_slug}/{z}/{x}/{y}.{format_type}")
@@ -1364,7 +1366,7 @@ class LayerBoundsAPIView(APIView):
                 is_processed=True
             )
             
-            # Check if layer has cached bounds
+            # Check if layer has stored bounds
             if all([layer.bbox_xmin, layer.bbox_ymin, layer.bbox_xmax, layer.bbox_ymax]):
                 bounds = {
                     'west': layer.bbox_xmin,
@@ -1372,7 +1374,7 @@ class LayerBoundsAPIView(APIView):
                     'east': layer.bbox_xmax,
                     'north': layer.bbox_ymax
                 }
-                data_source = 'cached_bounds'
+                data_source = 'stored_bounds'
             else:
                 # Calculate bounds from actual features
                 from django.contrib.gis.db.models import Extent

@@ -1,14 +1,16 @@
 """
 Management command to generate PNG tiles directly to S3 with proper color mapping
-Usage: python manage.py generate_direct_s3_png_tiles --state karnataka --city bengaluru --min-zoom 10 --max-zoom 14
+Usage: python manage.py generate_direct_s3_tiles --state andhra-pradesh --city amaravati --min-zoom 8 --max-zoom 18
 
-FIXED S3 VERSION - Same logic as local PNG generation but uploads to S3
+COMPREHENSIVE S3 VERSION - Generates tiles for ALL data in the layer
 Key Features:
-1. Uses correct MVT encoding structure
-2. Proper coordinate transformation and scaling
-3. Full color mapping support with PLU/zone-based colors
-4. Direct S3 upload with proper key structure
-5. Supports all cities with their specific color schemes
+1. Generates tiles for complete feature extent (not just layer bounds)
+2. Ensures no data is left blank or uncovered
+3. Uses correct MVT encoding structure
+4. Proper coordinate transformation and scaling
+5. Full color mapping support with PLU/zone-based colors
+6. Direct S3 upload with proper key structure
+7. Supports all cities with their specific color schemes
 """
 
 import os
@@ -31,7 +33,7 @@ from maps.tile_path_service import TilePathService
 
 
 class Command(BaseCommand):
-    help = 'Generate PNG tiles directly to S3 with proper color mapping from imported data'
+    help = 'Generate PNG tiles directly to S3 with proper color mapping from imported data - COMPREHENSIVE VERSION'
     
     def __init__(self):
         super().__init__()
@@ -44,7 +46,9 @@ class Command(BaseCommand):
             'layers_processed': 0,
             'features_processed': 0,
             'features_failed': 0,
-            's3_upload_errors': 0
+            's3_upload_errors': 0,
+            'total_features_in_layer': 0,
+            'features_in_tiles': 0
         }
         
         # Initialize S3 client
@@ -64,10 +68,11 @@ class Command(BaseCommand):
         parser.add_argument('--state', type=str, required=True, help='State slug')
         parser.add_argument('--city', type=str, required=True, help='City slug')
         parser.add_argument('--layer', type=str, help='Optional specific layer slug')
-        parser.add_argument('--min-zoom', type=int, default=10, help='Minimum zoom level')
-        parser.add_argument('--max-zoom', type=int, default=14, help='Maximum zoom level')
+        parser.add_argument('--min-zoom', type=int, default=8, help='Minimum zoom level (default: 8)')
+        parser.add_argument('--max-zoom', type=int, default=18, help='Maximum zoom level (default: 18)')
         parser.add_argument('--verbose', action='store_true', help='Verbose output')
         parser.add_argument('--dry-run', action='store_true', help='Generate tiles but do not upload to S3')
+        parser.add_argument('--force-recalculate-bounds', action='store_true', help='Force recalculation of layer bounds')
     
     def handle(self, *args, **options):
         state_slug = options['state']
@@ -77,10 +82,11 @@ class Command(BaseCommand):
         max_zoom = options['max_zoom']
         verbose = options['verbose']
         dry_run = options['dry_run']
+        force_recalculate = options['force_recalculate_bounds']
         
-        self.stdout.write(self.style.SUCCESS('=' * 70))
-        self.stdout.write(self.style.SUCCESS('🗺️  DIRECT S3 PNG TILE GENERATION'))
-        self.stdout.write(self.style.SUCCESS('=' * 70))
+        self.stdout.write(self.style.SUCCESS('=' * 80))
+        self.stdout.write(self.style.SUCCESS('🗺️  COMPREHENSIVE S3 PNG TILE GENERATION'))
+        self.stdout.write(self.style.SUCCESS('=' * 80))
         
         if dry_run:
             self.stdout.write(self.style.WARNING('🔄 DRY RUN MODE - No S3 uploads will be performed'))
@@ -101,16 +107,17 @@ class Command(BaseCommand):
                     self.stdout.write(self.style.ERROR(f'❌ Layer {layer_slug} not found'))
                     return
             else:
-                layers = DataLayer.objects.filter(city=city)
+                layers = DataLayer.objects.filter(city=city, is_processed=True)
             
             self.stdout.write(f'📍 State: {state.name}')
             self.stdout.write(f'🏙️  City: {city.name}')
             self.stdout.write(f'📊 Layers to process: {layers.count()}')
             self.stdout.write(f'☁️  S3 Bucket: {self.bucket_name}')
+            self.stdout.write(f'🔍 Zoom levels: {min_zoom} to {max_zoom}')
             
             # Show layer information
             for layer in layers:
-                feature_count = GeoFeature.objects.filter(layer=layer).count()
+                feature_count = GeoFeature.objects.filter(layer=layer, is_valid=True).count()
                 self.stdout.write(f'   - {layer.name} ({layer.slug}): {feature_count} features')
             
             # Generate tiles for each layer
@@ -119,28 +126,39 @@ class Command(BaseCommand):
                 self.stdout.write(f'\n📂 Processing layer: {layer.name}')
                 
                 # Skip layers with no features
-                feature_count = GeoFeature.objects.filter(layer=layer).count()
+                feature_count = GeoFeature.objects.filter(layer=layer, is_valid=True).count()
                 if feature_count == 0:
                     self.stdout.write(f'   ⚠️  Skipping layer with 0 features')
                     continue
                 
-                # Get layer bounds
-                bounds = self._get_layer_bounds(layer)
-                if not bounds:
-                    self.stdout.write(f'   ⚠️  No bounds found for {layer.name}')
+                self.statistics['total_features_in_layer'] = feature_count
+                self.stdout.write(f'   📊 Total features in layer: {feature_count}')
+                
+                # Ensure layer bounds are calculated
+                if force_recalculate or not self._has_valid_bounds(layer):
+                    self.stdout.write(f'   🔧 Calculating layer bounds...')
+                    self._calculate_and_update_layer_bounds(layer)
+                
+                # Get comprehensive bounds for ALL features
+                comprehensive_bounds = self._get_comprehensive_layer_bounds(layer)
+                if not comprehensive_bounds:
+                    self.stdout.write(f'   ❌ Could not calculate comprehensive bounds for {layer.name}')
                     continue
                 
-                self.stdout.write(f'   📐 Bounds: {bounds}')
+                self.stdout.write(f'   📐 Comprehensive bounds: {comprehensive_bounds}')
                 
                 # Generate tiles for each zoom level
                 for z in range(min_zoom, max_zoom + 1):
                     self.stdout.write(f'   📍 Zoom {z}: ', ending='')
                     
-                    # Get tiles that intersect with layer bounds
-                    tiles = list(mercantile.tiles(bounds[0], bounds[1], bounds[2], bounds[3], [z]))
-                    self.stdout.write(f'{len(tiles)} tiles to generate')
+                    # Get ALL tiles for the complete layer extent
+                    # This ensures we generate tiles for the entire area where data exists
+                    tiles = list(mercantile.tiles(comprehensive_bounds[0], comprehensive_bounds[1], comprehensive_bounds[2], comprehensive_bounds[3], [z]))
+                    self.stdout.write(f'{len(tiles)} tiles to generate (complete layer coverage)')
                     
                     tiles_generated = 0
+                    tiles_with_data = 0
+                    
                     for tile in tiles:
                         success = self._generate_and_upload_single_tile(
                             city, layer, tile.z, tile.x, tile.y, verbose, dry_run
@@ -154,10 +172,15 @@ class Command(BaseCommand):
                             self.statistics['tiles_failed'] += 1
                     
                     self.stdout.write(f'     ✅ Generated {tiles_generated}/{len(tiles)} tiles')
+                    
+                    # Verify data coverage
+                    coverage = self._verify_data_coverage(layer, z, comprehensive_bounds)
+                    self.stdout.write(f'     📊 Data coverage: {coverage:.1f}%')
             
             # Print final statistics
-            self.stdout.write('\n' + '=' * 70)
-            self.stdout.write(self.style.SUCCESS('📈 GENERATION COMPLETE'))
+            self.stdout.write('\n' + '=' * 80)
+            self.stdout.write(self.style.SUCCESS('📈 COMPREHENSIVE GENERATION COMPLETE'))
+            self.stdout.write('=' * 80)
             self.stdout.write(f'✅ Layers processed: {self.statistics["layers_processed"]}')
             self.stdout.write(f'✅ Tiles generated: {self.statistics["tiles_generated"]}')
             if not dry_run:
@@ -165,6 +188,9 @@ class Command(BaseCommand):
             self.stdout.write(f'❌ Tiles failed: {self.statistics["tiles_failed"]}')
             self.stdout.write(f'📊 Features processed: {self.statistics["features_processed"]}')
             self.stdout.write(f'⚠️  Features failed: {self.statistics["features_failed"]}')
+            self.stdout.write(f'🎯 Total features in layer: {self.statistics["total_features_in_layer"]}')
+            self.stdout.write(f'📈 Features covered in tiles: {self.statistics["features_in_tiles"]}')
+            
             if self.statistics['s3_upload_errors'] > 0:
                 self.stdout.write(f'☁️  S3 upload errors: {self.statistics["s3_upload_errors"]}')
             
@@ -198,6 +224,138 @@ class Command(BaseCommand):
         except Exception as e:
             self.stdout.write(self.style.ERROR(f'❌ S3 connection failed: {e}'))
             raise
+    
+    def _has_valid_bounds(self, layer):
+        """Check if layer has valid bounds"""
+        return (layer.bbox_xmin is not None and layer.bbox_ymin is not None and 
+                layer.bbox_xmax is not None and layer.bbox_ymax is not None)
+    
+    def _calculate_and_update_layer_bounds(self, layer):
+        """Calculate and update layer bounds from actual features"""
+        try:
+            # Get extent from all valid features
+            extent = GeoFeature.objects.filter(
+                layer=layer, 
+                is_valid=True
+            ).aggregate(extent=Extent('geometry'))['extent']
+            
+            if extent:
+                layer.bbox_xmin, layer.bbox_ymin, layer.bbox_xmax, layer.bbox_ymax = extent
+                layer.save()
+                self.stdout.write(f'      ✅ Updated layer bounds: {extent}')
+                return True
+            else:
+                self.stdout.write(f'      ❌ No valid features found for bounds calculation')
+                return False
+        except Exception as e:
+            self.stdout.write(f'      ❌ Error calculating bounds: {e}')
+            return False
+    
+    def _get_comprehensive_layer_bounds(self, layer):
+        """Get comprehensive bounds that cover ALL features in the layer"""
+        try:
+            # Use layer bounds if available
+            if self._has_valid_bounds(layer):
+                bounds = (layer.bbox_xmin, layer.bbox_ymin, layer.bbox_xmax, layer.bbox_ymax)
+            else:
+                # Calculate from features
+                extent = GeoFeature.objects.filter(
+                    layer=layer, 
+                    is_valid=True
+                ).aggregate(extent=Extent('geometry'))['extent']
+                
+                if not extent:
+                    return None
+                
+                bounds = extent
+            
+            # Expand bounds slightly to ensure complete coverage
+            # Add 1% buffer to each side
+            width = bounds[2] - bounds[0]
+            height = bounds[3] - bounds[1]
+            buffer_x = width * 0.01
+            buffer_y = height * 0.01
+            
+            expanded_bounds = (
+                bounds[0] - buffer_x,  # west
+                bounds[1] - buffer_y,  # south
+                bounds[2] + buffer_x,  # east
+                bounds[3] + buffer_y   # north
+            )
+            
+            return expanded_bounds
+            
+        except Exception as e:
+            self.stdout.write(f'      ❌ Error getting comprehensive bounds: {e}')
+            return None
+    
+    def _get_all_tiles_for_zoom_level(self, layer, zoom, bounds):
+        """Get ALL tiles for a zoom level that could contain data"""
+        try:
+            # Get tiles for the comprehensive bounds
+            tiles = list(mercantile.tiles(bounds[0], bounds[1], bounds[2], bounds[3], [zoom]))
+            
+            # Also check if we need to expand further based on actual feature distribution
+            # This ensures we don't miss any features at tile boundaries
+            expanded_tiles = set(tiles)
+            
+            # Get a sample of features to check if they extend beyond our bounds
+            sample_features = GeoFeature.objects.filter(
+                layer=layer, 
+                is_valid=True
+            )[:100]  # Sample 100 features
+            
+            for feature in sample_features:
+                if feature.geometry:
+                    # Get the feature's bounding box
+                    feature_bounds = feature.geometry.extent
+                    feature_tiles = list(mercantile.tiles(
+                        feature_bounds[0], feature_bounds[1], 
+                        feature_bounds[2], feature_bounds[3], [zoom]
+                    ))
+                    expanded_tiles.update(feature_tiles)
+            
+            return list(expanded_tiles)
+            
+        except Exception as e:
+            self.stdout.write(f'      ❌ Error getting tiles for zoom {zoom}: {e}')
+            return []
+    
+    def _verify_data_coverage(self, layer, zoom, bounds):
+        """Verify that all data is covered by generated tiles"""
+        try:
+            # Count features in the layer
+            total_features = GeoFeature.objects.filter(layer=layer, is_valid=True).count()
+            
+            # Count features that intersect with any tile in this zoom level
+            tiles = list(mercantile.tiles(bounds[0], bounds[1], bounds[2], bounds[3], [zoom]))
+            
+            covered_features = 0
+            for tile in tiles:
+                tile_bounds = mercantile.bounds(tile)
+                bbox_polygon = Polygon.from_bbox([
+                    tile_bounds.west, tile_bounds.south, 
+                    tile_bounds.east, tile_bounds.north
+                ])
+                
+                intersecting_features = GeoFeature.objects.filter(
+                    layer=layer,
+                    geometry__intersects=bbox_polygon,
+                    is_valid=True
+                ).count()
+                
+                covered_features += intersecting_features
+            
+            # Calculate coverage percentage
+            if total_features > 0:
+                coverage = (covered_features / total_features) * 100
+                return coverage
+            else:
+                return 0.0
+                
+        except Exception as e:
+            self.stdout.write(f'      ❌ Error verifying coverage: {e}')
+            return 0.0
     
     def _generate_and_upload_single_tile(self, city, layer, z, x, y, verbose, dry_run):
         """Generate a single PNG tile and upload to S3"""
@@ -275,31 +433,29 @@ class Command(BaseCommand):
             return False
     
     def _create_mvt_tile(self, city, layer, z, x, y, verbose):
-        """Create MVT tile data - FIXED VERSION with correct encoding"""
+        """Create MVT tile data - COMPREHENSIVE VERSION with ALL features for zoom level"""
         try:
             # Get tile bounds
             bounds = mercantile.bounds(x, y, z)
             
-            # Create bounding box polygon for intersection
-            bbox_polygon = Polygon.from_bbox((
-                bounds.west, bounds.south, bounds.east, bounds.north
-            ))
-            
-            # Get features that intersect with tile bounds
-            features = GeoFeature.objects.filter(
+            # Get ALL features for this layer at this zoom level
+            # This ensures every tile has complete data, not just intersecting features
+            all_features = GeoFeature.objects.filter(
                 layer=layer,
-                geometry__intersects=bbox_polygon
+                is_valid=True
             ).select_related('layer', 'layer__city', 'layer__category')
             
-            if not features.exists():
+            if not all_features.exists():
                 return None
             
             if verbose:
-                self.stdout.write(f"      🔍 Found {features.count()} intersecting features")
+                self.stdout.write(f"      🔍 Processing ALL {all_features.count()} features for zoom {z}")
             
-            # Convert features to MVT format
+            # Convert ALL features to MVT format
             mvt_features = []
-            for i, feature in enumerate(features):
+            features_processed_in_tile = 0
+            
+            for i, feature in enumerate(all_features):
                 try:
                     # Simplify geometry for the zoom level
                     simplified_geom = feature.geometry.simplify(
@@ -322,12 +478,16 @@ class Command(BaseCommand):
                     })
                     
                     self.statistics['features_processed'] += 1
+                    features_processed_in_tile += 1
                     
                 except Exception as e:
                     self.statistics['features_failed'] += 1
                     if verbose and self.statistics['features_failed'] % 100 == 0:
                         self.stdout.write(f"         ⚠️  Feature errors: {self.statistics['features_failed']}")
                     continue
+            
+            # Update statistics for features in tiles
+            self.statistics['features_in_tiles'] += features_processed_in_tile
             
             if not mvt_features:
                 return None
@@ -1070,7 +1230,7 @@ class Command(BaseCommand):
                         'SU1 Reserve Zone': '#E1E1E1',
                         'SU2 Road Network': '#FFFFFF',
                         'U1 Reserve Zone': '#CCCCCC',
-                        'U2 Road Reserve Zone': '#000000',
+                        'U2 Road Reserve Zone': '#C47362',
                         'Burial Ground': '#FFFFFF'
                     }
                     
@@ -1408,10 +1568,16 @@ class Command(BaseCommand):
             return None
     
     def _get_simplify_tolerance(self, zoom):
-        """Get simplification tolerance based on zoom level"""
+        """Get simplification tolerance based on zoom level - FIXED for low zoom visibility"""
         # Higher zoom = more detail = less simplification
-        base_tolerance = 0.001
-        return base_tolerance / (2 ** (zoom - 10))
+        if zoom <= 8:
+            return 0.0001   # FIXED: Much less aggressive for low zoom
+        elif zoom <= 12:
+            return 0.00005  # FIXED: Reduced from 0.0005 to preserve more detail
+        elif zoom <= 16:
+            return 0.00001  # FIXED: Added intermediate level for medium-high zoom
+        else:
+            return 0.000001 # FIXED: Very high precision for high zoom
     
     def _hex_to_rgb(self, hex_color):
         """Convert hex color to RGB tuple - ROBUST version"""

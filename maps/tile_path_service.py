@@ -165,27 +165,33 @@ class TilePathService:
     
     def get_tile_cache_headers(self, format_type: str = 'png') -> Dict[str, str]:
         """
-        Get appropriate cache headers for tile format
+        Get no-cache headers for tile format
         
         Args:
             format_type: File format ('png' or 'mvt')
             
         Returns:
-            Dict with cache headers
+            Dict with no-cache headers
         """
         if format_type == 'png':
             return {
-                'CacheControl': 'public, max-age=31536000',  # 1 year for PNG tiles
+                'CacheControl': 'no-cache, no-store, must-revalidate',  # No caching
+                'Pragma': 'no-cache',
+                'Expires': '0',
                 'ContentType': 'image/png'
             }
         elif format_type == 'mvt':
             return {
-                'CacheControl': 'public, max-age=86400',  # 1 day for MVT tiles
+                'CacheControl': 'no-cache, no-store, must-revalidate',  # No caching
+                'Pragma': 'no-cache',
+                'Expires': '0',
                 'ContentType': 'application/vnd.mapbox-vector-tile'
             }
         else:
             return {
-                'CacheControl': 'public, max-age=3600',  # 1 hour default
+                'CacheControl': 'no-cache, no-store, must-revalidate',  # No caching
+                'Pragma': 'no-cache',
+                'Expires': '0',
                 'ContentType': 'application/octet-stream'
             }
     

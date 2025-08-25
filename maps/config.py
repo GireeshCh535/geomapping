@@ -712,7 +712,7 @@ DATA_IMPORT_CONFIG = {
                                 },
                                 'Proposed_Road_Network.geojson': {
                                     'name': 'Proposed Road Network',
-                                    'color': '#000000',
+                                    'color': '#C47362',
                                     'category': 'TRANSPORT'
                                 },
                                 'Proposed_Transportation_Facility_Use_Zone.geojson': {
@@ -955,7 +955,7 @@ DATA_IMPORT_CONFIG = {
                                 },
                                 'U2__Road_reserve_zone.geojson': {
                                     'name': 'U2 Road Reserve Zone',
-                                    'color': '#000000',
+                                    'color': '#C47362',
                                     'category': 'TRANSPORT'
                                 }
                             }

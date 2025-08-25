@@ -60,14 +60,14 @@ class S3DirectTileGenerationService:
         """
         try:
             # Set cache headers based on content type
-            cache_control = 'max-age=31536000'  # 1 year for PNG
-            if content_type == 'application/vnd.mapbox-vector-tile':
-                cache_control = 'max-age=86400'  # 1 day for MVT
+            # cache_control = 'max-age=31536000'  # 1 year for PNG
+            # if content_type == 'application/vnd.mapbox-vector-tile':
+            #     cache_control = 'max-age=86400'  # 1 day for MVT
             
             # Fixed: Removed ContentLength from extra_args
             extra_args = {
                 'ContentType': content_type,
-                'CacheControl': cache_control,
+                # 'CacheControl': cache_control,
             }
             
             # Upload using put_object with BytesIO
@@ -104,7 +104,7 @@ class S3DirectTileGenerationService:
 
     def generate_and_upload_city_tiles(self, city_slug: str, min_zoom: int = 8, max_zoom: int = 14, 
                                      tile_types: List[str] = ['png', 'mvt'],
-                                     use_patterns: bool = True) -> Dict[str, Any]:
+                                     use_patterns: bool = True, target_coordinates: tuple = None) -> Dict[str, Any]:
         """
         Generate and upload all tiles for a city directly to S3 with pattern support
         
@@ -114,6 +114,7 @@ class S3DirectTileGenerationService:
             max_zoom: Maximum zoom level
             tile_types: List of tile types ('png', 'mvt')
             use_patterns: Whether to use pattern fills for supported cities
+            target_coordinates: Optional (lng, lat) tuple to ensure tiles are generated for specific area
         
         Returns:
             Dictionary with generation results
@@ -151,6 +152,16 @@ class S3DirectTileGenerationService:
                     'error': f'Could not determine bounds for city: {city_slug}'
                 }
             
+            # ENHANCED: If target coordinates provided, expand bounds to include them
+            if target_coordinates:
+                target_lng, target_lat = target_coordinates
+                # Expand bounds to include target coordinates if they're outside current bounds
+                city_bounds['west'] = min(city_bounds['west'], target_lng - 0.01)  # Add buffer
+                city_bounds['east'] = max(city_bounds['east'], target_lng + 0.01)  # Add buffer
+                city_bounds['south'] = min(city_bounds['south'], target_lat - 0.01)  # Add buffer
+                city_bounds['north'] = max(city_bounds['north'], target_lat + 0.01)  # Add buffer
+                logger.info(f"🔧 Expanded city bounds to include target coordinates: {city_bounds}")
+            
             # Generate tile list
             tiles_to_generate = []
             for zoom in range(min_zoom, max_zoom + 1):
@@ -160,6 +171,19 @@ class S3DirectTileGenerationService:
                     zoom
                 ))
                 tiles_to_generate.extend([(tile.z, tile.x, tile.y) for tile in tiles])
+                
+                # ENHANCED: If target coordinates provided, ensure that specific tile is included
+                if target_coordinates:
+                    target_lng, target_lat = target_coordinates
+                    target_tile = mercantile.tile(target_lng, target_lat, zoom)
+                    target_tile_tuple = (target_tile.z, target_tile.x, target_tile.y)
+                    
+                    # Check if target tile is in the list
+                    target_tile_in_list = any(t == target_tile_tuple for t in tiles_to_generate)
+                    
+                    if not target_tile_in_list:
+                        logger.info(f"🔧 Adding target tile {target_tile.z}/{target_tile.x}/{target_tile.y} for zoom {zoom}")
+                        tiles_to_generate.append(target_tile_tuple)
             
             logger.info(f"📊 Will generate {len(tiles_to_generate)} tiles across zoom levels {min_zoom}-{max_zoom}")
             

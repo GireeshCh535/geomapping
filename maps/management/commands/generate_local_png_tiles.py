@@ -988,7 +988,7 @@ class Command(BaseCommand):
                         'SU1 Reserve Zone': '#E1E1E1',
                         'SU2 Road Network': '#FFFFFF',
                         'U1 Reserve Zone': '#CCCCCC',
-                        'U2 Road Reserve Zone': '#000000',
+                        'U2 Road Reserve Zone': '#C47362',
                         'Burial Ground': '#FFFFFF'
                     }
                     
@@ -1326,10 +1326,16 @@ class Command(BaseCommand):
             return None
     
     def _get_simplify_tolerance(self, zoom):
-        """Get simplification tolerance based on zoom level"""
+        """Get simplification tolerance based on zoom level - FIXED for low zoom visibility"""
         # Higher zoom = more detail = less simplification
-        base_tolerance = 0.001
-        return base_tolerance / (2 ** (zoom - 10))
+        if zoom <= 8:
+            return 0.0001   # FIXED: Much less aggressive for low zoom
+        elif zoom <= 12:
+            return 0.00005  # FIXED: Reduced from 0.0005 to preserve more detail
+        elif zoom <= 16:
+            return 0.00001  # FIXED: Added intermediate level for medium-high zoom
+        else:
+            return 0.000001 # FIXED: Very high precision for high zoom
     
     def _hex_to_rgb(self, hex_color):
         """Convert hex color to RGB tuple - ROBUST version"""

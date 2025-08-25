@@ -111,17 +111,17 @@ DATABASES = {
 }
 
 # REDIS CACHE
-CACHES = {
-    'default': {
-        'BACKEND': 'django_redis.cache.RedisCache',
-        'LOCATION': os.getenv('REDIS_URL', 'redis://redis:6379/1'),
-        'OPTIONS': {
-            'CLIENT_CLASS': 'django_redis.client.DefaultClient',
-            'COMPRESSOR': 'django_redis.compressors.zlib.ZlibCompressor',
-            'IGNORE_EXCEPTIONS': True,
-        }
-    }
-}
+# CACHES = {
+#     'default': {
+#         'BACKEND': 'django_redis.cache.RedisCache',
+#         'LOCATION': os.getenv('REDIS_URL', 'redis://redis:6379/1'),
+#         'OPTIONS': {
+#             'CLIENT_CLASS': 'django_redis.client.DefaultClient',
+#             'COMPRESSOR': 'django_redis.compressors.zlib.ZlibCompressor',
+#             'IGNORE_EXCEPTIONS': True,
+#         }
+#     }
+# }
 
 # REST FRAMEWORK
 REST_FRAMEWORK = {
@@ -223,14 +223,18 @@ TILE_SERVING_FALLBACK_ORDER = [
     'on_demand'    # Tertiary: On-demand generation (optional)
 ]
 
-# Tile Cache Headers
+# Tile No-Cache Headers
 TILE_CACHE_HEADERS = {
     'png': {
-        'CacheControl': 'public, max-age=31536000',  # 1 year
+        'CacheControl': 'no-cache, no-store, must-revalidate',  # No caching
+        'Pragma': 'no-cache',
+        'Expires': '0',
         'ContentType': 'image/png'
     },
     'mvt': {
-        'CacheControl': 'public, max-age=86400',     # 1 day
+        'CacheControl': 'no-cache, no-store, must-revalidate',  # No caching
+        'Pragma': 'no-cache',
+        'Expires': '0',
         'ContentType': 'application/vnd.mapbox-vector-tile'
     }
 }
@@ -241,9 +245,8 @@ if not DEBUG:
     SECURE_CONTENT_TYPE_NOSNIFF = True
     X_FRAME_OPTIONS = 'DENY'
 
-# SESSION CONFIGURATION
-SESSION_ENGINE = 'django.contrib.sessions.backends.cache'
-SESSION_CACHE_ALIAS = 'default'
+# SESSION CONFIGURATION - No Caching
+SESSION_ENGINE = 'django.contrib.sessions.backends.db'  # Use database instead of cache
 SESSION_COOKIE_AGE = 86400  # 24 hours
 
 LOGGING = {

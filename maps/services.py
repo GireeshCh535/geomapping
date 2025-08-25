@@ -2018,23 +2018,34 @@ class VectorTileService:
     """CORRECTED - Vector tile generation service"""
     
     def generate_tile(self, layer, z, x, y):
-        """Generate MVT tile for a single layer - FIXED VERSION"""
+        """Generate MVT tile for a single layer - ENHANCED with better debugging"""
         
         # Get tile bounds
         tile_bounds = self._get_tile_bounds(z, x, y)
         
-        # Query features in tile with optimized geometry
+        # Query features in tile with optimized geometry - ENHANCED QUERY
         features = GeoFeature.objects.filter(
             layer=layer,
             geometry__intersects=tile_bounds,
             is_valid=True
         ).select_related('layer', 'layer__category')
         
+        feature_count = features.count()
+        
         if not features.exists():
-            print(f"🗺️  No features found for tile {z}/{x}/{y}")
+            print(f"🗺️  No features found for tile {z}/{x}/{y} (layer: {layer.slug})")
+            # DEBUG: Check if there are any features in the layer at all
+            total_layer_features = GeoFeature.objects.filter(layer=layer, is_valid=True).count()
+            if total_layer_features > 0:
+                print(f"   🔍 DEBUG: Layer has {total_layer_features} total features, but none intersect tile bounds")
+                # Check if tile bounds are within layer bounds
+                layer_bounds = self._get_layer_bounds(layer)
+                if layer_bounds:
+                    print(f"   🔍 DEBUG: Layer bounds: {layer_bounds}")
+                    print(f"   🔍 DEBUG: Tile bounds: {tile_bounds.extent}")
             return None
         
-        print(f"🗺️  Generating tile {z}/{x}/{y} with {features.count()} features for layer {layer.slug}")
+        print(f"🗺️  Generating tile {z}/{x}/{y} with {feature_count} features for layer {layer.slug}")
         
         # CRITICAL FIX: Use layer.slug as the layer name in MVT
         return self._features_to_mvt(features, layer.slug, z, x, y)
@@ -2130,7 +2141,7 @@ class VectorTileService:
     
     def _features_to_mvt(self, features, layer_name, z, x, y):
         """
-        Convert features to MVT format with proper coordinate transformation
+        Convert features to MVT format with improved geometry handling
         """
         
         if not features:
@@ -2138,14 +2149,29 @@ class VectorTileService:
             
         try:
             mvt_features = []
+            simplify_tolerance = self._get_simplify_tolerance(z)
+            
+            print(f"🔧 Using simplify tolerance: {simplify_tolerance} for zoom {z}")
             
             for feature in features:
                 try:
-                    # Simplify geometry based on zoom level
+                    # ENHANCED: More careful geometry simplification
                     simplified_geom = feature.geometry
+                    
+                    # Only simplify if the geometry is complex enough
+                    if hasattr(simplified_geom, 'num_coords') and simplified_geom.num_coords > 10:
+                        simplified_geom = simplified_geom.simplify(
+                            tolerance=simplify_tolerance, 
+                            preserve_topology=True
+                        )
                     
                     # Convert to GeoJSON dict
                     geom_dict = json.loads(simplified_geom.geojson)
+                    
+                    # DEBUG: Check if geometry is valid after simplification
+                    if not geom_dict.get('coordinates'):
+                        print(f"⚠️  Feature {feature.id}: Empty coordinates after simplification")
+                        continue
                     
                     # Prepare properties
                     properties = {
@@ -2170,6 +2196,7 @@ class VectorTileService:
                     continue
             
             if not mvt_features:
+                print(f"⚠️  No valid features after processing for layer {layer_name}")
                 return None
             
             # Format for mapbox-vector-tile==2.0.1
@@ -2222,7 +2249,7 @@ class VectorTileService:
 
     def _layers_to_mvt(self, layer_data, z, x, y):
         """
-        CORRECTED - Convert multiple layers of features to a single MVT
+        CORRECTED - Convert multiple layers of features to a single MVT with improved simplification
         """
         if not layer_data:
             return None
@@ -2230,6 +2257,9 @@ class VectorTileService:
         try:
             # Prepare list of layer dictionaries for encoding
             layers_list = []
+            simplify_tolerance = self._get_simplify_tolerance(z)
+            
+            print(f"🔧 Combined MVT: Using simplify tolerance: {simplify_tolerance} for zoom {z}")
             
             first_layer = True
             for layer_slug, features in layer_data.items():
@@ -2237,11 +2267,23 @@ class VectorTileService:
                 try:
                     for i, feature in enumerate(features):
                         try:
-                            simplified_geom = feature.geometry.simplify(
-                                tolerance=self._get_simplify_tolerance(z), 
-                                preserve_topology=True
-                            )
+                            # ENHANCED: More careful geometry simplification
+                            simplified_geom = feature.geometry
+                            
+                            # Only simplify if the geometry is complex enough
+                            if hasattr(simplified_geom, 'num_coords') and simplified_geom.num_coords > 10:
+                                simplified_geom = simplified_geom.simplify(
+                                    tolerance=simplify_tolerance, 
+                                    preserve_topology=True
+                                )
+                            
                             geom_dict = json.loads(simplified_geom.geojson)
+                            
+                            # DEBUG: Check if geometry is valid after simplification
+                            if not geom_dict.get('coordinates'):
+                                print(f"⚠️  Feature {feature.id}: Empty coordinates after simplification")
+                                continue
+                            
                             import mercantile
                             bounds = mercantile.bounds(x, y, z)
                             if first_layer and i == 0:
@@ -2285,6 +2327,7 @@ class VectorTileService:
                     continue
             
             if not layers_list:
+                print(f"⚠️  No valid layers after processing")
                 return None
             
             # Encode the list of layers
@@ -2302,13 +2345,15 @@ class VectorTileService:
             return None
     
     def _get_simplify_tolerance(self, zoom):
-        """Get simplify tolerance based on zoom level"""
+        """Get simplify tolerance based on zoom level - FIXED for low zoom visibility"""
         if zoom <= 8:
-            return 0.001   # Low zoom - more simplification
+            return 0.0001   # FIXED: Much less aggressive for low zoom
         elif zoom <= 12:
-            return 0.0005  # Medium zoom
+            return 0.00005  # FIXED: Reduced from 0.0005 to preserve more detail
+        elif zoom <= 16:
+            return 0.00001  # FIXED: Added intermediate level for medium-high zoom
         else:
-            return 0.0001  # High zoom - less simplification
+            return 0.000001 # FIXED: Very high precision for high zoom
     
     def _get_layer_bounds(self, layer):
         """Get bounding box for layer"""
@@ -2320,7 +2365,7 @@ class VectorTileService:
                 'north': layer.bbox_ymax
             }
         
-        # Calculate bounds from features if not cached
+        # Calculate bounds from features
         extent = GeoFeature.objects.filter(
             layer=layer, 
             is_valid=True
@@ -2336,12 +2381,22 @@ class VectorTileService:
         
         return None
     
-    def generate_layer_tiles(self, layer, min_zoom=6, max_zoom=14):
-        """Generate all tiles for a layer within zoom range"""
+    def generate_layer_tiles(self, layer, min_zoom=6, max_zoom=14, target_coordinates=None):
+        """Generate all tiles for a layer within zoom range - ENHANCED with target area support"""
         
         bounds = self._get_layer_bounds(layer)
         if not bounds:
             return {'error': 'No bounds available for layer'}
+        
+        # ENHANCED: If target coordinates are provided, ensure they're included in tile generation
+        if target_coordinates:
+            target_lng, target_lat = target_coordinates
+            # Expand bounds to include target coordinates if they're outside current bounds
+            bounds['west'] = min(bounds['west'], target_lng - 0.01)  # Add buffer
+            bounds['east'] = max(bounds['east'], target_lng + 0.01)  # Add buffer
+            bounds['south'] = min(bounds['south'], target_lat - 0.01)  # Add buffer
+            bounds['north'] = max(bounds['north'], target_lat + 0.01)  # Add buffer
+            print(f"🔧 Expanded bounds to include target coordinates: {bounds}")
         
         total_tiles = 0
         
@@ -2354,6 +2409,19 @@ class VectorTileService:
             ))
             
             print(f"Generating {len(tiles)} tiles for zoom {zoom}")
+            
+            # ENHANCED: If target coordinates provided, ensure that specific tile is included
+            if target_coordinates:
+                target_lng, target_lat = target_coordinates
+                target_tile = mercantile.tile(target_lng, target_lat, zoom)
+                target_tile_tuple = (target_tile.z, target_tile.x, target_tile.y)
+                
+                # Check if target tile is in the list
+                target_tile_in_list = any(t.z == target_tile.z and t.x == target_tile.x and t.y == target_tile.y for t in tiles)
+                
+                if not target_tile_in_list:
+                    print(f"🔧 Adding target tile {target_tile.z}/{target_tile.x}/{target_tile.y} for zoom {zoom}")
+                    tiles.append(target_tile)
             
             for tile in tiles:
                 mvt_data = self.generate_tile(layer, tile.z, tile.x, tile.y)
@@ -2368,7 +2436,7 @@ class VectorTileService:
             'status': 'success',
             'zoom_range': {'min': min_zoom, 'max': max_zoom},
             'bounds': bounds
-        }   
+        }
 
     def _wgs84_to_tile_coords(self, coords, bounds):
         # Helper to convert [lng, lat] to tile coordinates (0-4096) with correct Y inversion
@@ -2408,3 +2476,50 @@ class VectorTileService:
                 transformed_coords.append(transformed_polygon)
             geom_dict['coordinates'] = transformed_coords
         return geom_dict 
+
+    def generate_tiles_for_area(self, layer, area_bounds, min_zoom=6, max_zoom=14):
+        """Generate tiles for a specific area regardless of layer bounds"""
+        
+        print(f"🗺️  Generating tiles for specific area: {area_bounds}")
+        
+        total_tiles = 0
+        
+        for zoom in range(min_zoom, max_zoom + 1):
+            # Get tiles for the specified area
+            tiles = list(mercantile.tiles(
+                area_bounds['west'], area_bounds['south'],
+                area_bounds['east'], area_bounds['north'],
+                zoom
+            ))
+            
+            print(f"Generating {len(tiles)} tiles for zoom {zoom} in specified area")
+            
+            for tile in tiles:
+                mvt_data = self.generate_tile(layer, tile.z, tile.x, tile.y)
+                if mvt_data:
+                    total_tiles += 1
+        
+        print(f"Generated {total_tiles} tiles for layer {layer.slug} in specified area")
+        
+        return {
+            'layer_id': layer.id,
+            'tiles_generated': total_tiles,
+            'status': 'success',
+            'zoom_range': {'min': min_zoom, 'max': max_zoom},
+            'area_bounds': area_bounds
+        }
+
+    def generate_tiles_for_coordinates(self, layer, target_lng, target_lat, radius_degrees=0.01, min_zoom=6, max_zoom=14):
+        """Generate tiles around specific coordinates with a radius"""
+        
+        # Create area bounds around the target coordinates
+        area_bounds = {
+            'west': target_lng - radius_degrees,
+            'south': target_lat - radius_degrees,
+            'east': target_lng + radius_degrees,
+            'north': target_lat + radius_degrees
+        }
+        
+        print(f"🗺️  Generating tiles around coordinates ({target_lng}, {target_lat}) with radius {radius_degrees}°")
+        
+        return self.generate_tiles_for_area(layer, area_bounds, min_zoom, max_zoom)
