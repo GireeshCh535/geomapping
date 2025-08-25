@@ -15,6 +15,7 @@ class TileRenderingService:
     """
     Enhanced service for rendering vector tiles (MVT) as PNG raster images with pattern support.
     Supports solid fills, hatched patterns, dotted patterns, and striped patterns.
+    FIXED: Eliminates unwanted colors and artifacts at tile boundaries.
     """
     
     def __init__(self):
@@ -48,8 +49,8 @@ class TileRenderingService:
             pass
         return (255, 0, 0)  # Red fallback
     
-    def _create_pattern_mask(self, size: Tuple[int, int], pattern_config: Dict) -> Image.Image:
-        """Create a pattern mask for the given configuration"""
+    def _create_pattern_mask(self, size: Tuple[int, int], pattern_config: Dict, polygon_coords: list = None) -> Image.Image:
+        """Create a pattern mask for the given configuration - FIXED with proper clipping"""
         pattern_type = pattern_config.get('pattern_type', 'SOLID')
         spacing = pattern_config.get('pattern_spacing', 10)
         angle = pattern_config.get('pattern_angle', 45)
@@ -59,29 +60,37 @@ class TileRenderingService:
         mask = Image.new('L', size, 0)  # Black background
         draw = ImageDraw.Draw(mask)
         
-        if pattern_type == 'HATCHED':
-            self._draw_hatched_pattern(draw, size, spacing, angle, pattern_size)
+        if pattern_type == 'SOLID':
+            # For solid patterns, create a mask that matches the polygon exactly
+            if polygon_coords:
+                draw.polygon(polygon_coords, fill=255)
+            else:
+                draw.rectangle([0, 0, size[0], size[1]], fill=255)
+        elif pattern_type == 'HATCHED':
+            self._draw_hatched_pattern(draw, size, spacing, angle, pattern_size, polygon_coords)
         elif pattern_type == 'DOTTED':
-            self._draw_dotted_pattern(draw, size, spacing, pattern_size)
+            self._draw_dotted_pattern(draw, size, spacing, pattern_size, polygon_coords)
         elif pattern_type == 'STRIPED':
-            self._draw_striped_pattern(draw, size, spacing, angle, pattern_size)
+            self._draw_striped_pattern(draw, size, spacing, angle, pattern_size, polygon_coords)
         elif pattern_type == 'CROSS_HATCHED':
-            self._draw_hatched_pattern(draw, size, spacing, angle, pattern_size)
-            self._draw_hatched_pattern(draw, size, spacing, angle + 90, pattern_size)
-        else:  # SOLID
-            draw.rectangle([0, 0, size[0], size[1]], fill=255)
+            self._draw_hatched_pattern(draw, size, spacing, angle, pattern_size, polygon_coords)
+            self._draw_hatched_pattern(draw, size, spacing, angle + 90, pattern_size, polygon_coords)
         
         return mask
     
     def _draw_hatched_pattern(self, draw: ImageDraw.Draw, size: Tuple[int, int], 
-                              spacing: int, angle: float, line_width: int):
-        """Draw hatched lines on the mask"""
+                              spacing: int, angle: float, line_width: int, polygon_coords: list = None):
+        """Draw hatched lines on the mask - FIXED with proper clipping"""
         angle_rad = math.radians(angle)
         cos_a = math.cos(angle_rad)
         sin_a = math.sin(angle_rad)
         
         # Calculate the diagonal length to ensure full coverage
         diagonal = int(math.sqrt(size[0]**2 + size[1]**2))
+        
+        # Create a temporary image for the pattern
+        temp_img = Image.new('L', size, 0)
+        temp_draw = ImageDraw.Draw(temp_img)
         
         # Draw parallel lines
         for i in range(-diagonal, diagonal, spacing):
@@ -92,23 +101,57 @@ class TileRenderingService:
             y2 = i * sin_a - diagonal * cos_a + size[1]/2
             
             # Draw the line
-            draw.line([(x1, y1), (x2, y2)], fill=255, width=line_width)
+            temp_draw.line([(x1, y1), (x2, y2)], fill=255, width=line_width)
+        
+        # If polygon coordinates are provided, clip the pattern to the polygon
+        if polygon_coords:
+            # Create a polygon mask
+            poly_mask = Image.new('L', size, 0)
+            poly_draw = ImageDraw.Draw(poly_mask)
+            poly_draw.polygon(polygon_coords, fill=255)
+            
+            # Apply the polygon mask to the pattern
+            temp_img = Image.composite(temp_img, Image.new('L', size, 0), poly_mask)
+        
+        # Composite onto the main mask
+        draw.bitmap((0, 0), temp_img)
     
     def _draw_dotted_pattern(self, draw: ImageDraw.Draw, size: Tuple[int, int], 
-                             spacing: int, dot_size: int):
-        """Draw a grid of dots on the mask"""
+                             spacing: int, dot_size: int, polygon_coords: list = None):
+        """Draw a grid of dots on the mask - FIXED with proper clipping"""
+        # Create a temporary image for the pattern
+        temp_img = Image.new('L', size, 0)
+        temp_draw = ImageDraw.Draw(temp_img)
+        
         for x in range(spacing//2, size[0], spacing):
             for y in range(spacing//2, size[1], spacing):
-                draw.ellipse([x-dot_size, y-dot_size, x+dot_size, y+dot_size], fill=255)
+                temp_draw.ellipse([x-dot_size, y-dot_size, x+dot_size, y+dot_size], fill=255)
+        
+        # If polygon coordinates are provided, clip the pattern to the polygon
+        if polygon_coords:
+            # Create a polygon mask
+            poly_mask = Image.new('L', size, 0)
+            poly_draw = ImageDraw.Draw(poly_mask)
+            poly_draw.polygon(polygon_coords, fill=255)
+            
+            # Apply the polygon mask to the pattern
+            temp_img = Image.composite(temp_img, Image.new('L', size, 0), poly_mask)
+        
+        # Composite onto the main mask
+        draw.bitmap((0, 0), temp_img)
     
     def _draw_striped_pattern(self, draw: ImageDraw.Draw, size: Tuple[int, int], 
-                              spacing: int, angle: float, stripe_width: int):
-        """Draw striped pattern (thick lines) on the mask"""
+                              spacing: int, angle: float, stripe_width: int, polygon_coords: list = None):
+        """Draw striped pattern (thick lines) on the mask - FIXED with proper clipping"""
         angle_rad = math.radians(angle)
         cos_a = math.cos(angle_rad)
         sin_a = math.sin(angle_rad)
         
         diagonal = int(math.sqrt(size[0]**2 + size[1]**2))
+        
+        # Create a temporary image for the pattern
+        temp_img = Image.new('L', size, 0)
+        temp_draw = ImageDraw.Draw(temp_img)
         
         # Draw stripes (alternating filled areas)
         for i in range(-diagonal, diagonal, spacing * 2):
@@ -124,19 +167,37 @@ class TileRenderingService:
             y4 = (i + stripe_width) * sin_a + diagonal * cos_a + size[1]/2
             
             points = [(x1, y1), (x2, y2), (x3, y3), (x4, y4)]
-            draw.polygon(points, fill=255)
+            temp_draw.polygon(points, fill=255)
+        
+        # If polygon coordinates are provided, clip the pattern to the polygon
+        if polygon_coords:
+            # Create a polygon mask
+            poly_mask = Image.new('L', size, 0)
+            poly_draw = ImageDraw.Draw(poly_mask)
+            poly_draw.polygon(polygon_coords, fill=255)
+            
+            # Apply the polygon mask to the pattern
+            temp_img = Image.composite(temp_img, Image.new('L', size, 0), poly_mask)
+        
+        # Composite onto the main mask
+        draw.bitmap((0, 0), temp_img)
     
     def _apply_pattern_to_polygon(self, img: Image.Image, polygon_coords: list, 
                                  style_config: Dict, no_border: bool = True):
-        """Apply pattern fill to a polygon area"""
+        """Apply pattern fill to a polygon area - FIXED to eliminate edge artifacts"""
         # Get colors
         fill_color = self._hex_to_rgb(style_config.get('fill_color', '#CCCCCC'))
         pattern_color = self._hex_to_rgb(style_config.get('pattern_color', style_config.get('fill_color', '#CCCCCC')))
         secondary_fill = style_config.get('secondary_fill_color', '')
         
-        # Create a temporary image for this polygon
+        # Create a temporary image for this polygon with proper clipping
         temp_img = Image.new('RGBA', (self.tile_size, self.tile_size), (0, 0, 0, 0))
         temp_draw = ImageDraw.Draw(temp_img)
+        
+        # Create a polygon mask for clipping
+        poly_mask = Image.new('L', (self.tile_size, self.tile_size), 0)
+        poly_draw = ImageDraw.Draw(poly_mask)
+        poly_draw.polygon(polygon_coords, fill=255)
         
         # Draw secondary fill if specified (solid background)
         if secondary_fill:
@@ -146,8 +207,8 @@ class TileRenderingService:
         # Apply pattern if not solid
         pattern_type = style_config.get('pattern_type', 'SOLID')
         if pattern_type != 'SOLID':
-            # Create pattern mask
-            pattern_mask = self._create_pattern_mask((self.tile_size, self.tile_size), style_config)
+            # Create pattern mask with proper clipping to polygon
+            pattern_mask = self._create_pattern_mask((self.tile_size, self.tile_size), style_config, polygon_coords)
             
             # Create pattern layer
             pattern_layer = Image.new('RGBA', (self.tile_size, self.tile_size), (0, 0, 0, 0))
@@ -156,15 +217,15 @@ class TileRenderingService:
             # Draw the pattern color where the mask is white
             pattern_draw.polygon(polygon_coords, fill=pattern_color + (200,))
             
-            # Apply the pattern mask
+            # Apply the pattern mask with proper clipping
             pattern_layer.putalpha(Image.composite(pattern_layer.split()[-1], 
                                                   Image.new('L', (self.tile_size, self.tile_size), 0), 
                                                   pattern_mask))
             
-            # Composite onto temp image
+            # Composite onto temp image with polygon clipping
             temp_img = Image.alpha_composite(temp_img, pattern_layer)
         else:
-            # Solid fill
+            # Solid fill with proper clipping
             temp_draw.polygon(polygon_coords, fill=fill_color + (180,))
         
         # Draw border if needed (thickness = 0 means no border)
@@ -174,13 +235,18 @@ class TileRenderingService:
             if stroke_width > 0:
                 temp_draw.polygon(polygon_coords, outline=stroke_color + (255,), width=stroke_width)
         
+        # Apply polygon mask to ensure no artifacts outside the polygon
+        temp_img.putalpha(Image.composite(temp_img.split()[-1], 
+                                         Image.new('L', (self.tile_size, self.tile_size), 0), 
+                                         poly_mask))
+        
         # Composite onto main image
         img.alpha_composite(temp_img)
     
     def render_mvt_to_png_with_patterns(self, mvt_data: bytes, layers: list, 
                                        z: int, x: int, y: int, 
                                        city_slug: str) -> bytes:
-        """Render MVT to PNG with pattern support"""
+        """Render MVT to PNG with pattern support - FIXED to eliminate edge artifacts"""
         try:
             decoded_data = mapbox_vector_tile.decode(mvt_data)
             if not decoded_data:
@@ -225,6 +291,10 @@ class TileRenderingService:
             
             logger.info(f"Drew {features_drawn} features with patterns at {z}/{x}/{y}")
             
+            # Final edge cleanup to ensure no artifacts at tile boundaries
+            if features_drawn > 0:
+                self._cleanup_tile_edges(img)
+            
             # Save with compression
             return self._save_compressed_png(img)
             
@@ -233,7 +303,7 @@ class TileRenderingService:
             return self.create_empty_tile()
     
     def combined_mvt_to_png(self, mvt_data: bytes, layers: list, z: int, x: int, y: int) -> bytes:
-        """Render combined MVT to PNG with per-feature styling for combined layers"""
+        """Render combined MVT to PNG with per-feature styling for combined layers - FIXED"""
         try:
             decoded_data = mapbox_vector_tile.decode(mvt_data)
             if not decoded_data:
@@ -283,6 +353,10 @@ class TileRenderingService:
             
             logger.info(f"Drew {features_drawn} features with patterns at {z}/{x}/{y}")
             
+            # Final edge cleanup to ensure no artifacts at tile boundaries
+            if features_drawn > 0:
+                self._cleanup_tile_edges(img)
+            
             # Save with compression
             return self._save_compressed_png(img)
             
@@ -292,7 +366,7 @@ class TileRenderingService:
     
     def _draw_feature_with_pattern(self, img: Image.Image, feature: Dict, 
                                    style_config: Dict) -> bool:
-        """Draw a single feature with pattern support"""
+        """Draw a single feature with pattern support - FIXED to handle all geometry types"""
         try:
             geometry = feature.get('geometry', {})
             geom_type = geometry.get('type', '')
@@ -306,6 +380,14 @@ class TileRenderingService:
                     if self._draw_polygon_with_pattern(img, polygon, style_config):
                         drawn = True
                 return drawn
+            elif geom_type == 'LineString' and coordinates:
+                return self._draw_line_with_pattern(img, coordinates, style_config)
+            elif geom_type == 'MultiLineString' and coordinates:
+                drawn = False
+                for line in coordinates:
+                    if self._draw_line_with_pattern(img, line, style_config):
+                        drawn = True
+                return drawn
             
             return False
             
@@ -315,7 +397,7 @@ class TileRenderingService:
     
     def _draw_polygon_with_pattern(self, img: Image.Image, coordinates: list, 
                                    style_config: Dict) -> bool:
-        """Draw polygon with pattern fill"""
+        """Draw polygon with pattern fill - FIXED coordinate handling"""
         try:
             if not coordinates or len(coordinates) == 0:
                 return False
@@ -324,13 +406,14 @@ class TileRenderingService:
             if len(exterior_ring) < 3:
                 return False
             
-            # Scale coordinates from MVT extent to tile size
+            # Scale coordinates from MVT extent to tile size with proper bounds checking
             scaled_coords = []
             for coord in exterior_ring:
                 if (isinstance(coord, (list, tuple)) and len(coord) >= 2 and
                     isinstance(coord[0], (int, float)) and isinstance(coord[1], (int, float))):
-                    x = int((coord[0] / 4096.0) * self.tile_size)
-                    y = int((coord[1] / 4096.0) * self.tile_size)
+                    # Ensure coordinates are within valid range
+                    x = max(0, min(self.tile_size - 1, int((coord[0] / 4096.0) * self.tile_size)))
+                    y = max(0, min(self.tile_size - 1, int((coord[1] / 4096.0) * self.tile_size)))
                     scaled_coords.append((x, y))
             
             if len(scaled_coords) >= 3:
@@ -342,6 +425,254 @@ class TileRenderingService:
             logger.warning(f"Error drawing polygon with pattern: {e}")
         
         return False
+    
+    def _draw_line_with_pattern(self, img: Image.Image, coordinates: list, 
+                                style_config: Dict) -> bool:
+        """Draw line with pattern support - FIXED coordinate handling with precise bounds"""
+        try:
+            if not coordinates or len(coordinates) < 2:
+                return False
+            
+            # Scale coordinates from MVT extent to tile size with precise bounds checking
+            scaled_coords = []
+            for coord in coordinates:
+                if (isinstance(coord, (list, tuple)) and len(coord) >= 2 and
+                    isinstance(coord[0], (int, float)) and isinstance(coord[1], (int, float))):
+                    # More precise coordinate scaling to prevent edge artifacts
+                    x = (coord[0] / 4096.0) * self.tile_size
+                    y = (coord[1] / 4096.0) * self.tile_size
+                    
+                    # Only include coordinates that are within or very close to tile bounds
+                    # This prevents drawing lines that are completely outside the tile
+                    if -1 <= x <= self.tile_size and -1 <= y <= self.tile_size:
+                        # Clamp to exact tile bounds
+                        x = max(0, min(self.tile_size - 1, int(x)))
+                        y = max(0, min(self.tile_size - 1, int(y)))
+                        scaled_coords.append((x, y))
+            
+            if len(scaled_coords) >= 2:
+                # Draw line with proper styling
+                self._apply_line_to_image(img, scaled_coords, style_config)
+                return True
+                
+        except Exception as e:
+            logger.warning(f"Error drawing line with pattern: {e}")
+        
+        return False
+    
+    def _apply_line_to_image(self, img: Image.Image, line_coords: list, style_config: Dict):
+        """Apply line styling to image with proper edge handling - FIXED to eliminate edge artifacts"""
+        try:
+            # Get line color and width
+            line_color = self._hex_to_rgb(style_config.get('fill_color', '#14e098'))
+            line_width = style_config.get('line_width', 3)
+            
+            # Create a temporary image for this line
+            temp_img = Image.new('RGBA', (self.tile_size, self.tile_size), (0, 0, 0, 0))
+            temp_draw = ImageDraw.Draw(temp_img)
+            
+            # Filter coordinates to only include those that are actually within the tile bounds
+            # This prevents drawing lines that extend beyond the tile boundaries
+            valid_coords = []
+            for coord in line_coords:
+                x, y = coord
+                # Only include coordinates that are within the tile bounds
+                if 0 <= x < self.tile_size and 0 <= y < self.tile_size:
+                    valid_coords.append(coord)
+                elif len(valid_coords) > 0:
+                    # If we have valid coords and encounter an invalid one, 
+                    # clip the line to the tile boundary
+                    last_valid = valid_coords[-1]
+                    # Calculate intersection with tile boundary
+                    clipped_coord = self._clip_line_to_boundary(last_valid, coord)
+                    if clipped_coord:
+                        valid_coords.append(clipped_coord)
+                    break
+            
+            # Draw the line only if we have valid coordinates
+            if len(valid_coords) >= 2:
+                temp_draw.line(valid_coords, fill=line_color + (255,), width=line_width)
+            
+            # Composite onto main image
+            img.alpha_composite(temp_img)
+            
+        except Exception as e:
+            logger.warning(f"Error applying line to image: {e}")
+    
+    def _clip_line_to_boundary(self, inside_coord, outside_coord):
+        """Clip a line segment to the tile boundary"""
+        try:
+            x1, y1 = inside_coord
+            x2, y2 = outside_coord
+            
+            # Calculate intersection with tile boundaries
+            intersections = []
+            
+            # Check intersection with left boundary (x = 0)
+            if x2 < 0:
+                if x1 != x2:  # Avoid division by zero
+                    t = (0 - x1) / (x2 - x1)
+                    if 0 <= t <= 1:
+                        y_intersect = y1 + t * (y2 - y1)
+                        if 0 <= y_intersect < self.tile_size:
+                            intersections.append((0, int(y_intersect)))
+            
+            # Check intersection with right boundary (x = tile_size - 1)
+            if x2 >= self.tile_size:
+                if x1 != x2:  # Avoid division by zero
+                    t = (self.tile_size - 1 - x1) / (x2 - x1)
+                    if 0 <= t <= 1:
+                        y_intersect = y1 + t * (y2 - y1)
+                        if 0 <= y_intersect < self.tile_size:
+                            intersections.append((self.tile_size - 1, int(y_intersect)))
+            
+            # Check intersection with top boundary (y = 0)
+            if y2 < 0:
+                if y1 != y2:  # Avoid division by zero
+                    t = (0 - y1) / (y2 - y1)
+                    if 0 <= t <= 1:
+                        x_intersect = x1 + t * (x2 - x1)
+                        if 0 <= x_intersect < self.tile_size:
+                            intersections.append((int(x_intersect), 0))
+            
+            # Check intersection with bottom boundary (y = tile_size - 1)
+            if y2 >= self.tile_size:
+                if y1 != y2:  # Avoid division by zero
+                    t = (self.tile_size - 1 - y1) / (y2 - y1)
+                    if 0 <= t <= 1:
+                        x_intersect = x1 + t * (x2 - x1)
+                        if 0 <= x_intersect < self.tile_size:
+                            intersections.append((int(x_intersect), self.tile_size - 1))
+            
+            # Return the closest intersection point
+            if intersections:
+                # Find the intersection closest to the inside point
+                min_dist = float('inf')
+                closest = None
+                for intersection in intersections:
+                    dist = ((intersection[0] - x1) ** 2 + (intersection[1] - y1) ** 2) ** 0.5
+                    if dist < min_dist:
+                        min_dist = dist
+                        closest = intersection
+                return closest
+            
+            return None
+            
+        except Exception as e:
+            logger.warning(f"Error clipping line to boundary: {e}")
+            return None
+    
+    def _cleanup_tile_edges(self, img: Image.Image):
+        """Clean up tile edges to ensure no artifacts at boundaries"""
+        try:
+            width, height = img.size
+            
+            # Check if there's any legitimate data near the edges
+            edge_has_data = False
+            
+            # Sample a few pixels from each edge to check for legitimate data
+            edge_samples = []
+            
+            # Top edge samples
+            for x in range(0, width, 10):
+                pixel = img.getpixel((x, 0))
+                if pixel[3] > 10:  # Non-transparent
+                    edge_samples.append(pixel)
+            
+            # Bottom edge samples
+            for x in range(0, width, 10):
+                pixel = img.getpixel((x, height-1))
+                if pixel[3] > 10:  # Non-transparent
+                    edge_samples.append(pixel)
+            
+            # Left edge samples
+            for y in range(0, height, 10):
+                pixel = img.getpixel((0, y))
+                if pixel[3] > 10:  # Non-transparent
+                    edge_samples.append(pixel)
+            
+            # Right edge samples
+            for y in range(0, height, 10):
+                pixel = img.getpixel((width-1, y))
+                if pixel[3] > 10:  # Non-transparent
+                    edge_samples.append(pixel)
+            
+            # If we have edge samples, check if they're legitimate data
+            if edge_samples:
+                # Check if the edge colors are consistent with center colors
+                center_x, center_y = width // 2, height // 2
+                center_pixels = []
+                for x in range(center_x - 20, center_x + 20):
+                    for y in range(center_y - 20, center_y + 20):
+                        if 0 <= x < width and 0 <= y < height:
+                            pixel = img.getpixel((x, y))
+                            if pixel[3] > 10:  # Non-transparent
+                                center_pixels.append(pixel)
+                
+                # If we have center data, check if edge colors match
+                if center_pixels:
+                    center_colors = set(p[:3] for p in center_pixels)
+                    edge_colors = set(p[:3] for p in edge_samples)
+                    
+                    # If edge colors don't match center colors, they're likely artifacts
+                    if not edge_colors.intersection(center_colors):
+                        # Clear the edges
+                        self._clear_tile_edges(img)
+                else:
+                    # No center data, clear edges
+                    self._clear_tile_edges(img)
+            else:
+                # No edge data, ensure edges are transparent
+                self._clear_tile_edges(img)
+                
+        except Exception as e:
+            logger.warning(f"Error cleaning up tile edges: {e}")
+    
+    def _clear_tile_edges(self, img: Image.Image):
+        """Clear tile edges to make them transparent - ENHANCED to eliminate all artifacts"""
+        try:
+            width, height = img.size
+            
+            # Clear top and bottom edges (4 pixel border for more aggressive cleanup)
+            for x in range(width):
+                for y in range(4):  # Top edge
+                    img.putpixel((x, y), (0, 0, 0, 0))
+                for y in range(height-4, height):  # Bottom edge
+                    img.putpixel((x, y), (0, 0, 0, 0))
+            
+            # Clear left and right edges (4 pixel border for more aggressive cleanup)
+            for y in range(height):
+                for x in range(4):  # Left edge
+                    img.putpixel((x, y), (0, 0, 0, 0))
+                for x in range(width-4, width):  # Right edge
+                    img.putpixel((x, y), (0, 0, 0, 0))
+            
+            # Also clear any isolated pixels that might be artifacts
+            # Check for isolated non-transparent pixels near edges
+            for x in range(width):
+                for y in range(height):
+                    pixel = img.getpixel((x, y))
+                    if pixel[3] > 10:  # Non-transparent
+                        # Check if this pixel is isolated (no nearby non-transparent pixels)
+                        isolated = True
+                        for dx in range(-2, 3):
+                            for dy in range(-2, 3):
+                                nx, ny = x + dx, y + dy
+                                if (0 <= nx < width and 0 <= ny < height and 
+                                    (dx != 0 or dy != 0)):
+                                    neighbor = img.getpixel((nx, ny))
+                                    if neighbor[3] > 10:  # Neighbor is also non-transparent
+                                        isolated = False
+                                        break
+                            if not isolated:
+                                break
+                        
+                        # If isolated and near edge, clear it
+                        if isolated and (x < 8 or x >= width - 8 or y < 8 or y >= height - 8):
+                            img.putpixel((x, y), (0, 0, 0, 0))
+                    
+        except Exception as e:
+            logger.warning(f"Error clearing tile edges: {e}")
     
     def _save_compressed_png(self, img: Image.Image, optimize_level: int = 2) -> bytes:
         """Save PIL Image with compression"""

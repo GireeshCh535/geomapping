@@ -2155,13 +2155,14 @@ class VectorTileService:
             
             for feature in features:
                 try:
-                    # ENHANCED: More careful geometry simplification
+                    # ENHANCED: More careful geometry simplification to prevent edge artifacts
                     simplified_geom = feature.geometry
                     
-                    # Only simplify if the geometry is complex enough
-                    if hasattr(simplified_geom, 'num_coords') and simplified_geom.num_coords > 10:
+                    # Only simplify if the geometry is complex enough and not near tile boundaries
+                    if hasattr(simplified_geom, 'num_coords') and simplified_geom.num_coords > 20:
+                        # Use more conservative simplification to preserve edge details
                         simplified_geom = simplified_geom.simplify(
-                            tolerance=simplify_tolerance, 
+                            tolerance=simplify_tolerance * 0.5,  # More conservative
                             preserve_topology=True
                         )
                     
@@ -2172,6 +2173,20 @@ class VectorTileService:
                     if not geom_dict.get('coordinates'):
                         print(f"⚠️  Feature {feature.id}: Empty coordinates after simplification")
                         continue
+                    
+                    # For MultiLineString features, ensure we preserve the structure
+                    if geom_dict.get('type') == 'MultiLineString':
+                        # Ensure we have valid coordinates for each line
+                        valid_lines = []
+                        for line in geom_dict.get('coordinates', []):
+                            if len(line) >= 2:  # At least 2 points for a line
+                                valid_lines.append(line)
+                        
+                        if valid_lines:
+                            geom_dict['coordinates'] = valid_lines
+                        else:
+                            print(f"⚠️  Feature {feature.id}: No valid lines in MultiLineString")
+                            continue
                     
                     # Prepare properties
                     properties = {
@@ -2229,6 +2244,27 @@ class VectorTileService:
                         transformed_coords.append(transformed_ring)
                     
                     transformed_feature['geometry']['coordinates'] = transformed_coords
+                elif geom['type'] == 'LineString' and 'coordinates' in geom:
+                    transformed_coords = []
+                    for coord in geom['coordinates']:
+                        # Transform from WGS84 to tile coordinates
+                        tile_x = int((coord[0] - bounds.west) / (bounds.east - bounds.west) * 4096)
+                        tile_y = int((bounds.north - coord[1]) / (bounds.north - bounds.south) * 4096)
+                        transformed_coords.append([tile_x, tile_y])
+                    
+                    transformed_feature['geometry']['coordinates'] = transformed_coords
+                elif geom['type'] == 'MultiLineString' and 'coordinates' in geom:
+                    transformed_coords = []
+                    for line in geom['coordinates']:
+                        transformed_line = []
+                        for coord in line:
+                            # Transform from WGS84 to tile coordinates
+                            tile_x = int((coord[0] - bounds.west) / (bounds.east - bounds.west) * 4096)
+                            tile_y = int((bounds.north - coord[1]) / (bounds.north - bounds.south) * 4096)
+                            transformed_line.append([tile_x, tile_y])
+                        transformed_coords.append(transformed_line)
+                    
+                    transformed_feature['geometry']['coordinates'] = transformed_coords
                 
                 transformed_features.append(transformed_feature)
             
@@ -2267,13 +2303,14 @@ class VectorTileService:
                 try:
                     for i, feature in enumerate(features):
                         try:
-                            # ENHANCED: More careful geometry simplification
+                            # ENHANCED: More careful geometry simplification to prevent edge artifacts
                             simplified_geom = feature.geometry
                             
-                            # Only simplify if the geometry is complex enough
-                            if hasattr(simplified_geom, 'num_coords') and simplified_geom.num_coords > 10:
+                            # Only simplify if the geometry is complex enough and not near tile boundaries
+                            if hasattr(simplified_geom, 'num_coords') and simplified_geom.num_coords > 20:
+                                # Use more conservative simplification to preserve edge details
                                 simplified_geom = simplified_geom.simplify(
-                                    tolerance=simplify_tolerance, 
+                                    tolerance=simplify_tolerance * 0.5,  # More conservative
                                     preserve_topology=True
                                 )
                             
@@ -2283,6 +2320,20 @@ class VectorTileService:
                             if not geom_dict.get('coordinates'):
                                 print(f"⚠️  Feature {feature.id}: Empty coordinates after simplification")
                                 continue
+                            
+                            # For MultiLineString features, ensure we preserve the structure
+                            if geom_dict.get('type') == 'MultiLineString':
+                                # Ensure we have valid coordinates for each line
+                                valid_lines = []
+                                for line in geom_dict.get('coordinates', []):
+                                    if len(line) >= 2:  # At least 2 points for a line
+                                        valid_lines.append(line)
+                                
+                                if valid_lines:
+                                    geom_dict['coordinates'] = valid_lines
+                                else:
+                                    print(f"⚠️  Feature {feature.id}: No valid lines in MultiLineString")
+                                    continue
                             
                             import mercantile
                             bounds = mercantile.bounds(x, y, z)
@@ -2345,15 +2396,15 @@ class VectorTileService:
             return None
     
     def _get_simplify_tolerance(self, zoom):
-        """Get simplify tolerance based on zoom level - FIXED for low zoom visibility"""
+        """Get simplify tolerance based on zoom level - FIXED to prevent edge artifacts"""
         if zoom <= 8:
-            return 0.0001   # FIXED: Much less aggressive for low zoom
+            return 0.00005   # FIXED: Reduced to prevent edge artifacts
         elif zoom <= 12:
-            return 0.00005  # FIXED: Reduced from 0.0005 to preserve more detail
+            return 0.00002   # FIXED: Reduced to preserve edge detail
         elif zoom <= 16:
-            return 0.00001  # FIXED: Added intermediate level for medium-high zoom
+            return 0.000005  # FIXED: Very high precision for medium-high zoom
         else:
-            return 0.000001 # FIXED: Very high precision for high zoom
+            return 0.000001  # FIXED: Maximum precision for high zoom
     
     def _get_layer_bounds(self, layer):
         """Get bounding box for layer"""
@@ -2474,6 +2525,25 @@ class VectorTileService:
                         transformed_ring.append([tile_x, tile_y])
                     transformed_polygon.append(transformed_ring)
                 transformed_coords.append(transformed_polygon)
+            geom_dict['coordinates'] = transformed_coords
+        elif geom_dict['type'] == 'LineString' and 'coordinates' in geom_dict:
+            transformed_coords = []
+            for coord in geom_dict['coordinates']:
+                # Transform from WGS84 to tile coordinates
+                tile_x = int((coord[0] - bounds.west) / (bounds.east - bounds.west) * 4096)
+                tile_y = int((bounds.north - coord[1]) / (bounds.north - bounds.south) * 4096)
+                transformed_coords.append([tile_x, tile_y])
+            geom_dict['coordinates'] = transformed_coords
+        elif geom_dict['type'] == 'MultiLineString' and 'coordinates' in geom_dict:
+            transformed_coords = []
+            for line in geom_dict['coordinates']:
+                transformed_line = []
+                for coord in line:
+                    # Transform from WGS84 to tile coordinates
+                    tile_x = int((coord[0] - bounds.west) / (bounds.east - bounds.west) * 4096)
+                    tile_y = int((bounds.north - coord[1]) / (bounds.north - bounds.south) * 4096)
+                    transformed_line.append([tile_x, tile_y])
+                transformed_coords.append(transformed_line)
             geom_dict['coordinates'] = transformed_coords
         return geom_dict 
 

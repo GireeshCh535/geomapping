@@ -464,7 +464,7 @@ class Command(BaseCommand):
             return None
     
     def _render_mvt_to_image(self, mvt_data, city, layer, z, x, y, verbose):
-        """Render MVT data to PIL Image with proper color mapping"""
+        """Render MVT data to PIL Image with proper color mapping - FIXED with edge cleanup"""
         try:
             # Decode MVT data
             decoded_data = mapbox_vector_tile.decode(mvt_data)
@@ -520,6 +520,10 @@ class Command(BaseCommand):
             if verbose:
                 self.stdout.write(f"      🎨 Drew {features_drawn} features with colors")
             
+            # Final edge cleanup to ensure no artifacts at tile boundaries
+            if features_drawn > 0:
+                self._cleanup_tile_edges(img)
+            
             return img
             
         except Exception as e:
@@ -569,22 +573,24 @@ class Command(BaseCommand):
             return False
     
     def _draw_polygon_with_style(self, draw, coordinates, fill_color, stroke_color, pattern, scale_factor):
-        """Draw polygon with style (solid or pattern)"""
+        """Draw polygon with style (solid or pattern) - FIXED to prevent edge artifacts"""
         try:
             # Convert coordinates to pixel coordinates with proper scaling
             pixel_coords = []
             for ring in coordinates:
                 pixel_ring = []
                 for coord in ring:
-                    # Scale from MVT extent (4096) to tile size (256)
-                    pixel_x = int(coord[0] * scale_factor)
-                    pixel_y = int(coord[1] * scale_factor)
+                    # More precise coordinate scaling to prevent edge artifacts
+                    x = coord[0] * scale_factor
+                    y = coord[1] * scale_factor
                     
-                    # Clamp to valid pixel range
-                    pixel_x = max(0, min(self.tile_size - 1, pixel_x))
-                    pixel_y = max(0, min(self.tile_size - 1, pixel_y))
-                    
-                    pixel_ring.append((pixel_x, pixel_y))
+                    # Only include coordinates that are within or very close to tile bounds
+                    # This prevents drawing polygons that are completely outside the tile
+                    if -1 <= x <= self.tile_size and -1 <= y <= self.tile_size:
+                        # Clamp to exact tile bounds
+                        pixel_x = max(0, min(self.tile_size - 1, int(x)))
+                        pixel_y = max(0, min(self.tile_size - 1, int(y)))
+                        pixel_ring.append((pixel_x, pixel_y))
                 
                 if len(pixel_ring) >= 3:  # Need at least 3 points for a polygon
                     pixel_coords.append(pixel_ring)
@@ -615,7 +621,7 @@ class Command(BaseCommand):
             return False
     
     def _draw_linestring_with_style(self, draw, coordinates, stroke_color, geom_type, scale_factor):
-        """Draw linestring with proper styling"""
+        """Draw linestring with proper styling - FIXED to prevent edge artifacts"""
         try:
             if geom_type == 'LineString':
                 coords_list = [coordinates]
@@ -624,21 +630,28 @@ class Command(BaseCommand):
             
             drawn_lines = 0
             for line_coords in coords_list:
-                pixel_coords = []
+                # Filter coordinates to only include those that are actually within the tile bounds
+                # This prevents drawing lines that extend beyond the tile boundaries
+                valid_coords = []
                 for coord in line_coords:
-                    pixel_x = int(coord[0] * scale_factor)
-                    pixel_y = int(coord[1] * scale_factor)
-                    pixel_x = max(0, min(self.tile_size - 1, pixel_x))
-                    pixel_y = max(0, min(self.tile_size - 1, pixel_y))
-                    pixel_coords.append((pixel_x, pixel_y))
+                    # More precise coordinate scaling to prevent edge artifacts
+                    x = coord[0] * scale_factor
+                    y = coord[1] * scale_factor
+                    
+                    # Only include coordinates that are within or very close to tile bounds
+                    # This prevents drawing lines that are completely outside the tile
+                    if -1 <= x <= self.tile_size and -1 <= y <= self.tile_size:
+                        # Clamp to exact tile bounds
+                        pixel_x = max(0, min(self.tile_size - 1, int(x)))
+                        pixel_y = max(0, min(self.tile_size - 1, int(y)))
+                        valid_coords.append((pixel_x, pixel_y))
                 
-
-                
-                if len(pixel_coords) >= 2:
-                    for i in range(len(pixel_coords) - 1):
-                        draw.line([pixel_coords[i], pixel_coords[i + 1]], fill=stroke_color, width=4)
+                # Draw the line only if we have valid coordinates
+                if len(valid_coords) >= 2:
+                    for i in range(len(valid_coords) - 1):
+                        draw.line([valid_coords[i], valid_coords[i + 1]], fill=stroke_color, width=4)
                         # Also draw a thicker line for better visibility
-                        draw.line([pixel_coords[i], pixel_coords[i + 1]], fill=stroke_color, width=1)
+                        draw.line([valid_coords[i], valid_coords[i + 1]], fill=stroke_color, width=1)
                         drawn_lines += 1
 
             
@@ -1354,3 +1367,115 @@ class Command(BaseCommand):
                 return (200, 200, 200)  # Default gray
         except (ValueError, AttributeError):
             return (200, 200, 200)  # Default gray
+    
+    def _cleanup_tile_edges(self, img):
+        """Clean up tile edges to ensure no artifacts at boundaries"""
+        try:
+            width, height = img.size
+            
+            # Check if there's any legitimate data near the edges
+            edge_has_data = False
+            
+            # Sample a few pixels from each edge to check for legitimate data
+            edge_samples = []
+            
+            # Top edge samples
+            for x in range(0, width, 10):
+                pixel = img.getpixel((x, 0))
+                if pixel[3] > 10:  # Non-transparent
+                    edge_samples.append(pixel)
+            
+            # Bottom edge samples
+            for x in range(0, width, 10):
+                pixel = img.getpixel((x, height-1))
+                if pixel[3] > 10:  # Non-transparent
+                    edge_samples.append(pixel)
+            
+            # Left edge samples
+            for y in range(0, height, 10):
+                pixel = img.getpixel((0, y))
+                if pixel[3] > 10:  # Non-transparent
+                    edge_samples.append(pixel)
+            
+            # Right edge samples
+            for y in range(0, height, 10):
+                pixel = img.getpixel((width-1, y))
+                if pixel[3] > 10:  # Non-transparent
+                    edge_samples.append(pixel)
+            
+            # If we have edge samples, check if they're legitimate data
+            if edge_samples:
+                # Check if the edge colors are consistent with center colors
+                center_x, center_y = width // 2, height // 2
+                center_pixels = []
+                for x in range(center_x - 20, center_x + 20):
+                    for y in range(center_y - 20, center_y + 20):
+                        if 0 <= x < width and 0 <= y < height:
+                            pixel = img.getpixel((x, y))
+                            if pixel[3] > 10:  # Non-transparent
+                                center_pixels.append(pixel)
+                
+                # If we have center data, check if edge colors match
+                if center_pixels:
+                    center_colors = set(p[:3] for p in center_pixels)
+                    edge_colors = set(p[:3] for p in edge_samples)
+                    
+                    # If edge colors don't match center colors, they're likely artifacts
+                    if not edge_colors.intersection(center_colors):
+                        # Clear the edges
+                        self._clear_tile_edges(img)
+                else:
+                    # No center data, clear edges
+                    self._clear_tile_edges(img)
+            else:
+                # No edge data, ensure edges are transparent
+                self._clear_tile_edges(img)
+                
+        except Exception as e:
+            pass  # Fail silently for edge cleanup errors
+    
+    def _clear_tile_edges(self, img):
+        """Clear tile edges to make them transparent - ENHANCED to eliminate all artifacts"""
+        try:
+            width, height = img.size
+            
+            # Clear top and bottom edges (4 pixel border for more aggressive cleanup)
+            for x in range(width):
+                for y in range(4):  # Top edge
+                    img.putpixel((x, y), (0, 0, 0, 0))
+                for y in range(height-4, height):  # Bottom edge
+                    img.putpixel((x, y), (0, 0, 0, 0))
+            
+            # Clear left and right edges (4 pixel border for more aggressive cleanup)
+            for y in range(height):
+                for x in range(4):  # Left edge
+                    img.putpixel((x, y), (0, 0, 0, 0))
+                for x in range(width-4, width):  # Right edge
+                    img.putpixel((x, y), (0, 0, 0, 0))
+            
+            # Also clear any isolated pixels that might be artifacts
+            # Check for isolated non-transparent pixels near edges
+            for x in range(width):
+                for y in range(height):
+                    pixel = img.getpixel((x, y))
+                    if pixel[3] > 10:  # Non-transparent
+                        # Check if this pixel is isolated (no nearby non-transparent pixels)
+                        isolated = True
+                        for dx in range(-2, 3):
+                            for dy in range(-2, 3):
+                                nx, ny = x + dx, y + dy
+                                if (0 <= nx < width and 0 <= ny < height and 
+                                    (dx != 0 or dy != 0)):
+                                    neighbor = img.getpixel((nx, ny))
+                                    if neighbor[3] > 10:  # Neighbor is also non-transparent
+                                        isolated = False
+                                        break
+                            if not isolated:
+                                break
+                        
+                        # If isolated and near edge, clear it
+                        if isolated and (x < 8 or x >= width - 8 or y < 8 or y >= height - 8):
+                            img.putpixel((x, y), (0, 0, 0, 0))
+                    
+        except Exception as e:
+            pass  # Fail silently for edge clearing errors
