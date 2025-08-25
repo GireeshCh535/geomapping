@@ -1165,6 +1165,7 @@ class CloudFrontTileView(APIView):
             
             # Validate tile coordinates
             if not self.tile_path_service.validate_tile_coordinates(z, x, y):
+                logger.warning(f"❌ Invalid tile coordinates: {z}/{x}/{y}")
                 return self._return_error_tile("Invalid tile coordinates")
             
             # Determine format from URL
@@ -1173,7 +1174,10 @@ class CloudFrontTileView(APIView):
             # Get layer information
             layer = self._get_layer_by_hierarchy(state_slug, city_slug, layer_slug)
             if not layer:
+                logger.warning(f"❌ Layer not found: {state_slug}/{city_slug}/{layer_slug}")
                 return self._return_error_tile(f"Layer not found: {state_slug}/{city_slug}/{layer_slug}")
+            
+            logger.info(f"🔍 Serving tile: {state_slug}/{city_slug}/{layer_slug}/{z}/{x}/{y}.{format_type}")
             
             # Try multiple sources in order of preference
             tile_data = self._get_tile_with_fallback(state_slug, city_slug, layer_slug, z, x, y, format_type, layer)
@@ -1185,8 +1189,10 @@ class CloudFrontTileView(APIView):
                 response['Cache-Control'] = 'no-cache, no-store, must-revalidate'
                 response['Pragma'] = 'no-cache'
                 response['Expires'] = '0'
+                logger.info(f"✅ Successfully served tile: {state_slug}/{city_slug}/{layer_slug}/{z}/{x}/{y}.{format_type}")
                 return response
             else:
+                logger.warning(f"❌ Tile not found: {state_slug}/{city_slug}/{layer_slug}/{z}/{x}/{y}.{format_type}")
                 return self._return_error_tile(f"Tile not found: {state_slug}/{city_slug}/{layer_slug}/{z}/{x}/{y}.{format_type}")
             
         except Exception as e:
@@ -1206,6 +1212,7 @@ class CloudFrontTileView(APIView):
             state_slug, city_slug, layer_slug, z, x, y, format_type
         )
         
+        logger.debug(f"🔍 Trying CloudFront: {cloudfront_url}")
         tile_data = self._fetch_url(cloudfront_url)
         if tile_data:
             logger.info(f"✅ Served from CloudFront: {cloudfront_url}")
@@ -1216,6 +1223,7 @@ class CloudFrontTileView(APIView):
             state_slug, city_slug, layer_slug, z, x, y, format_type
         )
         
+        logger.debug(f"🔍 Trying S3 Direct: {s3_url}")
         tile_data = self._fetch_url(s3_url)
         if tile_data:
             logger.info(f"✅ Served from S3: {s3_url}")
@@ -1223,11 +1231,13 @@ class CloudFrontTileView(APIView):
         
         # 3. Generate on-demand (optional - can be disabled for performance)
         if getattr(settings, 'ENABLE_ON_DEMAND_TILE_GENERATION', False):
+            logger.debug(f"🔍 Trying on-demand generation for {z}/{x}/{y}.{format_type}")
             tile_data = self._generate_tile_on_demand(layer, z, x, y, format_type)
             if tile_data:
                 logger.info(f"✅ Generated on-demand: {z}/{x}/{y}.{format_type}")
                 return tile_data
         
+        logger.warning(f"❌ Tile not found from any source: {state_slug}/{city_slug}/{layer_slug}/{z}/{x}/{y}.{format_type}")
         return None
     
     def _fetch_url(self, url, timeout=5):
@@ -1236,6 +1246,8 @@ class CloudFrontTileView(APIView):
             response = requests.get(url, timeout=timeout)
             if response.status_code == 200:
                 return response.content
+            else:
+                logger.debug(f"Failed to fetch {url}: HTTP {response.status_code}")
         except Exception as e:
             logger.debug(f"Failed to fetch {url}: {e}")
         return None
@@ -1271,11 +1283,13 @@ class CloudFrontTileView(APIView):
     def _return_error_tile(self, error_message):
         """Return an error response"""
         try:
+            logger.warning(f"❌ Returning error tile: {error_message}")
             return Response({
                 'error': error_message,
                 'status': 'error'
             }, status=status.HTTP_404_NOT_FOUND)
         except Exception as e:
+            logger.error(f"❌ Error returning error tile: {str(e)}")
             return Response({
                 'error': f'Error returning error tile: {str(e)}',
                 'status': 'error'
