@@ -450,9 +450,15 @@ class TileRenderingService:
                         y = max(0, min(self.tile_size - 1, int(y)))
                         scaled_coords.append((x, y))
             
+            # ENHANCED: Handle cases with very few points by ensuring minimum rendering
             if len(scaled_coords) >= 2:
                 # Draw line with proper styling
                 self._apply_line_to_image(img, scaled_coords, style_config)
+                return True
+            elif len(scaled_coords) == 1:
+                # If only one point, draw a small circle to ensure visibility
+                x, y = scaled_coords[0]
+                self._draw_point_at_coordinate(img, (x, y), style_config)
                 return True
                 
         except Exception as e:
@@ -471,23 +477,28 @@ class TileRenderingService:
             temp_img = Image.new('RGBA', (self.tile_size, self.tile_size), (0, 0, 0, 0))
             temp_draw = ImageDraw.Draw(temp_img)
             
-            # Filter coordinates to only include those that are actually within the tile bounds
-            # This prevents drawing lines that extend beyond the tile boundaries
+            # ENHANCED: More lenient coordinate filtering for LineString features
+            # This ensures that lines that span multiple tiles are rendered properly
             valid_coords = []
             for coord in line_coords:
                 x, y = coord
-                # Only include coordinates that are within the tile bounds
-                if 0 <= x < self.tile_size and 0 <= y < self.tile_size:
-                    valid_coords.append(coord)
-                elif len(valid_coords) > 0:
-                    # If we have valid coords and encounter an invalid one, 
-                    # clip the line to the tile boundary
-                    last_valid = valid_coords[-1]
-                    # Calculate intersection with tile boundary
-                    clipped_coord = self._clip_line_to_boundary(last_valid, coord)
-                    if clipped_coord:
-                        valid_coords.append(clipped_coord)
-                    break
+                # Include coordinates that are within or very close to tile bounds
+                # This allows lines that extend slightly beyond tile boundaries
+                if -5 <= x <= self.tile_size + 5 and -5 <= y <= self.tile_size + 5:
+                    # Clamp coordinates to tile bounds
+                    clamped_x = max(0, min(self.tile_size - 1, int(x)))
+                    clamped_y = max(0, min(self.tile_size - 1, int(y)))
+                    valid_coords.append((clamped_x, clamped_y))
+            
+            # If we have very few coordinates, try to preserve them all
+            if len(valid_coords) < 2 and len(line_coords) >= 2:
+                # Use original coordinates but clamp them
+                valid_coords = []
+                for coord in line_coords:
+                    x, y = coord
+                    clamped_x = max(0, min(self.tile_size - 1, int(x)))
+                    clamped_y = max(0, min(self.tile_size - 1, int(y)))
+                    valid_coords.append((clamped_x, clamped_y))
             
             # Draw the line only if we have valid coordinates
             if len(valid_coords) >= 2:
@@ -498,6 +509,29 @@ class TileRenderingService:
             
         except Exception as e:
             logger.warning(f"Error applying line to image: {e}")
+    
+    def _draw_point_at_coordinate(self, img: Image.Image, coord: tuple, style_config: Dict):
+        """Draw a small point at the given coordinate to ensure visibility"""
+        try:
+            x, y = coord
+            line_color = self._hex_to_rgb(style_config.get('fill_color', '#14e098'))
+            
+            # Create a small circle around the point
+            radius = 2
+            temp_img = Image.new('RGBA', (self.tile_size, self.tile_size), (0, 0, 0, 0))
+            temp_draw = ImageDraw.Draw(temp_img)
+            
+            # Draw a small filled circle
+            temp_draw.ellipse(
+                [(x - radius, y - radius), (x + radius, y + radius)],
+                fill=line_color + (255,)
+            )
+            
+            # Composite onto main image
+            img.alpha_composite(temp_img)
+            
+        except Exception as e:
+            logger.warning(f"Error drawing point: {e}")
     
     def _clip_line_to_boundary(self, inside_coord, outside_coord):
         """Clip a line segment to the tile boundary"""

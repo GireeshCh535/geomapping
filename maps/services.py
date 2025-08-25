@@ -2024,11 +2024,27 @@ class VectorTileService:
         tile_bounds = self._get_tile_bounds(z, x, y)
         
         # Query features in tile with optimized geometry - ENHANCED QUERY
+        # Use buffer for LineString features to ensure we capture all intersecting segments
         features = GeoFeature.objects.filter(
             layer=layer,
             geometry__intersects=tile_bounds,
             is_valid=True
         ).select_related('layer', 'layer__category')
+        
+        # If no features found, try with a small buffer for LineString features
+        if not features.exists():
+            # Create a small buffer around tile bounds for LineString features
+            buffer_distance = 0.001  # Small buffer in degrees
+            buffered_bounds = tile_bounds.buffer(buffer_distance)
+            
+            features = GeoFeature.objects.filter(
+                layer=layer,
+                geometry__intersects=buffered_bounds,
+                is_valid=True
+            ).select_related('layer', 'layer__category')
+            
+            if features.exists():
+                print(f"   🔍 Found {features.count()} features using buffered bounds")
         
         feature_count = features.count()
         
@@ -2398,13 +2414,13 @@ class VectorTileService:
     def _get_simplify_tolerance(self, zoom):
         """Get simplify tolerance based on zoom level - FIXED to prevent edge artifacts"""
         if zoom <= 8:
-            return 0.00005   # FIXED: Reduced to prevent edge artifacts
+            return 0.00001   # FIXED: Much more conservative for low zoom
         elif zoom <= 12:
-            return 0.00002   # FIXED: Reduced to preserve edge detail
+            return 0.000005  # FIXED: Much more conservative for medium zoom
         elif zoom <= 16:
-            return 0.000005  # FIXED: Very high precision for medium-high zoom
+            return 0.000001  # FIXED: Very high precision for medium-high zoom
         else:
-            return 0.000001  # FIXED: Maximum precision for high zoom
+            return 0.0000005  # FIXED: Maximum precision for high zoom
     
     def _get_layer_bounds(self, layer):
         """Get bounding box for layer"""
@@ -2438,6 +2454,17 @@ class VectorTileService:
         bounds = self._get_layer_bounds(layer)
         if not bounds:
             return {'error': 'No bounds available for layer'}
+        
+        # ENHANCED: For LineString features, expand bounds to ensure continuity
+        # This prevents gaps in linear features like roads and RRR
+        if layer.geofeature_set.filter(geometry__geom_type='LineString').exists():
+            # Add buffer around bounds to ensure all intersecting tiles are included
+            buffer_distance = 0.01  # Buffer in degrees
+            bounds['west'] = bounds['west'] - buffer_distance
+            bounds['east'] = bounds['east'] + buffer_distance
+            bounds['south'] = bounds['south'] - buffer_distance
+            bounds['north'] = bounds['north'] + buffer_distance
+            print(f"🔧 Expanded bounds for LineString features: {bounds}")
         
         # ENHANCED: If target coordinates are provided, ensure they're included in tile generation
         if target_coordinates:
@@ -2529,9 +2556,14 @@ class VectorTileService:
         elif geom_dict['type'] == 'LineString' and 'coordinates' in geom_dict:
             transformed_coords = []
             for coord in geom_dict['coordinates']:
-                # Transform from WGS84 to tile coordinates
-                tile_x = int((coord[0] - bounds.west) / (bounds.east - bounds.west) * 4096)
-                tile_y = int((bounds.north - coord[1]) / (bounds.north - bounds.south) * 4096)
+                # Transform from WGS84 to tile coordinates with proper clamping
+                tile_x = (coord[0] - bounds.west) / (bounds.east - bounds.west) * 4096
+                tile_y = (bounds.north - coord[1]) / (bounds.north - bounds.south) * 4096
+                
+                # Clamp coordinates to valid range (0-4096)
+                tile_x = max(0, min(4096, int(tile_x)))
+                tile_y = max(0, min(4096, int(tile_y)))
+                
                 transformed_coords.append([tile_x, tile_y])
             geom_dict['coordinates'] = transformed_coords
         elif geom_dict['type'] == 'MultiLineString' and 'coordinates' in geom_dict:

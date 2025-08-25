@@ -108,8 +108,24 @@ class Command(BaseCommand):
                 for z in range(min_zoom, max_zoom + 1):
                     self.stdout.write(f'   📍 Zoom {z}: ', ending='')
                     
+                    # ENHANCED: For LineString features, expand bounds to ensure continuity
+                    # This prevents gaps in linear features like roads and RRR
+                    expanded_bounds = list(bounds)
+                    # Check if layer has LineString features by checking the first few features
+                    first_features = layer.geofeature_set.all()[:5]
+                    has_linestrings = any(f.geometry.geom_type == 'LineString' for f in first_features)
+                    if has_linestrings:
+                        # Add buffer around bounds to ensure all intersecting tiles are included
+                        buffer_distance = 0.01  # Buffer in degrees
+                        expanded_bounds[0] = bounds[0] - buffer_distance  # west
+                        expanded_bounds[1] = bounds[1] - buffer_distance  # south
+                        expanded_bounds[2] = bounds[2] + buffer_distance  # east
+                        expanded_bounds[3] = bounds[3] + buffer_distance  # north
+                        if verbose:
+                            self.stdout.write(f"      🔧 Expanded bounds for LineString features: {expanded_bounds}")
+                    
                     # Get tiles that intersect with layer bounds
-                    tiles = list(mercantile.tiles(bounds[0], bounds[1], bounds[2], bounds[3], [z]))
+                    tiles = list(mercantile.tiles(expanded_bounds[0], expanded_bounds[1], expanded_bounds[2], expanded_bounds[3], [z]))
                     self.stdout.write(f'{len(tiles)} tiles to generate')
                     
                     tiles_generated = 0
@@ -296,8 +312,14 @@ class Command(BaseCommand):
             elif geom_type == 'LineString':
                 transformed_coords = []
                 for coord in coordinates:
-                    tile_x = int((coord[0] - bounds.west) / (bounds.east - bounds.west) * 4096)
-                    tile_y = int((bounds.north - coord[1]) / (bounds.north - bounds.south) * 4096)
+                    # Transform coordinates with proper clamping
+                    tile_x = (coord[0] - bounds.west) / (bounds.east - bounds.west) * 4096
+                    tile_y = (bounds.north - coord[1]) / (bounds.north - bounds.south) * 4096
+                    
+                    # Clamp coordinates to valid range (0-4096)
+                    tile_x = max(0, min(4096, int(tile_x)))
+                    tile_y = max(0, min(4096, int(tile_y)))
+                    
                     transformed_coords.append([tile_x, tile_y])
                 
                 return {
@@ -1369,67 +1391,13 @@ class Command(BaseCommand):
             return (200, 200, 200)  # Default gray
     
     def _cleanup_tile_edges(self, img):
-        """Clean up tile edges to ensure no artifacts at boundaries"""
+        """Clean up tile edges to ensure no artifacts at boundaries - AGGRESSIVE VERSION"""
         try:
             width, height = img.size
             
-            # Check if there's any legitimate data near the edges
-            edge_has_data = False
-            
-            # Sample a few pixels from each edge to check for legitimate data
-            edge_samples = []
-            
-            # Top edge samples
-            for x in range(0, width, 10):
-                pixel = img.getpixel((x, 0))
-                if pixel[3] > 10:  # Non-transparent
-                    edge_samples.append(pixel)
-            
-            # Bottom edge samples
-            for x in range(0, width, 10):
-                pixel = img.getpixel((x, height-1))
-                if pixel[3] > 10:  # Non-transparent
-                    edge_samples.append(pixel)
-            
-            # Left edge samples
-            for y in range(0, height, 10):
-                pixel = img.getpixel((0, y))
-                if pixel[3] > 10:  # Non-transparent
-                    edge_samples.append(pixel)
-            
-            # Right edge samples
-            for y in range(0, height, 10):
-                pixel = img.getpixel((width-1, y))
-                if pixel[3] > 10:  # Non-transparent
-                    edge_samples.append(pixel)
-            
-            # If we have edge samples, check if they're legitimate data
-            if edge_samples:
-                # Check if the edge colors are consistent with center colors
-                center_x, center_y = width // 2, height // 2
-                center_pixels = []
-                for x in range(center_x - 20, center_x + 20):
-                    for y in range(center_y - 20, center_y + 20):
-                        if 0 <= x < width and 0 <= y < height:
-                            pixel = img.getpixel((x, y))
-                            if pixel[3] > 10:  # Non-transparent
-                                center_pixels.append(pixel)
-                
-                # If we have center data, check if edge colors match
-                if center_pixels:
-                    center_colors = set(p[:3] for p in center_pixels)
-                    edge_colors = set(p[:3] for p in edge_samples)
-                    
-                    # If edge colors don't match center colors, they're likely artifacts
-                    if not edge_colors.intersection(center_colors):
-                        # Clear the edges
-                        self._clear_tile_edges(img)
-                else:
-                    # No center data, clear edges
-                    self._clear_tile_edges(img)
-            else:
-                # No edge data, ensure edges are transparent
-                self._clear_tile_edges(img)
+            # For LineString features, always clear edges to prevent artifacts
+            # This ensures seamless tile boundaries
+            self._clear_tile_edges(img)
                 
         except Exception as e:
             pass  # Fail silently for edge cleanup errors

@@ -151,9 +151,25 @@ class Command(BaseCommand):
                 for z in range(min_zoom, max_zoom + 1):
                     self.stdout.write(f'   📍 Zoom {z}: ', ending='')
                     
+                    # ENHANCED: For LineString features, expand bounds to ensure continuity
+                    # This prevents gaps in linear features like roads and RRR
+                    expanded_bounds = list(comprehensive_bounds)
+                    # Check if layer has LineString features by checking the first few features
+                    first_features = layer.geofeature_set.all()[:5]
+                    has_linestrings = any(f.geometry.geom_type == 'LineString' for f in first_features)
+                    if has_linestrings:
+                        # Add buffer around bounds to ensure all intersecting tiles are included
+                        buffer_distance = 0.01  # Buffer in degrees
+                        expanded_bounds[0] = comprehensive_bounds[0] - buffer_distance  # west
+                        expanded_bounds[1] = comprehensive_bounds[1] - buffer_distance  # south
+                        expanded_bounds[2] = comprehensive_bounds[2] + buffer_distance  # east
+                        expanded_bounds[3] = comprehensive_bounds[3] + buffer_distance  # north
+                        if verbose:
+                            self.stdout.write(f"      🔧 Expanded bounds for LineString features: {expanded_bounds}")
+                    
                     # Get ALL tiles for the complete layer extent
                     # This ensures we generate tiles for the entire area where data exists
-                    tiles = list(mercantile.tiles(comprehensive_bounds[0], comprehensive_bounds[1], comprehensive_bounds[2], comprehensive_bounds[3], [z]))
+                    tiles = list(mercantile.tiles(expanded_bounds[0], expanded_bounds[1], expanded_bounds[2], expanded_bounds[3], [z]))
                     self.stdout.write(f'{len(tiles)} tiles to generate (complete layer coverage)')
                     
                     tiles_generated = 0
@@ -557,8 +573,14 @@ class Command(BaseCommand):
             elif geom_type == 'LineString':
                 transformed_coords = []
                 for coord in coordinates:
-                    tile_x = int((coord[0] - bounds.west) / (bounds.east - bounds.west) * 4096)
-                    tile_y = int((bounds.north - coord[1]) / (bounds.north - bounds.south) * 4096)
+                    # Transform coordinates with proper clamping
+                    tile_x = (coord[0] - bounds.west) / (bounds.east - bounds.west) * 4096
+                    tile_y = (bounds.north - coord[1]) / (bounds.north - bounds.south) * 4096
+                    
+                    # Clamp coordinates to valid range (0-4096)
+                    tile_x = max(0, min(4096, int(tile_x)))
+                    tile_y = max(0, min(4096, int(tile_y)))
+                    
                     transformed_coords.append([tile_x, tile_y])
                 
                 return {
@@ -880,6 +902,7 @@ class Command(BaseCommand):
             else:  # MultiLineString
                 coords_list = coordinates
             
+            drawn_lines = 0
             for line_coords in coords_list:
                 # Filter coordinates to only include those that are actually within the tile bounds
                 # This prevents drawing lines that extend beyond the tile boundaries
@@ -900,11 +923,12 @@ class Command(BaseCommand):
                 # Draw the line only if we have valid coordinates
                 if len(valid_coords) >= 2:
                     for i in range(len(valid_coords) - 1):
-                        draw.line([valid_coords[i], valid_coords[i + 1]], fill=stroke_color, width=8)
+                        draw.line([valid_coords[i], valid_coords[i + 1]], fill=stroke_color, width=4)
                         # Also draw a thicker line for better visibility
-                        draw.line([valid_coords[i], valid_coords[i + 1]], fill=stroke_color, width=12)
+                        draw.line([valid_coords[i], valid_coords[i + 1]], fill=stroke_color, width=1)
+                        drawn_lines += 1
             
-            return True
+            return drawn_lines > 0
         except Exception as e:
             return False
     
