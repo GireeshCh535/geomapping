@@ -1,5 +1,6 @@
 from django.shortcuts import get_object_or_404
 from django.db.models import Count, Q, Prefetch
+from django.utils import timezone
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.permissions import AllowAny
@@ -921,107 +922,428 @@ class TileCoordinatesView(APIView):
         }
     }
 )
+@extend_schema(
+    summary="Get complete system hierarchy",
+    description="""
+    Returns the complete hierarchy of states, cities, layer groups, layers, and features in a single API call.
+    This provides comprehensive data about the entire system structure including:
+    
+    - All states with their metadata and map settings
+    - All cities within each state with map centers and statistics
+    - All layer groups within each city with styling information
+    - All data layers within each layer group with detailed information
+    - Feature counts and processing status
+    - Tile generation status and URLs
+    - Bounding boxes and geometry information
+    - Category and styling information
+    - Global statistics and category definitions
+    """,
+    tags=['hierarchy'],
+    responses={
+        200: {
+            'description': 'Complete hierarchy data',
+            'content': {
+                'application/json': {
+                    'example': {
+                        'status': 'success',
+                        'timestamp': '2024-01-01T12:00:00Z',
+                        'global_statistics': {
+                            'total_states': 3,
+                            'total_cities': 8,
+                            'total_layers': 25,
+                            'total_features': 150000,
+                            'total_categories': 15
+                        },
+                        'categories': {
+                            'RESIDENTIAL': {
+                                'name': 'Residential',
+                                'description': 'Residential areas',
+                                'default_color': '#FFFF73',
+                                'default_stroke': '#333333',
+                                'default_opacity': 0.8,
+                                'display_order': 1
+                            }
+                        },
+                        'hierarchy': [
+                            {
+                                'id': 1,
+                                'name': 'Karnataka',
+                                'slug': 'karnataka',
+                                'code': 'KA',
+                                'map_settings': {
+                                    'center_lat': 12.9716,
+                                    'center_lng': 77.5946,
+                                    'default_zoom': 7
+                                },
+                                'status': {'is_active': True},
+                                'statistics': {
+                                    'total_cities': 2,
+                                    'total_layers': 10,
+                                    'total_features': 75000
+                                },
+                                'cities': [
+                                    {
+                                        'id': 1,
+                                        'name': 'Bengaluru',
+                                        'slug': 'bengaluru',
+                                        'state': {
+                                            'name': 'Karnataka',
+                                            'slug': 'karnataka',
+                                            'code': 'KA'
+                                        },
+                                        'map_settings': {
+                                            'center_lat': 12.9716,
+                                            'center_lng': 77.5946,
+                                            'min_zoom': 8,
+                                            'max_zoom': 18
+                                        },
+                                        'status': {
+                                            'is_active': True,
+                                            'is_live': True,
+                                            'status': 'live'
+                                        },
+                                        'statistics': {
+                                            'total_layer_groups': 3,
+                                            'total_layers': 8,
+                                            'layers_with_tiles': 8,
+                                            'total_features': 50000,
+                                            'standalone_layers': 2
+                                        },
+                                        'styling': {
+                                            'RESIDENTIAL': {
+                                                'fill_color': '#FFFF73',
+                                                'stroke_color': '#333333',
+                                                'opacity': 0.8,
+                                                'stroke_width': 1,
+                                                'pattern_config': {
+                                                    'pattern_type': 'SOLID',
+                                                    'pattern_color': '#FFFF73',
+                                                    'pattern_spacing': 10,
+                                                    'pattern_angle': 45,
+                                                    'pattern_size': 3,
+                                                    'secondary_fill': None
+                                                },
+                                                'visibility': {
+                                                    'is_visible': True,
+                                                    'min_zoom': 8,
+                                                    'max_zoom': 18
+                                                }
+                                            }
+                                        },
+                                        'layer_groups': [
+                                            {
+                                                'id': 1,
+                                                'name': 'Master Plan',
+                                                'slug': 'master-plan',
+                                                'description': 'Bengaluru Master Plan 2015',
+                                                'directory_path': '/data/karnataka/bengaluru/master_plan/',
+                                                'category': {
+                                                    'code': 'RESIDENTIAL',
+                                                    'name': 'Residential'
+                                                },
+                                                'styling': {
+                                                    'default_color': '#FFFF73',
+                                                    'default_stroke': '#333333',
+                                                    'default_opacity': 0.8
+                                                },
+                                                'display_settings': {
+                                                    'display_order': 1,
+                                                    'is_visible': True,
+                                                    'min_zoom': 8,
+                                                    'max_zoom': 18
+                                                },
+                                                'statistics': {
+                                                    'total_layers': 3,
+                                                    'total_features': 25000
+                                                },
+                                                'layers': [
+                                                    {
+                                                        'id': 1,
+                                                        'name': 'Bengaluru Master Plan 2015',
+                                                        'slug': 'bengaluru_master_plan_2015',
+                                                        'description': 'Complete master plan data',
+                                                        'file_info': {
+                                                            'original_filename': 'bengaluru_master_plan_2015.geojson',
+                                                            'file_format': 'GEOJSON',
+                                                            'file_path': '/data/karnataka/bengaluru/master_plan/bengaluru_master_plan_2015.geojson',
+                                                            'is_directory': False,
+                                                            'file_pattern': None,
+                                                            'source_files_count': 0
+                                                        },
+                                                        'category': {
+                                                            'code': 'RESIDENTIAL',
+                                                            'name': 'Residential'
+                                                        },
+                                                        'geometry_info': {
+                                                            'geometry_type': 'POLYGON',
+                                                            'has_valid_bbox': True,
+                                                            'bounds': {
+                                                                'xmin': 77.4567,
+                                                                'ymin': 12.8234,
+                                                                'xmax': 77.7234,
+                                                                'ymax': 13.1234
+                                                            },
+                                                            'center_point': [12.9734, 77.5901]
+                                                        },
+                                                        'processing_status': {
+                                                            'is_processed': True,
+                                                            'tiles_generated': True,
+                                                            'feature_count': 15000,
+                                                            'processing_errors': None
+                                                        },
+                                                        'tile_info': {
+                                                            'tiles_generated': True,
+                                                            'tile_cache_size': 52428800,
+                                                            'tile_urls': {
+                                                                'png_template': 'https://d17yosovmfjm4.cloudfront.net/karnataka/bengaluru/bengaluru_master_plan_2015/{z}/{x}/{y}.png',
+                                                                'mvt_template': 'https://d17yosovmfjm4.cloudfront.net/karnataka/bengaluru/bengaluru_master_plan_2015/{z}/{x}/{y}.mvt',
+                                                                'api_png_template': '/api/tiles/karnataka/bengaluru/bengaluru_master_plan_2015/{z}/{x}/{y}.png',
+                                                                'api_mvt_template': '/api/tiles/karnataka/bengaluru/bengaluru_master_plan_2015/{z}/{x}/{y}.mvt',
+                                                                'cloudfront_base': 'https://d17yosovmfjm4.cloudfront.net/karnataka/bengaluru/bengaluru_master_plan_2015/',
+                                                                'api_base': '/api/tiles/karnataka/bengaluru/bengaluru_master_plan_2015/'
+                                                            }
+                                                        },
+                                                        'metadata': {
+                                                            'data_source': 'Bengaluru Development Authority',
+                                                            'last_updated': '2024-01-01T12:00:00Z',
+                                                            'created_at': '2024-01-01T12:00:00Z',
+                                                            'updated_at': '2024-01-01T12:00:00Z'
+                                                        },
+                                                        'statistics': {
+                                                            'feature_count': 15000,
+                                                            'file_breakdown': None
+                                                        }
+                                                    }
+                                                ]
+                                            }
+                                        ],
+                                        'standalone_layers': [],
+                                        'created_at': '2024-01-01T12:00:00Z'
+                                    }
+                                ],
+                                'created_at': '2024-01-01T12:00:00Z'
+                            }
+                        ]
+                    }
+                }
+            }
+        },
+        500: {
+            'description': 'Server error',
+            'content': {
+                'application/json': {
+                    'example': {
+                        'error': 'Failed to load hierarchy',
+                        'message': 'Database connection error'
+                    }
+                }
+            }
+        }
+    }
+)
 class CompleteHierarchyAPIView(APIView):
     """
-    Complete Hierarchy API
+    Complete Hierarchy API - Enhanced Version
     
-    Returns the complete hierarchy of states, cities, and layers in a single API call.
-    This replaces multiple separate API calls with one comprehensive endpoint.
+    Returns the complete hierarchy of states, cities, layer groups, layers, and features in a single API call.
+    This provides comprehensive data about the entire system structure.
     
     GET /api/hierarchy/
+    
+    Response includes:
+    - All states with their metadata
+    - All cities within each state with map centers and statistics
+    - All layer groups within each city
+    - All data layers within each layer group with detailed information
+    - Feature counts and processing status
+    - Tile generation status and URLs
+    - Bounding boxes and geometry information
+    - Category and styling information
     """
     
     def get(self, request):
-        """Get complete hierarchy with statistics"""
+        """Get complete hierarchy with comprehensive statistics and metadata"""
         try:
-            # Get all active states with their cities and layers
+            # Get all active states with their cities, layer groups, and layers
             states = State.objects.filter(is_active=True).prefetch_related(
                 Prefetch(
                     'cities',
                     queryset=City.objects.filter(is_active=True).prefetch_related(
                         Prefetch(
+                            'layer_groups',
+                            queryset=LayerGroup.objects.all().select_related('category')
+                        ),
+                        Prefetch(
                             'layers',
-                            queryset=DataLayer.objects.filter(is_processed=True).select_related('category')
+                            queryset=DataLayer.objects.all().select_related('category', 'layer_group')
+                        ),
+                        Prefetch(
+                            'layer_styles',
+                            queryset=CityLayerStyle.objects.all().select_related('category')
                         )
                     )
                 )
             )
             
+            # Get all categories for reference
+            categories = LayerCategory.objects.all()
+            category_data = {
+                cat.code: {
+                    'name': cat.name,
+                    'description': cat.description,
+                    'default_color': cat.default_color,
+                    'default_stroke': cat.default_stroke,
+                    'default_opacity': cat.default_opacity,
+                    'display_order': cat.display_order
+                } for cat in categories
+            }
+            
             hierarchy_data = []
             total_states = 0
+            total_cities = 0
+            total_layers = 0
+            total_features = 0
             
             for state in states:
                 state_cities = []
-                total_city_features = 0
+                state_total_features = 0
+                state_total_layers = 0
                 
                 for city in state.cities.all():
+                    city_layer_groups = []
                     city_layers = []
+                    city_total_features = 0
+                    city_total_layers = 0
                     layers_with_tiles = 0
                     
+                    # Process layer groups
+                    for layer_group in city.layer_groups.all():
+                        group_layers = []
+                        group_feature_count = 0
+                        
+                        for layer in city.layers.all():
+                            if layer.layer_group == layer_group:
+                                layer_data = self._get_layer_data(layer, state.slug, city.slug)
+                                group_layers.append(layer_data)
+                                group_feature_count += layer_data['statistics']['feature_count']
+                                city_total_features += layer_data['statistics']['feature_count']
+                                city_total_layers += 1
+                                
+                                if layer.tiles_generated:
+                                    layers_with_tiles += 1
+                        
+                        layer_group_data = {
+                            'id': layer_group.id,
+                            'name': layer_group.name,
+                            'slug': layer_group.slug,
+                            'description': layer_group.description,
+                            'directory_path': layer_group.directory_path,
+                            'category': {
+                                'code': layer_group.category.code,
+                                'name': layer_group.category.name
+                            },
+                            'styling': {
+                                'default_color': layer_group.default_color,
+                                'default_stroke': layer_group.default_stroke,
+                                'default_opacity': layer_group.default_opacity
+                            },
+                            'display_settings': {
+                                'display_order': layer_group.display_order,
+                                'is_visible': layer_group.is_visible,
+                                'min_zoom': layer_group.min_zoom,
+                                'max_zoom': layer_group.max_zoom
+                            },
+                            'statistics': {
+                                'total_layers': len(group_layers),
+                                'total_features': group_feature_count
+                            },
+                            'layers': group_layers
+                        }
+                        
+                        city_layer_groups.append(layer_group_data)
+                    
+                    # Process layers not in groups (standalone layers)
+                    standalone_layers = []
                     for layer in city.layers.all():
-                        layer_feature_count = GeoFeature.objects.filter(layer=layer, is_valid=True).count()
-                        
-                        if layer.tiles_generated:
-                            layers_with_tiles += 1
-                        
-                        total_city_features += layer_feature_count
-                        
-                        # Get CloudFront URLs if tiles are generated
-                        tile_urls = None
-                        if layer.tiles_generated:
-                            tile_urls = self._get_layer_tile_urls(state.slug, city.slug, layer.slug, True)
-                        
-                        city_layers.append({
-                            'name': layer.name,
-                            'slug': layer.slug,
-                            'status': 'live' if layer.tiles_generated else 'pending',
-                            'is_live': layer.tiles_generated,
-                            'tiles_generated': layer.tiles_generated,
-                            'feature_count': layer_feature_count,
-                            'category': layer.category.name if layer.category else 'Unknown',
-                            'bounds': {
-                                'xmin': layer.bbox_xmin,
-                                'ymin': layer.bbox_ymin,
-                                'xmax': layer.bbox_xmax,
-                                'ymax': layer.bbox_ymax
-                            } if layer.has_valid_bbox() else None,
-                            'tile_urls': tile_urls
-                        })
+                        if not layer.layer_group:
+                            layer_data = self._get_layer_data(layer, state.slug, city.slug)
+                            standalone_layers.append(layer_data)
+                            city_total_features += layer_data['statistics']['feature_count']
+                            city_total_layers += 1
+                            
+                            if layer.tiles_generated:
+                                layers_with_tiles += 1
+                    
+                    # Get city styling information
+                    city_styles = {}
+                    for style in city.layer_styles.all():
+                        city_styles[style.category.code] = {
+                            'fill_color': style.fill_color,
+                            'stroke_color': style.stroke_color,
+                            'opacity': style.opacity,
+                            'stroke_width': style.stroke_width,
+                            'pattern_config': style.get_pattern_config(),
+                            'visibility': {
+                                'is_visible': style.is_visible,
+                                'min_zoom': style.min_zoom,
+                                'max_zoom': style.max_zoom
+                            }
+                        }
                     
                     # City status summary
                     city_status = 'live' if layers_with_tiles > 0 else 'pending'
                     is_live = layers_with_tiles > 0
                     
                     city_data = {
+                        'id': city.id,
                         'name': city.name,
                         'slug': city.slug,
-                        'center_lat': city.center_lat,
-                        'center_lng': city.center_lng,
-                        'is_active': city.is_active,
-                        'is_live': is_live,
-                        'statistics': {
-                            'total_layers': len(city.layers.all()),
-                            'processed_layers': len([l for l in city.layers.all() if l.is_processed]),
-                            'layers_with_tiles': layers_with_tiles,
-                            'total_features': total_city_features
+                        'state': {
+                            'name': state.name,
+                            'slug': state.slug,
+                            'code': state.code
                         },
-                        'status': city_status,
-                        'layers': city_layers
+                        'map_settings': {
+                            'center_lat': city.center_lat,
+                            'center_lng': city.center_lng,
+                            'min_zoom': city.min_zoom,
+                            'max_zoom': city.max_zoom
+                        },
+                        'status': {
+                            'is_active': city.is_active,
+                            'is_live': is_live,
+                            'status': city_status
+                        },
+                        'statistics': {
+                            'total_layer_groups': len(city_layer_groups),
+                            'total_layers': city_total_layers,
+                            'layers_with_tiles': layers_with_tiles,
+                            'total_features': city_total_features,
+                            'standalone_layers': len(standalone_layers)
+                        },
+                        'styling': city_styles,
+                        'layer_groups': city_layer_groups,
+                        'standalone_layers': standalone_layers,
+                        'created_at': city.created_at.isoformat() if city.created_at else None
                     }
                     
                     state_cities.append(city_data)
+                    state_total_features += city_total_features
+                    state_total_layers += city_total_layers
+                    total_cities += 1
                 
                 # State statistics
-                state_total_features = sum(city['statistics']['total_features'] for city in state_cities)
-                state_total_layers = sum(city['statistics']['total_layers'] for city in state_cities)
-                
                 state_data = {
-                    'state': {
-                        'name': state.name,
-                        'slug': state.slug,
-                        'code': state.code,
+                    'id': state.id,
+                    'name': state.name,
+                    'slug': state.slug,
+                    'code': state.code,
+                    'map_settings': {
                         'center_lat': state.center_lat,
                         'center_lng': state.center_lng,
+                        'default_zoom': state.default_zoom
+                    },
+                    'status': {
                         'is_active': state.is_active
                     },
                     'statistics': {
@@ -1029,15 +1351,29 @@ class CompleteHierarchyAPIView(APIView):
                         'total_layers': state_total_layers,
                         'total_features': state_total_features
                     },
-                    'cities': state_cities
+                    'cities': state_cities,
+                    'created_at': state.created_at.isoformat() if state.created_at else None
                 }
                 
                 hierarchy_data.append(state_data)
                 total_states += 1
+                total_layers += state_total_layers
+                total_features += state_total_features
+            
+            # Global statistics
+            global_stats = {
+                'total_states': total_states,
+                'total_cities': total_cities,
+                'total_layers': total_layers,
+                'total_features': total_features,
+                'total_categories': len(categories)
+            }
             
             return Response({
                 'status': 'success',
-                'total_states': total_states,
+                'timestamp': timezone.now().isoformat(),
+                'global_statistics': global_stats,
+                'categories': category_data,
                 'hierarchy': hierarchy_data
             })
             
@@ -1047,6 +1383,74 @@ class CompleteHierarchyAPIView(APIView):
                 'error': 'Failed to load hierarchy',
                 'message': str(e)
             }, status=500)
+    
+    def _get_layer_data(self, layer, state_slug, city_slug):
+        """Get comprehensive layer data"""
+        layer_feature_count = GeoFeature.objects.filter(layer=layer, is_valid=True).count()
+        
+        # Get tile URLs if tiles are generated
+        tile_urls = None
+        if layer.tiles_generated:
+            tile_urls = self._get_layer_tile_urls(state_slug, city_slug, layer.slug, True)
+        
+        # Get feature breakdown by source file if it's a directory layer
+        file_breakdown = None
+        if layer.is_directory:
+            try:
+                file_breakdown = layer.get_file_features_breakdown()
+            except:
+                file_breakdown = None
+        
+        return {
+            'id': layer.id,
+            'name': layer.name,
+            'slug': layer.slug,
+            'description': layer.description,
+            'file_info': {
+                'original_filename': layer.original_filename,
+                'file_format': layer.file_format,
+                'file_path': layer.file_path,
+                'is_directory': layer.is_directory,
+                'file_pattern': layer.file_pattern,
+                'source_files_count': len(layer.source_files) if layer.source_files else 0
+            },
+            'category': {
+                'code': layer.category.code if layer.category else None,
+                'name': layer.category.name if layer.category else 'Unknown'
+            },
+            'geometry_info': {
+                'geometry_type': layer.geometry_type,
+                'has_valid_bbox': layer.has_valid_bbox(),
+                'bounds': {
+                    'xmin': layer.bbox_xmin,
+                    'ymin': layer.bbox_ymin,
+                    'xmax': layer.bbox_xmax,
+                    'ymax': layer.bbox_ymax
+                } if layer.has_valid_bbox() else None,
+                'center_point': layer.get_center_point()
+            },
+            'processing_status': {
+                'is_processed': layer.is_processed,
+                'tiles_generated': layer.tiles_generated,
+                'feature_count': layer_feature_count,
+                'processing_errors': layer.processing_errors
+            },
+            'tile_info': {
+                'tiles_generated': layer.tiles_generated,
+                'tile_cache_size': layer.tile_cache_size,
+                'tile_urls': tile_urls
+            },
+            'metadata': {
+                'data_source': layer.data_source,
+                'last_updated': layer.last_updated.isoformat() if layer.last_updated else None,
+                'created_at': layer.created_at.isoformat(),
+                'updated_at': layer.updated_at.isoformat()
+            },
+            'statistics': {
+                'feature_count': layer_feature_count,
+                'file_breakdown': file_breakdown
+            }
+        }
     
     def _get_layer_tile_urls(self, state_slug, city_slug, layer_slug, include_cloudfront=True):
         """Get tile URLs for a layer"""
