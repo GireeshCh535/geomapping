@@ -1406,6 +1406,7 @@ class CompleteHierarchyAPIView(APIView):
             'name': layer.name,
             'slug': layer.slug,
             'description': layer.description,
+            'is_true': layer.is_true,  # Layer visibility control
             'file_info': {
                 'original_filename': layer.original_filename,
                 'file_format': layer.file_format,
