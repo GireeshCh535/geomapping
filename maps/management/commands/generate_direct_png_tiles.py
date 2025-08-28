@@ -168,6 +168,9 @@ class Command(BaseCommand):
                 
                 if verbose:
                     self.stdout.write(f"\n  🔍 Zoom {zoom}: {len(tiles)} potential tiles")
+                    if len(tiles) == 0:
+                        self.stdout.write(f"    ⚠️  No tiles found for bounds: {bounds}")
+                        continue
                 
                 zoom_generated = 0
                 zoom_skipped = 0
@@ -178,6 +181,9 @@ class Command(BaseCommand):
                 
                 # Process each tile
                 for i, tile in enumerate(tiles):
+                    if verbose:
+                        self.stdout.write(f"    🔍 Processing tile {zoom}/{tile.x}/{tile.y}")
+                    
                     # Create x directory
                     x_dir = zoom_dir / str(tile.x)
                     x_dir.mkdir(exist_ok=True)
@@ -187,6 +193,8 @@ class Command(BaseCommand):
                     
                     # Skip if exists and not forcing
                     if tile_path.exists() and not force:
+                        if verbose:
+                            self.stdout.write(f"    ⏭️  Skipping existing tile {zoom}/{tile.x}/{tile.y}")
                         continue
                     
                     # Generate tile
@@ -266,13 +274,13 @@ class Command(BaseCommand):
     
     def _generate_tile(self, layer, x: int, y: int, z: int, 
                        style_config: Dict, verbose: bool) -> Optional[bytes]:
-        """Generate a single PNG tile"""
+        """Generate a single PNG tile using simplified approach"""
         try:
             # Get tile bounds
             tile_bounds = mercantile.bounds(x, y, z)
             
-            # Create bounding box for spatial query
-            buffer = 0.001  # Small buffer to catch edge features
+            # Create bounding box for spatial query (simplified approach)
+            buffer = 0.01  # Larger buffer to catch more features
             bbox = Polygon.from_bbox((
                 tile_bounds.west - buffer,
                 tile_bounds.south - buffer,
@@ -280,12 +288,18 @@ class Command(BaseCommand):
                 tile_bounds.north + buffer
             ))
             
-            # Get features that intersect this tile (using geofeature_set)
+            # Get features that intersect this tile
             features = layer.geofeature_set.filter(
                 geometry__intersects=bbox
             ).only('geometry', 'properties')
             
+            if verbose:
+                total_features = layer.geofeature_set.count()
+                self.stdout.write(f"    📊 Tile {z}/{x}/{y}: {features.count()}/{total_features} features intersect")
+            
             if not features.exists():
+                if verbose:
+                    self.stdout.write(f"    ⚠️  No features intersect tile {z}/{x}/{y}")
                 return None
             
             # Create image
@@ -297,10 +311,31 @@ class Command(BaseCommand):
             # Get layer-specific style
             layer_style = self._get_layer_style(layer, style_config)
             
-            # Draw each feature
+            # Simplified drawing - focus on LineString and Polygon only
             for feature in features:
-                if self._draw_feature(draw, feature, tile_bounds, layer_style, z):
-                    features_drawn += 1
+                geometry = feature.geometry
+                if not geometry:
+                    continue
+                
+                # Get color
+                fill_color = self._get_feature_color(feature, layer_style)
+                fill_rgb = self._hex_to_rgb(fill_color)
+                
+                # Draw based on geometry type (simplified)
+                if geometry.geom_type == 'LineString':
+                    if self._draw_simple_linestring(draw, geometry, tile_bounds, fill_rgb, z):
+                        features_drawn += 1
+                elif geometry.geom_type == 'Polygon':
+                    if self._draw_simple_polygon(draw, geometry, tile_bounds, fill_rgb):
+                        features_drawn += 1
+                elif geometry.geom_type == 'MultiLineString':
+                    for line in geometry:
+                        if self._draw_simple_linestring(draw, line, tile_bounds, fill_rgb, z):
+                            features_drawn += 1
+                elif geometry.geom_type == 'MultiPolygon':
+                    for poly in geometry:
+                        if self._draw_simple_polygon(draw, poly, tile_bounds, fill_rgb):
+                            features_drawn += 1
             
             if features_drawn == 0:
                 return None
@@ -1134,6 +1169,49 @@ class Command(BaseCommand):
         """Convert hex color to RGB tuple"""
         hex_color = hex_color.lstrip('#')
         return tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))
+    
+    def _draw_simple_linestring(self, draw: ImageDraw, linestring, tile_bounds, 
+                               color: Tuple, zoom: int) -> bool:
+        """Draw a simple linestring (simplified version)"""
+        try:
+            # Convert to pixel coordinates
+            pixel_coords = []
+            for coord in linestring.coords:
+                px, py = self._latlon_to_pixel(coord[0], coord[1], tile_bounds)
+                pixel_coords.append((px, py))
+            
+            # Draw line segments
+            if len(pixel_coords) >= 2:
+                line_width = max(1, min(6, zoom - 8))  # Simple line width
+                for i in range(len(pixel_coords) - 1):
+                    p1, p2 = pixel_coords[i], pixel_coords[i + 1]
+                    # Check if segment is visible
+                    margin = line_width + 10
+                    if any(-margin <= coord <= self.tile_size + margin 
+                          for coord in [p1[0], p1[1], p2[0], p2[1]]):
+                        draw.line([p1, p2], fill=color, width=line_width)
+                        return True
+            return False
+        except Exception:
+            return False
+    
+    def _draw_simple_polygon(self, draw: ImageDraw, polygon, tile_bounds, 
+                            color: Tuple) -> bool:
+        """Draw a simple polygon (simplified version)"""
+        try:
+            # Convert exterior ring to pixel coordinates
+            pixel_coords = []
+            for coord in polygon.exterior_ring.coords:
+                px, py = self._latlon_to_pixel(coord[0], coord[1], tile_bounds)
+                pixel_coords.append((px, py))
+            
+            if len(pixel_coords) >= 3:
+                # Draw filled polygon
+                draw.polygon(pixel_coords, fill=color + (255,))  # Full opacity
+                return True
+            return False
+        except Exception:
+            return False
     
     def _create_viewer_html(self, output_dir: Path, city, layer_slugs):
         """Create an HTML viewer for the generated tiles"""

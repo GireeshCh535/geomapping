@@ -93,3 +93,11 @@ data.zip
 /staticfiles/
 /test_tiles/
 /tiles_output/
+/mapbox_png_tiles/
+/amaravati_master_plan_tiles
+/visakhapatnam_master_plan_tiles
+/warangal_master_plan_tiles
+/anekal_masterplan_tiles
+/hosakote_masterplan_tiles
+/chikkaballapura_masterplan_tiles
+/nelamangala_masterplan_tiles
