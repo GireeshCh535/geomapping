@@ -362,6 +362,12 @@ class DataLayer(models.Model):
     feature_count = models.IntegerField(default=0)
     processing_errors = models.TextField(blank=True)
     
+    # Layer visibility control
+    is_true = models.BooleanField(
+        default=False,
+        help_text='Controls layer visibility - False by default for all layers'
+    )
+    
     # Vector tiles
     tiles_generated = models.BooleanField(default=False)
     tile_cache_size = models.BigIntegerField(default=0)
@@ -391,6 +397,7 @@ class DataLayer(models.Model):
             models.Index(fields=['is_processed']),
             models.Index(fields=['tiles_generated']),
             models.Index(fields=['is_directory']),
+            models.Index(fields=['is_true']),
         ]
     
     def __str__(self):

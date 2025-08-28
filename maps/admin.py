@@ -172,9 +172,9 @@ class CityLayerStyleAdmin(admin.ModelAdmin):
 @admin.register(DataLayer)
 class DataLayerAdmin(admin.ModelAdmin):
     list_display = ['name', 'city', 'category', 'is_directory_icon', 
-                   'feature_count', 'is_processed_icon', 'tiles_generated_icon']
+                   'feature_count', 'is_processed_icon', 'tiles_generated_icon', 'is_true']
     list_filter = ['city', 'category', 'is_processed', 'tiles_generated', 
-                  'is_directory', 'file_format']
+                  'is_directory', 'file_format', 'is_true']
     search_fields = ['name', 'slug', 'city__name']
     readonly_fields = ['feature_count', 'bbox_display', 'source_files_display', 
                       'created_at', 'updated_at']
@@ -183,6 +183,10 @@ class DataLayerAdmin(admin.ModelAdmin):
     fieldsets = (
         ('Basic Information', {
             'fields': ('city', 'category', 'name', 'slug', 'description')
+        }),
+        ('Layer Visibility', {
+            'fields': ('is_true',),
+            'description': 'Control whether this layer is visible by default'
         }),
         ('File Configuration', {
             'fields': ('is_directory', 'file_path', 'file_pattern', 

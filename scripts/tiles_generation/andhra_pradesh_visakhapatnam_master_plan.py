@@ -525,7 +525,7 @@ def main():
     print(f"Global bounds: {generator.global_bounds}")
     
     # Generate tiles
-    generator.generate_png_tiles(min_zoom=17, max_zoom=18)
+    generator.generate_png_tiles(min_zoom=18, max_zoom=18)
     
     # Create supporting files
     generator.create_mapbox_style_json()
