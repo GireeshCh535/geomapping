@@ -1703,6 +1703,186 @@ class CloudFrontTileView(APIView):
 
 @extend_schema_view(
     get=extend_schema(
+        summary="Get combined Hyderabad Future City tiles",
+        description="Serve combined tiles for Hyderabad Future City (boundary + geotiff layers)",
+        tags=['tiles'],
+        parameters=[
+            OpenApiParameter(name='z', location=OpenApiParameter.PATH, required=True, type=int, description='Zoom level'),
+            OpenApiParameter(name='x', location=OpenApiParameter.PATH, required=True, type=int, description='Tile X coordinate'),
+            OpenApiParameter(name='y', location=OpenApiParameter.PATH, required=True, type=int, description='Tile Y coordinate'),
+        ],
+        responses={
+            200: {
+                'description': 'Combined tile served successfully',
+                'content': {
+                    'image/png': {
+                        'schema': {'type': 'string', 'format': 'binary'}
+                    }
+                }
+            },
+            404: {
+                'description': 'Tile not found',
+                'examples': [
+                    {
+                        'application/json': {
+                            'error': 'Tile not found',
+                            'status': 'error'
+                        }
+                    }
+                ]
+            }
+        }
+    )
+)
+class HyderabadFutureCityCombinedTileView(APIView):
+    """
+    Combined Tile View for Hyderabad Future City
+    
+    Serves combined tiles that merge boundary and geotiff layers:
+    GET /api/tiles/telangana/hyderabad/hyderabad_future_city/<z>/<x>/<y>.png
+    
+    This view fetches both boundary and geotiff tiles from S3 and combines them.
+    """
+    
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.tile_path_service = TilePathService()
+        self.s3_client = boto3.client(
+            's3',
+            aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
+            aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
+            region_name=settings.AWS_S3_REGION_NAME
+        )
+    
+    def get(self, request, z, x, y):
+        """Serve combined tiles for Hyderabad Future City"""
+        try:
+            z, x, y = int(z), int(x), int(y)
+            
+            # Validate tile coordinates
+            if not self.tile_path_service.validate_tile_coordinates(z, x, y):
+                logger.warning(f"❌ Invalid tile coordinates: {z}/{x}/{y}")
+                return self._return_error_tile("Invalid tile coordinates")
+            
+            logger.info(f"🔍 Serving combined tile: hyderabad_future_city/{z}/{x}/{y}.png")
+            
+            # Get combined tile data
+            tile_data = self._get_combined_tile(z, x, y)
+            
+            if tile_data:
+                # Return the combined tile data
+                headers = self.tile_path_service.get_tile_cache_headers('png')
+                response = HttpResponse(tile_data, content_type=headers['ContentType'])
+                response['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+                response['Pragma'] = 'no-cache'
+                response['Expires'] = '0'
+                logger.info(f"✅ Successfully served combined tile: hyderabad_future_city/{z}/{x}/{y}.png")
+                return response
+            else:
+                logger.warning(f"❌ Combined tile not found: hyderabad_future_city/{z}/{x}/{y}.png")
+                return self._return_error_tile(f"Combined tile not found: hyderabad_future_city/{z}/{x}/{y}.png")
+            
+        except Exception as e:
+            logger.error(f"Error serving combined tile: {str(e)}")
+            return self._return_error_tile(f"Error serving combined tile: {str(e)}")
+    
+    def _get_combined_tile(self, z, x, y):
+        """Get combined tile by merging boundary and geotiff layers"""
+        try:
+            # Fetch boundary tile
+            boundary_tile = self._fetch_s3_tile('telangana/hyderabad/hyderabad_future_city/boundary', z, x, y)
+            
+            # Fetch geotiff tile
+            geotiff_tile = self._fetch_s3_tile('telangana/hyderabad/hyderabad_future_city/geotiff', z, x, y)
+            
+            if not boundary_tile and not geotiff_tile:
+                logger.warning(f"❌ Neither boundary nor geotiff tile found: {z}/{x}/{y}")
+                return None
+            
+            # Combine tiles
+            combined_tile = self._combine_tiles(boundary_tile, geotiff_tile)
+            return combined_tile
+            
+        except Exception as e:
+            logger.error(f"Error getting combined tile: {e}")
+            return None
+    
+    def _fetch_s3_tile(self, s3_prefix, z, x, y):
+        """Fetch tile from S3"""
+        try:
+            s3_key = f"{s3_prefix}/{z}/{x}/{y}.png"
+            logger.debug(f"🔍 Fetching from S3: {s3_key}")
+            
+            response = self.s3_client.get_object(
+                Bucket='gis-portal-layers',
+                Key=s3_key
+            )
+            
+            tile_data = response['Body'].read()
+            logger.debug(f"✅ Fetched from S3: {s3_key} ({len(tile_data)} bytes)")
+            return tile_data
+            
+        except Exception as e:
+            logger.debug(f"❌ Failed to fetch from S3: {s3_prefix}/{z}/{x}/{y}.png - {e}")
+            return None
+    
+    def _combine_tiles(self, boundary_tile, geotiff_tile):
+        """Combine boundary and geotiff tiles"""
+        try:
+            from PIL import Image
+            import io
+            
+            # Start with geotiff tile as base (if available)
+            if geotiff_tile:
+                base_image = Image.open(io.BytesIO(geotiff_tile))
+            else:
+                # Create transparent base if no geotiff
+                base_image = Image.new('RGBA', (256, 256), (0, 0, 0, 0))
+            
+            # Overlay boundary tile (if available)
+            if boundary_tile:
+                boundary_image = Image.open(io.BytesIO(boundary_tile))
+                
+                # Ensure both images are RGBA
+                if base_image.mode != 'RGBA':
+                    base_image = base_image.convert('RGBA')
+                if boundary_image.mode != 'RGBA':
+                    boundary_image = boundary_image.convert('RGBA')
+                
+                # Composite boundary over base
+                base_image = Image.alpha_composite(base_image, boundary_image)
+            
+            # Convert to bytes
+            output = io.BytesIO()
+            base_image.save(output, format='PNG')
+            combined_data = output.getvalue()
+            
+            logger.debug(f"✅ Combined tiles successfully ({len(combined_data)} bytes)")
+            return combined_data
+            
+        except Exception as e:
+            logger.error(f"Error combining tiles: {e}")
+            # Return the first available tile as fallback
+            return boundary_tile or geotiff_tile
+    
+    def _return_error_tile(self, error_message):
+        """Return an error response"""
+        try:
+            logger.warning(f"❌ Returning error tile: {error_message}")
+            return Response({
+                'error': error_message,
+                'status': 'error'
+            }, status=status.HTTP_404_NOT_FOUND)
+        except Exception as e:
+            logger.error(f"❌ Error returning error tile: {str(e)}")
+            return Response({
+                'error': f'Error returning error tile: {str(e)}',
+                'status': 'error'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+@extend_schema_view(
+    get=extend_schema(
         summary="Get layer bounds",
         description="Retrieve the geographic bounds for a specific layer based on actual data",
         tags=['layers'],
