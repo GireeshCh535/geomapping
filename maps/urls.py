@@ -56,13 +56,4 @@ urlpatterns = [
     path('layers/<slug:state_slug>/<slug:city_slug>/<slug:layer_slug>/bounds/',
          views.LayerBoundsAPIView.as_view(), name='layer_bounds'),
     
-    # ================================
-    # SPECIAL COMBINED TILE ENDPOINTS
-    # ================================
-    
-    # Hyderabad Future City combined tiles (boundary + geotiff)
-    path('tiles/telangana/hyderabad/hyderabad_future_city/<int:z>/<int:x>/<int:y>.png',
-         views.HyderabadFutureCityCombinedTileView.as_view(),
-         name='hyderabad_future_city_combined_tile'),
-    
 ]
