@@ -23,10 +23,11 @@ django.setup()
 
 from django.conf import settings
 
-# Configure logging
+# Configure enhanced logging
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
+    format='%(asctime)s | %(levelname)-8s | %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
 )
 logger = logging.getLogger(__name__)
 
@@ -35,11 +36,12 @@ class FastWarangalTilesUploader:
     Fast upload Warangal tiles from local folders to S3 with parallel processing
     """
     
-    def __init__(self, max_workers=20):
+    def __init__(self, max_workers=20, delete_existing=True):
         # S3 Configuration with optimized settings
         self.bucket_name = 'gis-portal-layers'
         self.region = 'ap-south-1'
         self.max_workers = max_workers
+        self.delete_existing = delete_existing
         
         # Optimized S3 client configuration
         s3_config = Config(
@@ -73,9 +75,12 @@ class FastWarangalTilesUploader:
             'files_uploaded': 0,
             'files_failed': 0,
             'files_deleted': 0,
+            'files_skipped': 0,
             'bytes_uploaded': 0
         }
         self.stats_lock = threading.Lock()
+        
+        logger.info(f"Delete existing files: {self.delete_existing}")
     
     def update_stats(self, key, value):
         """Thread-safe stats update"""
@@ -101,6 +106,27 @@ class FastWarangalTilesUploader:
                 logger.error(f"❌ S3 connection error: {e}")
             return False
     
+    def get_existing_s3_objects(self, s3_prefix):
+        """Get set of existing S3 object keys under a prefix"""
+        logger.info(f"🔍 Checking existing objects under prefix: {s3_prefix}")
+        
+        try:
+            existing_keys = set()
+            paginator = self.s3_client.get_paginator('list_objects_v2')
+            pages = paginator.paginate(Bucket=self.bucket_name, Prefix=s3_prefix)
+
+            for page in pages:
+                if 'Contents' in page:
+                    for obj in page['Contents']:
+                        existing_keys.add(obj['Key'])
+
+            logger.info(f"   📊 Found {len(existing_keys)} existing objects under prefix: {s3_prefix}")
+            return existing_keys
+
+        except Exception as e:
+            logger.error(f"❌ Error listing existing objects under prefix {s3_prefix}: {e}")
+            return set()
+
     def delete_existing_s3_folder(self, s3_prefix):
         """Delete all objects in an S3 folder/prefix with parallel processing"""
         try:
@@ -200,7 +226,7 @@ class FastWarangalTilesUploader:
                     
                     # Log progress every 500 files
                     if completed % 500 == 0:
-                        logger.info(f"   📤 Uploaded {completed}/{len(file_tasks)} files...")
+                        logger.info(f"🎉    📤 Uploaded {completed}/{len(file_tasks)} files...")
                         
                 except Exception as e:
                     logger.error(f"❌ Exception in parallel upload: {e}")
@@ -209,8 +235,14 @@ class FastWarangalTilesUploader:
         """Upload all files from a local folder to S3 with parallel processing"""
         logger.info(f"📁 Processing folder: {local_folder} -> {s3_prefix}")
         
-        # Delete existing S3 folder first
-        self.delete_existing_s3_folder(s3_prefix)
+        # Handle existing files based on delete_existing flag
+        existing_s3_keys = set()
+        if self.delete_existing:
+            # Delete existing S3 folder first
+            self.delete_existing_s3_folder(s3_prefix)
+        else:
+            # Get existing S3 objects to skip them
+            existing_s3_keys = self.get_existing_s3_objects(s3_prefix)
         
         # Find all files in the local folder
         local_path = Path(local_folder)
@@ -226,13 +258,15 @@ class FastWarangalTilesUploader:
             all_files.extend(local_path.glob(pattern))
         
         if not all_files:
-            logger.warning(f"⚠️  No files found in {local_folder}")
+            logger.warning(f"⚠️  ⚠️  No files found in {local_folder}")
             return False
         
         logger.info(f"   📊 Found {len(all_files)} files to upload")
         
-        # Prepare upload tasks
+        # Prepare upload tasks and filter out existing files
         file_tasks = []
+        skipped_count = 0
+        
         for file_path in all_files:
             # Calculate relative path from local folder
             relative_path = file_path.relative_to(local_path)
@@ -240,7 +274,18 @@ class FastWarangalTilesUploader:
             # Create S3 key
             s3_key = f"{s3_prefix}/{relative_path}"
             
-            file_tasks.append((str(file_path), s3_key))
+            if not self.delete_existing and s3_key in existing_s3_keys:
+                skipped_count += 1
+                self.update_stats('files_skipped', 1)
+            else:
+                file_tasks.append((str(file_path), s3_key))
+        
+        logger.info(f"   📤 Files to upload: {len(file_tasks)}")
+        logger.info(f"   ⏭️  Files to skip (already exist): {skipped_count}")
+        
+        if not file_tasks:
+            logger.info("   ℹ️  All files already exist in S3, nothing to upload")
+            return True
         
         # Upload files in parallel
         logger.info(f"   🚀 Starting parallel upload with {self.max_workers} workers...")
@@ -271,7 +316,7 @@ class FastWarangalTilesUploader:
                 else:
                     logger.error(f"❌ Failed: {local_folder}")
             else:
-                logger.warning(f"⚠️  Local folder not found: {local_path}")
+                logger.warning(f"⚠️  ⚠️  Local folder not found: {local_path}")
         
         return True
     
@@ -283,8 +328,9 @@ class FastWarangalTilesUploader:
         logger.info(f"📁 Folders processed: {self.stats['folders_processed']}")
         logger.info(f"📤 Files uploaded: {self.stats['files_uploaded']}")
         logger.info(f"🗑️  Files deleted: {self.stats['files_deleted']}")
+        logger.info(f"⏭️  Files skipped: {self.stats['files_skipped']}")
         logger.info(f"❌ Files failed: {self.stats['files_failed']}")
-        logger.info(f"💾 Bytes uploaded: {self.stats['bytes_uploaded']:,}")
+        logger.info(f"💾 Bytes uploaded: {self.stats['bytes_uploaded']}")
         logger.info(f"⚡ Parallel workers used: {self.max_workers}")
         
         if self.stats['files_uploaded'] > 0:
@@ -295,11 +341,25 @@ class FastWarangalTilesUploader:
 def main():
     """Main function with configurable parallel workers"""
     # You can adjust the number of parallel workers based on your system
-    max_workers = int(os.environ.get('MAX_WORKERS', '20'))
-    
-    uploader = FastWarangalTilesUploader(max_workers=max_workers)
+    max_workers = int(os.environ.get('MAX_WORKERS', '5'))  # Reduced for memory efficiency
     
     try:
+        # Ask user whether to delete existing files
+        while True:
+            delete_choice = input("\nDo you want to delete existing files in S3 before upload? (y/n): ").lower().strip()
+            if delete_choice in ['y', 'yes']:
+                delete_existing = True
+                logger.info("Will delete existing files before upload")
+                break
+            elif delete_choice in ['n', 'no']:
+                delete_existing = False
+                logger.info("Will skip existing files and upload only missing ones")
+                break
+            else:
+                print("Please enter 'y' for yes or 'n' for no")
+    
+        uploader = FastWarangalTilesUploader(max_workers=max_workers, delete_existing=delete_existing)
+        
         success = uploader.process_all_mappings()
         uploader.print_summary()
         
@@ -310,7 +370,7 @@ def main():
             
     except KeyboardInterrupt:
         logger.info("\n⚠️  Upload interrupted by user")
-        sys.exit(1)
+        sys.exit(0)
     except Exception as e:
         logger.error(f"❌ Unexpected error: {e}")
         sys.exit(1)

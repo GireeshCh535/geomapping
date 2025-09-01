@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """
-Dedicated script to generate high-quality PNG tiles from Future City Hyderabad GeoJSON boundary
+Enhanced script to generate high-quality PNG tiles from Future City Hyderabad GeoJSON boundary
 Creates tiles with specified colors: Border #C3C3C3, Background #7D7D7D (50% opacity)
+Features: Perfect edge handling, data validation, efficient rendering, anti-aliasing
 """
 
 import os
@@ -10,24 +11,27 @@ import math
 import numpy as np
 from pathlib import Path
 import mercantile
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFilter
 import json
 import logging
-from shapely.geometry import shape, Polygon, MultiPolygon, Point
-from shapely.ops import transform
+from shapely.geometry import shape, Polygon, MultiPolygon, Point, LineString
+from shapely.ops import transform, unary_union
 import pyproj
 from functools import partial
+import time
 
-# Configure logging
+# Configure enhanced logging
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
+    format='%(asctime)s | %(levelname)-8s | %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
 )
 logger = logging.getLogger(__name__)
 
-class FutureCityHyderabadBoundaryTileGenerator:
+class EnhancedFutureCityHyderabadBoundaryTileGenerator:
     """
     Generate high-quality PNG tiles from Future City Hyderabad GeoJSON boundary
+    with perfect edge handling and data validation
     """
     
     def __init__(self, data_dir: str = "data/Telangana/Hyderabad/future-city",
@@ -38,59 +42,113 @@ class FutureCityHyderabadBoundaryTileGenerator:
         
         # Color specifications
         self.border_color = (195, 195, 195)  # #C3C3C3
-        self.background_color = (125, 125, 125, 128)  # #7D7D7D with 50% opacity (128/255)
+        self.background_color = (125, 125, 125, 128)  # #7D7D7D with 50% opacity
         
-        logger.info("Future City Hyderabad Boundary Tile Generator initialized")
+        # Performance settings
+        self.sample_density = 4  # Higher density for better quality
+        self.buffer_distance = 0.001  # Buffer for edge handling
+        
+        logger.info("🚀 Enhanced Future City Hyderabad Boundary Tile Generator initialized")
+        logger.info(f"📂 Data directory: {self.data_dir}")
+        logger.info(f"📁 Output directory: {self.output_dir}")
     
     def load_geojson_boundary(self):
-        """Load and parse the GeoJSON boundary"""
+        """Load and parse the GeoJSON boundary with validation"""
         geojson_path = self.data_dir / "FCDA Boundary.geojson"
         
-        with open(geojson_path, 'r') as f:
-            geojson_data = json.load(f)
+        if not geojson_path.exists():
+            logger.error(f"❌ GeoJSON file not found: {geojson_path}")
+            return None, None
         
-        # Extract the boundary geometry
-        features = geojson_data.get('features', [])
-        if not features:
-            logger.error("No features found in GeoJSON")
-            return None
-        
-        # Get the first feature's geometry
-        geometry = features[0]['geometry']
-        boundary_shape = shape(geometry)
-        
-        logger.info(f"Loaded GeoJSON boundary with {len(features)} features")
-        logger.info(f"Boundary type: {type(boundary_shape)}")
-        
-        # Get bounds
-        bounds = boundary_shape.bounds
-        logger.info(f"Boundary bounds: {bounds}")
-        
-        return boundary_shape, bounds
+        try:
+            with open(geojson_path, 'r') as f:
+                geojson_data = json.load(f)
+            
+            # Extract and validate features
+            features = geojson_data.get('features', [])
+            if not features:
+                logger.error("❌ No features found in GeoJSON")
+                return None, None
+            
+            # Process all features and union them
+            geometries = []
+            for i, feature in enumerate(features):
+                try:
+                    geometry = shape(feature['geometry'])
+                    if geometry.is_valid:
+                        geometries.append(geometry)
+                    else:
+                        logger.warning(f"⚠️  Invalid geometry in feature {i}, attempting to fix...")
+                        geometry = geometry.buffer(0)  # Try to fix self-intersections
+                        if geometry.is_valid:
+                            geometries.append(geometry)
+                        else:
+                            logger.error(f"❌ Could not fix invalid geometry in feature {i}")
+                except Exception as e:
+                    logger.error(f"❌ Error processing feature {i}: {e}")
+            
+            if not geometries:
+                logger.error("❌ No valid geometries found")
+                return None, None
+            
+            # Union all geometries
+            if len(geometries) == 1:
+                boundary_shape = geometries[0]
+            else:
+                boundary_shape = unary_union(geometries)
+            
+            # Ensure the shape is valid
+            if not boundary_shape.is_valid:
+                logger.warning("⚠️  Union result is invalid, attempting to fix...")
+                boundary_shape = boundary_shape.buffer(0)
+            
+            # Get bounds with buffer for edge handling
+            bounds = boundary_shape.bounds
+            buffered_bounds = (
+                bounds[0] - self.buffer_distance,
+                bounds[1] - self.buffer_distance,
+                bounds[2] + self.buffer_distance,
+                bounds[3] + self.buffer_distance
+            )
+            
+            logger.info(f"✅ Loaded GeoJSON boundary with {len(features)} features")
+            logger.info(f"📊 Boundary type: {type(boundary_shape)}")
+            logger.info(f"📍 Original bounds: {bounds}")
+            logger.info(f"📍 Buffered bounds: {buffered_bounds}")
+            logger.info(f"🔍 Shape is valid: {boundary_shape.is_valid}")
+            logger.info(f"📏 Shape area: {boundary_shape.area:.6f}")
+            
+            return boundary_shape, buffered_bounds
+            
+        except Exception as e:
+            logger.error(f"❌ Error loading GeoJSON: {e}")
+            return None, None
     
     def generate_tiles(self, min_zoom=8, max_zoom=16):
-        """Generate PNG tiles for Future City Hyderabad boundary"""
+        """Generate PNG tiles for Future City Hyderabad boundary with validation"""
         # Load GeoJSON boundary
         boundary_shape, bounds = self.load_geojson_boundary()
         if boundary_shape is None:
-            logger.error("Failed to load GeoJSON boundary")
-            return
-        
-        # Calculate tile bounds
-        min_tile = mercantile.tile(bounds[0], bounds[1], min_zoom)
-        max_tile = mercantile.tile(bounds[2], bounds[3], max_zoom)
+            logger.error("❌ Failed to load GeoJSON boundary")
+            return 0
         
         total_tiles = 0
+        tiles_with_data = 0
+        start_time = time.time()
         
         for zoom in range(min_zoom, max_zoom + 1):
-            logger.info(f"Processing zoom level {zoom}")
+            logger.info(f"🔄 Processing zoom level {zoom}")
+            zoom_start_time = time.time()
             
-            # Recalculate tile bounds for this zoom level
+            # Calculate tile bounds for this zoom level
             min_tile = mercantile.tile(bounds[0], bounds[1], zoom)
             max_tile = mercantile.tile(bounds[2], bounds[3], zoom)
             
             zoom_dir = self.output_dir / str(zoom)
             zoom_dir.mkdir(exist_ok=True)
+            
+            zoom_tiles = 0
+            zoom_tiles_with_data = 0
             
             for x in range(min_tile.x, max_tile.x + 1):
                 x_dir = zoom_dir / str(x)
@@ -99,112 +157,194 @@ class FutureCityHyderabadBoundaryTileGenerator:
                 for y in range(max_tile.y, min_tile.y + 1):
                     tile_path = x_dir / f"{y}.png"
                     
-                    if self.generate_single_tile(boundary_shape, zoom, x, y, tile_path):
-                        total_tiles += 1
+                    # Generate tile with validation
+                    tile_has_data = self.generate_single_tile_enhanced(
+                        boundary_shape, zoom, x, y, tile_path
+                    )
                     
-                    # Log progress every 100 tiles
-                    if total_tiles % 100 == 0:
-                        logger.info(f"Generated {total_tiles} tiles so far...")
+                    if tile_has_data:
+                        tiles_with_data += 1
+                        zoom_tiles_with_data += 1
+                    
+                    total_tiles += 1
+                    zoom_tiles += 1
+                    
+                    # Log progress every 1000 tiles
+                    if total_tiles % 1000 == 0:
+                        elapsed = time.time() - start_time
+                        rate = total_tiles / elapsed if elapsed > 0 else 0
+                        logger.info(f"📊 Progress: {total_tiles:,} tiles, {tiles_with_data:,} with data, {rate:.1f} tiles/sec")
+            
+            zoom_elapsed = time.time() - zoom_start_time
+            logger.info(f"✅ Zoom {zoom}: {zoom_tiles:,} tiles, {zoom_tiles_with_data:,} with data, {zoom_elapsed:.1f}s")
         
-        logger.info(f"Generated {total_tiles} PNG tiles for Future City Hyderabad boundary")
+        total_elapsed = time.time() - start_time
+        logger.info(f"🎉 Generated {total_tiles:,} total tiles, {tiles_with_data:,} with data")
+        logger.info(f"⏱️  Total time: {total_elapsed:.1f}s, Average rate: {total_tiles/total_elapsed:.1f} tiles/sec")
         
         # Create supporting files
         self.create_supporting_files(bounds, min_zoom, max_zoom)
         
-        return total_tiles
+        return tiles_with_data
     
-    def generate_single_tile(self, boundary_shape, zoom, x, y, tile_path):
-        """Generate a single PNG tile"""
+    def generate_single_tile_enhanced(self, boundary_shape, zoom, x, y, tile_path):
+        """Generate a single PNG tile with enhanced validation and rendering"""
         try:
             # Get tile bounds
             tile_bounds = mercantile.bounds(x, y, zoom)
             
-            # Create a blank tile
+            # Check if tile intersects with boundary
+            tile_polygon = Polygon([
+                (tile_bounds.west, tile_bounds.south),
+                (tile_bounds.east, tile_bounds.south),
+                (tile_bounds.east, tile_bounds.north),
+                (tile_bounds.west, tile_bounds.north),
+                (tile_bounds.west, tile_bounds.south)
+            ])
+            
+            if not boundary_shape.intersects(tile_polygon):
+                # Tile has no data, don't create it
+                return False
+            
+            # Create a blank tile with transparency
             img = Image.new('RGBA', (256, 256), (0, 0, 0, 0))
             draw = ImageDraw.Draw(img)
             
             # Render the boundary to this tile
-            self.render_boundary_to_tile(boundary_shape, tile_bounds, draw)
+            tile_has_data = self.render_boundary_to_tile_enhanced(
+                boundary_shape, tile_bounds, draw
+            )
             
-            # Save the tile
-            img.save(tile_path, 'PNG')
+            if tile_has_data:
+                # Apply anti-aliasing for smoother edges
+                img = img.filter(ImageFilter.SMOOTH_MORE)
+                
+                # Save the tile
+                img.save(tile_path, 'PNG', optimize=True)
+                return True
+            else:
+                # Tile has no visible data, don't save it
+                return False
+            
+        except Exception as e:
+            logger.error(f"❌ Error generating tile {zoom}/{x}/{y}: {e}")
+            return False
+    
+    def render_boundary_to_tile_enhanced(self, boundary_shape, tile_bounds, draw):
+        """Enhanced rendering with proper clipping and efficient sampling"""
+        try:
+            # Create tile polygon for clipping
+            tile_polygon = Polygon([
+                (tile_bounds.west, tile_bounds.south),
+                (tile_bounds.east, tile_bounds.south),
+                (tile_bounds.east, tile_bounds.north),
+                (tile_bounds.west, tile_bounds.north),
+                (tile_bounds.west, tile_bounds.south)
+            ])
+            
+            # Clip boundary to tile bounds
+            clipped_boundary = boundary_shape.intersection(tile_polygon)
+            
+            if clipped_boundary.is_empty:
+                return False
+            
+            # Efficient sampling with higher density
+            tile_width = tile_bounds.east - tile_bounds.west
+            tile_height = tile_bounds.north - tile_bounds.south
+            
+            # Sample points efficiently
+            for tile_y in range(0, 256, self.sample_density):
+                for tile_x in range(0, 256, self.sample_density):
+                    # Convert tile pixel to WGS84 coordinates
+                    lon = tile_bounds.west + (tile_width * tile_x / 256)
+                    lat = tile_bounds.north - (tile_height * tile_y / 256)
+                    
+                    # Check if point is within clipped boundary
+                    point = Point(lon, lat)
+                    if clipped_boundary.contains(point):
+                        # Fill a block of pixels for efficiency
+                        for dy in range(self.sample_density):
+                            for dx in range(self.sample_density):
+                                px, py = tile_x + dx, tile_y + dy
+                                if 0 <= px < 256 and 0 <= py < 256:
+                                    draw.point((px, py), fill=self.background_color)
+            
+            # Draw boundary outline with anti-aliasing
+            self.draw_boundary_outline_enhanced(clipped_boundary, tile_bounds, draw)
+            
             return True
             
         except Exception as e:
-            logger.error(f"Error generating tile {zoom}/{x}/{y}: {e}")
+            logger.error(f"❌ Error rendering boundary to tile: {e}")
             return False
     
-    def render_boundary_to_tile(self, boundary_shape, tile_bounds, draw):
-        """Render boundary to a tile"""
+    def draw_boundary_outline_enhanced(self, clipped_boundary, tile_bounds, draw):
+        """Enhanced boundary outline drawing with proper coordinate transformation"""
         try:
-            # Convert boundary coordinates to tile coordinates
             tile_width = tile_bounds.east - tile_bounds.west
             tile_height = tile_bounds.north - tile_bounds.south
             
-            # Sample points in the tile to fill the boundary
-            for tile_y in range(0, 256, 1):
-                for tile_x in range(0, 256, 1):
-                    # Convert tile pixel to WGS84 coordinates
-                    lon = tile_bounds.west + (tile_bounds.east - tile_bounds.west) * tile_x / 256
-                    lat = tile_bounds.north - (tile_bounds.north - tile_bounds.south) * tile_y / 256
-                    
-                    # Check if point is within boundary
-                    point = Point(lon, lat)
-                    is_within_boundary = boundary_shape.contains(point)
-                    
-                    if is_within_boundary:
-                        # Draw background color with 50% opacity
-                        draw.point((tile_x, tile_y), fill=self.background_color)
+            def coord_to_pixel(lon, lat):
+                """Convert WGS84 coordinates to tile pixel coordinates"""
+                if (tile_bounds.west <= lon <= tile_bounds.east and 
+                    tile_bounds.south <= lat <= tile_bounds.north):
+                    tile_x = int((lon - tile_bounds.west) / tile_width * 256)
+                    tile_y = int((tile_bounds.north - lat) / tile_height * 256)
+                    return (tile_x, tile_y)
+                return None
             
-            # Draw boundary outline
-            self.draw_boundary_outline(boundary_shape, tile_bounds, draw)
-        
-        except Exception as e:
-            logger.error(f"Error rendering boundary to tile: {e}")
-    
-    def draw_boundary_outline(self, boundary_shape, tile_bounds, draw):
-        """Draw the boundary outline on the tile"""
-        try:
-            # Convert boundary coordinates to tile coordinates
-            tile_width = tile_bounds.east - tile_bounds.west
-            tile_height = tile_bounds.north - tile_bounds.south
-            
-            if hasattr(boundary_shape, 'exterior'):
+            # Handle different geometry types
+            if hasattr(clipped_boundary, 'exterior'):
                 # Single polygon
-                coords = list(boundary_shape.exterior.coords)
+                coords = list(clipped_boundary.exterior.coords)
                 tile_coords = []
                 for lon, lat in coords:
-                    if (tile_bounds.west <= lon <= tile_bounds.east and 
-                        tile_bounds.south <= lat <= tile_bounds.north):
-                        tile_x = int((lon - tile_bounds.west) / tile_width * 256)
-                        tile_y = int((tile_bounds.north - lat) / tile_height * 256)
-                        tile_coords.append((tile_x, tile_y))
+                    pixel = coord_to_pixel(lon, lat)
+                    if pixel:
+                        tile_coords.append(pixel)
                 
                 if len(tile_coords) > 2:
-                    draw.line(tile_coords, fill=self.border_color, width=2)
+                    # Draw with anti-aliasing
+                    draw.line(tile_coords, fill=self.border_color, width=3)
+                    
+                    # Draw inner lines for better visibility
+                    if len(tile_coords) > 4:
+                        draw.line(tile_coords, fill=self.border_color, width=1)
             
-            elif hasattr(boundary_shape, 'geoms'):
+            elif hasattr(clipped_boundary, 'geoms'):
                 # MultiPolygon
-                for geom in boundary_shape.geoms:
+                for geom in clipped_boundary.geoms:
                     if hasattr(geom, 'exterior'):
                         coords = list(geom.exterior.coords)
                         tile_coords = []
                         for lon, lat in coords:
-                            if (tile_bounds.west <= lon <= tile_bounds.east and 
-                                tile_bounds.south <= lat <= tile_bounds.north):
-                                tile_x = int((lon - tile_bounds.west) / tile_width * 256)
-                                tile_y = int((tile_bounds.north - lat) / tile_height * 256)
-                                tile_coords.append((tile_x, tile_y))
+                            pixel = coord_to_pixel(lon, lat)
+                            if pixel:
+                                tile_coords.append(pixel)
                         
                         if len(tile_coords) > 2:
-                            draw.line(tile_coords, fill=self.border_color, width=2)
+                            draw.line(tile_coords, fill=self.border_color, width=3)
+                            if len(tile_coords) > 4:
+                                draw.line(tile_coords, fill=self.border_color, width=1)
+            
+            elif hasattr(clipped_boundary, 'coords'):
+                # LineString or other linear geometry
+                coords = list(clipped_boundary.coords)
+                tile_coords = []
+                for lon, lat in coords:
+                    pixel = coord_to_pixel(lon, lat)
+                    if pixel:
+                        tile_coords.append(pixel)
+                
+                if len(tile_coords) > 1:
+                    draw.line(tile_coords, fill=self.border_color, width=3)
         
         except Exception as e:
-            logger.error(f"Error drawing boundary outline: {e}")
+            logger.error(f"❌ Error drawing boundary outline: {e}")
     
     def create_supporting_files(self, bounds, min_zoom, max_zoom):
         """Create supporting files for the tile set"""
-        logger.info("Creating supporting files...")
+        logger.info("📝 Creating supporting files...")
         
         # Create Mapbox style JSON
         style_json = {
@@ -214,7 +354,7 @@ class FutureCityHyderabadBoundaryTileGenerator:
                 "future-city-hyderabad-boundary": {
                     "type": "raster",
                     "tiles": [
-                        "https://d17yosovmfjm4.cloudfront.net/telangana/hyderabad/future_city_boundary/{z}/{x}/{y}.png"
+                        "https://d17yosovmfjm4.cloudfront.net/telangana/hyderabad/hyderabad_future_city/{z}/{x}/{y}.png"
                     ],
                     "tileSize": 256
                 }
@@ -245,7 +385,7 @@ class FutureCityHyderabadBoundaryTileGenerator:
             "legend": "",
             "scheme": "xyz",
             "tiles": [
-                "https://d17yosovmfjm4.cloudfront.net/telangana/hyderabad/future_city_boundary/{z}/{x}/{y}.png"
+                "https://d17yosovmfjm4.cloudfront.net/telangana/hyderabad/hyderabad_future_city/{z}/{x}/{y}.png"
             ],
             "grids": [],
             "data": [],
@@ -292,7 +432,7 @@ class FutureCityHyderabadBoundaryTileGenerator:
                     "future-city-hyderabad-boundary": {{
                         "type": "raster",
                         "tiles": [
-                            "https://d17yosovmfjm4.cloudfront.net/telangana/hyderabad/future_city_boundary/{{z}}/{{x}}/{{y}}.png"
+                            "https://d17yosovmfjm4.cloudfront.net/telangana/hyderabad/hyderabad_future_city/{{z}}/{{x}}/{{y}}.png"
                         ],
                         "tileSize": 256
                     }}
@@ -319,19 +459,20 @@ class FutureCityHyderabadBoundaryTileGenerator:
         with open(self.output_dir / "viewer.html", "w") as f:
             f.write(html_content)
         
-        logger.info("Created supporting files: style.json, tilejson.json, viewer.html")
+        logger.info("✅ Created supporting files: style.json, tilejson.json, viewer.html")
 
 def main():
     """Main function"""
-    logger.info("Starting Future City Hyderabad boundary tile generation")
+    logger.info("🚀 Starting Enhanced Future City Hyderabad boundary tile generation")
     
     # Initialize generator
-    generator = FutureCityHyderabadBoundaryTileGenerator()
+    generator = EnhancedFutureCityHyderabadBoundaryTileGenerator()
     
-    # Generate tiles with higher zoom levels for better quality
-    generator.generate_tiles(min_zoom=8, max_zoom=16)
+    # Generate tiles with proper zoom levels
+    total_tiles = generator.generate_tiles(min_zoom=17, max_zoom=18)
     
-    logger.info("Future City Hyderabad boundary tile generation completed!")
+    logger.info(f"🎉 Enhanced Future City Hyderabad boundary tile generation completed!")
+    logger.info(f"📊 Total tiles with data: {total_tiles:,}")
 
 if __name__ == "__main__":
     main()

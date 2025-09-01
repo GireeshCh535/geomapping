@@ -9,6 +9,7 @@ import boto3
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import time
+from datetime import datetime
 from botocore.exceptions import ClientError, NoCredentialsError
 import threading
 
@@ -32,7 +33,9 @@ UPLOAD_MAPPINGS = {
 # Threading lock for progress tracking
 progress_lock = threading.Lock()
 uploaded_count = 0
+skipped_count = 0
 total_files = 0
+delete_existing = True  # Global variable
 
 def get_s3_client():
     """Get S3 client with credentials from Django settings"""
@@ -47,7 +50,7 @@ def get_s3_client():
         
         # Test the connection
         s3_client.head_bucket(Bucket=S3_BUCKET)
-        print(f"✅ Connected to S3 bucket: {S3_BUCKET}")
+        print(f"✅ Connected to S3 bucket: {S3_BUCKET:,}")
         return s3_client
     except NoCredentialsError:
         print("❌ AWS credentials not found. Please set AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY in Django settings")
@@ -55,15 +58,36 @@ def get_s3_client():
     except ClientError as e:
         error_code = e.response['Error']['Code']
         if error_code == '404':
-            print(f"❌ Bucket {S3_BUCKET} not found!")
+            print(f"❌ Bucket {S3_BUCKET:,} not found!")
         elif error_code == '403':
-            print(f"❌ Access denied to bucket {S3_BUCKET}. Check your credentials.")
+            print(f"❌ Access denied to bucket {S3_BUCKET:,}. Check your credentials.")
         else:
             print(f"❌ Error connecting to S3: {e}")
         return None
     except Exception as e:
         print(f"❌ Error creating S3 client: {e}")
         return None
+
+def get_existing_s3_objects(s3_client, s3_prefix: str):
+    """Get set of existing S3 object keys under a prefix"""
+    try:
+        print(f"🔍 Checking existing objects under prefix: {s3_prefix}")
+        
+        existing_keys = set()
+        paginator = s3_client.get_paginator('list_objects_v2')
+        pages = paginator.paginate(Bucket=S3_BUCKET, Prefix=s3_prefix)
+
+        for page in pages:
+            if 'Contents' in page:
+                for obj in page['Contents']:
+                    existing_keys.add(obj['Key'])
+
+        print(f"   📊 Found {len(existing_keys)} existing objects under prefix: {s3_prefix}")
+        return existing_keys
+
+    except Exception as e:
+        print(f"❌ Error listing existing objects under prefix {s3_prefix}: {e}")
+        return set()
 
 def delete_existing_s3_folder(s3_client, s3_prefix: str):
     """Delete all objects in an S3 folder/prefix"""
@@ -142,8 +166,14 @@ def upload_directory_to_s3(s3_client, local_dir: Path, s3_prefix: str):
         print(f"❌ Directory not found: {local_dir}")
         return False
     
-    # Delete existing files in S3 first
-    delete_existing_s3_folder(s3_client, s3_prefix)
+    # Handle existing files based on delete_existing flag
+    existing_s3_keys = set()
+    if delete_existing:
+        # Delete existing files in S3 first
+        delete_existing_s3_folder(s3_client, s3_prefix)
+    else:
+        # Get existing S3 objects to skip them
+        existing_s3_keys = get_existing_s3_objects(s3_client, s3_prefix)
     
     # Get all PNG files
     png_files = get_all_png_files(local_dir)
@@ -157,19 +187,39 @@ def upload_directory_to_s3(s3_client, local_dir: Path, s3_prefix: str):
     with progress_lock:
         total_files += len(png_files)
     
-    # Prepare upload tasks
+    # Prepare upload tasks and filter out existing files
     upload_tasks = []
+    local_skipped_count = 0
+    
     for file_path in png_files:
         # Calculate relative path from local directory
         relative_path = file_path.relative_to(local_dir)
         s3_key = f"{s3_prefix}{relative_path}"
-        upload_tasks.append((file_path, s3_key))
+        
+        if not delete_existing and s3_key in existing_s3_keys:
+            local_skipped_count += 1
+        else:
+            upload_tasks.append((file_path, s3_key))
+    
+    print(f"📤 Files to upload: {len(upload_tasks)}")
+    print(f"⏭️  Files to skip (already exist): {local_skipped_count}")
+    
+    if not upload_tasks:
+        print(f"ℹ️  All files already exist in S3, nothing to upload")
+        with progress_lock:
+            global skipped_count
+            skipped_count += local_skipped_count
+        return True
+    
+    # Update global skipped count
+    with progress_lock:
+        skipped_count += local_skipped_count
     
     # Upload files in parallel
     successful_uploads = 0
     failed_uploads = 0
     
-    with ThreadPoolExecutor(max_workers=20) as executor:
+    with ThreadPoolExecutor(max_workers=5) as executor:  # Reduced for memory efficiency
         # Submit all upload tasks
         future_to_task = {
             executor.submit(upload_file_to_s3, s3_client, file_path, s3_key): (file_path, s3_key)
@@ -192,13 +242,34 @@ def upload_directory_to_s3(s3_client, local_dir: Path, s3_prefix: str):
     print(f"✅ Upload complete for {local_dir}")
     print(f"   Success: {successful_uploads}")
     print(f"   Failed: {failed_uploads}")
+    print(f"   Skipped: {local_skipped_count}")
     
     return failed_uploads == 0
 
 def main():
     """Main upload function"""
+    global delete_existing
+    
     print("🚀 Andhra Pradesh Master Plan Tiles S3 Upload")
     print("=" * 50)
+    
+    try:
+        # Ask user whether to delete existing files
+        while True:
+            delete_choice = input("\nDo you want to delete existing files in S3 before upload? (y/n): ").lower().strip()
+            if delete_choice in ['y', 'yes']:
+                delete_existing = True
+                print("Will delete existing files before upload")
+                break
+            elif delete_choice in ['n', 'no']:
+                delete_existing = False
+                print("Will skip existing files and upload only missing ones")
+                break
+            else:
+                print("Please enter 'y' for yes or 'n' for no")
+    except KeyboardInterrupt:
+        print("\n⚠️  Upload cancelled by user")
+        return False
     
     # Get S3 client
     s3_client = get_s3_client()
@@ -232,18 +303,23 @@ def main():
     print("📊 Upload Summary")
     print("=" * 50)
     print(f"⏱️  Total time: {duration:.2f} seconds")
-    print(f"📁 Total files processed: {uploaded_count}")
+    print(f"📁 Total files uploaded: {uploaded_count}")
+    print(f"⏭️  Total files skipped: {skipped_count}")
     
     if all_success:
         print("✅ All uploads completed successfully!")
         print("\n🌐 Your tiles are now available at:")
         for local_dir_name, s3_prefix in UPLOAD_MAPPINGS.items():
-            print(f"   {s3_prefix} -> s3://{S3_BUCKET}/{s3_prefix}")
+            print(f"   {s3_prefix} -> s3://{S3_BUCKET:,}/{s3_prefix}")
     else:
         print("❌ Some uploads failed. Check the logs above.")
     
     return all_success
 
 if __name__ == "__main__":
-    success = main()
-    exit(0 if success else 1)
+    try:
+        success = main()
+        exit(0 if success else 1)
+    except KeyboardInterrupt:
+        print("\n⚠️  Upload cancelled by user")
+        exit(0)

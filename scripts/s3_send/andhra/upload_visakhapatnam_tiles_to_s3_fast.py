@@ -19,10 +19,11 @@ django.setup()
 
 from django.conf import settings
 
-# Configure logging
+# Configure enhanced logging
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
+    format='%(asctime)s | %(levelname)-8s | %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
 )
 logger = logging.getLogger(__name__)
 
@@ -31,10 +32,11 @@ class FastVisakhapatnamTilesUploader:
     Fast uploader for Visakhapatnam master plan tiles to S3
     """
     
-    def __init__(self):
+    def __init__(self, delete_existing=True):
         self.s3_client = self.get_s3_client()
         self.s3_bucket = 'gis-portal-layers'
         self.s3_region = 'ap-south-1'
+        self.delete_existing = delete_existing
         
         # Local tile directory and S3 mapping
         self.local_dir = 'visakhapatnam_master_plan_tiles'
@@ -45,6 +47,7 @@ class FastVisakhapatnamTilesUploader:
         logger.info(f"S3 Region: {self.s3_region}")
         logger.info(f"Local Directory: {self.local_dir}")
         logger.info(f"S3 Prefix: {self.s3_prefix}")
+        logger.info(f"Delete existing files: {self.delete_existing}")
     
     def get_s3_client(self):
         """Get S3 client with proper credentials"""
@@ -56,12 +59,33 @@ class FastVisakhapatnamTilesUploader:
                 region_name=settings.AWS_S3_REGION_NAME
             )
         except Exception as e:
-            logger.error(f"Error creating S3 client: {e}")
+            logger.error(f"❌ Error creating S3 client: {e}")
             raise
     
+    def get_existing_s3_objects(self, prefix):
+        """Get set of existing S3 object keys under a prefix"""
+        logger.info(f"🔍 Checking existing objects under prefix: {prefix}")
+        
+        try:
+            existing_keys = set()
+            paginator = self.s3_client.get_paginator('list_objects_v2')
+            pages = paginator.paginate(Bucket=self.s3_bucket, Prefix=prefix)
+
+            for page in pages:
+                if 'Contents' in page:
+                    for obj in page['Contents']:
+                        existing_keys.add(obj['Key'])
+
+            logger.info(f"📊 Found {len(existing_keys)} existing objects under prefix: {prefix}")
+            return existing_keys
+
+        except Exception as e:
+            logger.error(f"❌ Error listing existing objects under prefix {prefix}: {e}")
+            return set()
+
     def delete_s3_prefix(self, prefix):
         """Delete all objects under a given S3 prefix"""
-        logger.info(f"Deleting existing objects under prefix: {prefix}")
+        logger.info(f"🗑️  Deleting existing objects under prefix: {prefix}")
         
         try:
             # List all objects with the prefix
@@ -87,12 +111,12 @@ class FastVisakhapatnamTilesUploader:
                     deleted_count = len(response.get('Deleted', []))
                     logger.info(f"Deleted {deleted_count} objects from batch {i//batch_size + 1}")
                 
-                logger.info(f"Successfully deleted {len(objects_to_delete)} objects under prefix: {prefix}")
+                logger.info(f"✅ Successfully deleted {len(objects_to_delete)} objects under prefix: {prefix}")
             else:
                 logger.info(f"No existing objects found under prefix: {prefix}")
                 
         except ClientError as e:
-            logger.error(f"Error deleting objects under prefix {prefix}: {e}")
+            logger.error(f"❌ Error deleting objects under prefix {prefix}: {e}")
             raise
     
     def upload_file_to_s3(self, local_path, s3_key):
@@ -109,7 +133,7 @@ class FastVisakhapatnamTilesUploader:
             )
             return True
         except Exception as e:
-            logger.error(f"Error uploading {local_path} to {s3_key}: {e}")
+            logger.error(f"❌ Error uploading {local_path} to {s3_key}: {e}")
             return False
     
     def upload_tiles_to_s3(self):
@@ -120,25 +144,51 @@ class FastVisakhapatnamTilesUploader:
             logger.error(f"Local directory does not exist: {local_path}")
             return 0
         
-        # Delete existing objects under this prefix
-        self.delete_s3_prefix(self.s3_prefix)
+        # Handle existing files based on delete_existing flag
+        existing_s3_keys = set()
+        if self.delete_existing:
+            # Delete existing objects under this prefix
+            self.delete_s3_prefix(self.s3_prefix)
+        else:
+            # Get existing S3 objects to skip them
+            existing_s3_keys = self.get_existing_s3_objects(self.s3_prefix)
         
         # Find all PNG files in the directory
         png_files = list(local_path.rglob("*.png"))
-        logger.info(f"Found {len(png_files)} PNG files in {self.local_dir}")
+        logger.info(f"📊 Found {len(png_files)} PNG files in {self.local_dir}")
         
         if not png_files:
-            logger.warning(f"No PNG files found in {self.local_dir}")
+            logger.warning(f"⚠️  No PNG files found in {self.local_dir}")
+            return 0
+        
+        # Filter out files that already exist in S3 (if not deleting)
+        files_to_upload = []
+        skipped_count = 0
+        
+        for png_file in png_files:
+            relative_path = png_file.relative_to(local_path)
+            s3_key = f"{self.s3_prefix}/{relative_path}"
+            
+            if not self.delete_existing and s3_key in existing_s3_keys:
+                skipped_count += 1
+            else:
+                files_to_upload.append(png_file)
+        
+        logger.info(f"📤 Files to upload: {len(files_to_upload)}")
+        logger.info(f"⏭️  Files to skip (already exist): {skipped_count}")
+        
+        if not files_to_upload:
+            logger.info("All files already exist in S3, nothing to upload")
             return 0
         
         # Upload files using ThreadPoolExecutor for parallel processing
         uploaded_count = 0
         failed_count = 0
         
-        with ThreadPoolExecutor(max_workers=10) as executor:
-            # Submit upload tasks
+        with ThreadPoolExecutor(max_workers=5) as executor:
+            # Submit upload tasks for files that need to be uploaded
             future_to_file = {}
-            for png_file in png_files:
+            for png_file in files_to_upload:
                 # Calculate S3 key
                 relative_path = png_file.relative_to(local_path)
                 s3_key = f"{self.s3_prefix}/{relative_path}"
@@ -158,10 +208,10 @@ class FastVisakhapatnamTilesUploader:
                     else:
                         failed_count += 1
                 except Exception as e:
-                    logger.error(f"Error uploading {file_path}: {e}")
+                    logger.error(f"❌ Error uploading {file_path}: {e}")
                     failed_count += 1
         
-        logger.info(f"Completed upload for {self.local_dir}: {uploaded_count} successful, {failed_count} failed")
+        logger.info(f"Completed upload for {self.local_dir}: {uploaded_count} successful, {failed_count} failed, {skipped_count} skipped")
         return uploaded_count
 
 def main():
@@ -169,7 +219,21 @@ def main():
     logger.info("Starting Visakhapatnam tiles upload to S3")
     
     try:
-        uploader = FastVisakhapatnamTilesUploader()
+        # Ask user whether to delete existing files
+        while True:
+            delete_choice = input("\nDo you want to delete existing files in S3 before upload? (y/n): ").lower().strip()
+            if delete_choice in ['y', 'yes']:
+                delete_existing = True
+                logger.info("Will delete existing files before upload")
+                break
+            elif delete_choice in ['n', 'no']:
+                delete_existing = False
+                logger.info("Will skip existing files and upload only missing ones")
+                break
+            else:
+                print("Please enter 'y' for yes or 'n' for no")
+
+        uploader = FastVisakhapatnamTilesUploader(delete_existing=delete_existing)
         uploaded_count = uploader.upload_tiles_to_s3()
         
         logger.info(f"\n{'='*60}")
@@ -179,10 +243,13 @@ def main():
         logger.info(f"CloudFront URL: https://d17yosovmfjm4.cloudfront.net/{uploader.s3_prefix}/")
         logger.info(f"{'='*60}")
         
-        logger.info(f"Visakhapatnam tiles upload completed! Total files: {uploaded_count}")
+        logger.info(f"🎉 Visakhapatnam tiles upload completed! Total files: {uploaded_count}")
         
+    except KeyboardInterrupt:
+        logger.info("Upload cancelled by user")
+        sys.exit(0)
     except Exception as e:
-        logger.error(f"Error during upload: {e}")
+        logger.error(f"❌ Error during upload: {e}")
         sys.exit(1)
 
 if __name__ == "__main__":

@@ -242,7 +242,7 @@ class NelamangalaMasterplanTileGenerator:
                 "nelamangala-masterplan": {
                     "type": "raster",
                     "tiles": [
-                        "https://d17yosovmfjm4.cloudfront.net/karnataka/bmrda/nelamangala_masterplan/{z}/{x}/{y}.png"
+                        "https://d17yosovmfjm4.cloudfront.net/karnataka/bengaluru/bengaluru_nelamangala_masterplan/{z}/{x}/{y}.png"
                     ],
                     "tileSize": 256
                 }
@@ -274,7 +274,7 @@ class NelamangalaMasterplanTileGenerator:
             "legend": "",
             "scheme": "xyz",
             "tiles": [
-                "https://d17yosovmfjm4.cloudfront.net/karnataka/bmrda/nelamangala_masterplan/{z}/{x}/{y}.png"
+                "https://d17yosovmfjm4.cloudfront.net/karnataka/bengaluru/bengaluru_nelamangala_masterplan/{z}/{x}/{y}.png"
             ],
             "grids": [],
             "data": [],
@@ -322,7 +322,7 @@ class NelamangalaMasterplanTileGenerator:
                     "nelamangala-masterplan": {{
                         "type": "raster",
                         "tiles": [
-                            "https://d17yosovmfjm4.cloudfront.net/karnataka/bmrda/nelamangala_masterplan/{{z}}/{{x}}/{{y}}.png"
+                            "https://d17yosovmfjm4.cloudfront.net/karnataka/bengaluru/bengaluru_nelamangala_masterplan/{{z}}/{{x}}/{{y}}.png"
                         ],
                         "tileSize": 256
                     }}
