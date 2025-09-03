@@ -135,59 +135,264 @@ class GeoFeatureViewSet(viewsets.ReadOnlyModelViewSet):
 
 @extend_schema_view(
     get=extend_schema(
-        summary="Search coordinates across all states and cities",
-        description="Find which state, city, layer, and feature a given coordinate belongs to, including detailed category information",
-        tags=['coordinates'],
+        summary="Search for data at specific coordinates",
+        description="""
+        Enhanced coordinate search API that finds which state, city, layer, and feature a coordinate belongs to.
+        
+        **Features:**
+        - Search within a specific city or across all cities
+        - Find exact matches (features containing the point)
+        - Find nearby features within a specified radius
+        - Get administrative boundary information
+        - Comprehensive feature details including area, category, and styling
+        
+        **Use Cases:**
+        - Interactive map click queries
+        - Address validation and geocoding
+        - Land use analysis at specific locations
+        - Administrative boundary queries
+        """,
         parameters=[
-            OpenApiParameter(name='lat', location=OpenApiParameter.QUERY, required=True, type=float, description='Latitude coordinate'),
-            OpenApiParameter(name='lng', location=OpenApiParameter.QUERY, required=True, type=float, description='Longitude coordinate'),
-            OpenApiParameter(name='city_slug', location=OpenApiParameter.PATH, required=False, type=str, description='Optional: Limit search to specific city'),
+            OpenApiParameter(
+                name='lat',
+                location=OpenApiParameter.QUERY,
+                description='Latitude coordinate (required)',
+                required=True,
+                type=float,
+                examples=[
+                    OpenApiExample(
+                        'Bengaluru Example',
+                        value=12.9716,
+                        description='Bengaluru city center'
+                    ),
+                    OpenApiExample(
+                        'Hyderabad Example',
+                        value=17.3850,
+                        description='Hyderabad city center'
+                    )
+                ]
+            ),
+            OpenApiParameter(
+                name='lng',
+                location=OpenApiParameter.QUERY,
+                description='Longitude coordinate (required)',
+                required=True,
+                type=float,
+                examples=[
+                    OpenApiExample(
+                        'Bengaluru Example',
+                        value=77.5946,
+                        description='Bengaluru city center'
+                    ),
+                    OpenApiExample(
+                        'Hyderabad Example',
+                        value=78.4867,
+                        description='Hyderabad city center'
+                    )
+                ]
+            ),
+            OpenApiParameter(
+                name='radius',
+                location=OpenApiParameter.QUERY,
+                description='Search radius in meters for nearby features (optional)',
+                required=False,
+                type=float,
+                default=100,
+                examples=[
+                    OpenApiExample(
+                        'Small radius',
+                        value=50,
+                        description='50 meters - very local search'
+                    ),
+                    OpenApiExample(
+                        'Medium radius',
+                        value=200,
+                        description='200 meters - neighborhood search'
+                    ),
+                    OpenApiExample(
+                        'Large radius',
+                        value=1000,
+                        description='1 kilometer - city-wide search'
+                    )
+                ]
+            )
         ],
         responses={
-            200: {
-                'description': 'Coordinate search results',
-                'examples': [
-                    {
-                        'application/json': {
-                            'search_point': {
-                                'latitude': 12.9716,
-                                'longitude': 77.5946
+            200: extend_schema(
+                description="Successful search with data found",
+                examples=[
+                    OpenApiExample(
+                        'Exact Match Found',
+                        value={
+                            "search_point": {
+                                "latitude": 12.9716,
+                                "longitude": 77.5946,
+                                "coordinates": [77.5946, 12.9716],
+                                "wkt": "POINT(77.5946 12.9716)"
                             },
-                            'found': True,
-                            'state': {
-                                'slug': 'karnataka',
-                                'name': 'Karnataka'
+                            "found": True,
+                            "state": {
+                                "slug": "karnataka",
+                                "name": "Karnataka",
+                                "code": "KA"
                             },
-                            'city': {
-                                'slug': 'bengaluru',
-                                'name': 'Bangalore'
+                            "city": {
+                                "slug": "bengaluru",
+                                "name": "Bengaluru",
+                                "center_lat": 12.9716,
+                                "center_lng": 77.5946,
+                                "min_zoom": 8,
+                                "max_zoom": 18
                             },
-                            'features': [
+                            "features": [
                                 {
-                                    'feature_id': 12345,
-                                    'feature_name': 'Commercial Zone A',
-                                    'layer_slug': 'bengaluru_master_plan',
-                                    'layer_name': 'Master Plan',
-                                    'category': 'COMMERCIAL',
-                                    'category_name': 'Commercial',
-                                    'land_use': 'Commercial',
-                                    'plu_code': 'C1',
-                                    'area': 12500.5,
-                                    'color': '#FF0000'
+                                    "feature_id": 123,
+                                    "feature_name": "Commercial Zone A",
+                                    "layer_slug": "bengaluru_commercial",
+                                    "layer_name": "Commercial Zones",
+                                    "category": "COMMERCIAL",
+                                    "category_name": "Commercial",
+                                    "color": "#FF0000",
+                                    "area": {
+                                        "square_meters": 5000.0,
+                                        "square_kilometers": 0.005,
+                                        "acres": 1.24
+                                    },
+                                    "zone_category": "Commercial",
+                                    "plu_code": "C1",
+                                    "plu_name": "General Commercial"
                                 }
                             ],
-                            'summary': 'Location is within Bangalore Master Plan: Commercial Zone A'
+                            "nearby_features": [],
+                            "administrative_boundaries": {
+                                "city_boundary": {
+                                    "has_boundary": True,
+                                    "area_sq_km": 741.0
+                                }
+                            },
+                            "summary": "Location is within Commercial Zones: Commercial Zone A (Commercial)",
+                            "search_scope": "city_specific",
+                            "search_radius_meters": 100,
+                            "status": "success",
+                            "metadata": {
+                                "search_timestamp": "2024-01-15T10:30:00Z",
+                                "search_radius_meters": 100,
+                                "total_features_found": 1,
+                                "total_nearby_features": 0,
+                                "api_version": "2.0"
+                            }
                         }
-                    }
+                    ),
+                    OpenApiExample(
+                        'No Exact Match - Nearby Features Found',
+                        value={
+                            "search_point": {
+                                "latitude": 12.9716,
+                                "longitude": 77.5946,
+                                "coordinates": [77.5946, 12.9716],
+                                "wkt": "POINT(77.5946 12.9716)"
+                            },
+                            "found": False,
+                            "state": {
+                                "slug": "karnataka",
+                                "name": "Karnataka",
+                                "code": "KA"
+                            },
+                            "city": {
+                                "slug": "bengaluru",
+                                "name": "Bengaluru",
+                                "center_lat": 12.9716,
+                                "center_lng": 77.5946,
+                                "min_zoom": 8,
+                                "max_zoom": 18
+                            },
+                            "features": [],
+                            "nearby_features": [
+                                {
+                                    "feature_id": 124,
+                                    "feature_name": "Residential Zone B",
+                                    "layer_slug": "bengaluru_residential",
+                                    "layer_name": "Residential Zones",
+                                    "category": "RESIDENTIAL",
+                                    "category_name": "Residential",
+                                    "color": "#00FF00",
+                                    "area": {
+                                        "square_meters": 3000.0,
+                                        "square_kilometers": 0.003,
+                                        "acres": 0.74
+                                    },
+                                    "distance_meters": 45.2
+                                }
+                            ],
+                            "administrative_boundaries": {},
+                            "summary": "No exact match. Nearest feature is Residential Zones (45.2m away)",
+                            "search_scope": "city_specific",
+                            "search_radius_meters": 100,
+                            "status": "no_data_found",
+                            "metadata": {
+                                "search_timestamp": "2024-01-15T10:30:00Z",
+                                "search_radius_meters": 100,
+                                "total_features_found": 0,
+                                "total_nearby_features": 1,
+                                "api_version": "2.0"
+                            }
+                        }
+                    )
                 ]
-            },
-            400: {
-                'description': 'Invalid coordinates or parameters'
-            },
-            404: {
-                'description': 'No features found at the given coordinates'
-            }
-        }
+            ),
+            400: extend_schema(
+                description="Bad request - missing or invalid parameters",
+                examples=[
+                    OpenApiExample(
+                        'Missing Coordinates',
+                        value={
+                            "error": "Missing coordinates",
+                            "message": "Please provide lat and lng parameters",
+                            "example": "/api/cities/bengaluru/search-coords-test/?lat=12.9716&lng=77.5946&radius=200",
+                            "parameters": {
+                                "lat": "Latitude (required)",
+                                "lng": "Longitude (required)",
+                                "radius": "Search radius in meters (optional, default: 100)"
+                            }
+                        }
+                    ),
+                    OpenApiExample(
+                        'Invalid Coordinates',
+                        value={
+                            "error": "Invalid coordinates",
+                            "message": "Latitude must be between -90 and 90, longitude between -180 and 180"
+                        }
+                    )
+                ]
+            ),
+            404: extend_schema(
+                description="No data found at coordinates",
+                examples=[
+                    OpenApiExample(
+                        'City Not Found',
+                        value={
+                            "error": "City not found: invalid_city",
+                            "city": "invalid_city",
+                            "timestamp": "2024-01-15T10:30:00Z"
+                        }
+                    )
+                ]
+            ),
+            500: extend_schema(
+                description="Internal server error",
+                examples=[
+                    OpenApiExample(
+                        'Server Error',
+                        value={
+                            "error": "Failed to search coordinates",
+                            "message": "Database connection error",
+                            "timestamp": "2024-01-15T10:30:00Z"
+                        }
+                    )
+                ]
+            )
+        },
+        tags=['coordinate-search']
     )
 )
 class CoordinateSearchTestView(APIView):
@@ -204,6 +409,8 @@ class CoordinateSearchTestView(APIView):
     - Layer details
     - Feature information (name, category, land use, etc.)
     - Geographic properties (area, color, etc.)
+    - Administrative boundaries
+    - Nearby features
     """
     permission_classes = [AllowAny]
     
@@ -212,21 +419,28 @@ class CoordinateSearchTestView(APIView):
             # Get coordinates from query parameters
             lat = request.GET.get('lat')
             lng = request.GET.get('lng')
+            radius = request.GET.get('radius', '100')  # Default 100m radius for nearby search
             
             if not lat or not lng:
                 return Response({
                     'error': 'Missing coordinates',
                     'message': 'Please provide lat and lng parameters',
-                    'example': f'/api/cities/{city_slug or "any"}/search-coords-test/?lat=12.9716&lng=77.5946'
+                    'example': f'/api/cities/{city_slug or "any"}/search-coords-test/?lat=12.9716&lng=77.5946&radius=200',
+                    'parameters': {
+                        'lat': 'Latitude (required)',
+                        'lng': 'Longitude (required)',
+                        'radius': 'Search radius in meters (optional, default: 100)'
+                    }
                 }, status=400)
             
             try:
                 latitude = float(lat)
                 longitude = float(lng)
+                radius_meters = float(radius)
             except ValueError:
                 return Response({
-                    'error': 'Invalid coordinate format',
-                    'message': 'Coordinates must be valid numbers'
+                    'error': 'Invalid parameter format',
+                    'message': 'Coordinates and radius must be valid numbers'
                 }, status=400)
             
             # Validate coordinate ranges
@@ -236,16 +450,32 @@ class CoordinateSearchTestView(APIView):
                     'message': 'Latitude must be between -90 and 90, longitude between -180 and 180'
                 }, status=400)
             
+            # Validate radius
+            if radius_meters <= 0 or radius_meters > 10000:
+                return Response({
+                    'error': 'Invalid radius',
+                    'message': 'Radius must be between 0 and 10,000 meters'
+                }, status=400)
+            
             # Create point geometry
             search_point = Point(longitude, latitude, srid=4326)
             
             # Search for features
             if city_slug:
                 # Search within specific city
-                result = self._search_in_city(city_slug, search_point, latitude, longitude)
+                result = self._search_in_city(city_slug, search_point, latitude, longitude, radius_meters)
             else:
                 # Search across all states and cities
-                result = self._search_across_all_cities(search_point, latitude, longitude)
+                result = self._search_across_all_cities(search_point, latitude, longitude, radius_meters)
+            
+            # Add metadata to response
+            result['metadata'] = {
+                'search_timestamp': timezone.now().isoformat(),
+                'search_radius_meters': radius_meters,
+                'total_features_found': len(result.get('features', [])),
+                'total_nearby_features': len(result.get('nearby_features', [])),
+                'api_version': '2.0'
+            }
             
             return Response(result)
             
@@ -253,10 +483,11 @@ class CoordinateSearchTestView(APIView):
             logger.error(f"Error in CoordinateSearchTestView: {e}")
             return Response({
                 'error': 'Failed to search coordinates',
-                'message': str(e)
+                'message': str(e),
+                'timestamp': timezone.now().isoformat()
             }, status=500)
     
-    def _search_in_city(self, city_slug, search_point, latitude, longitude):
+    def _search_in_city(self, city_slug, search_point, latitude, longitude, radius_meters):
         """Search for features within a specific city"""
         try:
             city = get_object_or_404(City, slug=city_slug, is_active=True)
@@ -264,45 +495,57 @@ class CoordinateSearchTestView(APIView):
             # Find containing features
             containing_features = self._find_containing_features(city, search_point)
             
-            # Find nearby features if no exact match
-            nearby_features = []
-            if not containing_features:
-                nearby_features = self._find_nearby_features(city, search_point, radius_meters=100)
+            # Find nearby features if no exact match or for additional context
+            nearby_features = self._find_nearby_features(city, search_point, radius_meters)
+            
+            # Get administrative boundaries
+            admin_boundaries = self._get_administrative_boundaries(city, search_point)
             
             # Build response
             response_data = {
                 'search_point': {
                     'latitude': latitude,
                     'longitude': longitude,
-                    'coordinates': [longitude, latitude]
+                    'coordinates': [longitude, latitude],
+                    'wkt': f'POINT({longitude} {latitude})'
                 },
                 'found': len(containing_features) > 0,
                 'state': {
                     'slug': city.state_ref.slug,
-                    'name': city.state_ref.name
+                    'name': city.state_ref.name,
+                    'code': city.state_ref.code
                 },
                 'city': {
                     'slug': city_slug,
-                    'name': city.name
+                    'name': city.name,
+                    'center_lat': city.center_lat,
+                    'center_lng': city.center_lng,
+                    'min_zoom': city.min_zoom,
+                    'max_zoom': city.max_zoom
                 },
                 'features': containing_features,
-                'nearby_features': nearby_features[:5] if nearby_features else [],
+                'nearby_features': nearby_features[:10] if nearby_features else [],
+                'administrative_boundaries': admin_boundaries,
                 'summary': self._create_search_summary(containing_features, nearby_features),
-                'search_scope': 'city_specific'
+                'search_scope': 'city_specific',
+                'search_radius_meters': radius_meters
             }
             
             if not containing_features and not nearby_features:
+                response_data['status'] = 'no_data_found'
                 return Response(response_data, status=404)
             
+            response_data['status'] = 'success'
             return response_data
             
         except City.DoesNotExist:
             return Response({
                 'error': f'City not found: {city_slug}',
-                'city': city_slug
+                'city': city_slug,
+                'timestamp': timezone.now().isoformat()
             }, status=404)
     
-    def _search_across_all_cities(self, search_point, latitude, longitude):
+    def _search_across_all_cities(self, search_point, latitude, longitude, radius_meters):
         """Search for features across all states and cities"""
         try:
             # Find all features that contain the point
@@ -321,19 +564,22 @@ class CoordinateSearchTestView(APIView):
             
             if not features.exists():
                 # Try nearby search across all cities
-                nearby_features = self._find_nearby_across_all_cities(search_point)
+                nearby_features = self._find_nearby_across_all_cities(search_point, radius_meters)
                 
                 return {
                     'search_point': {
                         'latitude': latitude,
                         'longitude': longitude,
-                        'coordinates': [longitude, latitude]
+                        'coordinates': [longitude, latitude],
+                        'wkt': f'POINT({longitude} {latitude})'
                     },
                     'found': False,
                     'features': [],
-                    'nearby_features': nearby_features[:10],
+                    'nearby_features': nearby_features[:15],
                     'summary': 'No features found at this location',
-                    'search_scope': 'global'
+                    'search_scope': 'global',
+                    'search_radius_meters': radius_meters,
+                    'status': 'no_exact_match'
                 }
             
             # Get the primary feature (largest by area)
@@ -347,33 +593,90 @@ class CoordinateSearchTestView(APIView):
                 feature_data = self._process_feature_data(feature)
                 containing_features.append(feature_data)
             
+            # Get administrative boundaries
+            admin_boundaries = self._get_administrative_boundaries(city, search_point)
+            
             return {
                 'search_point': {
                     'latitude': latitude,
                     'longitude': longitude,
-                    'coordinates': [longitude, latitude]
+                    'coordinates': [longitude, latitude],
+                    'wkt': f'POINT({longitude} {latitude})'
                 },
                 'found': True,
                 'state': {
                     'slug': state.slug,
-                    'name': state.name
+                    'name': state.name,
+                    'code': state.code
                 },
                 'city': {
                     'slug': city.slug,
-                    'name': city.name
+                    'name': city.name,
+                    'center_lat': city.center_lat,
+                    'center_lng': city.center_lng,
+                    'min_zoom': city.min_zoom,
+                    'max_zoom': city.max_zoom
                 },
                 'features': containing_features,
                 'nearby_features': [],
+                'administrative_boundaries': admin_boundaries,
                 'summary': self._create_search_summary(containing_features, []),
-                'search_scope': 'global'
+                'search_scope': 'global',
+                'search_radius_meters': radius_meters,
+                'status': 'success'
             }
             
         except Exception as e:
             logger.error(f"Error in global search: {e}")
             return Response({
                 'error': 'Failed to search across all cities',
-                'message': str(e)
+                'message': str(e),
+                'timestamp': timezone.now().isoformat()
             }, status=500)
+    
+    def _get_administrative_boundaries(self, city, search_point):
+        """Get administrative boundary information for the search point"""
+        try:
+            admin_info = {}
+            
+            # Get city boundaries if available
+            if hasattr(city, 'boundary') and city.boundary:
+                admin_info['city_boundary'] = {
+                    'has_boundary': True,
+                    'area_sq_km': round(city.boundary.area * 111 * 111, 2) if city.boundary.area else None
+                }
+            
+            # Get state boundaries if available
+            if hasattr(city.state_ref, 'boundary') and city.state_ref.boundary:
+                admin_info['state_boundary'] = {
+                    'has_boundary': True,
+                    'area_sq_km': round(city.state_ref.boundary.area * 111 * 111, 2) if city.state_ref.boundary.area else None
+                }
+            
+            # Get nearby administrative features
+            nearby_admin_features = GeoFeature.objects.filter(
+                layer__city=city,
+                layer__is_processed=True,
+                is_valid=True,
+                zone_category__icontains='boundary'
+            ).filter(
+                geometry__intersects=search_point.buffer(0.001)  # ~100m buffer
+            )[:5]
+            
+            if nearby_admin_features.exists():
+                admin_info['nearby_boundaries'] = []
+                for feature in nearby_admin_features:
+                    admin_info['nearby_boundaries'].append({
+                        'name': feature.name or feature.zone_category,
+                        'layer': feature.layer.name,
+                        'distance_meters': round(search_point.distance(feature.geometry.centroid) * 111000, 1)
+                    })
+            
+            return admin_info
+            
+        except Exception as e:
+            logger.error(f"Error getting administrative boundaries: {e}")
+            return {'error': str(e)}
     
     def _find_containing_features(self, city, point):
         """Find all features that contain the search point"""
@@ -463,11 +766,14 @@ class CoordinateSearchTestView(APIView):
                 feature_data['distance_meters'] = round(distance, 1)
                 feature_data['state'] = {
                     'slug': feature.layer.city.state_ref.slug,
-                    'name': feature.layer.city.state_ref.name
+                    'name': feature.layer.city.state_ref.name,
+                    'code': feature.layer.city.state_ref.code
                 }
                 feature_data['city'] = {
                     'slug': feature.layer.city.slug,
-                    'name': feature.layer.city.name
+                    'name': feature.layer.city.name,
+                    'center_lat': feature.layer.city.center_lat,
+                    'center_lng': feature.layer.city.center_lng
                 }
                 
                 nearby_features.append(feature_data)
@@ -490,22 +796,37 @@ class CoordinateSearchTestView(APIView):
             # Get detailed category information
             category_info = self._get_detailed_category_info(feature)
             
+            # Calculate area in different units
+            area_sq_m = float(feature.area) if feature.area else 0.0
+            area_sq_km = round(area_sq_m * 111 * 111, 6) if area_sq_m else 0.0
+            area_acres = round(area_sq_m * 0.000247105, 4) if area_sq_m else 0.0
+            
             feature_data = {
                 'feature_id': feature.id,
                 'feature_name': feature.name or 'Unnamed',
                 'layer_slug': feature.layer.slug,
                 'layer_name': feature.layer.name,
+                'layer_description': feature.layer.description or '',
                 'category': feature.layer.category.code if feature.layer.category else 'UNKNOWN',
                 'category_name': feature.layer.category.name if feature.layer.category else 'Unknown',
+                'category_description': feature.layer.category.description if feature.layer.category else '',
                 'color': layer_color,
-                'area': float(feature.area) if feature.area else 0.0,
+                'area': {
+                    'square_meters': area_sq_m,
+                    'square_kilometers': area_sq_km,
+                    'acres': area_acres
+                },
                 'zone_category': feature.zone_category or '',
                 'zone_subcategory': feature.zone_subcategory or '',
                 'plu_code': feature.plu_primary_code or '',
                 'plu_name': feature.plu_secondary_1 or '',
                 'plot_category': feature.plot_category or '',
                 'symbology': feature.symbology or '',
-                'detailed_category': category_info
+                'detailed_category': category_info,
+                'geometry_type': feature.geometry.geom_type if feature.geometry else None,
+                'is_valid': feature.is_valid,
+                'created_at': feature.created_at.isoformat() if feature.created_at else None,
+                'updated_at': feature.updated_at.isoformat() if feature.updated_at else None
             }
             
             return feature_data
@@ -520,7 +841,7 @@ class CoordinateSearchTestView(APIView):
                 'category': 'ERROR',
                 'category_name': 'Error',
                 'color': '#FF0000',
-                'area': 0.0,
+                'area': {'square_meters': 0.0, 'square_kilometers': 0.0, 'acres': 0.0},
                 'error': str(e)
             }
     
@@ -533,7 +854,9 @@ class CoordinateSearchTestView(APIView):
             category_info['layer_category'] = {
                 'code': feature.layer.category.code,
                 'name': feature.layer.category.name,
-                'description': feature.layer.category.description or ''
+                'description': feature.layer.category.description or '',
+                'default_color': feature.layer.category.default_color or '#666666',
+                'default_opacity': feature.layer.category.default_opacity or 0.8
             }
         
         # Zone information
