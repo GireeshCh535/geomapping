@@ -40,9 +40,9 @@ class FastKarnatakaBMRDATilesUploader:
         
         # Local tile directories and their S3 mappings
         self.folder_mappings = {
-            'anekal_masterplan_tiles': 'karnataka/bengaluru/bengaluru_anekal_masterplan',
-            'hosakote_masterplan_tiles': 'karnataka/bengaluru/bengaluru_hosakote_masterplan',
-            'chikkaballapura_masterplan_tiles': 'karnataka/bengaluru/bengaluru_chikkaballapura_masterplan',
+            # 'anekal_masterplan_tiles': 'karnataka/bengaluru/bengaluru_anekal_masterplan',
+            # 'hosakote_masterplan_tiles': 'karnataka/bengaluru/bengaluru_hosakote_masterplan',
+            # 'chikkaballapura_masterplan_tiles': 'karnataka/bengaluru/bengaluru_chikkaballapura_masterplan',
             'nelamangala_masterplan_tiles': 'karnataka/bengaluru/bengaluru_nelamangala_masterplan'
         }
         

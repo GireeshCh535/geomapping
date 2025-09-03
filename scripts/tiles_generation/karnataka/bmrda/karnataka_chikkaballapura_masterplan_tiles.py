@@ -359,7 +359,7 @@ def main():
     generator = ChikkaballapuraMasterplanTileGenerator()
     
     # Generate tiles with higher zoom levels for better quality
-    generator.generate_tiles(min_zoom=8, max_zoom=16)
+    generator.generate_tiles(min_zoom=17, max_zoom=18)
     
     logger.info("Chikkaballapura Masterplan tile generation completed!")
 

@@ -3,7 +3,7 @@ import rasterio
 import numpy as np
 
 # Open the GeoTIFF file
-with rasterio.open('data/karnataka/BMRDA/Nelamangala Masterplan/Nelamangala_Sompura_Merged.tif') as src:
+with rasterio.open('data/karnataka/BMRDA/Nelamangala Masterplan/Nelamangala_Sompura_Clipped.tif') as src:
     print(f"Number of bands: {src.count}")
     print(f"Color interpretation: {src.colorinterp}")
     print(f"Data shape: {src.shape}")

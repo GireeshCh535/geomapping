@@ -3,6 +3,13 @@
 Script to upload Hyderabad tiles from local folders to S3
 Maps local folders to S3 paths and handles deletion/overwrite of existing files
 OPTIMIZED FOR FAST UPLOADS with parallel processing
+
+SUPPORTED TILE TYPES:
+- hyderabad_highways_tiles → telangana/hyderabad/hyderabad_highways
+- rrr_tiles → telangana/hyderabad/hyderabad_rrr
+
+LOCATIONS:
+- Root-level directories: hyderabad_highways_tiles, rrr_tiles
 """
 
 import os
@@ -36,7 +43,7 @@ class FastHyderabadTilesUploader:
     Fast upload Hyderabad tiles from local folders to S3 with parallel processing
     """
     
-    def __init__(self, max_workers=20, delete_existing=True):
+    def __init__(self, max_workers=20, delete_existing=False):
         # S3 Configuration with optimized settings
         self.bucket_name = 'gis-portal-layers'
         self.region = 'ap-south-1'
@@ -62,14 +69,14 @@ class FastHyderabadTilesUploader:
         )
         
         # Base local path
-        self.local_base_path = Path('data/Hyderabad_generate_tiles')
+        self.local_base_paths = [Path('.')]  # For root-level directories like hyderabad_highways_tiles, rrr_tiles
         
         # Mapping configuration
+        # Maps local folder names to S3 prefixes
+        # Only these 2 tile sets are configured for upload
         self.folder_mappings = {
-            'highways': 'telangana/hyderabad/hyderabad_highways',
-            'hmda_roads': 'telangana/hyderabad/hyderabad_master_plan___hmda',
-            'metro_combined': 'telangana/hyderabad/hyderabad_metro',
-            'ratan_tata_road': 'telangana/hyderabad/hyderabad_ratan_tata_road'
+            'hyderabad_highways_tiles': 'telangana/hyderabad/hyderabad_highways',
+            'rrr_tiles': 'telangana/hyderabad/hyderabad_rrr'
         }
         
         # Statistics with thread safety
@@ -135,6 +142,12 @@ class FastHyderabadTilesUploader:
         try:
             logger.info(f"🗑️  Deleting existing S3 folder: {s3_prefix}")
             
+            # SAFETY CHECK: Confirm deletion with user
+            confirm = input(f"⚠️  DANGER: Are you sure you want to delete ALL files in S3 prefix '{s3_prefix}'? (type 'YES' to confirm): ")
+            if confirm != 'YES':
+                logger.info(f"   ⏭️  Deletion cancelled for {s3_prefix}")
+                return
+            
             # List all objects with the prefix
             paginator = self.s3_client.get_paginator('list_objects_v2')
             pages = paginator.paginate(Bucket=self.bucket_name, Prefix=s3_prefix)
@@ -146,6 +159,12 @@ class FastHyderabadTilesUploader:
                         objects_to_delete.append({'Key': obj['Key']})
             
             if objects_to_delete:
+                logger.warning(f"   ⚠️  About to delete {len(objects_to_delete)} files from {s3_prefix}")
+                final_confirm = input(f"   ⚠️  Final confirmation: Delete {len(objects_to_delete)} files? (type 'DELETE' to confirm): ")
+                if final_confirm != 'DELETE':
+                    logger.info(f"   ⏭️  Deletion cancelled for {s3_prefix}")
+                    return
+                
                 # Delete objects in batches of 1000 (S3 limit)
                 for i in range(0, len(objects_to_delete), 1000):
                     batch = objects_to_delete[i:i+1000]
@@ -306,20 +325,64 @@ class FastHyderabadTilesUploader:
         if not self.test_s3_connection():
             return False
         
-        # Process each mapping
+        # SAFETY CHECK: Verify at least one base path exists
+        base_paths_exist = False
+        for base_path in self.local_base_paths:
+            if base_path.exists():
+                base_paths_exist = True
+                break
+        
+        if not base_paths_exist:
+            logger.error("❌ CRITICAL: No base paths exist!")
+            logger.error("   This script expects data in:")
+            for base_path in self.local_base_paths:
+                logger.error(f"     - {base_path}")
+            logger.error("   Please ensure at least one data directory exists before running this script.")
+            logger.error("\n⚠️  ABORTING: No data directory found. This prevents accidental S3 deletion.")
+            return False
+        
+        # SAFETY CHECK: Verify at least one local folder exists before proceeding
+        existing_folders = []
         for local_folder, s3_prefix in self.folder_mappings.items():
-            local_path = self.local_base_path / local_folder
+            # Check in all base paths
+            for base_path in self.local_base_paths:
+                local_path = base_path / local_folder
+                if local_path.exists():
+                    existing_folders.append((local_folder, local_path))
+                    break
+        
+        if not existing_folders:
+            logger.error("❌ CRITICAL: No local folders found!")
+            logger.error("   Expected folders in:")
+            for base_path in self.local_base_paths:
+                logger.error(f"     - {base_path}")
+            logger.error("   Available folders:")
+            for folder in self.folder_mappings.keys():
+                found = False
+                for base_path in self.local_base_paths:
+                    local_path = base_path / folder
+                    if local_path.exists():
+                        logger.error(f"     - {folder}: ✅ EXISTS at {local_path}")
+                        found = True
+                        break
+                if not found:
+                    logger.error(f"     - {folder}: ❌ MISSING")
             
-            if local_path.exists():
-                logger.info(f"\n📂 Processing: {local_folder}")
-                success = self.upload_folder_to_s3(str(local_path), s3_prefix)
-                if success:
-                    self.update_stats('folders_processed', 1)
-                    logger.info(f"✅ Completed: {local_folder}")
-                else:
-                    logger.error(f"❌ Failed: {local_folder}")
+            logger.error("\n⚠️  ABORTING: No data to upload. This prevents accidental S3 deletion.")
+            return False
+        
+        logger.info(f"✅ Found {len(existing_folders)} local folders to process")
+        
+        # Process each mapping
+        for local_folder, local_path in existing_folders:
+            s3_prefix = self.folder_mappings[local_folder]
+            logger.info(f"\n📂 Processing: {local_folder} from {local_path}")
+            success = self.upload_folder_to_s3(str(local_path), s3_prefix)
+            if success:
+                self.update_stats('folders_processed', 1)
+                logger.info(f"✅ Completed: {local_folder}")
             else:
-                logger.warning(f"⚠️  ⚠️  Local folder not found: {local_path}")
+                logger.error(f"❌ Failed: {local_folder}")
         
         return True
     
@@ -347,20 +410,34 @@ def main():
     max_workers = int(os.environ.get('MAX_WORKERS', '5'))  # Reduced for memory efficiency
     
     try:
+        # SAFETY WARNING
+        logger.warning("⚠️  ⚠️  ⚠️  SAFETY WARNING ⚠️  ⚠️  ⚠️")
+        logger.warning("This script will upload files to S3 bucket: gis-portal-layers")
+        logger.warning("Make sure you have the correct data to upload!")
+        logger.warning("=" * 60)
+        
         # Ask user whether to delete existing files
         while True:
-            delete_choice = input("\nDo you want to delete existing files in S3 before upload? (y/n): ").lower().strip()
+            delete_choice = input("\n⚠️  Do you want to delete existing files in S3 before upload? (y/n): ").lower().strip()
             if delete_choice in ['y', 'yes']:
                 delete_existing = True
-                logger.info("Will delete existing files before upload")
+                logger.warning("⚠️  DANGER: Will delete existing files before upload")
+                logger.warning("   You will be prompted for confirmation for EACH folder")
                 break
             elif delete_choice in ['n', 'no']:
                 delete_existing = False
-                logger.info("Will skip existing files and upload only missing ones")
+                logger.info("✅ SAFE: Will skip existing files and upload only missing ones")
                 break
             else:
                 print("Please enter 'y' for yes or 'n' for no")
-    
+        
+        # Final confirmation
+        if delete_existing:
+            final_confirm = input("\n⚠️  FINAL WARNING: You chose to DELETE existing files. Continue? (type 'CONTINUE'): ")
+            if final_confirm != 'CONTINUE':
+                logger.info("❌ Upload cancelled by user")
+                return
+        
         uploader = FastHyderabadTilesUploader(max_workers=max_workers, delete_existing=delete_existing)
         
         success = uploader.process_all_mappings()
