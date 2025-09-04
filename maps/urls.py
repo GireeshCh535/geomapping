@@ -56,4 +56,8 @@ urlpatterns = [
     path('layers/<slug:state_slug>/<slug:city_slug>/<slug:layer_slug>/bounds/',
          views.LayerBoundsAPIView.as_view(), name='layer_bounds'),
     
+    # Layer-specific coordinate search API
+    path('search-coords-by-layer/',
+         views.LayerCoordinateSearchView.as_view(), name='layer_coordinate_search'),
+    
 ]

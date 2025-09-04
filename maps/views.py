@@ -2254,3 +2254,217 @@ class LayerBoundsAPIView(APIView):
                 'city': city_slug,
                 'layer': layer_slug
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+@extend_schema(
+    summary="Search coordinates in specific layer",
+    description="Search for features at given coordinates within a specific layer identified by slug",
+    parameters=[
+        OpenApiParameter(
+            name='lat',
+            type=float,
+            location=OpenApiParameter.QUERY,
+            required=True,
+            description='Latitude of the point to check'
+        ),
+        OpenApiParameter(
+            name='lng',
+            type=float,
+            location=OpenApiParameter.QUERY,
+            required=True,
+            description='Longitude of the point to check'
+        ),
+        OpenApiParameter(
+            name='slug',
+            type=str,
+            location=OpenApiParameter.QUERY,
+            required=True,
+            description='Slug of the layer to search in'
+        )
+    ],
+    responses={
+        200: extend_schema(
+            description="Feature found in the specified layer",
+            examples=[
+                OpenApiExample(
+                    'Feature Found',
+                    value={
+                        "feature": {
+                            "id": 12345,
+                            "name": "C1 Mixed Use Zone",
+                            "zone_category": "C1__Mixed_use_zone",
+                            "plot_category": "Mixed Use",
+                            "symbology": "C1",
+                            "township": "Amaravati",
+                            "sector": "Sector 1",
+                            "colony": "Colony A",
+                            "block": "Block 1",
+                            "area": 1500.5,
+                            "shape_length": 200.3,
+                            "shape_area": 1500.5,
+                            "objectid": 123,
+                            "properties": {
+                                "symbology": "C1",
+                                "plot_categ": "Mixed Use",
+                                "township": "Amaravati"
+                            }
+                        },
+                        "layer": {
+                            "slug": "amaravati_master_plan",
+                            "name": "Amaravati Master Plan",
+                            "city": "amaravati",
+                            "city_name": "Amaravati",
+                            "state": "andhra-pradesh",
+                            "state_name": "Andhra Pradesh"
+                        },
+                        "search_point": {
+                            "latitude": 16.5740,
+                            "longitude": 80.3586,
+                            "coordinates": [80.3586, 16.5740]
+                        }
+                    }
+                )
+            ]
+        ),
+        400: extend_schema(
+            description="Invalid request parameters",
+            examples=[
+                OpenApiExample(
+                    'Invalid Layer Slug',
+                    value={
+                        "detail": "Invalid layer slug"
+                    }
+                ),
+                OpenApiExample(
+                    'Missing Parameters',
+                    value={
+                        "detail": "Missing required parameters: lat, lng, slug"
+                    }
+                ),
+                OpenApiExample(
+                    'Invalid Coordinates',
+                    value={
+                        "detail": "Invalid coordinates: lat must be between -90 and 90, lng between -180 and 180"
+                    }
+                )
+            ]
+        ),
+        404: extend_schema(
+            description="No feature found in the specified layer",
+            examples=[
+                OpenApiExample(
+                    'No Feature Found',
+                    value={
+                        "detail": "No feature found in the specified layer"
+                    }
+                )
+            ]
+        )
+    },
+    tags=['search']
+)
+class LayerCoordinateSearchView(APIView):
+    """
+    Coordinate-based search restricted to a single layer identified by its slug.
+    
+    URL: /api/search-coords-by-layer/?lat=<latitude>&lng=<longitude>&slug=<layer_slug>
+    
+    This API searches only within the layer identified by the given slug.
+    Returns feature details if coordinates fall inside a feature of that layer.
+    """
+    permission_classes = [AllowAny]
+    
+    def get(self, request):
+        try:
+            # Get parameters from query string
+            lat = request.GET.get('lat')
+            lng = request.GET.get('lng')
+            slug = request.GET.get('slug')
+            
+            # Validate required parameters
+            if not lat or not lng or not slug:
+                return Response({
+                    'detail': 'Missing required parameters: lat, lng, slug'
+                }, status=400)
+            
+            # Validate and convert coordinates
+            try:
+                latitude = float(lat)
+                longitude = float(lng)
+            except ValueError:
+                return Response({
+                    'detail': 'Invalid coordinate format: lat and lng must be valid numbers'
+                }, status=400)
+            
+            # Validate coordinate ranges
+            if not (-90 <= latitude <= 90) or not (-180 <= longitude <= 180):
+                return Response({
+                    'detail': 'Invalid coordinates: lat must be between -90 and 90, lng between -180 and 180'
+                }, status=400)
+            
+            # Check if layer exists
+            try:
+                layer = DataLayer.objects.select_related('city', 'city__state_ref').get(slug=slug)
+            except DataLayer.DoesNotExist:
+                return Response({
+                    'detail': 'Invalid layer slug'
+                }, status=400)
+            
+            # Create point geometry for search
+            search_point = Point(longitude, latitude, srid=4326)
+            
+            # Search for features in the specific layer that contain the point
+            features = GeoFeature.objects.filter(
+                layer=layer,
+                is_valid=True,
+                geometry__contains=search_point
+            ).order_by('-area')  # Order by area (largest first)
+            
+            if not features.exists():
+                return Response({
+                    'detail': 'No feature found in the specified layer'
+                }, status=404)
+            
+            # Get the primary feature (largest by area if multiple)
+            feature = features.first()
+            
+            # Build response
+            response_data = {
+                'feature': {
+                    'id': feature.id,
+                    'name': feature.name or '',
+                    'zone_category': feature.zone_category or '',
+                    'plot_category': feature.plot_category or '',
+                    'symbology': feature.symbology or '',
+                    'township': feature.township or '',
+                    'sector': feature.sector or '',
+                    'colony': feature.colony or '',
+                    'block': feature.block or '',
+                    'area': float(feature.area) if feature.area else None,
+                    'shape_length': float(feature.shape_length) if feature.shape_length else None,
+                    'shape_area': float(feature.shape_area) if feature.shape_area else None,
+                    'objectid': feature.objectid,
+                    'properties': feature.properties or {}
+                },
+                'layer': {
+                    'slug': layer.slug,
+                    'name': layer.name,
+                    'city': layer.city.slug,
+                    'city_name': layer.city.name,
+                    'state': layer.city.state_ref.slug,
+                    'state_name': layer.city.state_ref.name
+                },
+                'search_point': {
+                    'latitude': latitude,
+                    'longitude': longitude,
+                    'coordinates': [longitude, latitude]
+                }
+            }
+            
+            return Response(response_data)
+            
+        except Exception as e:
+            logger.error(f"Error in LayerCoordinateSearchView: {e}")
+            return Response({
+                'detail': f'Internal server error: {str(e)}'
+            }, status=500)

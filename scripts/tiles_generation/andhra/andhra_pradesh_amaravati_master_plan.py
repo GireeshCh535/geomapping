@@ -121,10 +121,11 @@ class AmaravatiPerfectTileGenerator:
         return {
             # Burial Ground
             'Burial_Ground': {
-                'fill': (227, 158, 0),      # #E39E00
+                'fill': (255, 255, 255),    # White background
                 'stroke': (0, 0, 0),
                 'stroke_width': 1,
-                'pattern': 'SOLID'
+                'pattern': 'DOTTED',
+                'dot_color': (227, 158, 0)  # Orange dots
             },
             
             # Commercial Zones (C series)
@@ -136,8 +137,8 @@ class AmaravatiPerfectTileGenerator:
             },
             'C2__General_commercial_zone': {
                 'fill': (0, 197, 255),       # #00C5FF
-                'stroke': None,
-                'stroke_width': 0,
+                'stroke': (0, 0, 0),         # Black outline
+                'stroke_width': 1,
                 'pattern': 'SOLID'
             },
             'C3_Neighbourhood_centre_zone': {
@@ -366,8 +367,8 @@ class AmaravatiPerfectTileGenerator:
             },
             'SU2___Road_Network': {
                 'fill': (255, 255, 255),     # #FFFFFF
-                'stroke': None,
-                'stroke_width': 0,
+                'stroke': (0, 0, 0),         # Black outline
+                'stroke_width': 1,
                 'pattern': 'SOLID'
             },
             
@@ -379,7 +380,7 @@ class AmaravatiPerfectTileGenerator:
                 'pattern': 'SOLID'
             },
             'U2__Road_reserve_zone': {
-                'fill': (196, 115, 98),      # #C47362
+                'fill': (0, 0, 0),           # #000000 (Black)
                 'stroke': None,
                 'stroke_width': 0,
                 'pattern': 'SOLID'
@@ -444,41 +445,116 @@ class AmaravatiPerfectTileGenerator:
             'Burial_Ground'
         ]
     
-    def draw_hatch_pattern(self, draw: ImageDraw, coords: List[Tuple], spacing: int = 8):
-        """Draw diagonal hatch pattern for R1_Village_planning_zone"""
+    def draw_hatch_pattern_clipped(self, img: Image.Image, coords: List[Tuple], spacing: int = 8):
+        """Draw diagonal hatch pattern clipped to polygon for R1_Village_planning_zone"""
         if len(coords) < 3:
             return
         
-        # Get bounding box
+        # Create a mask for the polygon
+        mask = Image.new('L', img.size, 0)
+        mask_draw = ImageDraw.Draw(mask)
+        mask_draw.polygon(coords, fill=255)
+        
+        # Create hatch pattern image
+        hatch_img = Image.new('RGBA', img.size, (0, 0, 0, 0))
+        hatch_draw = ImageDraw.Draw(hatch_img)
+        
+        # Get bounding box with some padding
         x_coords = [c[0] for c in coords]
         y_coords = [c[1] for c in coords]
         min_x, max_x = min(x_coords), max(x_coords)
         min_y, max_y = min(y_coords), max(y_coords)
         
-        # Draw diagonal lines
-        for i in range(-int(max_y - min_y), int(max_x - min_x) + int(max_y - min_y), spacing):
+        # Add padding to ensure we cover the entire polygon
+        padding = spacing * 2
+        min_x = max(0, min_x - padding)
+        max_x = min(img.size[0], max_x + padding)
+        min_y = max(0, min_y - padding)
+        max_y = min(img.size[1], max_y + padding)
+        
+        # Draw diagonal lines at 45-degree angle
+        # Calculate the diagonal distance
+        diag_length = int(((max_x - min_x) ** 2 + (max_y - min_y) ** 2) ** 0.5)
+        
+        # Draw lines from top-left to bottom-right
+        for i in range(-diag_length, diag_length + spacing, spacing):
+            # Calculate line endpoints
             x1 = min_x + i
             y1 = min_y
-            x2 = min_x + i - (max_y - min_y)
+            x2 = min_x + i + (max_y - min_y)
             y2 = max_y
             
-            # Clip to bounding box
-            if x1 < min_x:
-                y1 = min_y - (x1 - min_x)
-                x1 = min_x
-            if x1 > max_x:
-                y1 = min_y + (x1 - max_x)
-                x1 = max_x
-            if x2 < min_x:
-                y2 = max_y - (min_x - x2)
-                x2 = min_x
-            if x2 > max_x:
-                y2 = max_y - (x2 - max_x)
-                x2 = max_x
-            
-            if min_x <= x1 <= max_x and min_y <= y1 <= max_y and \
-               min_x <= x2 <= max_x and min_y <= y2 <= max_y:
-                draw.line([(x1, y1), (x2, y2)], fill=(0, 0, 0, 255), width=1)
+            # Only draw if line intersects the bounding box
+            if x2 >= min_x and x1 <= max_x and y1 <= max_y and y2 >= min_y:
+                # Clip line to image bounds
+                x1 = max(min_x, min(x1, max_x))
+                y1 = max(min_y, min(y1, max_y))
+                x2 = max(min_x, min(x2, max_x))
+                y2 = max(min_y, min(y2, max_y))
+                
+                hatch_draw.line([(x1, y1), (x2, y2)], fill=(0, 0, 0, 255), width=1)
+        
+        # Apply mask to clip hatch pattern to polygon
+        hatch_img.putalpha(mask)
+        
+        # Composite onto main image
+        img.paste(hatch_img, (0, 0), hatch_img)
+    
+    def draw_dotted_pattern_clipped(self, img: Image.Image, coords: List[Tuple], dot_color: Tuple[int, int, int], dot_size: int = 3, spacing: int = 12):
+        """Draw dotted pattern clipped to polygon for Burial_Ground"""
+        if len(coords) < 3:
+            return
+        
+        # Create a mask for the polygon
+        mask = Image.new('L', img.size, 0)
+        mask_draw = ImageDraw.Draw(mask)
+        mask_draw.polygon(coords, fill=255)
+        
+        # Create dotted pattern image
+        dots_img = Image.new('RGBA', img.size, (0, 0, 0, 0))
+        dots_draw = ImageDraw.Draw(dots_img)
+        
+        # Get bounding box with padding
+        x_coords = [c[0] for c in coords]
+        y_coords = [c[1] for c in coords]
+        min_x, max_x = min(x_coords), max(x_coords)
+        min_y, max_y = min(y_coords), max(y_coords)
+        
+        # Add padding to ensure we cover the entire polygon
+        padding = spacing
+        min_x = max(0, min_x - padding)
+        max_x = min(img.size[0], max_x + padding)
+        min_y = max(0, min_y - padding)
+        max_y = min(img.size[1], max_y + padding)
+        
+        # Create a simple point-in-polygon test function
+        def point_in_polygon(px, py, polygon_coords):
+            """Simple ray casting algorithm for point-in-polygon test"""
+            n = len(polygon_coords)
+            inside = False
+            j = n - 1
+            for i in range(n):
+                xi, yi = polygon_coords[i]
+                xj, yj = polygon_coords[j]
+                if ((yi > py) != (yj > py)) and (px < (xj - xi) * (py - yi) / (yj - yi) + xi):
+                    inside = not inside
+                j = i
+            return inside
+        
+        # Draw dots in grid pattern
+        for x in range(int(min_x), int(max_x) + 1, spacing):
+            for y in range(int(min_y), int(max_y) + 1, spacing):
+                # Check if point is inside polygon
+                if point_in_polygon(x, y, coords):
+                    # Draw dot
+                    dots_draw.ellipse([x - dot_size//2, y - dot_size//2, x + dot_size//2, y + dot_size//2], 
+                                    fill=dot_color + (255,))
+        
+        # Apply mask to clip dots to polygon (double-check)
+        dots_img.putalpha(mask)
+        
+        # Composite onto main image
+        img.paste(dots_img, (0, 0), dots_img)
     
     def render_tile(self, x: int, y: int, z: int) -> Optional[Image.Image]:
         """Render a single tile with perfect colors and patterns"""
@@ -532,21 +608,25 @@ class AmaravatiPerfectTileGenerator:
                     if geom.geom_type == 'Polygon':
                         coords = self.geom_to_pixels(geom.exterior.coords, bounds)
                         if len(coords) >= 3:
-                            # Handle special patterns
+                            # Handle different patterns
                             if style['pattern'] == 'DOTTED':
-                                # For Burial Ground - white fill with dots
-                                fill_color = style['fill'] + (255,)  # White base
+                                # Burial Ground: white background with orange dots
+                                fill_color = style['fill'] + (255,)  # White background
                                 draw.polygon(coords, fill=fill_color)
-                                # Add dots on top
+                                # Add orange dots - pass img not draw
                                 if 'dot_color' in style:
-                                    self.draw_dotted_pattern(draw, coords, style['dot_color'])
+                                    self.draw_dotted_pattern_clipped(img, coords, style['dot_color'], dot_size=4, spacing=10)
+                                # Draw black outline
+                                if style['stroke'] and style['stroke_width'] > 0:
+                                    stroke_color = style['stroke'] + (255,)
+                                    draw.polygon(coords, outline=stroke_color, width=style['stroke_width'])
                             elif style['pattern'] == 'HATCH':
-                                # For R1 Village - white fill with hatch
-                                fill_color = style['fill'] + (255,)  # White base
+                                # R1 Village: white background with black hatches
+                                fill_color = style['fill'] + (255,)  # White background
                                 draw.polygon(coords, fill=fill_color)
-                                # Add hatch pattern clipped to polygon
-                                self.draw_hatch_pattern(draw, coords)
-                                # Draw outline
+                                # Add hatch pattern - pass img not draw
+                                self.draw_hatch_pattern_clipped(img, coords, spacing=6)
+                                # Draw black outline
                                 if style['stroke'] and style['stroke_width'] > 0:
                                     stroke_color = style['stroke'] + (255,)
                                     draw.polygon(coords, outline=stroke_color, width=style['stroke_width'])
@@ -567,26 +647,30 @@ class AmaravatiPerfectTileGenerator:
                                 hole_coords = self.geom_to_pixels(interior.coords, bounds)
                                 if len(hole_coords) >= 3:
                                     draw.polygon(hole_coords, fill=(0, 0, 0, 0))
-                    
+                
                     elif geom.geom_type == 'MultiPolygon':
                         for poly in geom.geoms:
                             coords = self.geom_to_pixels(poly.exterior.coords, bounds)
                             if len(coords) >= 3:
-                                # Handle special patterns
+                                # Handle different patterns
                                 if style['pattern'] == 'DOTTED':
-                                    # For Burial Ground - white fill with dots
-                                    fill_color = style['fill'] + (255,)  # White base
+                                    # Burial Ground: white background with orange dots
+                                    fill_color = style['fill'] + (255,)  # White background
                                     draw.polygon(coords, fill=fill_color)
-                                    # Add dots on top
+                                    # Add orange dots - pass img not draw
                                     if 'dot_color' in style:
-                                        self.draw_dotted_pattern(draw, coords, style['dot_color'])
+                                        self.draw_dotted_pattern_clipped(img, coords, style['dot_color'], dot_size=4, spacing=10)
+                                    # Draw black outline
+                                    if style['stroke'] and style['stroke_width'] > 0:
+                                        stroke_color = style['stroke'] + (255,)
+                                        draw.polygon(coords, outline=stroke_color, width=style['stroke_width'])
                                 elif style['pattern'] == 'HATCH':
-                                    # For R1 Village - white fill with hatch
-                                    fill_color = style['fill'] + (255,)  # White base
+                                    # R1 Village: white background with black hatches
+                                    fill_color = style['fill'] + (255,)  # White background
                                     draw.polygon(coords, fill=fill_color)
-                                    # Add hatch pattern clipped to polygon
-                                    self.draw_hatch_pattern(draw, coords)
-                                    # Draw outline
+                                    # Add hatch pattern - pass img not draw
+                                    self.draw_hatch_pattern_clipped(img, coords, spacing=6)
+                                    # Draw black outline
                                     if style['stroke'] and style['stroke_width'] > 0:
                                         stroke_color = style['stroke'] + (255,)
                                         draw.polygon(coords, outline=stroke_color, width=style['stroke_width'])
@@ -613,8 +697,8 @@ class AmaravatiPerfectTileGenerator:
                 for idx, row in gdf.iterrows():
                     geom = row.geometry
                     if geom and geom.intersects(tile_box):
-                        # Same drawing logic as above
-                        pass  # (abbreviated for space)
+                        # Drawing logic same as above - abbreviated for space
+                        pass
         
         return img if has_features else None
     
@@ -622,9 +706,22 @@ class AmaravatiPerfectTileGenerator:
         """Convert geographic coordinates to pixel coordinates"""
         pixels = []
         for lon, lat in coords:
-            px = (lon - bounds.west) / (bounds.east - bounds.west) * 256
-            py = (bounds.north - lat) / (bounds.north - bounds.south) * 256
-            pixels.append((px, py))
+            # Ensure coordinates are within bounds
+            if bounds.west <= lon <= bounds.east and bounds.south <= lat <= bounds.north:
+                px = (lon - bounds.west) / (bounds.east - bounds.west) * 256
+                py = (bounds.north - lat) / (bounds.north - bounds.south) * 256
+                # Clamp to tile bounds
+                px = max(0, min(255, px))
+                py = max(0, min(255, py))
+                pixels.append((px, py))
+            else:
+                # For coordinates outside bounds, project to edge
+                px = (lon - bounds.west) / (bounds.east - bounds.west) * 256
+                py = (bounds.north - lat) / (bounds.north - bounds.south) * 256
+                # Clamp to tile bounds
+                px = max(-50, min(306, px))  # Allow some overflow for patterns
+                py = max(-50, min(306, py))  # Allow some overflow for patterns
+                pixels.append((px, py))
         return pixels
     
     def generate_tiles(self, min_zoom: int = 8, max_zoom: int = 18):
@@ -676,6 +773,10 @@ class AmaravatiPerfectTileGenerator:
                         img.save(tile_path, 'PNG', optimize=True)
                         generated += 1
                         total_tiles += 1
+                        
+                        # Debug: Show pattern zones being rendered
+                        if generated <= 10:  # Show first 10 tiles for debugging
+                            print(f"   🎨 Generated tile {tile.x}/{tile.y} with patterns")
                     else:
                         empty += 1
                         total_empty += 1
@@ -731,17 +832,17 @@ class AmaravatiPerfectTileGenerator:
 <html>
 <head>
     <title>Amaravati Master Plan - Perfect Tiles</title>
-    <meta charset="utf-8"/>
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <style>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
         body {{ 
             margin: 0; 
             padding: 0; 
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
         }}
-        #map {{ height: 100vh; }}
+#map {{ height: 100vh; }}
         
         .info-panel {{
             position: absolute;
@@ -832,10 +933,10 @@ class AmaravatiPerfectTileGenerator:
             z-index: 1000;
             font-size: 14px;
         }}
-    </style>
+</style>
 </head>
 <body>
-    <div id="map"></div>
+<div id="map"></div>
     
     <div class="info-panel">
         <h3>🏛️ Amaravati Master Plan</h3>
@@ -861,12 +962,12 @@ class AmaravatiPerfectTileGenerator:
         Zoom: <strong id="zoom-level">12</strong>
     </div>
     
-    <script>
+<script>
         // Initialize map
-        var map = L.map('map').setView([{cy}, {cx}], 12);
-        
+var map = L.map('map').setView([{cy}, {cx}], 12);
+
         // Add OpenStreetMap base layer (dimmed)
-        L.tileLayer('https://{{s}}.tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png', {{
+L.tileLayer('https://{{s}}.tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png', {{
             attribution: '© OpenStreetMap contributors',
             opacity: 0.3,
             maxZoom: 19
@@ -879,14 +980,14 @@ class AmaravatiPerfectTileGenerator:
             maxZoom: 18,
             bounds: [[{self.bounds[1]}, {self.bounds[0]}], [{self.bounds[3]}, {self.bounds[2]}]],
             opacity: 0.9
-        }}).addTo(map);
-        
+}}).addTo(map);
+
         // Add scale control
         L.control.scale({{
             imperial: false,
             maxWidth: 200
-        }}).addTo(map);
-        
+}}).addTo(map);
+
         // Update zoom display
         function updateZoom() {{
             document.getElementById('zoom-level').textContent = map.getZoom();
@@ -907,7 +1008,7 @@ class AmaravatiPerfectTileGenerator:
         }});
         
         console.log('Amaravati Master Plan Perfect Tiles loaded successfully!');
-    </script>
+</script>
 </body>
 </html>"""
         
