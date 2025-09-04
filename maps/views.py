@@ -419,17 +419,17 @@ class CoordinateSearchTestView(APIView):
             # Get coordinates from query parameters
             lat = request.GET.get('lat')
             lng = request.GET.get('lng')
-            radius = request.GET.get('radius', '100')  # Default 100m radius for nearby search
+            radius = request.GET.get('radius', '0')  # Default 0m radius for exact point search
             
             if not lat or not lng:
                 return Response({
                     'error': 'Missing coordinates',
                     'message': 'Please provide lat and lng parameters',
-                    'example': f'/api/cities/{city_slug or "any"}/search-coords-test/?lat=12.9716&lng=77.5946&radius=200',
+                    'example': f'/api/cities/{city_slug or "any"}/search-coords-test/?lat=12.9716&lng=77.5946&radius=0',
                     'parameters': {
                         'lat': 'Latitude (required)',
                         'lng': 'Longitude (required)',
-                        'radius': 'Search radius in meters (optional, default: 100)'
+                        'radius': 'Search radius in meters (optional, default: 0)'
                     }
                 }, status=400)
             
@@ -451,7 +451,7 @@ class CoordinateSearchTestView(APIView):
                 }, status=400)
             
             # Validate radius
-            if radius_meters <= 0 or radius_meters > 10000:
+            if radius_meters < 0 or radius_meters > 10000:
                 return Response({
                     'error': 'Invalid radius',
                     'message': 'Radius must be between 0 and 10,000 meters'
@@ -495,8 +495,10 @@ class CoordinateSearchTestView(APIView):
             # Find containing features
             containing_features = self._find_containing_features(city, search_point)
             
-            # Find nearby features if no exact match or for additional context
-            nearby_features = self._find_nearby_features(city, search_point, radius_meters)
+            # Find nearby features if radius > 0
+            nearby_features = []
+            if radius_meters > 0:
+                nearby_features = self._find_nearby_features(city, search_point, radius_meters)
             
             # Get administrative boundaries
             admin_boundaries = self._get_administrative_boundaries(city, search_point)
@@ -563,8 +565,10 @@ class CoordinateSearchTestView(APIView):
             ).order_by('-area')
             
             if not features.exists():
-                # Try nearby search across all cities
-                nearby_features = self._find_nearby_across_all_cities(search_point, radius_meters)
+                # Try nearby search across all cities if radius > 0
+                nearby_features = []
+                if radius_meters > 0:
+                    nearby_features = self._find_nearby_across_all_cities(search_point, radius_meters)
                 
                 return {
                     'search_point': {
@@ -695,6 +699,44 @@ class CoordinateSearchTestView(APIView):
             containing_features.append(feature_data)
         
         return containing_features
+    
+    def _find_nearby_across_all_cities(self, point, radius_meters):
+        """Find features near the search point across all cities"""
+        nearby_features = []
+        
+        # Create a buffer around the point for nearby search
+        buffer_point = point.transform(3857, clone=True)  # Web Mercator for distance
+        buffered_area = buffer_point.buffer(radius_meters)
+        buffered_area.transform(4326)  # Back to WGS84
+        
+        # Find features that intersect with the buffer across all cities
+        features = GeoFeature.objects.filter(
+            layer__city__is_active=True,
+            layer__city__state_ref__is_active=True,
+            layer__is_processed=True,
+            is_valid=True,
+            geometry__intersects=buffered_area
+        ).select_related('layer', 'layer__category', 'layer__city', 'layer__city__state_ref')
+        
+        for feature in features:
+            try:
+                # Calculate approximate distance
+                feature_centroid = feature.geometry.centroid
+                distance = point.distance(feature_centroid) * 111000  # Rough conversion to meters
+                
+                feature_data = self._process_feature_data(feature)
+                feature_data['distance_meters'] = round(distance, 1)
+                
+                nearby_features.append(feature_data)
+                
+            except Exception as e:
+                logger.error(f"Error processing nearby feature {feature.id}: {e}")
+                continue
+        
+        # Sort by distance
+        nearby_features.sort(key=lambda x: x.get('distance_meters', float('inf')))
+        
+        return nearby_features
     
     def _find_nearby_features(self, city, point, radius_meters=100):
         """Find features near the search point within a city"""
