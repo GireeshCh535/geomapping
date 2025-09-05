@@ -1,0 +1,3001 @@
+{
+  "analysis_metadata": {
+    "total_files": 41,
+    "total_features": 93526,
+    "data_directory": "/Users/rohitboni/Downloads/All_files/project/1acre/geomapping_full/geomapping/data/andhra_pradesh/amaravati/msater_plan"
+  },
+  "file_analysis": {
+    "R1-Village planning zone.geojson": {
+      "file_name": "R1-Village planning zone.geojson",
+      "file_path": "/Users/rohitboni/Downloads/All_files/project/1acre/geomapping_full/geomapping/data/andhra_pradesh/amaravati/msater_plan/R1-Village planning zone.geojson",
+      "file_size": 562991,
+      "format": "GeoJSON",
+      "crs": {
+        "type": "name",
+        "properties": {
+          "name": "urn:ogc:def:crs:OGC:1.3:CRS84"
+        }
+      },
+      "crs_string": "{'type': 'name', 'properties': {'name': 'urn:ogc:def:crs:OGC:1.3:CRS84'}}",
+      "feature_count": 200,
+      "geometry_types": [
+        "Polygon"
+      ],
+      "bounds": {
+        "minx": 80.42883241094803,
+        "miny": 16.415078362716134,
+        "maxx": 80.59555800266507,
+        "maxy": 16.565382428366387
+      },
+      "zoning_attributes": [
+        "symbology",
+        "plot_categ"
+      ],
+      "unique_zoning_values": [
+        "R1-Village planning zone"
+      ],
+      "sample_attributes": {
+        "plot_code": " ",
+        "plot_no": "4",
+        "symbology": "R1-Village planning zone",
+        "alloted_ex": "0.09912208",
+        "regcode": " ",
+        "plot_code_old": " ",
+        "polylength": "70.482652",
+        "polywidth": "67.846851",
+        "plotcoord": "440061.4187,1823684.1555;440081.4106,1823683.5868;440059.9246,1823664.2114;440079.9413,1823663.473;",
+        "regcode_n": "Residential Vacant",
+        "regcode_w": "Residential Vacant",
+        "regcode_e": "Residential Vacant",
+        "regcode_s": "Residential Vacant",
+        "nbr": "Acres",
+        "plot_categ": "R1-Village planning zone",
+        "township": "13",
+        "sector": "122",
+        "colony": "545",
+        "block": "1921",
+        "lpsvillage": "Nekkallu",
+        "farmer_n": "APCRDA",
+        "ablock": "None",
+        "lpsvill_co": "0710004",
+        "objectid": "565",
+        "googlemaplink": "https://www.google.com/maps?q=16.494093,80.43847558"
+      },
+      "errors": []
+    },
+    "PGN-V.geojson": {
+      "file_name": "PGN-V.geojson",
+      "file_path": "/Users/rohitboni/Downloads/All_files/project/1acre/geomapping_full/geomapping/data/andhra_pradesh/amaravati/msater_plan/PGN-V.geojson",
+      "file_size": 685789,
+      "format": "GeoJSON",
+      "crs": {
+        "type": "name",
+        "properties": {
+          "name": "urn:ogc:def:crs:OGC:1.3:CRS84"
+        }
+      },
+      "crs_string": "{'type': 'name', 'properties': {'name': 'urn:ogc:def:crs:OGC:1.3:CRS84'}}",
+      "feature_count": 659,
+      "geometry_types": [
+        "Polygon"
+      ],
+      "bounds": {
+        "minx": 80.4279492323663,
+        "miny": 16.422441680627305,
+        "maxx": 80.56274792099116,
+        "maxy": 16.560173193472245
+      },
+      "zoning_attributes": [
+        "symbology",
+        "plot_categ"
+      ],
+      "unique_zoning_values": [
+        "PGN-V"
+      ],
+      "sample_attributes": {
+        "plot_code": " ",
+        "plot_no": "26",
+        "symbology": "PGN-V",
+        "alloted_ex": "0.02668738",
+        "regcode": " ",
+        "plot_code_old": " ",
+        "polylength": "39.364787",
+        "polywidth": "29.523591",
+        "plotcoord": "453319.2249,1821146.4838;453328.2249,1821146.4838;453319.2249,1821134.4838;453328.2249,1821134.4838;",
+        "regcode_n": "17.0 mtr Road",
+        "regcode_w": "17.0 mtr Road",
+        "regcode_e": "50.0 mtr Road",
+        "regcode_s": "17.0 mtr Road",
+        "nbr": "Acres",
+        "plot_categ": "PGN-V",
+        "township": "22",
+        "sector": "168",
+        "colony": "718",
+        "block": "4519",
+        "lpsvillage": "Nowlur",
+        "farmer_n": "APCRDA",
+        "ablock": "None",
+        "lpsvill_co": "0712003",
+        "objectid": "215",
+        "googlemaplink": "https://www.google.com/maps?q=16.47148869,80.56270214"
+      },
+      "errors": []
+    },
+    "S3-Special zone.geojson": {
+      "file_name": "S3-Special zone.geojson",
+      "file_path": "/Users/rohitboni/Downloads/All_files/project/1acre/geomapping_full/geomapping/data/andhra_pradesh/amaravati/msater_plan/S3-Special zone.geojson",
+      "file_size": 319030,
+      "format": "GeoJSON",
+      "crs": {
+        "type": "name",
+        "properties": {
+          "name": "urn:ogc:def:crs:OGC:1.3:CRS84"
+        }
+      },
+      "crs_string": "{'type': 'name', 'properties': {'name': 'urn:ogc:def:crs:OGC:1.3:CRS84'}}",
+      "feature_count": 195,
+      "geometry_types": [
+        "Polygon",
+        "MultiPolygon"
+      ],
+      "bounds": {
+        "minx": 80.40737391872499,
+        "miny": 16.42181407664726,
+        "maxx": 80.572538732673,
+        "maxy": 16.560041603729196
+      },
+      "zoning_attributes": [
+        "symbology",
+        "plot_categ"
+      ],
+      "unique_zoning_values": [
+        "S3",
+        "S3-Special zone",
+        "Institutes"
+      ],
+      "sample_attributes": {
+        "plot_code": "6-407-3305-S3",
+        "plot_no": "23",
+        "symbology": "S3-Special zone",
+        "alloted_ex": "0.47686096",
+        "regcode": " ",
+        "plot_code_old": " ",
+        "polylength": "171.093472",
+        "polywidth": "121.375089",
+        "plotcoord": "439030.9163,1826378.631;439067.9164,1826378.631;439030.9163,1826326.4747;439067.9163,1826326.4747;",
+        "regcode_n": " ",
+        "regcode_w": " ",
+        "regcode_e": "17.0 mtr Road",
+        "regcode_s": " ",
+        "nbr": "Acres",
+        "plot_categ": "S3-Special zone",
+        "township": "8",
+        "sector": "87",
+        "colony": "407",
+        "block": "3305",
+        "lpsvillage": "Ananthavaram",
+        "farmer_n": " ",
+        "ablock": "None",
+        "lpsvill_co": "0710003",
+        "objectid": "547",
+        "googlemaplink": "https://www.google.com/maps?q=16.51828145,80.4288359"
+      },
+      "errors": []
+    },
+    "I3-Non polluting industry zone.geojson": {
+      "file_name": "I3-Non polluting industry zone.geojson",
+      "file_path": "/Users/rohitboni/Downloads/All_files/project/1acre/geomapping_full/geomapping/data/andhra_pradesh/amaravati/msater_plan/I3-Non polluting industry zone.geojson",
+      "file_size": 44014,
+      "format": "GeoJSON",
+      "crs": {
+        "type": "name",
+        "properties": {
+          "name": "urn:ogc:def:crs:OGC:1.3:CRS84"
+        }
+      },
+      "crs_string": "{'type': 'name', 'properties': {'name': 'urn:ogc:def:crs:OGC:1.3:CRS84'}}",
+      "feature_count": 22,
+      "geometry_types": [
+        "Polygon",
+        "MultiPolygon"
+      ],
+      "bounds": {
+        "minx": 80.41882703376487,
+        "miny": 16.41390499840152,
+        "maxx": 80.53516384726615,
+        "maxy": 16.543622132094647
+      },
+      "zoning_attributes": [
+        "symbology",
+        "plot_categ"
+      ],
+      "unique_zoning_values": [
+        "Institutes",
+        "A066",
+        "I3-Non polluting industry zone",
+        "A025",
+        "A007",
+        "A034",
+        "A022",
+        "A012"
+      ],
+      "sample_attributes": {
+        "plot_code": " ",
+        "plot_no": "0",
+        "symbology": "I3-Non polluting industry zone",
+        "alloted_ex": "4.55278625",
+        "regcode": " ",
+        "plot_code_old": " ",
+        "polylength": "873.66734",
+        "polywidth": "501.785897",
+        "plotcoord": "450218.2249,1815426.05;450371.1898,1815443.05;450218.2249,1815176.7204;450249.4594,1815245.4095;",
+        "regcode_n": "50.0 mtr Road",
+        "regcode_w": "50.0 mtr Road",
+        "regcode_e": " ",
+        "regcode_s": "50.0 mtr Road",
+        "nbr": "Acres",
+        "plot_categ": "I3-Non polluting industry zone",
+        "township": "11",
+        "sector": "192",
+        "colony": "817",
+        "block": "0",
+        "lpsvillage": " ",
+        "farmer_n": "APCRDA",
+        "ablock": "None",
+        "lpsvill_co": " ",
+        "objectid": "3304",
+        "googlemaplink": "https://www.google.com/maps?q=16.41893905,80.53432204"
+      },
+      "errors": []
+    },
+    "I2-Logistics zone.geojson": {
+      "file_name": "I2-Logistics zone.geojson",
+      "file_path": "/Users/rohitboni/Downloads/All_files/project/1acre/geomapping_full/geomapping/data/andhra_pradesh/amaravati/msater_plan/I2-Logistics zone.geojson",
+      "file_size": 14066,
+      "format": "GeoJSON",
+      "crs": {
+        "type": "name",
+        "properties": {
+          "name": "urn:ogc:def:crs:OGC:1.3:CRS84"
+        }
+      },
+      "crs_string": "{'type': 'name', 'properties': {'name': 'urn:ogc:def:crs:OGC:1.3:CRS84'}}",
+      "feature_count": 4,
+      "geometry_types": [
+        "Polygon"
+      ],
+      "bounds": {
+        "minx": 80.58938798479795,
+        "miny": 16.468687707745612,
+        "maxx": 80.5987935984777,
+        "maxy": 16.47918699479893
+      },
+      "zoning_attributes": [
+        "symbology",
+        "plot_categ"
+      ],
+      "unique_zoning_values": [
+        "I2-Logistics zone"
+      ],
+      "sample_attributes": {
+        "plot_code": " ",
+        "plot_no": "0",
+        "symbology": "I2-Logistics zone",
+        "alloted_ex": "2.98553402",
+        "regcode": " ",
+        "plot_code_old": " ",
+        "polylength": "684.899407",
+        "polywidth": "630.596011",
+        "plotcoord": "456960.4263,1821328.8442;457069.7397,1821323.2336;456879.0554,1821180.7865;457001.3262,1821270.0933;",
+        "regcode_n": "I2-Logistics zone",
+        "regcode_w": "R1-Village planning zone",
+        "regcode_e": "50.0 mtr Road",
+        "regcode_s": "I2-Logistics zone",
+        "nbr": "Acres",
+        "plot_categ": "I2-Logistics zone",
+        "township": "19",
+        "sector": "152",
+        "colony": "653",
+        "block": "0",
+        "lpsvillage": " ",
+        "farmer_n": "APCRDA",
+        "ablock": "None",
+        "lpsvill_co": " ",
+        "objectid": "6774",
+        "googlemaplink": "https://www.google.com/maps?q=16.47291348,80.59693273"
+      },
+      "errors": []
+    },
+    "SC1a-Mixed Use.geojson": {
+      "file_name": "SC1a-Mixed Use.geojson",
+      "file_path": "/Users/rohitboni/Downloads/All_files/project/1acre/geomapping_full/geomapping/data/andhra_pradesh/amaravati/msater_plan/SC1a-Mixed Use.geojson",
+      "file_size": 94722,
+      "format": "GeoJSON",
+      "crs": {
+        "type": "name",
+        "properties": {
+          "name": "urn:ogc:def:crs:OGC:1.3:CRS84"
+        }
+      },
+      "crs_string": "{'type': 'name', 'properties': {'name': 'urn:ogc:def:crs:OGC:1.3:CRS84'}}",
+      "feature_count": 84,
+      "geometry_types": [
+        "Polygon"
+      ],
+      "bounds": {
+        "minx": 80.48485939862483,
+        "miny": 16.49800926150581,
+        "maxx": 80.49417888633432,
+        "maxy": 16.556305508473955
+      },
+      "zoning_attributes": [
+        "symbology",
+        "plot_categ"
+      ],
+      "unique_zoning_values": [
+        "SC1a-Mixed Use",
+        "Super Block H",
+        "A064",
+        "A018",
+        "A017",
+        "A038",
+        "Super Block C"
+      ],
+      "sample_attributes": {
+        "plot_code": "10-457-8888-195-SC1a",
+        "plot_no": "195",
+        "symbology": "SC1a-Mixed Use",
+        "alloted_ex": "1.30712474",
+        "regcode": "10-98-457-8888-195-SC1a",
+        "plot_code_old": "None",
+        "polylength": "389.94331947",
+        "polywidth": "145.97775328",
+        "plotcoord": "445880.7382,1827100.4378;445925.2382,1827100.4378;445880.7382,1826981.5671;445925.2382,1826981.5671;",
+        "regcode_n": " ",
+        "regcode_w": " ",
+        "regcode_e": " ",
+        "regcode_s": " ",
+        "nbr": " ",
+        "plot_categ": "SC1a-Mixed Use",
+        "township": "10",
+        "sector": "98",
+        "colony": "457",
+        "block": "8888",
+        "lpsvillage": "Kondamarajupalem",
+        "farmer_n": " ",
+        "ablock": " ",
+        "lpsvill_co": " ",
+        "objectid": "110016",
+        "googlemaplink": "https://www.google.com/maps?q=16.5246705,80.49304212"
+      },
+      "errors": []
+    },
+    "SR4 - High Density Private.geojson": {
+      "file_name": "SR4 - High Density Private.geojson",
+      "file_path": "/Users/rohitboni/Downloads/All_files/project/1acre/geomapping_full/geomapping/data/andhra_pradesh/amaravati/msater_plan/SR4 - High Density Private.geojson",
+      "file_size": 19482,
+      "format": "GeoJSON",
+      "crs": {
+        "type": "name",
+        "properties": {
+          "name": "urn:ogc:def:crs:OGC:1.3:CRS84"
+        }
+      },
+      "crs_string": "{'type': 'name', 'properties': {'name': 'urn:ogc:def:crs:OGC:1.3:CRS84'}}",
+      "feature_count": 12,
+      "geometry_types": [
+        "Polygon"
+      ],
+      "bounds": {
+        "minx": 80.48479738713777,
+        "miny": 16.50277136086444,
+        "maxx": 80.49417416288166,
+        "maxy": 16.54461197589397
+      },
+      "zoning_attributes": [
+        "symbology",
+        "plot_categ"
+      ],
+      "unique_zoning_values": [
+        "SR4 - High Density Private"
+      ],
+      "sample_attributes": {
+        "plot_code": "6-333-8888-104-SR4",
+        "plot_no": "104",
+        "symbology": "SR4 - High Density Private",
+        "alloted_ex": "5.25791398",
+        "regcode": "6-73-333-8888-104-SR4",
+        "plot_code_old": "None",
+        "polylength": "705.14504514",
+        "polywidth": "324.71783498",
+        "plotcoord": "445718.2382,1829246.7683;445817.2255,1829246.7683;445718.2382,1829031.8112;445817.2255,1829031.8112;",
+        "regcode_n": "6-333-8888-103-SP2",
+        "regcode_w": "21.5 mtr Road",
+        "regcode_e": "6-333-8888-105-SC1a, 17.0 mtr Road",
+        "regcode_s": "17 mtr Road",
+        "nbr": " ",
+        "plot_categ": "SR4 - High Density Private",
+        "township": "6",
+        "sector": "73",
+        "colony": "333",
+        "block": "8888",
+        "lpsvillage": "Rayapudi, Kondamarajupalem",
+        "farmer_n": " ",
+        "ablock": " ",
+        "lpsvill_co": " ",
+        "objectid": "110017",
+        "googlemaplink": "https://www.google.com/maps?q=16.54363509,80.49172499"
+      },
+      "errors": []
+    },
+    "P3-Protected zone.geojson": {
+      "file_name": "P3-Protected zone.geojson",
+      "file_path": "/Users/rohitboni/Downloads/All_files/project/1acre/geomapping_full/geomapping/data/andhra_pradesh/amaravati/msater_plan/P3-Protected zone.geojson",
+      "file_size": 893586,
+      "format": "GeoJSON",
+      "crs": {
+        "type": "name",
+        "properties": {
+          "name": "urn:ogc:def:crs:OGC:1.3:CRS84"
+        }
+      },
+      "crs_string": "{'type': 'name', 'properties': {'name': 'urn:ogc:def:crs:OGC:1.3:CRS84'}}",
+      "feature_count": 189,
+      "geometry_types": [
+        "Polygon",
+        "MultiPolygon"
+      ],
+      "bounds": {
+        "minx": 80.40795790836137,
+        "miny": 16.426155233983856,
+        "maxx": 80.60381356097437,
+        "maxy": 16.589173211837505
+      },
+      "zoning_attributes": [
+        "symbology",
+        "plot_categ"
+      ],
+      "unique_zoning_values": [
+        "P3-Protected zone",
+        "IRRIGATION CHANNEL"
+      ],
+      "sample_attributes": {
+        "plot_code": " ",
+        "plot_no": "68",
+        "symbology": "P3-Protected zone",
+        "alloted_ex": "0.09225262",
+        "regcode": " ",
+        "plot_code_old": " ",
+        "polylength": "174.954501",
+        "polywidth": "22.962793",
+        "plotcoord": "451537.0245,1824142.5059;451590.3578,1824142.5059;451537.0245,1824135.5059;451590.3578,1824135.5059;",
+        "regcode_n": "15.6 mtr Road",
+        "regcode_w": "15.6 mtr Road",
+        "regcode_e": "17.0 mtr Road",
+        "regcode_s": "15.6 mtr Road",
+        "nbr": "Acres",
+        "plot_categ": "P3-Protected zone",
+        "township": "18",
+        "sector": "147",
+        "colony": "642",
+        "block": "2525",
+        "lpsvillage": "Venkatapalem",
+        "farmer_n": "APCRDA",
+        "ablock": "None",
+        "lpsvill_co": "0710021",
+        "objectid": "596",
+        "googlemaplink": "https://www.google.com/maps?q=16.49855939,80.54615007"
+      },
+      "errors": []
+    },
+    "R3-Medium to high density zone.geojson": {
+      "file_name": "R3-Medium to high density zone.geojson",
+      "file_path": "/Users/rohitboni/Downloads/All_files/project/1acre/geomapping_full/geomapping/data/andhra_pradesh/amaravati/msater_plan/R3-Medium to high density zone.geojson",
+      "file_size": 53115006,
+      "format": "GeoJSON",
+      "crs": {
+        "type": "name",
+        "properties": {
+          "name": "urn:ogc:def:crs:OGC:1.3:CRS84"
+        }
+      },
+      "crs_string": "{'type': 'name', 'properties': {'name': 'urn:ogc:def:crs:OGC:1.3:CRS84'}}",
+      "feature_count": 45234,
+      "geometry_types": [
+        "Polygon"
+      ],
+      "bounds": {
+        "minx": 80.43281120594607,
+        "miny": 16.425534300374345,
+        "maxx": 80.56412002884105,
+        "maxy": 16.56079524691585
+      },
+      "zoning_attributes": [
+        "symbology",
+        "plot_categ"
+      ],
+      "unique_zoning_values": [
+        "C31",
+        "B8",
+        "B3",
+        "D113",
+        "B2",
+        "B4",
+        "C10",
+        "D20",
+        "C16",
+        "C32",
+        "D33",
+        "D130",
+        "D68",
+        "C20",
+        "R3-Medium to high density zone",
+        "C9",
+        "D56",
+        "C11",
+        "D24",
+        "C5",
+        "C6",
+        "C12",
+        "C3",
+        "C7",
+        "C18",
+        "V2",
+        "D121",
+        "B6",
+        "B7",
+        "C2",
+        "C27",
+        "A3",
+        "A2",
+        "C25",
+        "B1",
+        "B5",
+        "A4",
+        "C21",
+        "C14",
+        "C23",
+        "C1",
+        "V1",
+        "C17",
+        "D1"
+      ],
+      "sample_attributes": {
+        "plot_code": "13-535-2974-11-C18",
+        "plot_no": "11",
+        "symbology": "R3-Medium to high density zone",
+        "alloted_ex": "1000.0",
+        "regcode": "13-119-535-2974-11-C18",
+        "plot_code_old": "11-535-2974-C18",
+        "polylength": "104.972766",
+        "polywidth": "85.713544",
+        "plotcoord": "441754.6238,1824719.704;441786.6238,1824719.704;441754.6238,1824693.575;441786.6238,1824693.575;",
+        "regcode_n": "13-119-535-2974-10-C18",
+        "regcode_w": "13-119-535-2974-3-C18",
+        "regcode_e": "15.6 mtr Road",
+        "regcode_s": "13-119-535-2974-12-C18",
+        "nbr": "Sq.Yards",
+        "plot_categ": "C18",
+        "township": "13",
+        "sector": "119",
+        "colony": "535",
+        "block": "2974",
+        "lpsvillage": "Thullur",
+        "farmer_n": "Garikapati Nithish Kumar,Garikapati Ravi Chandra",
+        "ablock": "None",
+        "lpsvill_co": "0710006",
+        "objectid": "1",
+        "googlemaplink": "https://www.google.com/maps?q=16.50347127,80.45437705"
+      },
+      "errors": []
+    },
+    "Commercial Vacant.geojson": {
+      "file_name": "Commercial Vacant.geojson",
+      "file_path": "/Users/rohitboni/Downloads/All_files/project/1acre/geomapping_full/geomapping/data/andhra_pradesh/amaravati/msater_plan/Commercial Vacant.geojson",
+      "file_size": 3305181,
+      "format": "GeoJSON",
+      "crs": {
+        "type": "name",
+        "properties": {
+          "name": "urn:ogc:def:crs:OGC:1.3:CRS84"
+        }
+      },
+      "crs_string": "{'type': 'name', 'properties': {'name': 'urn:ogc:def:crs:OGC:1.3:CRS84'}}",
+      "feature_count": 2785,
+      "geometry_types": [
+        "Polygon"
+      ],
+      "bounds": {
+        "minx": 80.42558382253141,
+        "miny": 16.434376221989833,
+        "maxx": 80.55871143853854,
+        "maxy": 16.561905566868404
+      },
+      "zoning_attributes": [
+        "symbology",
+        "plot_categ"
+      ],
+      "unique_zoning_values": [
+        "Commercial Vacant"
+      ],
+      "sample_attributes": {
+        "plot_code": " ",
+        "plot_no": "1",
+        "symbology": "Commercial Vacant",
+        "alloted_ex": "5.66800136",
+        "regcode": " ",
+        "plot_code_old": " ",
+        "polylength": "56.144356",
+        "polywidth": "0.908342",
+        "plotcoord": "441871.224,1827084.8187;441888.3391,1827084.8187;441871.224,1827084.5418;441888.3391,1827084.5418;",
+        "regcode_n": "12.0 mtr Road",
+        "regcode_w": "12.0 mtr Road",
+        "regcode_e": "8-89-414-2827-25-J4",
+        "regcode_s": "12.0 mtr Road",
+        "nbr": "Sq.Yards",
+        "plot_categ": "Commercial Vacant",
+        "township": "8",
+        "sector": "89",
+        "colony": "414",
+        "block": "2827",
+        "lpsvillage": "Thullur",
+        "farmer_n": "APCRDA",
+        "ablock": "None",
+        "lpsvill_co": "0710006",
+        "objectid": "94",
+        "googlemaplink": "https://www.google.com/maps?q=16.52497039,80.45533964"
+      },
+      "errors": []
+    },
+    "C4-Town centre zone.geojson": {
+      "file_name": "C4-Town centre zone.geojson",
+      "file_path": "/Users/rohitboni/Downloads/All_files/project/1acre/geomapping_full/geomapping/data/andhra_pradesh/amaravati/msater_plan/C4-Town centre zone.geojson",
+      "file_size": 52172,
+      "format": "GeoJSON",
+      "crs": {
+        "type": "name",
+        "properties": {
+          "name": "urn:ogc:def:crs:OGC:1.3:CRS84"
+        }
+      },
+      "crs_string": "{'type': 'name', 'properties': {'name': 'urn:ogc:def:crs:OGC:1.3:CRS84'}}",
+      "feature_count": 36,
+      "geometry_types": [
+        "Polygon",
+        "MultiPolygon"
+      ],
+      "bounds": {
+        "minx": 80.44099148979203,
+        "miny": 16.43588306755141,
+        "maxx": 80.59575162377158,
+        "maxy": 16.55479653738266
+      },
+      "zoning_attributes": [
+        "symbology",
+        "plot_categ"
+      ],
+      "unique_zoning_values": [
+        "A073",
+        "C4-Town centre zone",
+        "A048",
+        "A044"
+      ],
+      "sample_attributes": {
+        "plot_code": " ",
+        "plot_no": "0",
+        "symbology": "C4-Town centre zone",
+        "alloted_ex": "6.80283802",
+        "regcode": " ",
+        "plot_code_old": " ",
+        "polylength": "758.592257",
+        "polywidth": "397.749029",
+        "plotcoord": "440503.9749,1828493.0671;440598.2251,1828493.0671;440476.9749,1828278.8171;440598.2251,1828261.8171;",
+        "regcode_n": "25.0 mtr Road",
+        "regcode_w": "25.0 mtr Road",
+        "regcode_e": "P1-Passive zone",
+        "regcode_s": "50.0 mtr Road",
+        "nbr": "Acres",
+        "plot_categ": "C4-Town centre zone",
+        "township": "4",
+        "sector": "64",
+        "colony": "296",
+        "block": "0",
+        "lpsvillage": " ",
+        "farmer_n": "APCRDA",
+        "ablock": "None",
+        "lpsvill_co": " ",
+        "objectid": "3318",
+        "googlemaplink": "https://www.google.com/maps?q=16.53661951,80.44273333"
+      },
+      "errors": []
+    },
+    "SP3-Protected Zone.geojson": {
+      "file_name": "SP3-Protected Zone.geojson",
+      "file_path": "/Users/rohitboni/Downloads/All_files/project/1acre/geomapping_full/geomapping/data/andhra_pradesh/amaravati/msater_plan/SP3-Protected Zone.geojson",
+      "file_size": 21659,
+      "format": "GeoJSON",
+      "crs": {
+        "type": "name",
+        "properties": {
+          "name": "urn:ogc:def:crs:OGC:1.3:CRS84"
+        }
+      },
+      "crs_string": "{'type': 'name', 'properties': {'name': 'urn:ogc:def:crs:OGC:1.3:CRS84'}}",
+      "feature_count": 8,
+      "geometry_types": [
+        "Polygon"
+      ],
+      "bounds": {
+        "minx": 80.48476115017708,
+        "miny": 16.517938633808704,
+        "maxx": 80.49420018287753,
+        "maxy": 16.557729584397855
+      },
+      "zoning_attributes": [
+        "symbology",
+        "plot_categ"
+      ],
+      "unique_zoning_values": [
+        "SP3-Protected Zone"
+      ],
+      "sample_attributes": {
+        "plot_code": "6-350-8888-157-SP3",
+        "plot_no": "157",
+        "symbology": "SP3-Protected Zone",
+        "alloted_ex": "1.64007033",
+        "regcode": "6-76-350-8888-157-SP3",
+        "plot_code_old": "None",
+        "polylength": "483.83194585",
+        "polywidth": "147.61795275",
+        "plotcoord": "445880.7251,1827742.905;446028.2169,1827742.905;445880.7251,1827697.905;446028.2168,1827697.905;",
+        "regcode_n": " ",
+        "regcode_w": " ",
+        "regcode_e": " ",
+        "regcode_s": " ",
+        "nbr": "Acres",
+        "plot_categ": "SP3-Protected Zone",
+        "township": "6",
+        "sector": "76",
+        "colony": "350",
+        "block": "8888",
+        "lpsvillage": "Kondamarajupalem",
+        "farmer_n": " ",
+        "ablock": " ",
+        "lpsvill_co": " ",
+        "objectid": "109958",
+        "googlemaplink": "https://www.google.com/maps?q=16.5308132,80.49350856"
+      },
+      "errors": []
+    },
+    "Not Available.geojson": {
+      "file_name": "Not Available.geojson",
+      "file_path": "/Users/rohitboni/Downloads/All_files/project/1acre/geomapping_full/geomapping/data/andhra_pradesh/amaravati/msater_plan/Not Available.geojson",
+      "file_size": 4055,
+      "format": "GeoJSON",
+      "crs": {
+        "type": "name",
+        "properties": {
+          "name": "urn:ogc:def:crs:OGC:1.3:CRS84"
+        }
+      },
+      "crs_string": "{'type': 'name', 'properties': {'name': 'urn:ogc:def:crs:OGC:1.3:CRS84'}}",
+      "feature_count": 4,
+      "geometry_types": [
+        "Polygon"
+      ],
+      "bounds": {
+        "minx": 80.50987895137706,
+        "miny": 16.543729001698846,
+        "maxx": 80.51325837921969,
+        "maxy": 16.54690402369053
+      },
+      "zoning_attributes": [
+        "symbology",
+        "plot_categ"
+      ],
+      "unique_zoning_values": [
+        "Not Available"
+      ],
+      "sample_attributes": {
+        "plot_code": " ",
+        "plot_no": "0",
+        "symbology": "Not Available",
+        "alloted_ex": "0.0",
+        "regcode": " ",
+        "plot_code_old": "None",
+        "polylength": "0.0",
+        "polywidth": "0.0",
+        "plotcoord": " ",
+        "regcode_n": " ",
+        "regcode_w": " ",
+        "regcode_e": " ",
+        "regcode_s": " ",
+        "nbr": " ",
+        "plot_categ": " ",
+        "township": "0",
+        "sector": "0",
+        "colony": "0",
+        "block": "0",
+        "lpsvillage": "Velagapudi",
+        "farmer_n": " ",
+        "ablock": " ",
+        "lpsvill_co": " ",
+        "objectid": "112077",
+        "googlemaplink": "https://www.google.com/maps?q=nan,nan"
+      },
+      "errors": []
+    },
+    "C5-Regional centre zone.geojson": {
+      "file_name": "C5-Regional centre zone.geojson",
+      "file_path": "/Users/rohitboni/Downloads/All_files/project/1acre/geomapping_full/geomapping/data/andhra_pradesh/amaravati/msater_plan/C5-Regional centre zone.geojson",
+      "file_size": 30727,
+      "format": "GeoJSON",
+      "crs": {
+        "type": "name",
+        "properties": {
+          "name": "urn:ogc:def:crs:OGC:1.3:CRS84"
+        }
+      },
+      "crs_string": "{'type': 'name', 'properties': {'name': 'urn:ogc:def:crs:OGC:1.3:CRS84'}}",
+      "feature_count": 15,
+      "geometry_types": [
+        "Polygon",
+        "MultiPolygon"
+      ],
+      "bounds": {
+        "minx": 80.43314420032945,
+        "miny": 16.442386224895742,
+        "maxx": 80.55286275314833,
+        "maxy": 16.562221234489467
+      },
+      "zoning_attributes": [
+        "symbology",
+        "plot_categ"
+      ],
+      "unique_zoning_values": [
+        "C5-Regional centre zone"
+      ],
+      "sample_attributes": {
+        "plot_code": " ",
+        "plot_no": "5",
+        "symbology": "C5-Regional centre zone",
+        "alloted_ex": "14.77129728",
+        "regcode": " ",
+        "plot_code_old": " ",
+        "polylength": "2179.660426",
+        "polywidth": "1979.680417",
+        "plotcoord": "440997.8566,1830312.9616;441437.6747,1830537.2696;440773.2249,1829933.7819;441296.8916,1830400.2294;",
+        "regcode_n": " ",
+        "regcode_w": " ",
+        "regcode_e": "25.0 mtr Road",
+        "regcode_s": "S3-Special zone",
+        "nbr": "Acres",
+        "plot_categ": "C5-Regional centre zone",
+        "township": "3",
+        "sector": "61",
+        "colony": "287",
+        "block": "1836",
+        "lpsvillage": "Borupalem",
+        "farmer_n": "APCRDA",
+        "ablock": "None",
+        "lpsvill_co": "0710009",
+        "objectid": "7753",
+        "googlemaplink": "https://www.google.com/maps?q=16.55357632,80.4476315"
+      },
+      "errors": []
+    },
+    "C1 -Mixed use zone.geojson": {
+      "file_name": "C1 -Mixed use zone.geojson",
+      "file_path": "/Users/rohitboni/Downloads/All_files/project/1acre/geomapping_full/geomapping/data/andhra_pradesh/amaravati/msater_plan/C1 -Mixed use zone.geojson",
+      "file_size": 26669,
+      "format": "GeoJSON",
+      "crs": {
+        "type": "name",
+        "properties": {
+          "name": "urn:ogc:def:crs:OGC:1.3:CRS84"
+        }
+      },
+      "crs_string": "{'type': 'name', 'properties': {'name': 'urn:ogc:def:crs:OGC:1.3:CRS84'}}",
+      "feature_count": 14,
+      "geometry_types": [
+        "Polygon"
+      ],
+      "bounds": {
+        "minx": 80.49460576100641,
+        "miny": 16.529900178333854,
+        "maxx": 80.5339345832643,
+        "maxy": 16.5549901916014
+      },
+      "zoning_attributes": [
+        "symbology",
+        "plot_categ"
+      ],
+      "unique_zoning_values": [
+        "C1 -Mixed use zone"
+      ],
+      "sample_attributes": {
+        "plot_code": " ",
+        "plot_no": "0",
+        "symbology": "C1 -Mixed use zone",
+        "alloted_ex": "0.05071529",
+        "regcode": " ",
+        "plot_code_old": " ",
+        "polylength": "198.79316",
+        "polywidth": "121.900937",
+        "plotcoord": "446318.4341,1830341.0933;446374.5659,1830312.2594;446328.5606,1830334.3112;446374.0849,1830303.9329;",
+        "regcode_n": "25.0 mtr Road",
+        "regcode_w": "R1-Village planning zone",
+        "regcode_e": "25.0 mtr Road",
+        "regcode_s": "R1-Village planning zone",
+        "nbr": "Acres",
+        "plot_categ": "C1 -Mixed use zone",
+        "township": "7",
+        "sector": "79",
+        "colony": "363",
+        "block": "0",
+        "lpsvillage": " ",
+        "farmer_n": "APCRDA",
+        "ablock": "None",
+        "lpsvill_co": " ",
+        "objectid": "3303",
+        "googlemaplink": "https://www.google.com/maps?q=16.5543256,80.49718541"
+      },
+      "errors": []
+    },
+    "SS2a- Education Zone.geojson": {
+      "file_name": "SS2a- Education Zone.geojson",
+      "file_path": "/Users/rohitboni/Downloads/All_files/project/1acre/geomapping_full/geomapping/data/andhra_pradesh/amaravati/msater_plan/SS2a- Education Zone.geojson",
+      "file_size": 15213,
+      "format": "GeoJSON",
+      "crs": {
+        "type": "name",
+        "properties": {
+          "name": "urn:ogc:def:crs:OGC:1.3:CRS84"
+        }
+      },
+      "crs_string": "{'type': 'name', 'properties': {'name': 'urn:ogc:def:crs:OGC:1.3:CRS84'}}",
+      "feature_count": 14,
+      "geometry_types": [
+        "Polygon"
+      ],
+      "bounds": {
+        "minx": 80.48639429981536,
+        "miny": 16.503682020913658,
+        "maxx": 80.49263433806924,
+        "maxy": 16.553659409741474
+      },
+      "zoning_attributes": [
+        "symbology",
+        "plot_categ"
+      ],
+      "unique_zoning_values": [
+        "Super Block F",
+        "A011",
+        "A004",
+        "SS2a- Education Zone",
+        "Super Block G"
+      ],
+      "sample_attributes": {
+        "plot_code": "2-281-8888-64-SS2a",
+        "plot_no": "64",
+        "symbology": "SS2a- Education Zone",
+        "alloted_ex": "1.03160926",
+        "regcode": "2-60-281-8888-64-SS2a",
+        "plot_code_old": "None",
+        "polylength": "273.91331233",
+        "polywidth": "164.01109042",
+        "plotcoord": "445288.2273,1830249.3153;445338.2246,1830249.3153;445288.2273,1830165.8153;445338.2246,1830165.8153;",
+        "regcode_n": " ",
+        "regcode_w": " ",
+        "regcode_e": " ",
+        "regcode_s": " ",
+        "nbr": " ",
+        "plot_categ": "SS2a- Education Zone",
+        "township": "2",
+        "sector": "60",
+        "colony": "281",
+        "block": "8888",
+        "lpsvillage": "Rayapudi",
+        "farmer_n": " ",
+        "ablock": " ",
+        "lpsvill_co": " ",
+        "objectid": "110086",
+        "googlemaplink": "https://www.google.com/maps?q=16.55328143,80.48743989"
+      },
+      "errors": []
+    },
+    "SS2c Health Zone.geojson": {
+      "file_name": "SS2c Health Zone.geojson",
+      "file_path": "/Users/rohitboni/Downloads/All_files/project/1acre/geomapping_full/geomapping/data/andhra_pradesh/amaravati/msater_plan/SS2c Health Zone.geojson",
+      "file_size": 2858,
+      "format": "GeoJSON",
+      "crs": {
+        "type": "name",
+        "properties": {
+          "name": "urn:ogc:def:crs:OGC:1.3:CRS84"
+        }
+      },
+      "crs_string": "{'type': 'name', 'properties': {'name': 'urn:ogc:def:crs:OGC:1.3:CRS84'}}",
+      "feature_count": 2,
+      "geometry_types": [
+        "Polygon"
+      ],
+      "bounds": {
+        "minx": 80.4864039192805,
+        "miny": 16.51661829264214,
+        "maxx": 80.48777091308592,
+        "maxy": 16.54631927102199
+      },
+      "zoning_attributes": [
+        "symbology",
+        "plot_categ"
+      ],
+      "unique_zoning_values": [
+        "SS2c Health Zone"
+      ],
+      "sample_attributes": {
+        "plot_code": "10-460-8888-178-SS2c",
+        "plot_no": "178",
+        "symbology": "SS2c Health Zone",
+        "alloted_ex": "2.58024808",
+        "regcode": "10-98-460-8888-178-SS2c",
+        "plot_code_old": "None",
+        "polylength": "445.17375639",
+        "polywidth": "255.89867345",
+        "plotcoord": "445260.2169,1826287.5243;445338.2246,1826287.5243;445277.2087,1826151.8171;445338.2253,1826151.8171;",
+        "regcode_n": " ",
+        "regcode_w": " ",
+        "regcode_e": " ",
+        "regcode_s": " ",
+        "nbr": " ",
+        "plot_categ": "SS2c Health Zone",
+        "township": "10",
+        "sector": "98",
+        "colony": "460",
+        "block": "8888",
+        "lpsvillage": "Nelapadu",
+        "farmer_n": " ",
+        "ablock": " ",
+        "lpsvill_co": " ",
+        "objectid": "110018",
+        "googlemaplink": "https://www.google.com/maps?q=16.51723616,80.48740595"
+      },
+      "errors": []
+    },
+    "Residential Vacant.geojson": {
+      "file_name": "Residential Vacant.geojson",
+      "file_path": "/Users/rohitboni/Downloads/All_files/project/1acre/geomapping_full/geomapping/data/andhra_pradesh/amaravati/msater_plan/Residential Vacant.geojson",
+      "file_size": 6634738,
+      "format": "GeoJSON",
+      "crs": {
+        "type": "name",
+        "properties": {
+          "name": "urn:ogc:def:crs:OGC:1.3:CRS84"
+        }
+      },
+      "crs_string": "{'type': 'name', 'properties': {'name': 'urn:ogc:def:crs:OGC:1.3:CRS84'}}",
+      "feature_count": 5536,
+      "geometry_types": [
+        "Polygon"
+      ],
+      "bounds": {
+        "minx": 80.43061446896984,
+        "miny": 16.42353641665394,
+        "maxx": 80.56527480756881,
+        "maxy": 16.56099105377865
+      },
+      "zoning_attributes": [
+        "symbology",
+        "plot_categ"
+      ],
+      "unique_zoning_values": [
+        "Residential Vacant",
+        "RV"
+      ],
+      "sample_attributes": {
+        "plot_code": " ",
+        "plot_no": "19",
+        "symbology": "Residential Vacant",
+        "alloted_ex": "11.48155129",
+        "regcode": " ",
+        "plot_code_old": " ",
+        "polylength": "62.151095",
+        "polywidth": "1.662178",
+        "plotcoord": "443744.0792,1824378.1975;443763.0254,1824378.1975;443744.0792,1824377.6908;443763.0254,1824377.6908;",
+        "regcode_n": "15.6 mtr Road",
+        "regcode_w": "14-127-563-1149-14-C18",
+        "regcode_e": "15.6 mtr Road",
+        "regcode_s": "14-127-563-1149-14-C18",
+        "nbr": "Sq.Yards",
+        "plot_categ": "Residential Vacant",
+        "township": "14",
+        "sector": "127",
+        "colony": "563",
+        "block": "1149",
+        "lpsvillage": "Sekhamuru",
+        "farmer_n": "APCRDA",
+        "ablock": "None",
+        "lpsvill_co": "0710014",
+        "objectid": "236",
+        "googlemaplink": "https://www.google.com/maps?q=16.50054767,80.47296503"
+      },
+      "errors": []
+    },
+    "C2- General commercial zone.geojson": {
+      "file_name": "C2- General commercial zone.geojson",
+      "file_path": "/Users/rohitboni/Downloads/All_files/project/1acre/geomapping_full/geomapping/data/andhra_pradesh/amaravati/msater_plan/C2- General commercial zone.geojson",
+      "file_size": 36010919,
+      "format": "GeoJSON",
+      "crs": {
+        "type": "name",
+        "properties": {
+          "name": "urn:ogc:def:crs:OGC:1.3:CRS84"
+        }
+      },
+      "crs_string": "{'type': 'name', 'properties': {'name': 'urn:ogc:def:crs:OGC:1.3:CRS84'}}",
+      "feature_count": 30753,
+      "geometry_types": [
+        "Polygon"
+      ],
+      "bounds": {
+        "minx": 80.42906129970656,
+        "miny": 16.423039536510572,
+        "maxx": 80.59848026112884,
+        "maxy": 16.553112124200922
+      },
+      "zoning_attributes": [
+        "symbology",
+        "plot_categ"
+      ],
+      "unique_zoning_values": [
+        "L46",
+        "H5",
+        "Institutes",
+        "J5",
+        "L39",
+        "K1",
+        "H2",
+        "K24",
+        "L21",
+        "H1",
+        "I2",
+        "K17",
+        "K14",
+        "I1",
+        "K13",
+        "C2- General commercial zone",
+        "K19",
+        "K3",
+        "K16",
+        "K28",
+        "J3",
+        "L74",
+        "SLOI",
+        "H4",
+        "L24",
+        "J1",
+        "J2",
+        "K2",
+        "G1",
+        "L9",
+        "H3",
+        "K8",
+        "K6"
+      ],
+      "sample_attributes": {
+        "plot_code": "8-407-1435-4-K3",
+        "plot_no": "4",
+        "symbology": "C2- General commercial zone",
+        "alloted_ex": "500.0",
+        "regcode": "8-87-407-1435-4-K3",
+        "plot_code_old": "4-407-1435-K3",
+        "polylength": "82.009974",
+        "polywidth": "54.858112",
+        "plotcoord": "439074.8104,1826825.5425;439099.8104,1826825.5425;439074.8104,1826808.8195;439099.8104,1826808.8195;",
+        "regcode_n": "8-87-407-1435-3-K3",
+        "regcode_w": "17.0 mtr Road",
+        "regcode_e": "8-87-407-1435-16-K3,8-87-407-1435-13-K1",
+        "regcode_s": "8-87-407-1435-5-K3",
+        "nbr": "Sq.Yards",
+        "plot_categ": "K3",
+        "township": "8",
+        "sector": "87",
+        "colony": "407",
+        "block": "1435",
+        "lpsvillage": "Pitchakalapalem",
+        "farmer_n": "AALURI SEETHARAVAMMA",
+        "ablock": "None",
+        "lpsvill_co": "0710007",
+        "objectid": "151",
+        "googlemaplink": "https://www.google.com/maps?q=16.52248243,80.42917866"
+      },
+      "errors": []
+    },
+    "P3-Protected zone Hills.geojson": {
+      "file_name": "P3-Protected zone Hills.geojson",
+      "file_path": "/Users/rohitboni/Downloads/All_files/project/1acre/geomapping_full/geomapping/data/andhra_pradesh/amaravati/msater_plan/P3-Protected zone Hills.geojson",
+      "file_size": 681427,
+      "format": "GeoJSON",
+      "crs": {
+        "type": "name",
+        "properties": {
+          "name": "urn:ogc:def:crs:OGC:1.3:CRS84"
+        }
+      },
+      "crs_string": "{'type': 'name', 'properties': {'name': 'urn:ogc:def:crs:OGC:1.3:CRS84'}}",
+      "feature_count": 6,
+      "geometry_types": [
+        "Polygon",
+        "MultiPolygon"
+      ],
+      "bounds": {
+        "minx": 80.41876991089843,
+        "miny": 16.4560788154624,
+        "maxx": 80.58761506713807,
+        "maxy": 16.524036018139622
+      },
+      "zoning_attributes": [
+        "symbology",
+        "plot_categ"
+      ],
+      "unique_zoning_values": [
+        "P3-Protected zone Hills"
+      ],
+      "sample_attributes": {
+        "plot_code": " ",
+        "plot_no": "0",
+        "symbology": "P3-Protected zone Hills",
+        "alloted_ex": "160.07189351",
+        "regcode": " ",
+        "plot_code_old": " ",
+        "polylength": "3756.373684",
+        "polywidth": "2678.936162",
+        "plotcoord": "445780.7971,1820536.3806;446297.5125,1820755.5325;445668.1445,1819780.478;446173.1109,1819667.4528;",
+        "regcode_n": " ",
+        "regcode_w": " ",
+        "regcode_e": "R1-Village planning zone",
+        "regcode_s": " ",
+        "nbr": "Acres",
+        "plot_categ": "P3-Protected zone Hills",
+        "township": "20",
+        "sector": "155",
+        "colony": "657",
+        "block": "0",
+        "lpsvillage": "Kuragallu",
+        "farmer_n": "APCRDA",
+        "ablock": "None",
+        "lpsvill_co": "0712001",
+        "objectid": "52746",
+        "googlemaplink": "https://www.google.com/maps?q=16.46268107,80.49386737"
+      },
+      "errors": []
+    },
+    "SC1b - Mixed Use.geojson": {
+      "file_name": "SC1b - Mixed Use.geojson",
+      "file_path": "/Users/rohitboni/Downloads/All_files/project/1acre/geomapping_full/geomapping/data/andhra_pradesh/amaravati/msater_plan/SC1b - Mixed Use.geojson",
+      "file_size": 29839,
+      "format": "GeoJSON",
+      "crs": {
+        "type": "name",
+        "properties": {
+          "name": "urn:ogc:def:crs:OGC:1.3:CRS84"
+        }
+      },
+      "crs_string": "{'type': 'name', 'properties': {'name': 'urn:ogc:def:crs:OGC:1.3:CRS84'}}",
+      "feature_count": 27,
+      "geometry_types": [
+        "Polygon"
+      ],
+      "bounds": {
+        "minx": 80.48638689213982,
+        "miny": 16.500883085456255,
+        "maxx": 80.49265626896417,
+        "maxy": 16.553671271747866
+      },
+      "zoning_attributes": [
+        "symbology",
+        "plot_categ"
+      ],
+      "unique_zoning_values": [
+        "Government",
+        "SC1b - Mixed Use",
+        "Income Tax",
+        "Super Block C"
+      ],
+      "sample_attributes": {
+        "plot_code": "2-281-8888-3-A001",
+        "plot_no": "1",
+        "symbology": "SC1b - Mixed Use",
+        "alloted_ex": "5.58773662",
+        "regcode": "2-60-281-8888-3-A001",
+        "plot_code_old": "None",
+        "polylength": "553.22419308",
+        "polywidth": "440.63762072",
+        "plotcoord": "445203.9002,1830148.8153;445338.2246,1830148.8153;445204.1399,1829980.1699;445338.2246,1829980.1758;",
+        "regcode_n": "17.0 mtr Road",
+        "regcode_w": "SC1b - Mixed Use",
+        "regcode_e": "21.5 mtr Road",
+        "regcode_s": "SC1b - Mixed Use",
+        "nbr": " ",
+        "plot_categ": "Government",
+        "township": "2",
+        "sector": "60",
+        "colony": "281",
+        "block": "8888",
+        "lpsvillage": "Rayapudi",
+        "farmer_n": "APNRT",
+        "ablock": " ",
+        "lpsvill_co": "0710011",
+        "objectid": "105477",
+        "googlemaplink": "https://www.google.com/maps?q=16.55198715,80.48704926"
+      },
+      "errors": []
+    },
+    "R4-High density zone.geojson": {
+      "file_name": "R4-High density zone.geojson",
+      "file_path": "/Users/rohitboni/Downloads/All_files/project/1acre/geomapping_full/geomapping/data/andhra_pradesh/amaravati/msater_plan/R4-High density zone.geojson",
+      "file_size": 9170,
+      "format": "GeoJSON",
+      "crs": {
+        "type": "name",
+        "properties": {
+          "name": "urn:ogc:def:crs:OGC:1.3:CRS84"
+        }
+      },
+      "crs_string": "{'type': 'name', 'properties': {'name': 'urn:ogc:def:crs:OGC:1.3:CRS84'}}",
+      "feature_count": 5,
+      "geometry_types": [
+        "Polygon"
+      ],
+      "bounds": {
+        "minx": 80.49459385041814,
+        "miny": 16.525969285433824,
+        "maxx": 80.54532542793592,
+        "maxy": 16.559807120183727
+      },
+      "zoning_attributes": [
+        "symbology",
+        "plot_categ"
+      ],
+      "unique_zoning_values": [
+        "R4-High density zone"
+      ],
+      "sample_attributes": {
+        "plot_code": " ",
+        "plot_no": "0",
+        "symbology": "R4-High density zone",
+        "alloted_ex": "105.26982321",
+        "regcode": " ",
+        "plot_code_old": " ",
+        "polylength": "3025.056304",
+        "polywidth": "2240.333045",
+        "plotcoord": "446589.8998,1830907.8452;447176.0824,1830905.8555;446693.1181,1830176.7295;447048.096,1830007.8752;",
+        "regcode_n": "50.0 mtr Road",
+        "regcode_w": "25.0 mtr Road",
+        "regcode_e": "P1-Passive zone",
+        "regcode_s": "25.0 mtr Road",
+        "nbr": "Acres",
+        "plot_categ": "R4-High density zone",
+        "township": "7",
+        "sector": "79",
+        "colony": "362",
+        "block": "0",
+        "lpsvillage": " ",
+        "farmer_n": "APCRDA",
+        "ablock": "None",
+        "lpsvill_co": " ",
+        "objectid": "13875",
+        "googlemaplink": "https://www.google.com/maps?q=16.55597248,80.50264274"
+      },
+      "errors": []
+    },
+    "RAA.geojson": {
+      "file_name": "RAA.geojson",
+      "file_path": "/Users/rohitboni/Downloads/All_files/project/1acre/geomapping_full/geomapping/data/andhra_pradesh/amaravati/msater_plan/RAA.geojson",
+      "file_size": 96066,
+      "format": "GeoJSON",
+      "crs": {
+        "type": "name",
+        "properties": {
+          "name": "urn:ogc:def:crs:OGC:1.3:CRS84"
+        }
+      },
+      "crs_string": "{'type': 'name', 'properties': {'name': 'urn:ogc:def:crs:OGC:1.3:CRS84'}}",
+      "feature_count": 43,
+      "geometry_types": [
+        "Polygon"
+      ],
+      "bounds": {
+        "minx": 80.43973964654043,
+        "miny": 16.425337277479446,
+        "maxx": 80.57854227527169,
+        "maxy": 16.552414297168475
+      },
+      "zoning_attributes": [
+        "symbology",
+        "plot_categ"
+      ],
+      "unique_zoning_values": [
+        "RAA",
+        "NSP"
+      ],
+      "sample_attributes": {
+        "plot_code": " ",
+        "plot_no": "9",
+        "symbology": "RAA",
+        "alloted_ex": "0.91187987",
+        "regcode": " ",
+        "plot_code_old": " ",
+        "polylength": "424.206758",
+        "polywidth": "137.688513",
+        "plotcoord": "441200.7249,1829486.1645;441242.698,1829486.1645;441200.725,1829357.1267;441214.6605,1829356.8489;",
+        "regcode_n": "25.0 mtr Road",
+        "regcode_w": "25.0 mtr Road",
+        "regcode_e": "R1-Village planning zone",
+        "regcode_s": "25.0 mtr Road",
+        "nbr": "Acres",
+        "plot_categ": "RAA",
+        "township": "3",
+        "sector": "62",
+        "colony": "290",
+        "block": "1335",
+        "lpsvillage": "Dondapadu",
+        "farmer_n": "APCRDA",
+        "ablock": "None",
+        "lpsvill_co": "0710008",
+        "objectid": "3381",
+        "googlemaplink": "https://www.google.com/maps?q=16.5461245,80.44908575"
+      },
+      "errors": []
+    },
+    "SS3 - Special Zone.geojson": {
+      "file_name": "SS3 - Special Zone.geojson",
+      "file_path": "/Users/rohitboni/Downloads/All_files/project/1acre/geomapping_full/geomapping/data/andhra_pradesh/amaravati/msater_plan/SS3 - Special Zone.geojson",
+      "file_size": 10087,
+      "format": "GeoJSON",
+      "crs": {
+        "type": "name",
+        "properties": {
+          "name": "urn:ogc:def:crs:OGC:1.3:CRS84"
+        }
+      },
+      "crs_string": "{'type': 'name', 'properties': {'name': 'urn:ogc:def:crs:OGC:1.3:CRS84'}}",
+      "feature_count": 9,
+      "geometry_types": [
+        "Polygon"
+      ],
+      "bounds": {
+        "minx": 80.48614084794062,
+        "miny": 16.514073287559235,
+        "maxx": 80.49294398625952,
+        "maxy": 16.518722737903833
+      },
+      "zoning_attributes": [
+        "symbology",
+        "plot_categ"
+      ],
+      "unique_zoning_values": [
+        "SS3 - Special Zone"
+      ],
+      "sample_attributes": {
+        "plot_code": " ",
+        "plot_no": "0",
+        "symbology": "SS3 - Special Zone",
+        "alloted_ex": "0.5648624",
+        "regcode": " ",
+        "plot_code_old": "None",
+        "polylength": "0.0",
+        "polywidth": "0.0",
+        "plotcoord": " ",
+        "regcode_n": " ",
+        "regcode_w": " ",
+        "regcode_e": " ",
+        "regcode_s": " ",
+        "nbr": " ",
+        "plot_categ": "SS3 - Special Zone",
+        "township": "10",
+        "sector": "98",
+        "colony": "459",
+        "block": "8888",
+        "lpsvillage": "Nelapadu",
+        "farmer_n": " ",
+        "ablock": " ",
+        "lpsvill_co": " ",
+        "objectid": "110101",
+        "googlemaplink": "https://www.google.com/maps?q=16.51849609,80.48651326"
+      },
+      "errors": []
+    },
+    "C6-Central business district zone.geojson": {
+      "file_name": "C6-Central business district zone.geojson",
+      "file_path": "/Users/rohitboni/Downloads/All_files/project/1acre/geomapping_full/geomapping/data/andhra_pradesh/amaravati/msater_plan/C6-Central business district zone.geojson",
+      "file_size": 24274,
+      "format": "GeoJSON",
+      "crs": {
+        "type": "name",
+        "properties": {
+          "name": "urn:ogc:def:crs:OGC:1.3:CRS84"
+        }
+      },
+      "crs_string": "{'type': 'name', 'properties': {'name': 'urn:ogc:def:crs:OGC:1.3:CRS84'}}",
+      "feature_count": 13,
+      "geometry_types": [
+        "Polygon"
+      ],
+      "bounds": {
+        "minx": 80.51119428058684,
+        "miny": 16.519452110960206,
+        "maxx": 80.55002310559817,
+        "maxy": 16.548785632147215
+      },
+      "zoning_attributes": [
+        "symbology",
+        "plot_categ"
+      ],
+      "unique_zoning_values": [
+        "C6-Central business district zone",
+        "Institutes"
+      ],
+      "sample_attributes": {
+        "plot_code": " ",
+        "plot_no": "0",
+        "symbology": "C6-Central business district zone",
+        "alloted_ex": "24.00355117",
+        "regcode": " ",
+        "plot_code_old": " ",
+        "polylength": "1371.366845",
+        "polywidth": "1285.547015",
+        "plotcoord": "448230.4274,1829376.8961;448512.6018,1829304.8231;448244.0231,1829133.3125;448436.2992,1829014.4147;",
+        "regcode_n": "P1-Passive zone",
+        "regcode_w": "50.0 mtr Road",
+        "regcode_e": "25.0 mtr Road",
+        "regcode_s": "C6-Central business district zone",
+        "nbr": "Acres",
+        "plot_categ": "C6-Central business district zone",
+        "township": "7",
+        "sector": "80",
+        "colony": "375",
+        "block": "0",
+        "lpsvillage": " ",
+        "farmer_n": "APCRDA",
+        "ablock": "None",
+        "lpsvill_co": " ",
+        "objectid": "10388",
+        "googlemaplink": "https://www.google.com/maps?q=16.54443726,80.51601229"
+      },
+      "errors": []
+    },
+    "P2-Active zone.geojson": {
+      "file_name": "P2-Active zone.geojson",
+      "file_path": "/Users/rohitboni/Downloads/All_files/project/1acre/geomapping_full/geomapping/data/andhra_pradesh/amaravati/msater_plan/P2-Active zone.geojson",
+      "file_size": 1636036,
+      "format": "GeoJSON",
+      "crs": {
+        "type": "name",
+        "properties": {
+          "name": "urn:ogc:def:crs:OGC:1.3:CRS84"
+        }
+      },
+      "crs_string": "{'type': 'name', 'properties': {'name': 'urn:ogc:def:crs:OGC:1.3:CRS84'}}",
+      "feature_count": 1139,
+      "geometry_types": [
+        "Polygon"
+      ],
+      "bounds": {
+        "minx": 80.4320851509981,
+        "miny": 16.424517951148868,
+        "maxx": 80.55557462317027,
+        "maxy": 16.577416517224115
+      },
+      "zoning_attributes": [
+        "symbology",
+        "plot_categ"
+      ],
+      "unique_zoning_values": [
+        "P2-Active zone"
+      ],
+      "sample_attributes": {
+        "plot_code": " ",
+        "plot_no": "103",
+        "symbology": "P2-Active zone",
+        "alloted_ex": "0.01192802",
+        "regcode": " ",
+        "plot_code_old": " ",
+        "polylength": "78.729247",
+        "polywidth": "6.597866",
+        "plotcoord": "451370.2249,1824140.5059;451394.2248,1824140.5059;451370.2249,1824138.4946;451394.2248,1824138.4946;",
+        "regcode_n": "25.0 mtr Road",
+        "regcode_w": "25.0 mtr Road",
+        "regcode_e": "15.6 mtr Road",
+        "regcode_s": "25.0 mtr Road",
+        "nbr": "Acres",
+        "plot_categ": "P2-Active zone",
+        "township": "18",
+        "sector": "147",
+        "colony": "642",
+        "block": "2525",
+        "lpsvillage": "Venkatapalem",
+        "farmer_n": "APCRDA",
+        "ablock": "None",
+        "lpsvill_co": "0710021",
+        "objectid": "412",
+        "googlemaplink": "https://www.google.com/maps?q=16.49856016,80.54444975"
+      },
+      "errors": []
+    },
+    "C3-Neighbourhood centre zone.geojson": {
+      "file_name": "C3-Neighbourhood centre zone.geojson",
+      "file_path": "/Users/rohitboni/Downloads/All_files/project/1acre/geomapping_full/geomapping/data/andhra_pradesh/amaravati/msater_plan/C3-Neighbourhood centre zone.geojson",
+      "file_size": 153710,
+      "format": "GeoJSON",
+      "crs": {
+        "type": "name",
+        "properties": {
+          "name": "urn:ogc:def:crs:OGC:1.3:CRS84"
+        }
+      },
+      "crs_string": "{'type': 'name', 'properties': {'name': 'urn:ogc:def:crs:OGC:1.3:CRS84'}}",
+      "feature_count": 109,
+      "geometry_types": [
+        "Polygon"
+      ],
+      "bounds": {
+        "minx": 80.42676725625695,
+        "miny": 16.424095146367343,
+        "maxx": 80.59319054950518,
+        "maxy": 16.559791480894265
+      },
+      "zoning_attributes": [
+        "symbology",
+        "plot_categ"
+      ],
+      "unique_zoning_values": [
+        "C3-Neighbourhood centre zone",
+        "C3-MP",
+        "Institutes"
+      ],
+      "sample_attributes": {
+        "plot_code": " ",
+        "plot_no": "1",
+        "symbology": "C3-Neighbourhood centre zone",
+        "alloted_ex": "3.87452824",
+        "regcode": " ",
+        "plot_code_old": " ",
+        "polylength": "429.732262",
+        "polywidth": "401.765221",
+        "plotcoord": "442164.7249,1824686.7916;442295.7249,1824686.7916;442164.7249,1824564.3171;442268.7249,1824564.3171;",
+        "regcode_n": "17.0 mtr Road",
+        "regcode_w": "17.0 mtr Road",
+        "regcode_e": "25.0 mtr Road",
+        "regcode_s": "25.0 mtr Road",
+        "nbr": "Acres",
+        "plot_categ": "C3-Neighbourhood centre zone",
+        "township": "14",
+        "sector": "126",
+        "colony": "550",
+        "block": "3000",
+        "lpsvillage": "Thullur",
+        "farmer_n": "APCRDA",
+        "ablock": "None",
+        "lpsvill_co": "0710006",
+        "objectid": "3319",
+        "googlemaplink": "https://www.google.com/maps?q=16.50275497,80.45867918"
+      },
+      "errors": []
+    },
+    "U2- Road Reserve Zone.geojson": {
+      "file_name": "U2- Road Reserve Zone.geojson",
+      "file_path": "/Users/rohitboni/Downloads/All_files/project/1acre/geomapping_full/geomapping/data/andhra_pradesh/amaravati/msater_plan/U2- Road Reserve Zone.geojson",
+      "file_size": 10477990,
+      "format": "GeoJSON",
+      "crs": {
+        "type": "name",
+        "properties": {
+          "name": "urn:ogc:def:crs:OGC:1.3:CRS84"
+        }
+      },
+      "crs_string": "{'type': 'name', 'properties': {'name': 'urn:ogc:def:crs:OGC:1.3:CRS84'}}",
+      "feature_count": 3392,
+      "geometry_types": [
+        "Polygon",
+        "MultiPolygon"
+      ],
+      "bounds": {
+        "minx": 80.42469073067687,
+        "miny": 16.421955320699904,
+        "maxx": 80.57315288868463,
+        "maxy": 16.559295602473934
+      },
+      "zoning_attributes": [
+        "symbology",
+        "plot_categ"
+      ],
+      "unique_zoning_values": [
+        "LPS Roads",
+        "U2- Road Reserve Zone"
+      ],
+      "sample_attributes": {
+        "plot_code": " ",
+        "plot_no": "0",
+        "symbology": "U2- Road Reserve Zone",
+        "alloted_ex": "0.36251249",
+        "regcode": " ",
+        "plot_code_old": " ",
+        "polylength": "0.0",
+        "polywidth": "0.0",
+        "plotcoord": "440455.225,1827084.8275;440467.225,1827084.8275;440455.225,1826962.5745;440467.225,1826962.5745;",
+        "regcode_n": "",
+        "regcode_w": "",
+        "regcode_e": "",
+        "regcode_s": "",
+        "nbr": "Acres",
+        "plot_categ": " ",
+        "township": "0",
+        "sector": "0",
+        "colony": "0",
+        "block": "0",
+        "lpsvillage": " ",
+        "farmer_n": " ",
+        "ablock": "None",
+        "lpsvill_co": " ",
+        "objectid": "12",
+        "googlemaplink": "https://www.google.com/maps?q=16.52438407,80.442048"
+      },
+      "errors": []
+    },
+    "S2-Education zone.geojson": {
+      "file_name": "S2-Education zone.geojson",
+      "file_path": "/Users/rohitboni/Downloads/All_files/project/1acre/geomapping_full/geomapping/data/andhra_pradesh/amaravati/msater_plan/S2-Education zone.geojson",
+      "file_size": 535292,
+      "format": "GeoJSON",
+      "crs": {
+        "type": "name",
+        "properties": {
+          "name": "urn:ogc:def:crs:OGC:1.3:CRS84"
+        }
+      },
+      "crs_string": "{'type': 'name', 'properties': {'name': 'urn:ogc:def:crs:OGC:1.3:CRS84'}}",
+      "feature_count": 412,
+      "geometry_types": [
+        "Polygon"
+      ],
+      "bounds": {
+        "minx": 80.4297486793401,
+        "miny": 16.422985073755278,
+        "maxx": 80.58579482554927,
+        "maxy": 16.560171253819696
+      },
+      "zoning_attributes": [
+        "symbology",
+        "plot_categ"
+      ],
+      "unique_zoning_values": [
+        "AIS Amenities",
+        "S2-Education zone",
+        "Institutes"
+      ],
+      "sample_attributes": {
+        "plot_code": " ",
+        "plot_no": "22",
+        "symbology": "S2-Education zone",
+        "alloted_ex": "0.90334597",
+        "regcode": " ",
+        "plot_code_old": " ",
+        "polylength": "215.100024",
+        "polywidth": "182.887818",
+        "plotcoord": "452501.2249,1820627.3104;452566.7962,1820627.3104;452501.2249,1820571.5587;452566.7962,1820571.5587;",
+        "regcode_n": "17.0 mtr Road",
+        "regcode_w": "17.0 mtr Road",
+        "regcode_e": "P2-Active zone",
+        "regcode_s": "17.0 mtr Road",
+        "nbr": "Acres",
+        "plot_categ": "S2-Education zone",
+        "township": "25",
+        "sector": "181",
+        "colony": "772",
+        "block": "4599",
+        "lpsvillage": "Nowlur",
+        "farmer_n": "APCRDA",
+        "ablock": "None",
+        "lpsvill_co": "0712003",
+        "objectid": "204",
+        "googlemaplink": "https://www.google.com/maps?q=16.46658216,80.55531483"
+      },
+      "errors": []
+    },
+    "P1-Passive zone.geojson": {
+      "file_name": "P1-Passive zone.geojson",
+      "file_path": "/Users/rohitboni/Downloads/All_files/project/1acre/geomapping_full/geomapping/data/andhra_pradesh/amaravati/msater_plan/P1-Passive zone.geojson",
+      "file_size": 1913418,
+      "format": "GeoJSON",
+      "crs": {
+        "type": "name",
+        "properties": {
+          "name": "urn:ogc:def:crs:OGC:1.3:CRS84"
+        }
+      },
+      "crs_string": "{'type': 'name', 'properties': {'name': 'urn:ogc:def:crs:OGC:1.3:CRS84'}}",
+      "feature_count": 767,
+      "geometry_types": [
+        "Polygon",
+        "MultiPolygon"
+      ],
+      "bounds": {
+        "minx": 80.42592516581239,
+        "miny": 16.421802525017753,
+        "maxx": 80.57980619833441,
+        "maxy": 16.584253153327428
+      },
+      "zoning_attributes": [
+        "symbology",
+        "plot_categ"
+      ],
+      "unique_zoning_values": [
+        "P1-Passive zone",
+        "Institutes"
+      ],
+      "sample_attributes": {
+        "plot_code": " ",
+        "plot_no": "0",
+        "symbology": "P1-Passive zone",
+        "alloted_ex": "0.69893348",
+        "regcode": " ",
+        "plot_code_old": " ",
+        "polylength": "306.687778",
+        "polywidth": "222.971013",
+        "plotcoord": "452846.5345,1822588.96;452934.2158,1822610.1504;452840.7248,1822542.1797;452914.9041,1822595.996;",
+        "regcode_n": "25.0 mtr Road",
+        "regcode_w": "25.0 mtr Road",
+        "regcode_e": "P3-Protected zone",
+        "regcode_s": "25.0 mtr Road",
+        "nbr": "Acres",
+        "plot_categ": "P1-Passive zone",
+        "township": "22",
+        "sector": "165",
+        "colony": "703",
+        "block": "0",
+        "lpsvillage": " ",
+        "farmer_n": "APCRDA",
+        "ablock": "None",
+        "lpsvill_co": " ",
+        "objectid": "311",
+        "googlemaplink": "https://www.google.com/maps?q=16.48450107,80.55852608"
+      },
+      "errors": []
+    },
+    "SP1- Passive Zone.geojson": {
+      "file_name": "SP1- Passive Zone.geojson",
+      "file_path": "/Users/rohitboni/Downloads/All_files/project/1acre/geomapping_full/geomapping/data/andhra_pradesh/amaravati/msater_plan/SP1- Passive Zone.geojson",
+      "file_size": 66259,
+      "format": "GeoJSON",
+      "crs": {
+        "type": "name",
+        "properties": {
+          "name": "urn:ogc:def:crs:OGC:1.3:CRS84"
+        }
+      },
+      "crs_string": "{'type': 'name', 'properties': {'name': 'urn:ogc:def:crs:OGC:1.3:CRS84'}}",
+      "feature_count": 31,
+      "geometry_types": [
+        "Polygon"
+      ],
+      "bounds": {
+        "minx": 80.48474730909727,
+        "miny": 16.517843329244894,
+        "maxx": 80.49421424508189,
+        "maxy": 16.56241347204618
+      },
+      "zoning_attributes": [
+        "symbology",
+        "plot_categ"
+      ],
+      "unique_zoning_values": [
+        "SP1- Passive Zone"
+      ],
+      "sample_attributes": {
+        "plot_code": "2-277-8888-21-SP1",
+        "plot_no": "21",
+        "symbology": "SP1- Passive Zone",
+        "alloted_ex": "2.63156495",
+        "regcode": "2-58-277-8888-21-SP1",
+        "plot_code_old": "None",
+        "polylength": "1164.4976699",
+        "polywidth": "98.4119685",
+        "plotcoord": "445648.2382,1830755.317;446003.2248,1830755.3171;445648.2382,1830725.3171;446003.2248,1830725.3171;",
+        "regcode_n": " ",
+        "regcode_w": " ",
+        "regcode_e": " ",
+        "regcode_s": " ",
+        "nbr": "Acres",
+        "plot_categ": "SP1- Passive Zone",
+        "township": "2",
+        "sector": "58",
+        "colony": "277",
+        "block": "8888",
+        "lpsvillage": "Rayapudi, Lingayapalem",
+        "farmer_n": " ",
+        "ablock": " ",
+        "lpsvill_co": " ",
+        "objectid": "109956",
+        "googlemaplink": "https://www.google.com/maps?q=16.55810903,80.49223068"
+      },
+      "errors": []
+    },
+    "PGN-G.geojson": {
+      "file_name": "PGN-G.geojson",
+      "file_path": "/Users/rohitboni/Downloads/All_files/project/1acre/geomapping_full/geomapping/data/andhra_pradesh/amaravati/msater_plan/PGN-G.geojson",
+      "file_size": 1163304,
+      "format": "GeoJSON",
+      "crs": {
+        "type": "name",
+        "properties": {
+          "name": "urn:ogc:def:crs:OGC:1.3:CRS84"
+        }
+      },
+      "crs_string": "{'type': 'name', 'properties': {'name': 'urn:ogc:def:crs:OGC:1.3:CRS84'}}",
+      "feature_count": 1104,
+      "geometry_types": [
+        "Polygon"
+      ],
+      "bounds": {
+        "minx": 80.42805251633513,
+        "miny": 16.422441905084497,
+        "maxx": 80.56274447150739,
+        "maxy": 16.559601419717726
+      },
+      "zoning_attributes": [
+        "symbology",
+        "plot_categ"
+      ],
+      "unique_zoning_values": [
+        "PGN-G"
+      ],
+      "sample_attributes": {
+        "plot_code": " ",
+        "plot_no": "8",
+        "symbology": "PGN-G",
+        "alloted_ex": "0.00555987",
+        "regcode": " ",
+        "plot_code_old": " ",
+        "polylength": "29.523591",
+        "polywidth": "8.200997",
+        "plotcoord": "441273.853,1828270.8171;441276.353,1828270.8171;441273.853,1828261.8171;441276.353,1828261.8171;",
+        "regcode_n": "15.6 mtr Road",
+        "regcode_w": "P2-Active zone",
+        "regcode_e": "4-65-303-1406-9-D36",
+        "regcode_s": "50.0 mtr Road",
+        "nbr": "Acres",
+        "plot_categ": "PGN-G",
+        "township": "4",
+        "sector": "65",
+        "colony": "303",
+        "block": "1406",
+        "lpsvillage": "Pitchakalapalem",
+        "farmer_n": "APCRDA",
+        "ablock": "None",
+        "lpsvill_co": "0710007",
+        "objectid": "54",
+        "googlemaplink": "https://www.google.com/maps?q=16.53563699,80.44964296"
+      },
+      "errors": []
+    },
+    "I1-Business park zone.geojson": {
+      "file_name": "I1-Business park zone.geojson",
+      "file_path": "/Users/rohitboni/Downloads/All_files/project/1acre/geomapping_full/geomapping/data/andhra_pradesh/amaravati/msater_plan/I1-Business park zone.geojson",
+      "file_size": 8425,
+      "format": "GeoJSON",
+      "crs": {
+        "type": "name",
+        "properties": {
+          "name": "urn:ogc:def:crs:OGC:1.3:CRS84"
+        }
+      },
+      "crs_string": "{'type': 'name', 'properties': {'name': 'urn:ogc:def:crs:OGC:1.3:CRS84'}}",
+      "feature_count": 6,
+      "geometry_types": [
+        "Polygon"
+      ],
+      "bounds": {
+        "minx": 80.42520054532788,
+        "miny": 16.47869322574526,
+        "maxx": 80.51104649898402,
+        "maxy": 16.548446551440755
+      },
+      "zoning_attributes": [
+        "symbology",
+        "plot_categ"
+      ],
+      "unique_zoning_values": [
+        "I1-Business park zone"
+      ],
+      "sample_attributes": {
+        "plot_code": " ",
+        "plot_no": "0",
+        "symbology": "I1-Business park zone",
+        "alloted_ex": "27.80815518",
+        "regcode": " ",
+        "plot_code_old": " ",
+        "polylength": "1513.408119",
+        "polywidth": "1350.226642",
+        "plotcoord": "446895.5058,1829623.2796;447187.057,1829546.39;446819.3289,1829414.8829;447180.3232,1829302.321;",
+        "regcode_n": "S3-Special zone",
+        "regcode_w": "25.0 mtr Road",
+        "regcode_e": "25.0 mtr Road",
+        "regcode_s": "I1-Business park zone",
+        "nbr": "Acres",
+        "plot_categ": "I1-Business park zone",
+        "township": "7",
+        "sector": "79",
+        "colony": "366",
+        "block": "0",
+        "lpsvillage": " ",
+        "farmer_n": "APCRDA",
+        "ablock": "None",
+        "lpsvill_co": " ",
+        "objectid": "56708",
+        "googlemaplink": "https://www.google.com/maps?q=16.54658817,80.50362164"
+      },
+      "errors": []
+    },
+    "Burial Ground.geojson": {
+      "file_name": "Burial Ground.geojson",
+      "file_path": "/Users/rohitboni/Downloads/All_files/project/1acre/geomapping_full/geomapping/data/andhra_pradesh/amaravati/msater_plan/Burial Ground.geojson",
+      "file_size": 8195,
+      "format": "GeoJSON",
+      "crs": {
+        "type": "name",
+        "properties": {
+          "name": "urn:ogc:def:crs:OGC:1.3:CRS84"
+        }
+      },
+      "crs_string": "{'type': 'name', 'properties': {'name': 'urn:ogc:def:crs:OGC:1.3:CRS84'}}",
+      "feature_count": 7,
+      "geometry_types": [
+        "Polygon"
+      ],
+      "bounds": {
+        "minx": 80.44019880869358,
+        "miny": 16.43601256756367,
+        "maxx": 80.53679094773865,
+        "maxy": 16.535034805129786
+      },
+      "zoning_attributes": [
+        "symbology",
+        "plot_categ"
+      ],
+      "unique_zoning_values": [
+        "Burial Ground"
+      ],
+      "sample_attributes": {
+        "plot_code": " ",
+        "plot_no": "3",
+        "symbology": "Burial Ground",
+        "alloted_ex": "1.58858547",
+        "regcode": " ",
+        "plot_code_old": " ",
+        "polylength": "508.329637",
+        "polywidth": "397.649633",
+        "plotcoord": "450446.4589,1825484.9436;450522.2067,1825449.3592;450499.7991,1825401.2094;450556.8037,1825329.9839;",
+        "regcode_n": "P2-Active zone",
+        "regcode_w": "P2-Active zone",
+        "regcode_e": "P2-Active zone",
+        "regcode_s": "U1-Reserve zone",
+        "nbr": "Acres",
+        "plot_categ": "Burial Ground",
+        "township": "11",
+        "sector": "109",
+        "colony": "508",
+        "block": "4187",
+        "lpsvillage": "Mandadam",
+        "farmer_n": "APCRDA",
+        "ablock": "None",
+        "lpsvill_co": "0710020",
+        "objectid": "3448",
+        "googlemaplink": "https://www.google.com/maps?q=16.5100438,80.53626122"
+      },
+      "errors": []
+    },
+    "SS1 - Government Zone.geojson": {
+      "file_name": "SS1 - Government Zone.geojson",
+      "file_path": "/Users/rohitboni/Downloads/All_files/project/1acre/geomapping_full/geomapping/data/andhra_pradesh/amaravati/msater_plan/SS1 - Government Zone.geojson",
+      "file_size": 33734,
+      "format": "GeoJSON",
+      "crs": {
+        "type": "name",
+        "properties": {
+          "name": "urn:ogc:def:crs:OGC:1.3:CRS84"
+        }
+      },
+      "crs_string": "{'type': 'name', 'properties': {'name': 'urn:ogc:def:crs:OGC:1.3:CRS84'}}",
+      "feature_count": 14,
+      "geometry_types": [
+        "Polygon"
+      ],
+      "bounds": {
+        "minx": 80.48481758056721,
+        "miny": 16.51892934385927,
+        "maxx": 80.49421044757246,
+        "maxy": 16.535256064813822
+      },
+      "zoning_attributes": [
+        "symbology",
+        "plot_categ"
+      ],
+      "unique_zoning_values": [
+        "SS1 - Government Zone"
+      ],
+      "sample_attributes": {
+        "plot_code": "10-455-8888-173-SS1",
+        "plot_no": "173",
+        "symbology": "SS1 - Government Zone",
+        "alloted_ex": "53.10868241",
+        "regcode": "10-98-455-8888-173-SS1",
+        "plot_code_old": "None",
+        "polylength": "2275.77677156",
+        "polywidth": "1016.94926161",
+        "plotcoord": "445028.2169,1827101.8171;445338.2246,1827101.8171;445028.332,1826424.9596;445338.2246,1826408.0671;",
+        "regcode_n": " ",
+        "regcode_w": " ",
+        "regcode_e": " ",
+        "regcode_s": " ",
+        "nbr": " ",
+        "plot_categ": "SS1 - Government Zone",
+        "township": "10",
+        "sector": "98",
+        "colony": "455",
+        "block": "8888",
+        "lpsvillage": "Rayapudi, Kondamarajupalem",
+        "farmer_n": " ",
+        "ablock": " ",
+        "lpsvill_co": " ",
+        "objectid": "110085",
+        "googlemaplink": "https://www.google.com/maps?q=16.52206928,80.48630447"
+      },
+      "errors": []
+    },
+    "U1-Reserve zone.geojson": {
+      "file_name": "U1-Reserve zone.geojson",
+      "file_path": "/Users/rohitboni/Downloads/All_files/project/1acre/geomapping_full/geomapping/data/andhra_pradesh/amaravati/msater_plan/U1-Reserve zone.geojson",
+      "file_size": 674378,
+      "format": "GeoJSON",
+      "crs": {
+        "type": "name",
+        "properties": {
+          "name": "urn:ogc:def:crs:OGC:1.3:CRS84"
+        }
+      },
+      "crs_string": "{'type': 'name', 'properties': {'name': 'urn:ogc:def:crs:OGC:1.3:CRS84'}}",
+      "feature_count": 550,
+      "geometry_types": [
+        "Polygon"
+      ],
+      "bounds": {
+        "minx": 80.42519720956524,
+        "miny": 16.42367559042219,
+        "maxx": 80.55557473528359,
+        "maxy": 16.562007808314405
+      },
+      "zoning_attributes": [
+        "symbology",
+        "plot_categ"
+      ],
+      "unique_zoning_values": [
+        "U1-Reserve zone",
+        "Parking"
+      ],
+      "sample_attributes": {
+        "plot_code": " ",
+        "plot_no": "1",
+        "symbology": "U1-Reserve zone",
+        "alloted_ex": "0.00837347",
+        "regcode": " ",
+        "plot_code_old": " ",
+        "polylength": "20.502493",
+        "polywidth": "17.785667",
+        "plotcoord": "451550.1885,1822206.4838;451556.4385,1822206.4838;451550.1885,1822201.062;451556.4385,1822201.062;",
+        "regcode_n": "17.0 mtr Road",
+        "regcode_w": "P2-Active zone",
+        "regcode_e": "S2-Education zone",
+        "regcode_s": "P2-Active zone",
+        "nbr": "Acres",
+        "plot_categ": "U1-Reserve zone",
+        "township": "22",
+        "sector": "164",
+        "colony": "701",
+        "block": "2370",
+        "lpsvillage": "Krishnayapalem",
+        "farmer_n": "APCRDA",
+        "ablock": "None",
+        "lpsvill_co": "0710020",
+        "objectid": "128",
+        "googlemaplink": "https://www.google.com/maps?q=16.48106523,80.54609361"
+      },
+      "errors": []
+    },
+    "SS2b Cultural Zone.geojson": {
+      "file_name": "SS2b Cultural Zone.geojson",
+      "file_path": "/Users/rohitboni/Downloads/All_files/project/1acre/geomapping_full/geomapping/data/andhra_pradesh/amaravati/msater_plan/SS2b Cultural Zone.geojson",
+      "file_size": 19740,
+      "format": "GeoJSON",
+      "crs": {
+        "type": "name",
+        "properties": {
+          "name": "urn:ogc:def:crs:OGC:1.3:CRS84"
+        }
+      },
+      "crs_string": "{'type': 'name', 'properties': {'name': 'urn:ogc:def:crs:OGC:1.3:CRS84'}}",
+      "feature_count": 18,
+      "geometry_types": [
+        "Polygon"
+      ],
+      "bounds": {
+        "minx": 80.4848138371446,
+        "miny": 16.5047076182123,
+        "maxx": 80.49418599635834,
+        "maxy": 16.55775149918255
+      },
+      "zoning_attributes": [
+        "symbology",
+        "plot_categ"
+      ],
+      "unique_zoning_values": [
+        "SS2b Cultural Zone"
+      ],
+      "sample_attributes": {
+        "plot_code": "2-277-8888-29-SS2b",
+        "plot_no": "29",
+        "symbology": "SS2b Cultural Zone",
+        "alloted_ex": "8.27294473",
+        "regcode": "2-58-277-8888-29-SS2b",
+        "plot_code_old": "None",
+        "polylength": "813.52483388",
+        "polywidth": "442.85385825",
+        "plotcoord": "445090.2293,1830700.3171;445338.225,1830700.3171;445090.2293,1830565.3171;445338.225,1830565.3171;",
+        "regcode_n": " ",
+        "regcode_w": " ",
+        "regcode_e": " ",
+        "regcode_s": " ",
+        "nbr": " ",
+        "plot_categ": "SS2b Cultural Zone",
+        "township": "2",
+        "sector": "58",
+        "colony": "277",
+        "block": "8888",
+        "lpsvillage": "Rayapudi",
+        "farmer_n": " ",
+        "ablock": " ",
+        "lpsvill_co": " ",
+        "objectid": "110092",
+        "googlemaplink": "https://www.google.com/maps?q=16.55712324,80.48650186"
+      },
+      "errors": []
+    },
+    "SU2 - Road Network.geojson": {
+      "file_name": "SU2 - Road Network.geojson",
+      "file_path": "/Users/rohitboni/Downloads/All_files/project/1acre/geomapping_full/geomapping/data/andhra_pradesh/amaravati/msater_plan/SU2 - Road Network.geojson",
+      "file_size": 101294,
+      "format": "GeoJSON",
+      "crs": {
+        "type": "name",
+        "properties": {
+          "name": "urn:ogc:def:crs:OGC:1.3:CRS84"
+        }
+      },
+      "crs_string": "{'type': 'name', 'properties': {'name': 'urn:ogc:def:crs:OGC:1.3:CRS84'}}",
+      "feature_count": 13,
+      "geometry_types": [
+        "Polygon"
+      ],
+      "bounds": {
+        "minx": 80.48475246888259,
+        "miny": 16.497632190572123,
+        "maxx": 80.49427317322127,
+        "maxy": 16.559879022564004
+      },
+      "zoning_attributes": [
+        "symbology",
+        "plot_categ"
+      ],
+      "unique_zoning_values": [
+        "SU2 - Road Network"
+      ],
+      "sample_attributes": {
+        "plot_code": " ",
+        "plot_no": "0",
+        "symbology": "SU2 - Road Network",
+        "alloted_ex": "11.03790031",
+        "regcode": " ",
+        "plot_code_old": "None",
+        "polylength": "0.0",
+        "polywidth": "0.0",
+        "plotcoord": "445696.7169,1825049.897;446016.0214,1825022.0127;445696.7169,1824594.1357;446028.2169,1824594.1357;",
+        "regcode_n": " ",
+        "regcode_w": " ",
+        "regcode_e": " ",
+        "regcode_s": " ",
+        "nbr": "Acres",
+        "plot_categ": "SU2 - Road Network",
+        "township": "15",
+        "sector": "131",
+        "colony": "0",
+        "block": "8888",
+        "lpsvillage": " ",
+        "farmer_n": " ",
+        "ablock": " ",
+        "lpsvill_co": " ",
+        "objectid": "109986",
+        "googlemaplink": "https://www.google.com/maps?q=16.50444821,80.49264222"
+      },
+      "errors": []
+    },
+    "SU1-Reserve Zone.geojson": {
+      "file_name": "SU1-Reserve Zone.geojson",
+      "file_path": "/Users/rohitboni/Downloads/All_files/project/1acre/geomapping_full/geomapping/data/andhra_pradesh/amaravati/msater_plan/SU1-Reserve Zone.geojson",
+      "file_size": 33343,
+      "format": "GeoJSON",
+      "crs": {
+        "type": "name",
+        "properties": {
+          "name": "urn:ogc:def:crs:OGC:1.3:CRS84"
+        }
+      },
+      "crs_string": "{'type': 'name', 'properties': {'name': 'urn:ogc:def:crs:OGC:1.3:CRS84'}}",
+      "feature_count": 30,
+      "geometry_types": [
+        "Polygon"
+      ],
+      "bounds": {
+        "minx": 80.48488096259388,
+        "miny": 16.500879340547048,
+        "maxx": 80.494123531825,
+        "maxy": 16.558330162982518
+      },
+      "zoning_attributes": [
+        "symbology",
+        "plot_categ"
+      ],
+      "unique_zoning_values": [
+        "SU1-Reserve Zone"
+      ],
+      "sample_attributes": {
+        "plot_code": "10-481-8888-227-SU1",
+        "plot_no": "227",
+        "symbology": "SU1-Reserve Zone",
+        "alloted_ex": "0.39545559",
+        "regcode": "10-101-481-8888-227-SU1",
+        "plot_code_old": "None",
+        "polylength": "131.24548159",
+        "polywidth": "131.215958",
+        "plotcoord": "445656.7159,1825187.8441;445696.7245,1825187.8441;445656.7159,1825147.8441;445696.7249,1825147.8441;",
+        "regcode_n": " ",
+        "regcode_w": " ",
+        "regcode_e": " ",
+        "regcode_s": " ",
+        "nbr": "Acres",
+        "plot_categ": "SU1-Reserve Zone",
+        "township": "10",
+        "sector": "101",
+        "colony": "481",
+        "block": "8888",
+        "lpsvillage": "Nelapadu",
+        "farmer_n": " ",
+        "ablock": " ",
+        "lpsvill_co": " ",
+        "objectid": "109959",
+        "googlemaplink": "https://www.google.com/maps?q=16.50773271,80.4909661"
+      },
+      "errors": []
+    },
+    "SP2- Active Zone.geojson": {
+      "file_name": "SP2- Active Zone.geojson",
+      "file_path": "/Users/rohitboni/Downloads/All_files/project/1acre/geomapping_full/geomapping/data/andhra_pradesh/amaravati/msater_plan/SP2- Active Zone.geojson",
+      "file_size": 88621,
+      "format": "GeoJSON",
+      "crs": {
+        "type": "name",
+        "properties": {
+          "name": "urn:ogc:def:crs:OGC:1.3:CRS84"
+        }
+      },
+      "crs_string": "{'type': 'name', 'properties': {'name': 'urn:ogc:def:crs:OGC:1.3:CRS84'}}",
+      "feature_count": 60,
+      "geometry_types": [
+        "Polygon"
+      ],
+      "bounds": {
+        "minx": 80.4848485555462,
+        "miny": 16.497630334489692,
+        "maxx": 80.49422455611062,
+        "maxy": 16.557743165200023
+      },
+      "zoning_attributes": [
+        "symbology",
+        "plot_categ"
+      ],
+      "unique_zoning_values": [
+        "SP2- Active Zone"
+      ],
+      "sample_attributes": {
+        "plot_code": "2-282-8888-70-SP2",
+        "plot_no": "70",
+        "symbology": "SP2- Active Zone",
+        "alloted_ex": "36.36622406",
+        "regcode": "2-60-282-8888-70-SP2",
+        "plot_code_old": "None",
+        "polylength": "3470.81528373",
+        "polywidth": "471.09087633",
+        "plotcoord": "445553.1399,1830381.815;445696.7387,1830381.8149;445553.1399,1829336.3917;445696.7201,1829323.7683;",
+        "regcode_n": " ",
+        "regcode_w": " ",
+        "regcode_e": " ",
+        "regcode_s": " ",
+        "nbr": "Acres",
+        "plot_categ": "SP2- Active Zone",
+        "township": "2",
+        "sector": "60",
+        "colony": "282",
+        "block": "8888",
+        "lpsvillage": "Rayapudi",
+        "farmer_n": " ",
+        "ablock": " ",
+        "lpsvill_co": " ",
+        "objectid": "109964",
+        "googlemaplink": "https://www.google.com/maps?q=16.55010627,80.49036397"
+      },
+      "errors": []
+    },
+    "SR2 Low Density Housing.geojson": {
+      "file_name": "SR2 Low Density Housing.geojson",
+      "file_path": "/Users/rohitboni/Downloads/All_files/project/1acre/geomapping_full/geomapping/data/andhra_pradesh/amaravati/msater_plan/SR2 Low Density Housing.geojson",
+      "file_size": 10293,
+      "format": "GeoJSON",
+      "crs": {
+        "type": "name",
+        "properties": {
+          "name": "urn:ogc:def:crs:OGC:1.3:CRS84"
+        }
+      },
+      "crs_string": "{'type': 'name', 'properties': {'name': 'urn:ogc:def:crs:OGC:1.3:CRS84'}}",
+      "feature_count": 5,
+      "geometry_types": [
+        "Polygon"
+      ],
+      "bounds": {
+        "minx": 80.48489610159965,
+        "miny": 16.51894479682293,
+        "maxx": 80.49413686121302,
+        "maxy": 16.559450940418355
+      },
+      "zoning_attributes": [
+        "symbology",
+        "plot_categ"
+      ],
+      "unique_zoning_values": [
+        "SR2 Low Density Housing"
+      ],
+      "sample_attributes": {
+        "plot_code": "10-458-8888-187-SR2",
+        "plot_no": "187",
+        "symbology": "SR2 Low Density Housing",
+        "alloted_ex": "33.20428633",
+        "regcode": "10-98-458-8888-187-SR2",
+        "plot_code_old": "None",
+        "polylength": "1469.59117425",
+        "polywidth": "984.119685",
+        "plotcoord": "445718.2382,1826856.0587;446018.2382,1826856.0587;445718.2382,1826408.0671;446018.2382,1826415.0544;",
+        "regcode_n": " ",
+        "regcode_w": " ",
+        "regcode_e": " ",
+        "regcode_s": " ",
+        "nbr": " ",
+        "plot_categ": "SR2 Low Density Housing",
+        "township": "10",
+        "sector": "98",
+        "colony": "458",
+        "block": "8888",
+        "lpsvillage": "Rayapudi, Kondamarajupalem",
+        "farmer_n": " ",
+        "ablock": " ",
+        "lpsvill_co": " ",
+        "objectid": "110113",
+        "googlemaplink": "https://www.google.com/maps?q=16.52097323,80.49272596"
+      },
+      "errors": []
+    }
+  },
+  "zoning_analysis": {
+    "zoning_attributes": {
+      "symbology": [
+        "C4-Town centre zone",
+        "R1-Village planning zone",
+        "SS2c Health Zone",
+        "Not Available",
+        "C1 -Mixed use zone",
+        "SR4 - High Density Private",
+        "SS3 - Special Zone",
+        "U1-Reserve zone",
+        "C5-Regional centre zone",
+        "R4-High density zone",
+        "P1-Passive zone",
+        "PGN-V",
+        "I2-Logistics zone",
+        "SP3-Protected Zone",
+        "Commercial Vacant",
+        "SC1b - Mixed Use",
+        "R3-Medium to high density zone",
+        "SR2 Low Density Housing",
+        "Residential Vacant",
+        "C6-Central business district zone",
+        "Burial Ground",
+        "SU1-Reserve Zone",
+        "SC1a-Mixed Use",
+        "SP1- Passive Zone",
+        "SS1 - Government Zone",
+        "S3-Special zone",
+        "C2- General commercial zone",
+        "SU2 - Road Network",
+        "C3-Neighbourhood centre zone",
+        "RAA",
+        "SP2- Active Zone",
+        "SS2b Cultural Zone",
+        "SS2a- Education Zone",
+        "I3-Non polluting industry zone",
+        "I1-Business park zone",
+        "U2- Road Reserve Zone",
+        "P3-Protected zone",
+        "P3-Protected zone Hills",
+        "S2-Education zone",
+        "PGN-G",
+        "P2-Active zone"
+      ],
+      "plot_categ": [
+        "C31",
+        "B3",
+        "C16",
+        "J5",
+        "U1-Reserve zone",
+        "C10",
+        "C5-Regional centre zone",
+        "P1-Passive zone",
+        "A011",
+        "PGN-V",
+        "SR2 Low Density Housing",
+        "K24",
+        "C6",
+        "Super Block F",
+        "S3",
+        "H1",
+        "C12",
+        "C7",
+        "Super Block G",
+        "A3",
+        "K3",
+        "RV",
+        "H4",
+        "J1",
+        "A4",
+        "Super Block C",
+        "L9",
+        "V1",
+        "K8",
+        "K6",
+        "D113",
+        "Institutes",
+        "B4",
+        "C1 -Mixed use zone",
+        "SR4 - High Density Private",
+        "SS2c Health Zone",
+        "R4-High density zone",
+        "C32",
+        "I2-Logistics zone",
+        "D68",
+        "C20",
+        "Government",
+        "I1",
+        "D121",
+        "S3-Special zone",
+        "NSP",
+        "SU2 - Road Network",
+        "Super Block H",
+        "K19",
+        "RAA",
+        "A017",
+        "K28",
+        "J3",
+        "L74",
+        "SS2a- Education Zone",
+        "SS2b Cultural Zone",
+        "C21",
+        "I3-Non polluting industry zone",
+        "A064",
+        "I1-Business park zone",
+        "K2",
+        "A066",
+        "PGN-G",
+        "A025",
+        "P2-Active zone",
+        "C4-Town centre zone",
+        "B8",
+        "A048",
+        "R1-Village planning zone",
+        "B2",
+        "D20",
+        "SS3 - Special Zone",
+        "L39",
+        "K1",
+        "D33",
+        "D130",
+        "Income Tax",
+        "H2",
+        "Commercial Vacant",
+        "SC1b - Mixed Use",
+        "C11",
+        "C5",
+        "L21",
+        "Burial Ground",
+        "SC1a-Mixed Use",
+        "A004",
+        "K17",
+        "C3",
+        "A044",
+        "K14",
+        "C18",
+        "C2- General commercial zone",
+        "B6",
+        "B7",
+        "C3-Neighbourhood centre zone",
+        "C27",
+        "A073",
+        "A018",
+        "SLOI",
+        "B5",
+        "A034",
+        "J2",
+        "G1",
+        "C14",
+        "LPS Roads",
+        "C23",
+        "C1",
+        "C3-MP",
+        "P3-Protected zone Hills",
+        "C17",
+        "AIS Amenities",
+        "D1",
+        "L46",
+        "H5",
+        "SP3-Protected Zone",
+        "A038",
+        "C9",
+        "D56",
+        "IRRIGATION CHANNEL",
+        "D24",
+        "Residential Vacant",
+        "C6-Central business district zone",
+        "SU1-Reserve Zone",
+        "I2",
+        "SP1- Passive Zone",
+        "SS1 - Government Zone",
+        "V2",
+        "K13",
+        "A012",
+        "C2",
+        "A2",
+        "Parking",
+        "SP2- Active Zone",
+        "K16",
+        "C25",
+        "B1",
+        "L24",
+        "A007",
+        "A022",
+        "P3-Protected zone",
+        "H3",
+        "S2-Education zone"
+      ]
+    },
+    "all_unique_values": [
+      "C31",
+      "B3",
+      "C16",
+      "J5",
+      "Not Available",
+      "C10",
+      "U1-Reserve zone",
+      "C5-Regional centre zone",
+      "P1-Passive zone",
+      "A011",
+      "PGN-V",
+      "SR2 Low Density Housing",
+      "K24",
+      "C6",
+      "Super Block F",
+      "S3",
+      "H1",
+      "C12",
+      "C7",
+      "Super Block G",
+      "A3",
+      "K3",
+      "RV",
+      "H4",
+      "J1",
+      "A4",
+      "Super Block C",
+      "U2- Road Reserve Zone",
+      "L9",
+      "V1",
+      "K8",
+      "K6",
+      "D113",
+      "Institutes",
+      "B4",
+      "C1 -Mixed use zone",
+      "SR4 - High Density Private",
+      "SS2c Health Zone",
+      "R4-High density zone",
+      "C32",
+      "I2-Logistics zone",
+      "D68",
+      "C20",
+      "R3-Medium to high density zone",
+      "Government",
+      "I1",
+      "D121",
+      "S3-Special zone",
+      "NSP",
+      "SU2 - Road Network",
+      "Super Block H",
+      "K19",
+      "RAA",
+      "A017",
+      "K28",
+      "J3",
+      "L74",
+      "SS2a- Education Zone",
+      "SS2b Cultural Zone",
+      "C21",
+      "I3-Non polluting industry zone",
+      "A064",
+      "I1-Business park zone",
+      "K2",
+      "A066",
+      "PGN-G",
+      "A025",
+      "P2-Active zone",
+      "C4-Town centre zone",
+      "B8",
+      "A048",
+      "R1-Village planning zone",
+      "B2",
+      "D20",
+      "SS3 - Special Zone",
+      "L39",
+      "K1",
+      "D33",
+      "D130",
+      "Income Tax",
+      "H2",
+      "Commercial Vacant",
+      "SC1b - Mixed Use",
+      "C11",
+      "C5",
+      "L21",
+      "Burial Ground",
+      "SC1a-Mixed Use",
+      "A004",
+      "K17",
+      "C3",
+      "A044",
+      "K14",
+      "C18",
+      "C2- General commercial zone",
+      "B6",
+      "B7",
+      "C3-Neighbourhood centre zone",
+      "C27",
+      "A073",
+      "A018",
+      "SLOI",
+      "B5",
+      "A034",
+      "J2",
+      "G1",
+      "C14",
+      "LPS Roads",
+      "C23",
+      "C1",
+      "C3-MP",
+      "P3-Protected zone Hills",
+      "C17",
+      "AIS Amenities",
+      "D1",
+      "L46",
+      "H5",
+      "SP3-Protected Zone",
+      "A038",
+      "C9",
+      "D56",
+      "IRRIGATION CHANNEL",
+      "D24",
+      "Residential Vacant",
+      "C6-Central business district zone",
+      "SU1-Reserve Zone",
+      "I2",
+      "SP1- Passive Zone",
+      "SS1 - Government Zone",
+      "V2",
+      "K13",
+      "A012",
+      "C2",
+      "A2",
+      "Parking",
+      "SP2- Active Zone",
+      "K16",
+      "C25",
+      "B1",
+      "L24",
+      "A007",
+      "A022",
+      "P3-Protected zone",
+      "H3",
+      "S2-Education zone"
+    ],
+    "value_counts": {
+      "C31": 1,
+      "B3": 1,
+      "C16": 1,
+      "J5": 1,
+      "Not Available": 1,
+      "C10": 1,
+      "U1-Reserve zone": 1,
+      "C5-Regional centre zone": 1,
+      "P1-Passive zone": 1,
+      "A011": 1,
+      "PGN-V": 1,
+      "SR2 Low Density Housing": 1,
+      "K24": 1,
+      "C6": 1,
+      "Super Block F": 1,
+      "S3": 1,
+      "H1": 1,
+      "C12": 1,
+      "C7": 1,
+      "Super Block G": 1,
+      "A3": 1,
+      "K3": 1,
+      "RV": 1,
+      "H4": 1,
+      "J1": 1,
+      "A4": 1,
+      "Super Block C": 1,
+      "U2- Road Reserve Zone": 1,
+      "L9": 1,
+      "V1": 1,
+      "K8": 1,
+      "K6": 1,
+      "D113": 1,
+      "Institutes": 1,
+      "B4": 1,
+      "C1 -Mixed use zone": 1,
+      "SR4 - High Density Private": 1,
+      "SS2c Health Zone": 1,
+      "R4-High density zone": 1,
+      "C32": 1,
+      "I2-Logistics zone": 1,
+      "D68": 1,
+      "C20": 1,
+      "R3-Medium to high density zone": 1,
+      "Government": 1,
+      "I1": 1,
+      "D121": 1,
+      "S3-Special zone": 1,
+      "NSP": 1,
+      "SU2 - Road Network": 1,
+      "Super Block H": 1,
+      "K19": 1,
+      "RAA": 1,
+      "A017": 1,
+      "K28": 1,
+      "J3": 1,
+      "L74": 1,
+      "SS2a- Education Zone": 1,
+      "SS2b Cultural Zone": 1,
+      "C21": 1,
+      "I3-Non polluting industry zone": 1,
+      "A064": 1,
+      "I1-Business park zone": 1,
+      "K2": 1,
+      "A066": 1,
+      "PGN-G": 1,
+      "A025": 1,
+      "P2-Active zone": 1,
+      "C4-Town centre zone": 1,
+      "B8": 1,
+      "A048": 1,
+      "R1-Village planning zone": 1,
+      "B2": 1,
+      "D20": 1,
+      "SS3 - Special Zone": 1,
+      "L39": 1,
+      "K1": 1,
+      "D33": 1,
+      "D130": 1,
+      "Income Tax": 1,
+      "H2": 1,
+      "Commercial Vacant": 1,
+      "SC1b - Mixed Use": 1,
+      "C11": 1,
+      "C5": 1,
+      "L21": 1,
+      "Burial Ground": 1,
+      "SC1a-Mixed Use": 1,
+      "A004": 1,
+      "K17": 1,
+      "C3": 1,
+      "A044": 1,
+      "K14": 1,
+      "C18": 1,
+      "C2- General commercial zone": 1,
+      "B6": 1,
+      "B7": 1,
+      "C3-Neighbourhood centre zone": 1,
+      "C27": 1,
+      "A073": 1,
+      "A018": 1,
+      "SLOI": 1,
+      "B5": 1,
+      "A034": 1,
+      "J2": 1,
+      "G1": 1,
+      "C14": 1,
+      "LPS Roads": 1,
+      "C23": 1,
+      "C1": 1,
+      "C3-MP": 1,
+      "P3-Protected zone Hills": 1,
+      "C17": 1,
+      "AIS Amenities": 1,
+      "D1": 1,
+      "L46": 1,
+      "H5": 1,
+      "SP3-Protected Zone": 1,
+      "A038": 1,
+      "C9": 1,
+      "D56": 1,
+      "IRRIGATION CHANNEL": 1,
+      "D24": 1,
+      "Residential Vacant": 1,
+      "C6-Central business district zone": 1,
+      "SU1-Reserve Zone": 1,
+      "I2": 1,
+      "SP1- Passive Zone": 1,
+      "SS1 - Government Zone": 1,
+      "V2": 1,
+      "K13": 1,
+      "A012": 1,
+      "C2": 1,
+      "A2": 1,
+      "Parking": 1,
+      "SP2- Active Zone": 1,
+      "K16": 1,
+      "C25": 1,
+      "B1": 1,
+      "L24": 1,
+      "A007": 1,
+      "A022": 1,
+      "P3-Protected zone": 1,
+      "H3": 1,
+      "S2-Education zone": 1
+    }
+  },
+  "summary_statistics": {
+    "crs_distribution": {
+      "{'type': 'name', 'properties': {'name': 'urn:ogc:def:crs:OGC:1.3:CRS84'}}": 41
+    },
+    "geometry_types": {
+      "Polygon": 41,
+      "MultiPolygon": 8
+    }
+  },
+  "errors": []
+}
