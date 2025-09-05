@@ -7,12 +7,19 @@ Generates Mapbox-compatible PNG tiles from GeoJSON files
 import os
 import json
 import math
+import time
+import psutil
 from pathlib import Path
 from typing import Dict, List, Tuple, Optional
+# Removed multiprocessing imports - using optimized sequential processing
 import geopandas as gpd
 import mercantile
 from PIL import Image, ImageDraw
 import numpy as np
+from shapely.geometry import box
+from shapely.ops import transform
+import pyproj
+from functools import partial
 
 class VisakhapatnamPNGTileGenerator:
     def __init__(self, data_dir: str = "data/andhra_pradesh/visakhapatnam/master_plan", 
@@ -25,10 +32,14 @@ class VisakhapatnamPNGTileGenerator:
         
         # Load all GeoJSON files
         self.gdfs = []
+        self.spatial_index = {}  # Cache for spatial queries
         self.load_all_geojson_files()
         
         # Calculate global bounds
         self.global_bounds = self.calculate_global_bounds()
+        
+        # Build spatial index for faster queries
+        self.build_spatial_index()
         
         # Direct color mapping for Visakhapatnam zones
         self.zone_colors = {
@@ -125,6 +136,27 @@ class VisakhapatnamPNGTileGenerator:
         
         return name_mapping.get(filename, filename)
     
+    def get_memory_usage(self):
+        """Get current memory usage in MB"""
+        process = psutil.Process(os.getpid())
+        return process.memory_info().rss / 1024 / 1024
+    
+    def build_spatial_index(self):
+        """Build memory-efficient spatial index for faster tile queries"""
+        print("Building spatial index...")
+        for gdf_idx, gdf in enumerate(self.gdfs):
+            for feature_idx, (idx, row) in enumerate(gdf.iterrows()):
+                bounds = row.geometry.bounds
+                key = f"{gdf_idx}_{feature_idx}"
+                # Store only essential data to reduce memory usage
+                self.spatial_index[key] = {
+                    'gdf_idx': gdf_idx,
+                    'feature_idx': idx,
+                    'bounds': bounds,
+                    'style_name': row.get('style_name', 'Unknown')
+                }
+        print(f"Built spatial index with {len(self.spatial_index)} features")
+    
     def get_zone_style(self, zone_name: str) -> Dict:
         """Get style configuration for a zone"""
         return self.zone_colors.get(zone_name, {
@@ -154,25 +186,44 @@ class VisakhapatnamPNGTileGenerator:
         
         return (minx, miny, maxx, maxy)
     
+    def get_tile_transform_cache(self, zoom: int, tile_x: int, tile_y: int) -> Dict:
+        """Get cached tile transformation parameters"""
+        cache_key = f"{zoom}_{tile_x}_{tile_y}"
+        if not hasattr(self, '_transform_cache'):
+            self._transform_cache = {}
+        
+        if cache_key not in self._transform_cache:
+            tile_bounds = mercantile.bounds(tile_x, tile_y, zoom)
+            
+            # Pre-calculate tile bounds in Web Mercator
+            west_mercator = tile_bounds.west * 20037508.34 / 180
+            east_mercator = tile_bounds.east * 20037508.34 / 180
+            north_mercator = math.log(math.tan((90 + tile_bounds.north) * math.pi / 360)) * 20037508.34 / math.pi
+            south_mercator = math.log(math.tan((90 + tile_bounds.south) * math.pi / 360)) * 20037508.34 / math.pi
+            
+            self._transform_cache[cache_key] = {
+                'west_mercator': west_mercator,
+                'east_mercator': east_mercator,
+                'north_mercator': north_mercator,
+                'south_mercator': south_mercator,
+                'mercator_width': east_mercator - west_mercator,
+                'mercator_height': north_mercator - south_mercator
+            }
+        
+        return self._transform_cache[cache_key]
+    
     def web_mercator_to_pixels(self, lng: float, lat: float, zoom: int, tile_x: int, tile_y: int) -> Tuple[int, int]:
-        """Convert WGS84 coordinates to pixel coordinates within a tile"""
+        """Convert WGS84 coordinates to pixel coordinates within a tile (optimized)"""
+        # Get cached transformation parameters
+        transform_params = self.get_tile_transform_cache(zoom, tile_x, tile_y)
+        
         # Convert to Web Mercator
         x = lng * 20037508.34 / 180
         y = math.log(math.tan((90 + lat) * math.pi / 360)) * 20037508.34 / math.pi
         
-        # Get tile bounds in Web Mercator
-        tile_bounds = mercantile.bounds(tile_x, tile_y, zoom)
-        tile_bounds_mercator = mercantile.bounds(tile_x, tile_y, zoom)
-        
-        # Convert tile bounds to Web Mercator
-        west_mercator = tile_bounds_mercator.west * 20037508.34 / 180
-        east_mercator = tile_bounds_mercator.east * 20037508.34 / 180
-        north_mercator = math.log(math.tan((90 + tile_bounds_mercator.north) * math.pi / 360)) * 20037508.34 / math.pi
-        south_mercator = math.log(math.tan((90 + tile_bounds_mercator.south) * math.pi / 360)) * 20037508.34 / math.pi
-        
-        # Convert to pixels
-        pixel_x = int(256 * (x - west_mercator) / (east_mercator - west_mercator))
-        pixel_y = int(256 * (north_mercator - y) / (north_mercator - south_mercator))
+        # Convert to pixels using cached parameters
+        pixel_x = int(256 * (x - transform_params['west_mercator']) / transform_params['mercator_width'])
+        pixel_y = int(256 * (transform_params['north_mercator'] - y) / transform_params['mercator_height'])
         
         return pixel_x, pixel_y
     
@@ -323,7 +374,7 @@ class VisakhapatnamPNGTileGenerator:
         return False
     
     def generate_tile(self, x: int, y: int, zoom: int) -> Image.Image:
-        """Generate a single tile"""
+        """Generate a single tile (optimized with spatial indexing)"""
         # Create a new image with transparent background
         img = Image.new('RGBA', (256, 256), (0, 0, 0, 0))
         draw = ImageDraw.Draw(img)
@@ -331,52 +382,76 @@ class VisakhapatnamPNGTileGenerator:
         # Get tile bounds
         tile_bounds = mercantile.bounds(x, y, zoom)
         
-        # Filter features that intersect with this tile
-        for gdf in self.gdfs:
-            # Simple spatial filter - check if any feature intersects with tile bounds
-            gdf_filtered = gdf[
-                (gdf.bounds.minx <= tile_bounds.east) &
-                (gdf.bounds.maxx >= tile_bounds.west) &
-                (gdf.bounds.miny <= tile_bounds.north) &
-                (gdf.bounds.maxy >= tile_bounds.south)
-            ]
+        # Use spatial index for faster feature filtering
+        intersecting_features = []
+        for key, feature_data in self.spatial_index.items():
+            bounds = feature_data['bounds']
+            # Check if feature bounds intersect with tile bounds
+            if (bounds[0] <= tile_bounds.east and bounds[2] >= tile_bounds.west and
+                bounds[1] <= tile_bounds.north and bounds[3] >= tile_bounds.south):
+                intersecting_features.append(feature_data)
+        
+        # Process intersecting features
+        for feature_data in intersecting_features:
+            # Get geometry from original GDF using indices
+            gdf_idx = feature_data['gdf_idx']
+            feature_idx = feature_data['feature_idx']
+            geometry = self.gdfs[gdf_idx].iloc[feature_idx].geometry
+            style_name = feature_data['style_name']
             
-            for idx, row in gdf_filtered.iterrows():
-                geometry = row.geometry
-                style_name = row.get('style_name', 'Unknown')
-                
-                # Get style configuration
-                style = self.get_zone_style(style_name)
-                fill_color = self.hex_to_rgb(style.get('fill_color')) if style.get('fill_color') else None
-                stroke_color = self.hex_to_rgb(style.get('stroke_color')) if style.get('stroke_color') else None
-                pattern = style.get('pattern', 'SOLID')
-                stroke_width = style.get('stroke_width', 0)
-                
-                # Draw the geometry
-                self.draw_polygon(draw, geometry, zoom, x, y, 
-                                fill_color, stroke_color, stroke_width, pattern)
+            # Get style configuration
+            style = self.get_zone_style(style_name)
+            fill_color = self.hex_to_rgb(style.get('fill_color')) if style.get('fill_color') else None
+            stroke_color = self.hex_to_rgb(style.get('stroke_color')) if style.get('stroke_color') else None
+            pattern = style.get('pattern', 'SOLID')
+            stroke_width = style.get('stroke_width', 0)
+            
+            # Draw the geometry
+            self.draw_polygon(draw, geometry, zoom, x, y, 
+                            fill_color, stroke_color, stroke_width, pattern)
         
         return img
     
-    def generate_png_tiles(self, min_zoom: int = 8, max_zoom: int = 16):
-        """Generate PNG tiles for all zoom levels"""
+    def generate_png_tiles(self, min_zoom: int = 8, max_zoom: int = 16, batch_size: int = 1000):
+        """Generate PNG tiles for all zoom levels with optimized sequential processing"""
         print(f"Generating tiles for zoom levels {min_zoom} to {max_zoom}...")
+        print(f"Using optimized sequential processing with batch size {batch_size}")
         
         total_tiles = 0
+        start_time = time.time()
         
         for zoom in range(min_zoom, max_zoom + 1):
+            zoom_start_time = time.time()
             print(f"Generating tiles for zoom level {zoom}...")
             
             # Calculate tile range for this zoom level
             min_tile = mercantile.tile(self.global_bounds[0], self.global_bounds[1], zoom)
             max_tile = mercantile.tile(self.global_bounds[2], self.global_bounds[3], zoom)
             
-            zoom_tiles = 0
-            
+            # Prepare tile generation tasks
+            tile_tasks = []
             for x in range(min_tile.x, max_tile.x + 1):
                 for y in range(max_tile.y, min_tile.y + 1):
+                    tile_tasks.append((x, y, zoom))
+            
+            total_tiles_for_zoom = len(tile_tasks)
+            print(f"  Total tiles to generate: {total_tiles_for_zoom}")
+            
+            # Process tiles in batches to manage memory
+            zoom_tiles_generated = 0
+            processed_tiles = 0
+            
+            for batch_start in range(0, total_tiles_for_zoom, batch_size):
+                batch_end = min(batch_start + batch_size, total_tiles_for_zoom)
+                batch_tasks = tile_tasks[batch_start:batch_end]
+                
+                print(f"  Processing batch {batch_start//batch_size + 1}/{(total_tiles_for_zoom + batch_size - 1)//batch_size} "
+                      f"(tiles {batch_start + 1}-{batch_end})")
+                
+                # Generate tiles sequentially for this batch
+                for x, y, zoom_level in batch_tasks:
                     # Create tile directory
-                    tile_dir = self.output_dir / str(zoom) / str(x)
+                    tile_dir = self.output_dir / str(zoom_level) / str(x)
                     tile_dir.mkdir(parents=True, exist_ok=True)
                     
                     # Generate tile
@@ -384,16 +459,38 @@ class VisakhapatnamPNGTileGenerator:
                     
                     if not tile_path.exists():  # Skip if tile already exists
                         try:
-                            tile_img = self.generate_tile(x, y, zoom)
+                            tile_img = self.generate_tile(x, y, zoom_level)
                             tile_img.save(tile_path, 'PNG')
-                            zoom_tiles += 1
+                            zoom_tiles_generated += 1
                         except Exception as e:
-                            print(f"Error generating tile {zoom}/{x}/{y}: {e}")
+                            print(f"Error generating tile {zoom_level}/{x}/{y}: {e}")
+                            # Continue processing other tiles even if one fails
+                    
+                    processed_tiles += 1
+                    
+                    # Progress update every 50 tiles
+                    if processed_tiles % 50 == 0 or processed_tiles == total_tiles_for_zoom:
+                        elapsed = time.time() - zoom_start_time
+                        rate = processed_tiles / elapsed if elapsed > 0 else 0
+                        eta = (total_tiles_for_zoom - processed_tiles) / rate if rate > 0 else 0
+                        memory_usage = self.get_memory_usage()
+                        print(f"  Progress: {processed_tiles}/{total_tiles_for_zoom} tiles "
+                              f"({processed_tiles/total_tiles_for_zoom*100:.1f}%) - "
+                              f"Rate: {rate:.1f} tiles/sec - "
+                              f"ETA: {eta/60:.1f} minutes - "
+                              f"Memory: {memory_usage:.1f} MB")
+                
+                # Force garbage collection to free memory after each batch
+                import gc
+                gc.collect()
             
-            print(f"  Generated {zoom_tiles} tiles for zoom level {zoom}")
-            total_tiles += zoom_tiles
+            zoom_elapsed = time.time() - zoom_start_time
+            print(f"  Generated {zoom_tiles_generated} new tiles for zoom level {zoom} in {zoom_elapsed/60:.1f} minutes")
+            total_tiles += zoom_tiles_generated
         
-        print(f"Total tiles generated: {total_tiles}")
+        total_elapsed = time.time() - start_time
+        print(f"Total tiles generated: {total_tiles} in {total_elapsed/60:.1f} minutes")
+        print(f"Average rate: {total_tiles/total_elapsed:.1f} tiles/second")
     
     def create_mapbox_style_json(self):
         """Create Mapbox style JSON file"""
@@ -524,8 +621,8 @@ def main():
     print(f"Loaded {len(generator.gdfs)} GeoJSON files")
     print(f"Global bounds: {generator.global_bounds}")
     
-    # Generate tiles
-    generator.generate_png_tiles(min_zoom=18, max_zoom=18)
+    # Generate tiles with optimized sequential processing
+    generator.generate_png_tiles(min_zoom=17, max_zoom=18, batch_size=500)
     
     # Create supporting files
     generator.create_mapbox_style_json()
