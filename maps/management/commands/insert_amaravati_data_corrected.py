@@ -33,26 +33,25 @@ class Command(BaseCommand):
         )
         
         try:
-            with transaction.atomic():
-                # Setup basic entities
-                self.setup_state_and_city()
-                self.setup_layer_categories()
-                
-                # Delete existing data if requested
-                if options['delete_existing']:
-                    self.delete_existing_amaravati_data()
-                
-                # Create the SINGLE master plan layer
-                self.create_master_plan_layer()
-                
-                # Create styles for all zone types
-                self.create_city_layer_styles()
-                
-                # Process all files into the single layer
-                self.process_all_files_into_single_layer()
-                
-                # Calculate bounds
-                self.calculate_layer_bounds()
+            # Setup basic entities (these are safe operations)
+            self.setup_state_and_city()
+            self.setup_layer_categories()
+            
+            # Delete existing data if requested
+            if options['delete_existing']:
+                self.delete_existing_amaravati_data()
+            
+            # Create the SINGLE master plan layer
+            self.create_master_plan_layer()
+            
+            # Create styles for all zone types
+            self.create_city_layer_styles()
+            
+            # Process all files into the single layer (handle errors per file)
+            self.process_all_files_into_single_layer()
+            
+            # Calculate bounds
+            self.calculate_layer_bounds()
             
             self.stdout.write(
                 self.style.SUCCESS('\n✅ AMARAVATI DATA INSERTION COMPLETED SUCCESSFULLY!')
@@ -356,31 +355,84 @@ class Command(BaseCommand):
                 file_feature_count = 0
                 for feature_data in features:
                     try:
-                        # Create geometry
-                        geometry = GEOSGeometry(json.dumps(feature_data['geometry']))
+                        # Create geometry with validation
+                        geometry_json = json.dumps(feature_data['geometry'])
+                        geometry = GEOSGeometry(geometry_json)
+                        
+                        # Skip empty geometries
+                        if geometry.empty:
+                            continue
+                        
+                        # Flatten 3D geometry to 2D (remove Z dimension)
+                        if geometry.hasz:
+                            # Convert to 2D by creating new geometry without Z coordinates
+                            # Use a more robust approach to handle 3D coordinates
+                            geom_dict = json.loads(geometry.geojson)
+                            
+                            def remove_z_from_coords(coords):
+                                """Recursively remove Z coordinates from coordinate arrays"""
+                                if isinstance(coords[0], (int, float)):
+                                    # This is a coordinate pair/triple, return only x,y
+                                    return coords[:2]
+                                else:
+                                    # This is a nested array, process recursively
+                                    return [remove_z_from_coords(coord) for coord in coords]
+                            
+                            # Remove Z coordinates from the geometry
+                            if 'coordinates' in geom_dict:
+                                geom_dict['coordinates'] = remove_z_from_coords(geom_dict['coordinates'])
+                            
+                            # Create new 2D geometry from modified GeoJSON
+                            geometry = GEOSGeometry(json.dumps(geom_dict))
+                        
+                        # Validate and fix geometry
+                        if not geometry.valid:
+                            # Try multiple methods to fix invalid geometry
+                            try:
+                                # Method 1: Buffer(0) to fix self-intersections
+                                geometry = geometry.buffer(0)
+                                if not geometry.valid:
+                                    # Method 2: Try to fix with a very small buffer
+                                    geometry = geometry.buffer(0.000001)
+                                    if not geometry.valid:
+                                        # Method 3: Skip this feature if still invalid
+                                        self.stdout.write(f"    ⚠️ Could not fix invalid geometry, skipping feature")
+                                        continue
+                            except Exception as e:
+                                self.stdout.write(f"    ⚠️ Error fixing geometry: {e}, skipping feature")
+                                continue
                         
                         # Extract properties
                         properties = feature_data.get('properties', {})
                         
-                        # Create feature
-                        feature = GeoFeature.objects.create(
-                            layer=self.master_plan_layer,
-                            geometry=geometry,
-                            source_layer_name=file_name,  # This will be the zone name
-                            name=properties.get('symbology', '') or properties.get('plot_categ', ''),
-                            zone_category=properties.get('symbology', '') or properties.get('plot_categ', ''),
-                            plot_category=properties.get('plot_categ', ''),
-                            symbology=properties.get('symbology', ''),
-                            township=properties.get('township'),
-                            sector=properties.get('sector'),
-                            colony=properties.get('colony'),
-                            block=properties.get('block'),
-                            area=properties.get('alloted_ex'),
-                            shape_length=properties.get('Shape_Length'),
-                            shape_area=properties.get('Shape_Area'),
-                            objectid=properties.get('OBJECTID'),
-                            properties=properties
-                        )
+                        # Ensure required fields are not empty strings (use empty string for blank fields)
+                        def clean_field(value):
+                            """Convert None to empty string for database fields that don't allow NULL"""
+                            if value is None:
+                                return ''
+                            return str(value)
+                        
+                        # Create feature with individual transaction
+                        with transaction.atomic():
+                            feature = GeoFeature.objects.create(
+                                layer=self.master_plan_layer,
+                                geometry=geometry,
+                                source_layer_name=file_name,  # This will be the zone name
+                                name=clean_field(properties.get('symbology', '') or properties.get('plot_categ', '')),
+                                zone_category=clean_field(properties.get('symbology', '') or properties.get('plot_categ', '')),
+                                plot_category=clean_field(properties.get('plot_categ', '')),
+                                symbology=clean_field(properties.get('symbology', '')),
+                                township=properties.get('township'),
+                                sector=properties.get('sector'),
+                                colony=properties.get('colony'),
+                                block=properties.get('block'),
+                                area=properties.get('alloted_ex'),
+                                shape_length=properties.get('Shape_Length'),
+                                shape_area=properties.get('Shape_Area'),
+                                objectid=properties.get('OBJECTID'),
+                                properties=properties
+                            )
+                        
                         file_feature_count += 1
                         total_features += 1
                         
