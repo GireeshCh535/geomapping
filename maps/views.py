@@ -462,8 +462,23 @@ class CoordinateSearchTestView(APIView):
             
             # Search for features
             if city_slug:
-                # Search within specific city
-                result = self._search_in_city(city_slug, search_point, latitude, longitude, radius_meters)
+                # Check if city_slug is actually a layer slug
+                try:
+                    city = City.objects.get(slug=city_slug)
+                    # It's a valid city, do city-specific search
+                    result = self._search_in_city(city_slug, search_point, latitude, longitude, radius_meters)
+                except City.DoesNotExist:
+                    # Not a city, try as a layer slug
+                    try:
+                        layer = DataLayer.objects.select_related('city', 'city__state_ref').get(slug=city_slug)
+                        # It's a valid layer, do layer-specific search
+                        result = self._search_in_layer(layer, search_point, latitude, longitude, radius_meters)
+                    except DataLayer.DoesNotExist:
+                        return Response({
+                            'error': f'No city or layer found with slug: {city_slug}',
+                            'city_slug': city_slug,
+                            'timestamp': timezone.now().isoformat()
+                        }, status=404)
             else:
                 # Search across all states and cities
                 result = self._search_across_all_cities(search_point, latitude, longitude, radius_meters)
@@ -989,6 +1004,113 @@ class CoordinateSearchTestView(APIView):
             
         else:
             return "No features found at this location"
+    
+    def _search_in_layer(self, layer, search_point, latitude, longitude, radius_meters):
+        """Search for features within a specific layer"""
+        try:
+            # Use a small buffer around the point to handle LineStrings and other geometries
+            search_buffer = search_point.buffer(0.0001)  # ~10m buffer
+            
+            # Search for features in the specific layer that intersect with the point
+            features = GeoFeature.objects.filter(
+                layer=layer,
+                is_valid=True,
+                geometry__intersects=search_buffer
+            ).order_by('-area')  # Order by area (largest first)
+            
+            if not features.exists():
+                return {
+                    'search_point': {
+                        'latitude': latitude,
+                        'longitude': longitude,
+                        'coordinates': [longitude, latitude],
+                        'wkt': f'POINT({longitude} {latitude})'
+                    },
+                    'found': False,
+                    'layer': {
+                        'slug': layer.slug,
+                        'name': layer.name,
+                        'city': layer.city.slug,
+                        'city_name': layer.city.name,
+                        'state': layer.city.state_ref.slug if layer.city.state_ref else '',
+                        'state_name': layer.city.state_ref.name if layer.city.state_ref else ''
+                    },
+                    'features': [],
+                    'nearby_features': [],
+                    'administrative_boundaries': {},
+                    'summary': 'No features found in the specified layer',
+                    'search_scope': 'layer_specific',
+                    'search_radius_meters': radius_meters,
+                    'status': 'no_data_found'
+                }
+            
+            # Process found features
+            containing_features = []
+            for feature in features:
+                feature_data = self._process_feature_data(feature)
+                containing_features.append(feature_data)
+            
+            # Generate summary
+            if containing_features:
+                primary_feature = containing_features[0]
+                summary = f"Location is within {layer.name}: {primary_feature['feature_name']} ({primary_feature['category_name']})"
+                if len(containing_features) > 1:
+                    summary += f". Also overlaps with {len(containing_features) - 1} other features."
+            else:
+                summary = "No features found in the specified layer"
+            
+            return {
+                'search_point': {
+                    'latitude': latitude,
+                    'longitude': longitude,
+                    'coordinates': [longitude, latitude],
+                    'wkt': f'POINT({longitude} {latitude})'
+                },
+                'found': True,
+                'layer': {
+                    'slug': layer.slug,
+                    'name': layer.name,
+                    'city': layer.city.slug,
+                    'city_name': layer.city.name,
+                    'state': layer.city.state_ref.slug if layer.city.state_ref else '',
+                    'state_name': layer.city.state_ref.name if layer.city.state_ref else ''
+                },
+                'features': containing_features,
+                'nearby_features': [],
+                'administrative_boundaries': {},
+                'summary': summary,
+                'search_scope': 'layer_specific',
+                'search_radius_meters': radius_meters,
+                'status': 'success'
+            }
+            
+        except Exception as e:
+            logger.error(f"Error in _search_in_layer: {e}")
+            return {
+                'search_point': {
+                    'latitude': latitude,
+                    'longitude': longitude,
+                    'coordinates': [longitude, latitude],
+                    'wkt': f'POINT({longitude} {latitude})'
+                },
+                'found': False,
+                'error': f'Error searching layer: {str(e)}',
+                'layer': {
+                    'slug': layer.slug,
+                    'name': layer.name,
+                    'city': layer.city.slug,
+                    'city_name': layer.city.name,
+                    'state': layer.city.state_ref.slug if layer.city.state_ref else '',
+                    'state_name': layer.city.state_ref.name if layer.city.state_ref else ''
+                },
+                'features': [],
+                'nearby_features': [],
+                'administrative_boundaries': {},
+                'summary': f'Error searching layer: {str(e)}',
+                'search_scope': 'layer_specific',
+                'search_radius_meters': radius_meters,
+                'status': 'error'
+            }
         
 class AvailableTilesView(APIView):
     """
@@ -2372,24 +2494,40 @@ class LayerCoordinateSearchView(APIView):
     Coordinate-based search restricted to a single layer identified by its slug.
     
     URL: /api/search-coords-by-layer/?lat=<latitude>&lng=<longitude>&slug=<layer_slug>
+    URL: /api/cities/<layer_slug>/search-coords-test/?lat=<latitude>&lng=<longitude>
     
     This API searches only within the layer identified by the given slug.
     Returns feature details if coordinates fall inside a feature of that layer.
     """
     permission_classes = [AllowAny]
     
-    def get(self, request):
+    def get(self, request, layer_slug=None):
         try:
-            # Get parameters from query string
+            # Get parameters from query string or URL path
             lat = request.GET.get('lat')
             lng = request.GET.get('lng')
-            slug = request.GET.get('slug')
+            slug = layer_slug or request.GET.get('slug')
             
             # Validate required parameters
             if not lat or not lng or not slug:
                 return Response({
-                    'detail': 'Missing required parameters: lat, lng, slug'
+                    'detail': 'Missing required parameters: lat, lng, and layer slug'
                 }, status=400)
+            
+            # If this is a URL path parameter (layer_slug), check if it's actually a layer slug
+            if layer_slug:
+                # First check if it's a valid city slug - if so, this should be handled by city search
+                from maps.models import City
+                try:
+                    City.objects.get(slug=layer_slug)
+                    # It's a valid city slug, so this should be handled by the city search view
+                    # We'll let it fall through to the city search by returning a 404
+                    return Response({
+                        'detail': 'Invalid layer slug'
+                    }, status=400)
+                except City.DoesNotExist:
+                    # Not a city slug, proceed with layer search
+                    pass
             
             # Validate and convert coordinates
             try:
