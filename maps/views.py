@@ -535,17 +535,18 @@ class CoordinateSearchTestView(APIView):
             
             if not containing_features and not nearby_features:
                 response_data['status'] = 'no_data_found'
-                return Response(response_data, status=404)
+                return response_data
             
             response_data['status'] = 'success'
             return response_data
             
         except City.DoesNotExist:
-            return Response({
+            return {
                 'error': f'City not found: {city_slug}',
                 'city': city_slug,
-                'timestamp': timezone.now().isoformat()
-            }, status=404)
+                'timestamp': timezone.now().isoformat(),
+                'status': 'city_not_found'
+            }
     
     def _search_across_all_cities(self, search_point, latitude, longitude, radius_meters):
         """Search for features across all states and cities"""
@@ -683,15 +684,18 @@ class CoordinateSearchTestView(APIView):
             return {'error': str(e)}
     
     def _find_containing_features(self, city, point):
-        """Find all features that contain the search point"""
+        """Find all features that contain or intersect with the search point"""
         containing_features = []
         
-        # Query features that contain the point
+        # Use a small buffer around the point to handle LineStrings and other geometries
+        search_buffer = point.buffer(0.0001)  # ~10m buffer
+        
+        # Query features that intersect with the buffered point
         features = GeoFeature.objects.filter(
             layer__city=city,
             layer__is_processed=True,
             is_valid=True,
-            geometry__contains=point
+            geometry__intersects=search_buffer
         ).select_related('layer', 'layer__category').order_by('-area')
         
         for feature in features:
@@ -2413,11 +2417,14 @@ class LayerCoordinateSearchView(APIView):
             # Create point geometry for search
             search_point = Point(longitude, latitude, srid=4326)
             
-            # Search for features in the specific layer that contain the point
+            # Search for features in the specific layer that intersect with the point
+            # Use a small buffer around the point to handle LineStrings and other geometries
+            search_buffer = search_point.buffer(0.0001)  # ~10m buffer
+            
             features = GeoFeature.objects.filter(
                 layer=layer,
                 is_valid=True,
-                geometry__contains=search_point
+                geometry__intersects=search_buffer
             ).order_by('-area')  # Order by area (largest first)
             
             if not features.exists():

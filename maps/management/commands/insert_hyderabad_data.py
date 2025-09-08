@@ -369,7 +369,22 @@ class Command(BaseCommand):
                                 elif geom_data.get('type') == 'MultiPolygon':
                                     geom_data['coordinates'] = [[[[coord[0], coord[1]] for coord in ring] for ring in poly] for poly in geom_data['coordinates']]
                             
+                            # Check if the GeoJSON has a CRS and transform coordinates if needed
+                            crs = geojson_data.get('crs', {})
+                            source_srid = 4326  # Default to WGS84
+                            
+                            if crs.get('type') == 'name' and 'EPSG::3857' in crs.get('properties', {}).get('name', ''):
+                                source_srid = 3857  # Web Mercator
+                            
+                            # Create geometry without SRID first
                             geometry = GEOSGeometry(json.dumps(geom_data))
+                            
+                            # Set the correct SRID and transform if needed
+                            if source_srid != 4326:
+                                geometry.srid = source_srid
+                                geometry.transform(4326)
+                            else:
+                                geometry.srid = 4326
                             
                             # Extract properties
                             properties = feature_data.get('properties', {})
