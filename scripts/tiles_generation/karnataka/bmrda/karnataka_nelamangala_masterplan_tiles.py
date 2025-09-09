@@ -359,7 +359,7 @@ def main():
     generator = NelamangalaMasterplanTileGenerator()
     
     # Generate tiles with higher zoom levels for better quality
-    generator.generate_tiles(min_zoom=17, max_zoom=17)
+    generator.generate_tiles(min_zoom=18, max_zoom=18)
     
     logger.info("Nelamangala Sompura Masterplan tile generation completed!")
 

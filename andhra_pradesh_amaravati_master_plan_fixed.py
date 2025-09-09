@@ -45,15 +45,14 @@ class AmaravatiTileGenerator:
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(exist_ok=True)
         
-        # Zoom level configuration
-        self.min_zoom = 18
-        self.max_zoom = 18
+        # Zoom level configuration - FIXED for multiple zoom levels
+        self.min_zoom = 4
+        self.max_zoom = 9
         
         # Tile size
         self.tile_size = 256
         
-        # Buffer for preventing edge clipping (in pixels)
-        self.tile_buffer = 16
+        # No buffer needed for vector data - exact tile boundaries ensure seamless rendering
         
         # Coordinate transformers
         self.transformer_to_3857 = pyproj.Transformer.from_crs(
@@ -82,7 +81,7 @@ class AmaravatiTileGenerator:
             "P3-Protected zone Hills": {"fill_color": "#4C7300"},
             "PGN-G": {"fill_color": "#4C7300"},
             "PGN-V": {"fill_color": "#897044"},
-            "R1-Village planning zone": {"fill_color": "#FFFFFF"},
+            "R1-Village planning zone": {"fill_color": "#F0F0F0"},
             "R3-Medium to high density zone": {"fill_color": "#F5CA7A"},
             "R4-High density zone": {"fill_color": "#E69800"},
             "RAA": {"fill_color": "#FFAA00"},
@@ -102,9 +101,9 @@ class AmaravatiTileGenerator:
             "SS2c Health Zone": {"fill_color": "#D3FFBE"},
             "SS3 - Special Zone": {"fill_color": "#A83B00"},
             "SU1-Reserve Zone": {"fill_color": "#E1E1E1"},
-            "SU2 - Road Network": {"fill_color": "#FFFFFF"},
+            "SU2 - Road Network": {"fill_color": "#F8F8F8"},
             "U1-Reserve zone": {"fill_color": "#CCCCCC"},
-            "U2- Road Reserve Zone": {"fill_color": "#000000"},
+            "U2- Road Reserve Zone": {"fill_color": "#404040"},
             "Not Available": {"fill_color": "#B6B6B6"}
         }
         
@@ -199,15 +198,28 @@ class AmaravatiTileGenerator:
         bounds_4326 = gdf.total_bounds
         min_x, min_y, max_x, max_y = bounds_4326
         
-        # Add small buffer to ensure complete coverage
-        buffer = 0.001
-        min_x -= buffer
-        min_y -= buffer
-        max_x += buffer
-        max_y += buffer
+        # Add a buffer to ensure we capture tiles at low zoom levels
+        # For low zoom levels, we need a larger buffer to ensure we get tiles
+        if zoom <= 8:
+            buffer = 0.1  # Larger buffer for low zoom levels
+        else:
+            buffer = 0.01  # Smaller buffer for higher zoom levels
         
-        # Get tiles for bounds
-        tiles = list(mercantile.tiles(min_x, min_y, max_x, max_y, [zoom]))
+        # Apply buffer to bounds
+        buffered_min_x = max(-180, min_x - buffer)
+        buffered_min_y = max(-85, min_y - buffer)
+        buffered_max_x = min(180, max_x + buffer)
+        buffered_max_y = min(85, max_y + buffer)
+        
+        # Get tiles for buffered bounds
+        tiles = list(mercantile.tiles(buffered_min_x, buffered_min_y, buffered_max_x, buffered_max_y, [zoom]))
+        
+        # If no tiles found (shouldn't happen with buffer), try without buffer
+        if not tiles:
+            logger.warning(f"No tiles found with buffer for zoom {zoom}, trying without buffer")
+            tiles = list(mercantile.tiles(min_x, min_y, max_x, max_y, [zoom]))
+        
+        logger.info(f"  Found {len(tiles)} tiles for zoom {zoom} (bounds: {buffered_min_x:.6f}, {buffered_min_y:.6f}, {buffered_max_x:.6f}, {buffered_max_y:.6f})")
         
         return tiles
     
@@ -236,13 +248,20 @@ class AmaravatiTileGenerator:
         return px, py
     
     def render_tile(self, tile: mercantile.Tile, gdf: gpd.GeoDataFrame) -> Optional[Image.Image]:
-        """Render a single tile with all features using the reference approach."""
+        """
+        Render a single tile with exact boundary clipping for seamless vector rendering.
+        
+        Key improvements for continuous vector data:
+        - No buffers to prevent overlapping renders
+        - Exact geometry clipping to tile boundaries
+        - Prevents stitching artifacts between adjacent tiles
+        """
         # Get tile bounds in WGS84
         tile_bounds = mercantile.bounds(tile)
         
-        # Create image with transparency
-        img = Image.new('RGBA', (self.tile_size, self.tile_size), (0, 0, 0, 0))
-        draw = ImageDraw.Draw(img, 'RGBA')
+        # Create image with light gray background (makes light colors more visible)
+        img = Image.new('RGB', (self.tile_size, self.tile_size), (240, 240, 240))
+        draw = ImageDraw.Draw(img)
         
         # Convert to pixel coordinates function (from reference)
         def coord_to_pixel(lon, lat):
@@ -251,33 +270,81 @@ class AmaravatiTileGenerator:
             tile_y = (tile_bounds.north - lat) / (tile_bounds.north - tile_bounds.south) * self.tile_size
             return tile_x, tile_y
         
-        # Create tile geometry for intersection with larger buffer to ensure complete coverage
-        # Use a larger buffer to capture all features that should appear in this tile
-        buffer_factor = 0.2  # 20% buffer for better coverage
-        lon_range = tile_bounds.east - tile_bounds.west
-        lat_range = tile_bounds.north - tile_bounds.south
-        
-        buffered_tile_geom = box(
-            tile_bounds.west - (lon_range * buffer_factor),
-            tile_bounds.south - (lat_range * buffer_factor),
-            tile_bounds.east + (lon_range * buffer_factor),
-            tile_bounds.north + (lat_range * buffer_factor)
+        # Create EXACT tile geometry - NO BUFFER for continuous vector rendering
+        # This prevents overlapping renders and stitching artifacts
+        exact_tile_geom = box(
+            tile_bounds.west,
+            tile_bounds.south, 
+            tile_bounds.east,
+            tile_bounds.north
         )
         
-        # Filter geometries that intersect with buffered tile
-        intersecting = gdf[gdf.geometry.intersects(buffered_tile_geom)]
+        # Get features that intersect with the exact tile boundary
+        # This ensures seamless tile-to-tile rendering
+        intersecting_features = gdf[gdf.geometry.intersects(exact_tile_geom)]
         
-        # Additional check: also include features that are completely contained within the tile
-        # This ensures we don't miss any features due to precision issues
-        contained_features = gdf[gdf.geometry.within(buffered_tile_geom)]
+        # For vector data, we want to clip geometries to exact tile boundaries
+        # This prevents features from being rendered multiple times across adjacent tiles
+        clipped_features = []
+        for idx, feature in intersecting_features.iterrows():
+            try:
+                # Clip geometry to exact tile boundary
+                clipped_geom = feature.geometry.intersection(exact_tile_geom)
+                
+                # Only keep non-empty geometries - NO area threshold
+                # This ensures ALL features are rendered, no matter how small
+                if not clipped_geom.is_empty:
+                    feature_copy = feature.copy()
+                    feature_copy.geometry = clipped_geom
+                    clipped_features.append(feature_copy)
+            except Exception as e:
+                # If clipping fails, include the original geometry
+                # This handles edge cases with invalid geometries
+                clipped_features.append(feature)
         
-        # Combine both sets to ensure complete coverage
-        all_features = gpd.GeoDataFrame(pd.concat([intersecting, contained_features], ignore_index=True))
-        all_features = all_features.drop_duplicates()  # Remove any duplicates
+        # Convert back to GeoDataFrame
+        if clipped_features:
+            all_features = gpd.GeoDataFrame(clipped_features, crs=gdf.crs)
+        else:
+            all_features = gpd.GeoDataFrame(columns=gdf.columns, crs=gdf.crs)
         
         rendered_count = 0
         
-        # Render each feature
+        # Define rendering order (background to foreground)
+        # Roads and infrastructure should render first, then buildings/zones
+        rendering_priority = {
+            "U2- Road Reserve Zone": 1,  # Roads first (background)
+            "SU2 - Road Network": 1,
+            "U1-Reserve zone": 2,
+            "SU1-Reserve Zone": 2,
+            "P1-Passive zone": 3,
+            "P2-Active zone": 3,
+            "P3-Protected zone": 3,
+            "P3-Protected zone Hills": 3,
+            "Commercial Vacant": 4,
+            "Residential Vacant": 4,
+            "C2- General commercial zone": 5,  # Main zones
+            "R3-Medium to high density zone": 5,
+            "C1 -Mixed use zone": 6,
+            "C3-Neighbourhood centre zone": 6,
+            "C4-Town centre zone": 6,
+            "C5-Regional centre zone": 6,
+            "C6-Central business district zone": 6,
+            "S2-Education zone": 7,  # Special zones on top
+            "S3-Special zone": 7,
+            "SS1 - Government Zone": 8,  # Important zones last
+            "SS2a- Education Zone": 8,
+            "SS2b Cultural Zone": 8,
+            "SS2c Health Zone": 8,
+        }
+        
+        # Sort features by rendering priority (lower numbers render first)
+        all_features['render_priority'] = all_features['zone_type'].map(
+            lambda x: rendering_priority.get(x, 5)  # Default priority 5
+        )
+        all_features = all_features.sort_values('render_priority')
+        
+        # Render each feature in priority order
         for idx, feature in all_features.iterrows():
             zone_type = feature.get('zone_type', 'Not Available')
             geom = feature.geometry
@@ -294,8 +361,19 @@ class AmaravatiTileGenerator:
                 if not style:
                     style = self.zoning_styles['Not Available']
             
-            # Get fill color
+            # Get fill color 
             fill_color = self.hex_to_rgb(style['fill_color'])
+            
+            # For road zones, use a lighter shade to reduce dominance
+            if zone_type == "U2- Road Reserve Zone":
+                # Make road reserves lighter so they don't dominate
+                r, g, b = fill_color
+                # Lighten the color by 40%
+                fill_color = (
+                    min(255, int(r + (255 - r) * 0.4)),
+                    min(255, int(g + (255 - g) * 0.4)),
+                    min(255, int(b + (255 - b) * 0.4))
+                )
             
             # Convert geometry to pixel coordinates and draw
             if geom.geom_type == 'Polygon':
@@ -307,8 +385,27 @@ class AmaravatiTileGenerator:
                         coords.append((px, py))
                 
                 if len(coords) > 2:
-                    # Fill only - no borders between features
-                    draw.polygon(coords, fill=fill_color)
+                    # Check if polygon is too small (single point or very small area)
+                    min_x = min(coord[0] for coord in coords)
+                    max_x = max(coord[0] for coord in coords)
+                    min_y = min(coord[1] for coord in coords)
+                    max_y = max(coord[1] for coord in coords)
+                    
+                    width = max_x - min_x
+                    height = max_y - min_y
+                    
+                    # If polygon is too small, draw as a rectangle with minimum size
+                    if width < 1 and height < 1:
+                        # Draw a small rectangle at the center
+                        center_x = (min_x + max_x) / 2
+                        center_y = (min_y + max_y) / 2
+                        size = max(2, min(8, 256 // (2 ** (tile.z - 4))))  # Scale with zoom
+                        draw.rectangle([center_x - size/2, center_y - size/2, 
+                                       center_x + size/2, center_y + size/2], 
+                                      fill=fill_color)
+                    else:
+                        # Fill only - no borders between features
+                        draw.polygon(coords, fill=fill_color)
                     rendered_count += 1
             
             elif geom.geom_type == 'MultiPolygon':
@@ -321,16 +418,42 @@ class AmaravatiTileGenerator:
                             coords.append((px, py))
                     
                     if len(coords) > 2:
-                        # Fill only - no borders between features
-                        draw.polygon(coords, fill=fill_color)
+                        # Check if polygon is too small (single point or very small area)
+                        min_x = min(coord[0] for coord in coords)
+                        max_x = max(coord[0] for coord in coords)
+                        min_y = min(coord[1] for coord in coords)
+                        max_y = max(coord[1] for coord in coords)
+                        
+                        width = max_x - min_x
+                        height = max_y - min_y
+                        
+                        # If polygon is too small, draw as a rectangle with minimum size
+                        if width < 1 and height < 1:
+                            # Draw a small rectangle at the center
+                            center_x = (min_x + max_x) / 2
+                            center_y = (min_y + max_y) / 2
+                            size = max(2, min(8, 256 // (2 ** (tile.z - 4))))  # Scale with zoom
+                            draw.rectangle([center_x - size/2, center_y - size/2, 
+                                           center_x + size/2, center_y + size/2], 
+                                          fill=fill_color)
+                        else:
+                            # Fill only - no borders between features
+                            draw.polygon(coords, fill=fill_color)
                         rendered_count += 1
             
             elif geom.geom_type == 'Point':
-                # Handle point features
+                # Handle point features with zoom-dependent sizing
                 lon, lat = geom.x, geom.y
                 px, py = coord_to_pixel(lon, lat)
-                # Draw a small circle for points
-                radius = max(2, min(8, 256 // (2 ** (18 - tile.z))))  # Scale radius with zoom
+                # Scale radius based on zoom level - larger at higher zoom
+                if tile.z >= 16:
+                    radius = 8
+                elif tile.z >= 12:
+                    radius = 6
+                elif tile.z >= 10:
+                    radius = 4
+                else:
+                    radius = 2
                 draw.ellipse([px-radius, py-radius, px+radius, py+radius], fill=fill_color)
                 rendered_count += 1
         
@@ -402,9 +525,16 @@ class AmaravatiTileGenerator:
         """Generate all tiles for a specific zoom level."""
         logger.info(f"Generating tiles for zoom level {zoom}")
         
+        # Log bounds for debugging
+        bounds = gdf.total_bounds
+        logger.info(f"  Data bounds: {bounds}")
+        
         # Get all tiles that intersect with data
         tiles = self.get_tiles_for_bounds(gdf, zoom)
         logger.info(f"Processing {len(tiles)} tiles at zoom {zoom}")
+        
+        if len(tiles) == 0:
+            logger.warning(f"No tiles found for zoom {zoom} - this might indicate an issue with bounds calculation")
         
         tiles_generated = 0
         empty_skipped = 0
@@ -417,9 +547,23 @@ class AmaravatiTileGenerator:
             img = self.render_tile(tile, gdf)
             
             if img is not None:
-                # Check if image has content (not fully transparent)
+                # Check if image has content (not mostly background color)
                 img_array = np.array(img)
-                if img_array[:, :, 3].max() > 0:  # Check alpha channel
+                # For RGB mode, check if less than 95% of pixels are background color (240, 240, 240)
+                background_pixels = np.sum((img_array[:, :, 0] == 240) & 
+                                          (img_array[:, :, 1] == 240) & 
+                                          (img_array[:, :, 2] == 240))
+                total_pixels = img_array.shape[0] * img_array.shape[1]
+                background_percentage = (background_pixels / total_pixels) * 100
+                # More lenient content detection for low zoom levels
+                # At low zoom levels, features are small relative to tile size
+                if tile.z <= 6:
+                    has_content = background_percentage < 99.9  # Very lenient for very low zoom
+                elif tile.z <= 8:
+                    has_content = background_percentage < 99.5  # More lenient for low zoom
+                else:
+                    has_content = background_percentage < 95.0  # Standard threshold for higher zoom
+                if has_content:
                     # Save tile
                     tile_dir = self.output_dir / str(zoom) / str(tile.x)
                     tile_dir.mkdir(parents=True, exist_ok=True)
@@ -482,6 +626,24 @@ class AmaravatiTileGenerator:
         # Print statistics
         self.print_statistics()
     
+    def generate_tiles_for_zoom_range(self, min_zoom: int, max_zoom: int, max_workers: int = 4):
+        """Generate tiles for a specific zoom range - useful for Mapbox/CloudFront deployment."""
+        logger.info(f"Generating tiles for zoom range {min_zoom}-{max_zoom}")
+        
+        # Temporarily override zoom settings
+        original_min = self.min_zoom
+        original_max = self.max_zoom
+        
+        self.min_zoom = min_zoom
+        self.max_zoom = max_zoom
+        
+        try:
+            self.generate_tiles_parallel(max_workers)
+        finally:
+            # Restore original settings
+            self.min_zoom = original_min
+            self.max_zoom = original_max
+    
     def validate_output(self):
         """Validate the generated tiles."""
         logger.info("Validating generated tiles...")
@@ -514,7 +676,8 @@ class AmaravatiTileGenerator:
                     if tile_count <= 5:  # Check first few tiles
                         img = Image.open(tile_path)
                         img_array = np.array(img)
-                        if img_array[:, :, 3].max() == 0:
+                        # For RGB mode, check if all pixels are white
+                        if np.all(img_array == 255):
                             logger.warning(f"Empty tile found: {tile_path}")
                 
                 validation_results["zoom_levels"][zoom] = {
@@ -559,9 +722,9 @@ class AmaravatiTileGenerator:
 
 def main():
     """Main execution function."""
-    # Configuration - Update this path to match your actual data location
-    DATA_DIR = "data/andhra_pradesh/amaravati/master_plan"  # Fixed path
-    OUTPUT_DIR = "tiles"
+    # Configuration - Updated to match your actual data location
+    DATA_DIR = "data/andhra_pradesh/amaravati/master_plan"  # Fixed path for your data structure
+    OUTPUT_DIR = "amaravati_tiles"  # Separate output directory
     MAX_WORKERS = 4  # Number of parallel workers
     
     # Create tile generator

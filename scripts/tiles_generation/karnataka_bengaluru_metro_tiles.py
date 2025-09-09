@@ -80,7 +80,7 @@ class BangaloreMetroTileGenerator:
     
     def draw_line(self, draw: ImageDraw, coordinates: List[Tuple[float, float]], 
                   color: str, width: int, tile_x: int, tile_y: int, zoom: int):
-        """Draw a line on the tile"""
+        """Draw a line on the tile with proper clipping"""
         if len(coordinates) < 2:
             return
             
@@ -90,17 +90,77 @@ class BangaloreMetroTileGenerator:
             pixel_x, pixel_y = self.wgs84_to_tile_pixel(lon, lat, tile_x, tile_y, zoom)
             pixel_coords.append((pixel_x, pixel_y))
         
-        # Draw the line segments
+        # Draw the line segments with proper clipping
         for i in range(len(pixel_coords) - 1):
             start = pixel_coords[i]
             end = pixel_coords[i + 1]
             
-            # Check if line segment is within tile bounds
-            if (0 <= start[0] <= 256 and 0 <= start[1] <= 256 or 
-                0 <= end[0] <= 256 and 0 <= end[1] <= 256 or
-                (start[0] < 0 and end[0] > 256) or (start[1] < 0 and end[1] > 256)):
-                
-                draw.line([start, end], fill=color, width=width)
+            # Clip line segment to tile bounds
+            clipped_start, clipped_end = self.clip_line_to_tile(start, end)
+            
+            if clipped_start and clipped_end:
+                draw.line([clipped_start, clipped_end], fill=color, width=width)
+    
+    def clip_line_to_tile(self, start: Tuple[int, int], end: Tuple[int, int]) -> Tuple[Tuple[int, int], Tuple[int, int]]:
+        """Clip a line segment to tile bounds (0-256) using Cohen-Sutherland algorithm"""
+        x1, y1 = start
+        x2, y2 = end
+        
+        # Define region codes
+        INSIDE = 0
+        LEFT = 1
+        RIGHT = 2
+        BOTTOM = 4
+        TOP = 8
+        
+        def compute_code(x, y):
+            code = INSIDE
+            if x < 0:
+                code |= LEFT
+            elif x > 256:
+                code |= RIGHT
+            if y < 0:
+                code |= BOTTOM
+            elif y > 256:
+                code |= TOP
+            return code
+        
+        code1 = compute_code(x1, y1)
+        code2 = compute_code(x2, y2)
+        
+        while True:
+            # If both endpoints are inside the tile
+            if code1 == 0 and code2 == 0:
+                return (x1, y1), (x2, y2)
+            
+            # If both endpoints are outside the same region
+            if code1 & code2 != 0:
+                return None, None
+            
+            # At least one endpoint is outside the tile
+            code_out = code1 if code1 != 0 else code2
+            
+            # Find intersection point
+            if code_out & TOP:
+                x = x1 + (x2 - x1) * (256 - y1) / (y2 - y1)
+                y = 256
+            elif code_out & BOTTOM:
+                x = x1 + (x2 - x1) * (0 - y1) / (y2 - y1)
+                y = 0
+            elif code_out & RIGHT:
+                y = y1 + (y2 - y1) * (256 - x1) / (x2 - x1)
+                x = 256
+            elif code_out & LEFT:
+                y = y1 + (y2 - y1) * (0 - x1) / (x2 - x1)
+                x = 0
+            
+            # Replace point outside tile with intersection point
+            if code_out == code1:
+                x1, y1 = int(x), int(y)
+                code1 = compute_code(x1, y1)
+            else:
+                x2, y2 = int(x), int(y)
+                code2 = compute_code(x2, y2)
     
     def draw_station_marker(self, draw: ImageDraw, lon: float, lat: float, 
                            color: str, size: int, tile_x: int, tile_y: int, zoom: int):
@@ -126,15 +186,19 @@ class BangaloreMetroTileGenerator:
         line_width = self.line_widths.get(zoom, 3)
         station_size = self.station_sizes.get(zoom, 5)
         
-        # Filter features that intersect with this tile
+        # Create a shapely box for the tile bounds with slight buffer for better intersection
         from shapely.geometry import box
-        
-        # Create a shapely box for the tile bounds
-        tile_bounds = mercantile.bounds(x, y, zoom)
-        tile_box = box(tile_bounds.west, tile_bounds.south, tile_bounds.east, tile_bounds.north)
+        buffer = 0.001  # Small buffer to ensure we catch lines that just touch the tile
+        tile_box = box(
+            tile_bounds.west - buffer, 
+            tile_bounds.south - buffer, 
+            tile_bounds.east + buffer, 
+            tile_bounds.north + buffer
+        )
         
         # Collect junction coordinates for station markers
         junction_coords = set()
+        features_drawn = 0
         
         for idx, row in self.gdf.iterrows():
             geometry = row.geometry
@@ -149,16 +213,18 @@ class BangaloreMetroTileGenerator:
                 if geometry.geom_type == 'MultiLineString':
                     for line in geometry.geoms:
                         coords = list(line.coords)
-                        self.draw_line(draw, coords, color, line_width, x, y, zoom)
-                        # Add start and end points as potential stations
-                        if coords:
+                        if len(coords) >= 2:
+                            self.draw_line(draw, coords, color, line_width, x, y, zoom)
+                            features_drawn += 1
+                            # Add start and end points as potential stations
                             junction_coords.add((coords[0][0], coords[0][1]))  # Start
                             junction_coords.add((coords[-1][0], coords[-1][1]))  # End
                 elif geometry.geom_type == 'LineString':
                     coords = list(geometry.coords)
-                    self.draw_line(draw, coords, color, line_width, x, y, zoom)
-                    # Add start and end points as potential stations
-                    if coords:
+                    if len(coords) >= 2:
+                        self.draw_line(draw, coords, color, line_width, x, y, zoom)
+                        features_drawn += 1
+                        # Add start and end points as potential stations
                         junction_coords.add((coords[0][0], coords[0][1]))  # Start
                         junction_coords.add((coords[-1][0], coords[-1][1]))  # End
         
@@ -204,8 +270,21 @@ class BangaloreMetroTileGenerator:
                     if not tile_path.exists():
                         try:
                             tile_img = self.generate_tile(x, y, zoom)
-                            tile_img.save(tile_path, 'PNG')
-                            zoom_tiles += 1
+                            
+                            # Check if tile has any content before saving
+                            has_content = False
+                            for pixel in tile_img.getdata():
+                                if len(pixel) == 4 and pixel[3] > 0:  # RGBA with alpha > 0
+                                    has_content = True
+                                    break
+                                elif len(pixel) == 3:  # RGB
+                                    has_content = True
+                                    break
+                            
+                            # Only save tiles with content
+                            if has_content:
+                                tile_img.save(tile_path, 'PNG')
+                                zoom_tiles += 1
                         except Exception as e:
                             print(f"Error generating tile {zoom}/{x}/{y}: {e}")
             
@@ -222,7 +301,7 @@ def main():
     generator = BangaloreMetroTileGenerator()
     
     # Generate tiles for zoom levels 10-16
-    generator.generate_png_tiles(min_zoom=8, max_zoom=18)
+    generator.generate_png_tiles(min_zoom=4, max_zoom=7)
     
     print("Tile generation completed!")
 
