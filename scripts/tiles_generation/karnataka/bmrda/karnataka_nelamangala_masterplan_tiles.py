@@ -28,12 +28,15 @@ class NelamangalaMasterplanTileGenerator:
     """
     
     def __init__(self, data_dir: str = "data/karnataka/BMRDA/Nelamangala Masterplan",
-                 output_dir: str = "nelamangala_masterplan_tiles"):
+                 output_dir: str = "nelamangala_masterplan_tiles", force_regenerate: bool = False):
         self.data_dir = Path(data_dir)
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(exist_ok=True)
+        self.force_regenerate = force_regenerate
         
         logger.info("Nelamangala Sompura Masterplan Tile Generator initialized")
+        if self.force_regenerate:
+            logger.info("Force regeneration mode enabled - will overwrite existing tiles")
     
     def reproject_geotiff_to_wgs84(self, geotiff_path):
         """Reproject RGBA GeoTIFF to WGS84 and return the transformed data and bounds"""
@@ -129,6 +132,8 @@ class NelamangalaMasterplanTileGenerator:
         max_tile = mercantile.tile(wgs84_bounds['east'], wgs84_bounds['north'], max_zoom)
         
         total_tiles = 0
+        skipped_tiles = 0
+        generated_tiles = 0
         
         for zoom in range(min_zoom, max_zoom + 1):
             logger.info(f"Processing zoom level {zoom}")
@@ -147,14 +152,25 @@ class NelamangalaMasterplanTileGenerator:
                 for y in range(max_tile.y, min_tile.y + 1):
                     tile_path = x_dir / f"{y}.png"
                     
-                    if self.generate_single_tile(wgs84_data_r, wgs84_data_g, wgs84_data_b, wgs84_data_a, wgs84_bounds, wgs84_transform, zoom, x, y, tile_path):
+                    # Check if tile already exists and force_regenerate is not enabled
+                    if tile_path.exists() and not self.force_regenerate:
+                        skipped_tiles += 1
                         total_tiles += 1
+                    else:
+                        if self.generate_single_tile(wgs84_data_r, wgs84_data_g, wgs84_data_b, wgs84_data_a, wgs84_bounds, wgs84_transform, zoom, x, y, tile_path):
+                            if tile_path.exists() and self.force_regenerate:
+                                # Count as regenerated if it was overwritten
+                                generated_tiles += 1
+                            else:
+                                generated_tiles += 1
+                            total_tiles += 1
                     
                     # Log progress every 100 tiles
                     if total_tiles % 100 == 0:
-                        logger.info(f"Generated {total_tiles} tiles so far...")
+                        logger.info(f"Processed {total_tiles} tiles so far... (Generated: {generated_tiles}, Skipped: {skipped_tiles})")
         
-        logger.info(f"Generated {total_tiles} PNG tiles for Nelamangala Sompura Masterplan")
+        logger.info(f"Completed processing {total_tiles} PNG tiles for Nelamangala Sompura Masterplan")
+        logger.info(f"Generated: {generated_tiles} new tiles, Skipped: {skipped_tiles} existing tiles")
         
         # Create supporting files
         self.create_supporting_files(wgs84_bounds, min_zoom, max_zoom)
@@ -164,6 +180,11 @@ class NelamangalaMasterplanTileGenerator:
     def generate_single_tile(self, wgs84_data_r, wgs84_data_g, wgs84_data_b, wgs84_data_a, wgs84_bounds, wgs84_transform, zoom, x, y, tile_path):
         """Generate a single PNG tile"""
         try:
+            # Check if tile already exists and force_regenerate is not enabled
+            if tile_path.exists() and not self.force_regenerate:
+                logger.debug(f"Tile {zoom}/{x}/{y} already exists, skipping...")
+                return True
+            
             # Get tile bounds
             tile_bounds = mercantile.bounds(x, y, zoom)
             
@@ -353,13 +374,25 @@ class NelamangalaMasterplanTileGenerator:
 
 def main():
     """Main function"""
+    import argparse
+    
+    parser = argparse.ArgumentParser(description='Generate Nelamangala Sompura Masterplan tiles')
+    parser.add_argument('--force', action='store_true', 
+                       help='Force regeneration of all tiles (overwrite existing ones)')
+    parser.add_argument('--min-zoom', type=int, default=18, 
+                       help='Minimum zoom level (default: 18)')
+    parser.add_argument('--max-zoom', type=int, default=18, 
+                       help='Maximum zoom level (default: 18)')
+    
+    args = parser.parse_args()
+    
     logger.info("Starting Nelamangala Sompura Masterplan tile generation")
     
     # Initialize generator
-    generator = NelamangalaMasterplanTileGenerator()
+    generator = NelamangalaMasterplanTileGenerator(force_regenerate=args.force)
     
-    # Generate tiles with higher zoom levels for better quality
-    generator.generate_tiles(min_zoom=18, max_zoom=18)
+    # Generate tiles with specified zoom levels
+    generator.generate_tiles(min_zoom=args.min_zoom, max_zoom=args.max_zoom)
     
     logger.info("Nelamangala Sompura Masterplan tile generation completed!")
 
