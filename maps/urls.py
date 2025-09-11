@@ -39,6 +39,16 @@ urlpatterns = [
          views.CloudFrontTileView.as_view(),
          name='cloudfront_tile_mvt'),
     
+    # S3 Direct tile serving (bypasses CloudFront)
+    path('s3-tiles/<slug:state_slug>/<slug:city_slug>/<slug:layer_slug>/<int:z>/<int:x>/<int:y>.png',
+         views.S3DirectTileView.as_view(),
+         name='s3_direct_tile_png'),
+    
+    # S3 Direct MVT tiles
+    path('s3-tiles/<slug:state_slug>/<slug:city_slug>/<slug:layer_slug>/<int:z>/<int:x>/<int:y>.mvt',
+         views.S3DirectTileView.as_view(),
+         name='s3_direct_tile_mvt'),
+    
     path('cities/<slug:city_slug>/tiles/coordinates/',
          TileCoordinatesView.as_view(), name='tile_coordinates'),
     

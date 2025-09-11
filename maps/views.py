@@ -2192,6 +2192,139 @@ class CloudFrontTileView(APIView):
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
+class S3DirectTileView(APIView):
+    """
+    S3 Direct Tile Serving API
+    
+    Serves tiles directly from S3 with hierarchical URL structure:
+    GET /api/s3-tiles/<state_slug>/<city_slug>/<layer_slug>/<z>/<x>/<y>.png
+    GET /api/s3-tiles/<state_slug>/<city_slug>/<layer_slug>/<z>/<x>/<y>.mvt
+    
+    Examples:
+    - /api/s3-tiles/karnataka/bengaluru/bengaluru_master_plan_2015/12/2926/1899.png
+    - /api/s3-tiles/andhra-pradesh/visakhapatnam/visakhapatnam_master_plan/12/2048/2048.png
+    - /api/s3-tiles/telangana/hyderabad/rrr/12/2048/2048.mvt
+    
+    This API serves tiles directly from S3 without CloudFront CDN.
+    """
+    
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.tile_path_service = TilePathService()
+        # Initialize S3 client for direct access
+        self.s3_client = boto3.client(
+            's3',
+            region_name=getattr(settings, 'AWS_S3_REGION_NAME', 'ap-south-1'),
+            aws_access_key_id=getattr(settings, 'AWS_ACCESS_KEY_ID', None),
+            aws_secret_access_key=getattr(settings, 'AWS_SECRET_ACCESS_KEY', None)
+        )
+        self.bucket_name = 'testing-gis-layers'
+    
+    def get(self, request, state_slug, city_slug, layer_slug, z, x, y):
+        """Serve tiles directly from S3"""
+        try:
+            z, x, y = int(z), int(x), int(y)
+            
+            # Validate tile coordinates
+            if not self.tile_path_service.validate_tile_coordinates(z, x, y):
+                logger.warning(f"❌ Invalid tile coordinates: {z}/{x}/{y}")
+                return self._return_error_tile("Invalid tile coordinates")
+            
+            # Determine format from URL
+            format_type = 'png' if request.path.endswith('.png') else 'mvt'
+            
+            # Get layer information
+            layer = self._get_layer_by_hierarchy(state_slug, city_slug, layer_slug)
+            if not layer:
+                logger.warning(f"❌ Layer not found: {state_slug}/{city_slug}/{layer_slug}")
+                return self._return_error_tile(f"Layer not found: {state_slug}/{city_slug}/{layer_slug}")
+            
+            logger.info(f"🔍 Serving S3 direct tile: {state_slug}/{city_slug}/{layer_slug}/{z}/{x}/{y}.{format_type}")
+            
+            # Get tile directly from S3
+            tile_data = self._get_tile_from_s3(state_slug, city_slug, layer_slug, z, x, y, format_type)
+            
+            if tile_data:
+                # Return the tile data with appropriate headers
+                headers = self.tile_path_service.get_tile_cache_headers(format_type)
+                response = HttpResponse(tile_data, content_type=headers['ContentType'])
+                # response['Cache-Control'] = 'public, max-age=3600'  # Cache for 1 hour
+                response['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+                response['Pragma'] = 'no-cache'
+                response['Expires'] = '0'
+                response['Access-Control-Allow-Origin'] = '*'
+                logger.info(f"✅ Successfully served S3 direct tile: {state_slug}/{city_slug}/{layer_slug}/{z}/{x}/{y}.{format_type}")
+                return response
+            else:
+                logger.warning(f"❌ Tile not found in S3: {state_slug}/{city_slug}/{layer_slug}/{z}/{x}/{y}.{format_type}")
+                return self._return_error_tile(f"Tile not found: {state_slug}/{city_slug}/{layer_slug}/{z}/{x}/{y}.{format_type}")
+            
+        except Exception as e:
+            logger.error(f"Error serving S3 direct tile: {str(e)}")
+            return self._return_error_tile(f"Error serving tile: {str(e)}")
+    
+    def _get_tile_from_s3(self, state_slug, city_slug, layer_slug, z, x, y, format_type):
+        """
+        Get tile directly from S3 bucket
+        """
+        try:
+            # Generate S3 key for the tile
+            s3_key = f"{state_slug}/{city_slug}/{layer_slug}/{z}/{x}/{y}.{format_type}"
+            
+            logger.debug(f"🔍 Fetching from S3: s3://{self.bucket_name}/{s3_key}")
+            
+            # Get object from S3
+            response = self.s3_client.get_object(
+                Bucket=self.bucket_name,
+                Key=s3_key
+            )
+            
+            # Read the tile data
+            tile_data = response['Body'].read()
+            
+            if tile_data:
+                logger.info(f"✅ Successfully fetched from S3: s3://{self.bucket_name}/{s3_key}")
+                return tile_data
+            else:
+                logger.warning(f"❌ Empty tile data from S3: s3://{self.bucket_name}/{s3_key}")
+                return None
+                
+        except self.s3_client.exceptions.NoSuchKey:
+            logger.debug(f"❌ Tile not found in S3: s3://{self.bucket_name}/{s3_key}")
+            return None
+        except Exception as e:
+            logger.error(f"❌ Error fetching from S3: s3://{self.bucket_name}/{s3_key} - {str(e)}")
+            return None
+    
+    def _get_layer_by_hierarchy(self, state_slug, city_slug, layer_slug):
+        """Get layer by hierarchical path"""
+        try:
+            return DataLayer.objects.select_related('city', 'city__state_ref', 'category').get(
+                city__slug=city_slug,
+                city__state_ref__slug=state_slug,
+                slug=layer_slug,
+                city__is_active=True,
+                city__state_ref__is_active=True
+            )
+        except DataLayer.DoesNotExist:
+            return None
+    
+    def _return_error_tile(self, error_message):
+        """Return an error response"""
+        try:
+            logger.warning(f"❌ Returning error tile: {error_message}")
+            return Response({
+                'error': error_message,
+                'status': 'error'
+            }, status=status.HTTP_404_NOT_FOUND)
+        except Exception as e:
+            logger.error(f"❌ Error returning error tile: {str(e)}")
+            return Response({
+                'error': f'Error returning error tile: {str(e)}',
+                'status': 'error'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
 @extend_schema_view(
     get=extend_schema(
         summary="Get layer bounds",

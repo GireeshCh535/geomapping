@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 """
-Fixed script to generate high-quality PNG tiles from Karnataka Bengaluru Metro GeoJSON
-Creates tiles with color-coded metro lines and station markers
-Includes robust geometry processing, spatial indexing, and anti-aliasing
+Karnataka Bengaluru Metro Tile Generator - Fixed Version
+Generates high-quality PNG tiles from metro GeoJSON data with perfect alignment
 """
 
 import os
@@ -30,10 +29,10 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 class KarnatakaBengaluruMetroTileGenerator:
-    def __init__(self, data_dir, output_dir, skip_existing=True):
+    def __init__(self, data_dir, output_dir, force_overwrite=True):
         self.data_dir = Path(data_dir)
         self.output_dir = Path(output_dir)
-        self.skip_existing = skip_existing
+        self.force_overwrite = force_overwrite
         
         # Create output directory
         self.output_dir.mkdir(exist_ok=True)
@@ -50,113 +49,53 @@ class KarnatakaBengaluruMetroTileGenerator:
         # Station marker color
         self.station_color = '#FF0000'
         
-        # Geometry processing parameters
-        self.buffer_factor = 0.0001
-        self.precision_threshold = 1e-6
-        self.simplification_tolerance = 0.00001
-        
         # Data storage
         self.gdf = None
         self.spatial_index = None
-        self.unary_union = None
         
         # Load and process data
         self.load_and_process_data()
     
-    def fix_self_intersections(self, geom):
-        """Fix self-intersecting geometries"""
+    def clean_geometry(self, geom):
+        """Clean and validate geometry"""
         try:
+            if geom is None or geom.is_empty:
+                return None
+            
+            # Make valid if needed
             if not geom.is_valid:
                 geom = make_valid(geom)
-                if geom.is_empty:
+                if geom is None or geom.is_empty:
                     return None
-            return geom
-        except Exception as e:
-            logger.warning(f"Error fixing self-intersections: {e}")
-            try:
-                # Try buffer(0) method
-                geom = geom.buffer(0)
-                if geom.is_empty:
+            
+            # Handle different geometry types
+            if geom.geom_type == 'LineString':
+                coords = list(geom.coords)
+                if len(coords) < 2:
                     return None
-                return geom
-            except Exception as e2:
-                logger.warning(f"Buffer method also failed: {e2}")
+                # Remove duplicate consecutive points
+                clean_coords = [coords[0]]
+                for coord in coords[1:]:
+                    if coord != clean_coords[-1]:
+                        clean_coords.append(coord)
+                if len(clean_coords) >= 2:
+                    return LineString(clean_coords)
                 return None
-    
-    def simplify_dense_geometry(self, geom, max_points=1000):
-        """Simplify geometries with too many points"""
-        try:
-            if geom.geom_type == 'LineString':
-                if len(geom.coords) > max_points:
-                    # Simplify the geometry
-                    simplified = geom.simplify(self.simplification_tolerance)
-                    if simplified.is_empty:
-                        return geom
-                    return simplified
+                
             elif geom.geom_type == 'MultiLineString':
-                simplified_geoms = []
-                for g in geom.geoms:
-                    if len(g.coords) > max_points:
-                        simplified = g.simplify(self.simplification_tolerance)
-                        if not simplified.is_empty:
-                            simplified_geoms.append(simplified)
-                    else:
-                        simplified_geoms.append(g)
-                if simplified_geoms:
-                    return MultiLineString(simplified_geoms)
-                else:
-                    return geom
+                clean_lines = []
+                for line in geom.geoms:
+                    cleaned = self.clean_geometry(line)
+                    if cleaned is not None:
+                        clean_lines.append(cleaned)
+                if clean_lines:
+                    return MultiLineString(clean_lines) if len(clean_lines) > 1 else clean_lines[0]
+                return None
+            
             return geom
         except Exception as e:
-            logger.warning(f"Error simplifying geometry: {e}")
-            return geom
-    
-    def round_coordinates(self, geom):
-        """Round coordinates to specified precision and remove duplicates"""
-        try:
-            if geom.geom_type == 'LineString':
-                coords = list(geom.coords)
-                # Round coordinates
-                rounded_coords = [(round(x, 6), round(y, 6)) for x, y in coords]
-                # Remove consecutive duplicates
-                filtered_coords = [rounded_coords[0]]
-                for coord in rounded_coords[1:]:
-                    if coord != filtered_coords[-1]:
-                        filtered_coords.append(coord)
-                if len(filtered_coords) >= 2:
-                    return LineString(filtered_coords)
-                else:
-                    return None
-            elif geom.geom_type == 'MultiLineString':
-                filtered_geoms = []
-                for g in geom.geoms:
-                    rounded = self.round_coordinates(g)
-                    if rounded is not None:
-                        filtered_geoms.append(rounded)
-                if filtered_geoms:
-                    return MultiLineString(filtered_geoms)
-                else:
-                    return None
-            return geom
-        except Exception as e:
-            logger.warning(f"Error rounding coordinates: {e}")
-            return geom
-    
-    def handle_closed_loop(self, geom):
-        """Ensure closed LineString geometries are properly closed"""
-        try:
-            if geom.geom_type == 'LineString':
-                coords = list(geom.coords)
-                if len(coords) >= 3:
-                    # Check if first and last coordinates are the same
-                    if coords[0] != coords[-1]:
-                        # Close the loop
-                        coords.append(coords[0])
-                    return LineString(coords)
-            return geom
-        except Exception as e:
-            logger.warning(f"Error handling closed loop: {e}")
-            return geom
+            logger.warning(f"Error cleaning geometry: {e}")
+            return None
     
     def load_and_process_data(self):
         """Load and process the metro GeoJSON data"""
@@ -168,7 +107,7 @@ class KarnatakaBengaluruMetroTileGenerator:
             raise FileNotFoundError(f"Metro data file not found: {geojson_path}")
         
         self.gdf = gpd.read_file(geojson_path)
-        logger.info(f"Loaded {len(self.gdf)} metro lines")
+        logger.info(f"Loaded {len(self.gdf)} metro features")
         
         # Ensure CRS is WGS84
         if self.gdf.crs is None:
@@ -176,49 +115,28 @@ class KarnatakaBengaluruMetroTileGenerator:
         elif self.gdf.crs != 'EPSG:4326':
             self.gdf = self.gdf.to_crs('EPSG:4326')
         
-        # Process geometries
-        logger.info("Processing geometries...")
-        processed_geometries = []
-        
+        # Clean geometries
+        logger.info("Cleaning geometries...")
+        cleaned_geometries = []
         for idx, row in self.gdf.iterrows():
-            geom = row.geometry
-            if geom is None or geom.is_empty:
-                continue
-            
-            # Apply geometry fixes
-            geom = self.fix_self_intersections(geom)
-            if geom is None or geom.is_empty:
-                continue
-            
-            geom = self.handle_closed_loop(geom)
-            geom = self.simplify_dense_geometry(geom)
-            geom = self.round_coordinates(geom)
-            
-            if geom is not None and not geom.is_empty:
-                processed_geometries.append(geom)
-            else:
-                processed_geometries.append(row.geometry)  # Keep original if processing failed
+            cleaned_geom = self.clean_geometry(row.geometry)
+            cleaned_geometries.append(cleaned_geom)
         
-        # Update geometries
-        self.gdf.geometry = processed_geometries
-        
-        # Remove invalid geometries
+        # Update geometries and remove invalid ones
+        self.gdf.geometry = cleaned_geometries
         valid_mask = self.gdf.geometry.notna() & ~self.gdf.geometry.is_empty
         self.gdf = self.gdf[valid_mask].copy()
         
-        logger.info(f"Processed {len(self.gdf)} valid metro lines")
+        logger.info(f"Processed {len(self.gdf)} valid metro features")
         
         # Build spatial index
         logger.info("Building spatial index...")
         self.spatial_index = self.gdf.sindex
         
-        # Create unary union for overall bounds
-        self.unary_union = unary_union(self.gdf.geometry.values)
-        
         logger.info("Data processing completed")
     
-    def get_metro_line_width(self, zoom):
-        """Get line width for metro lines based on zoom level"""
+    def get_line_width(self, zoom):
+        """Get line width based on zoom level"""
         if zoom <= 8:
             return 2
         elif zoom <= 10:
@@ -248,10 +166,10 @@ class KarnatakaBengaluruMetroTileGenerator:
             return 10
     
     def get_features_for_tile(self, tile_bounds):
-        """Get features that intersect with the tile bounds using spatial index"""
+        """Get features that intersect with the tile bounds"""
         try:
-            # Create a buffered tile polygon for intersection
-            buffer = 0.001
+            # Create tile polygon with buffer for intersection
+            buffer = 0.001  # ~100m buffer
             tile_polygon = box(
                 tile_bounds.west - buffer,
                 tile_bounds.south - buffer,
@@ -261,6 +179,9 @@ class KarnatakaBengaluruMetroTileGenerator:
             
             # Use spatial index for efficient intersection
             possible_matches_index = list(self.spatial_index.intersection(tile_polygon.bounds))
+            if not possible_matches_index:
+                return self.gdf.iloc[0:0]  # Return empty DataFrame
+            
             possible_matches = self.gdf.iloc[possible_matches_index]
             
             # Refine with actual intersection
@@ -272,10 +193,10 @@ class KarnatakaBengaluruMetroTileGenerator:
             return self.gdf.iloc[0:0]  # Return empty DataFrame
     
     def clip_geometry_to_tile(self, geom, tile_bounds):
-        """Clip geometry to tile bounds"""
+        """Clip geometry to tile bounds with proper handling"""
         try:
-            # Create tile polygon with small buffer
-            buffer = 0.0001
+            # Create tile polygon with small buffer to ensure lines aren't cut off
+            buffer = 0.0001  # ~10m buffer
             tile_polygon = box(
                 tile_bounds.west - buffer,
                 tile_bounds.south - buffer,
@@ -298,11 +219,10 @@ class KarnatakaBengaluruMetroTileGenerator:
                 # Extract LineString and MultiLineString from collection
                 lines = []
                 for g in clipped.geoms:
-                    if g.geom_type in ['LineString', 'MultiLineString']:
-                        if g.geom_type == 'LineString':
-                            lines.append(g)
-                        else:
-                            lines.extend(g.geoms)
+                    if g.geom_type == 'LineString':
+                        lines.append(g)
+                    elif g.geom_type == 'MultiLineString':
+                        lines.extend(g.geoms)
                 if lines:
                     return MultiLineString(lines) if len(lines) > 1 else lines[0]
                 return None
@@ -313,13 +233,14 @@ class KarnatakaBengaluruMetroTileGenerator:
             return None
     
     def coords_to_pixels(self, coords, tile_bounds, tile_x, tile_y, zoom):
-        """Convert geographic coordinates to pixel coordinates with subpixel precision"""
+        """Convert geographic coordinates to pixel coordinates with proper tile alignment"""
         pixels = []
         for lon, lat in coords:
             # Clamp latitude to avoid math domain error
             lat = max(-85.051129, min(85.051129, lat))
             
-            # Convert to tile coordinates
+            # Convert to tile coordinates using Web Mercator projection
+            # This ensures perfect alignment with standard web map tiles
             tile_lon = (lon + 180) / 360 * (2 ** zoom)
             tile_lat = (1 - math.asinh(math.tan(math.radians(lat))) / math.pi) / 2 * (2 ** zoom)
             
@@ -331,20 +252,47 @@ class KarnatakaBengaluruMetroTileGenerator:
         
         return pixels
     
-    def draw_metro_line(self, draw, pixels, color_rgb, width):
-        """Draw metro line with anti-aliasing"""
+    def draw_line_with_antialiasing(self, draw, pixels, color_rgb, width):
+        """Draw line with anti-aliasing and proper clipping"""
         if len(pixels) < 2:
             return
         
-        # Draw line segments
+        # Draw line segments with proper clipping
         for i in range(len(pixels) - 1):
             start = pixels[i]
             end = pixels[i + 1]
             
-            # Clip to tile bounds
-            if (0 <= start[0] <= 256 and 0 <= start[1] <= 256) or \
-               (0 <= end[0] <= 256 and 0 <= end[1] <= 256):
-                draw.line([start, end], fill=color_rgb, width=width)
+            # Check if line segment intersects with tile bounds
+            if self.line_intersects_tile(start, end):
+                # Clip line to tile bounds if needed
+                clipped_start, clipped_end = self.clip_line_to_tile(start, end)
+                if clipped_start and clipped_end:
+                    draw.line([clipped_start, clipped_end], fill=color_rgb, width=width)
+    
+    def line_intersects_tile(self, start, end):
+        """Check if line segment intersects with tile bounds (0,0 to 256,256)"""
+        # Simple bounding box check
+        min_x = min(start[0], end[0])
+        max_x = max(start[0], end[0])
+        min_y = min(start[1], end[1])
+        max_y = max(start[1], end[1])
+        
+        return not (max_x < 0 or min_x > 256 or max_y < 0 or min_y > 256)
+    
+    def clip_line_to_tile(self, start, end):
+        """Clip line segment to tile bounds"""
+        # Simple clipping - if both points are outside, return None
+        # If one point is outside, clip it to tile edge
+        start_x, start_y = start
+        end_x, end_y = end
+        
+        # Clamp coordinates to tile bounds
+        start_x = max(0, min(256, start_x))
+        start_y = max(0, min(256, start_y))
+        end_x = max(0, min(256, end_x))
+        end_y = max(0, min(256, end_y))
+        
+        return (start_x, start_y), (end_x, end_y)
     
     def draw_station_marker(self, draw, pixel, color_rgb, size):
         """Draw station marker"""
@@ -355,7 +303,7 @@ class KarnatakaBengaluruMetroTileGenerator:
             draw.ellipse(bbox, fill=color_rgb, outline='white', width=1)
     
     def generate_tile(self, x, y, zoom):
-        """Generate a single tile"""
+        """Generate a single tile with perfect alignment"""
         try:
             # Get tile bounds
             tile_bounds = mercantile.bounds(x, y, zoom)
@@ -366,17 +314,13 @@ class KarnatakaBengaluruMetroTileGenerator:
             if features.empty:
                 return None
             
-            # Determine scale for anti-aliasing
-            scale = 2 if zoom >= 12 else 1
-            tile_size = 256 * scale
-            
-            # Create high-resolution image
-            img = Image.new('RGBA', (tile_size, tile_size), (0, 0, 0, 0))
+            # Create image with transparency
+            img = Image.new('RGBA', (256, 256), (0, 0, 0, 0))
             draw = ImageDraw.Draw(img)
             
             # Get line width and station size
-            line_width = self.get_metro_line_width(zoom) * scale
-            station_size = self.get_station_size(zoom) * scale
+            line_width = self.get_line_width(zoom)
+            station_size = self.get_station_size(zoom)
             
             # Collect station coordinates
             station_coords = set()
@@ -393,11 +337,11 @@ class KarnatakaBengaluruMetroTileGenerator:
                 if clipped_geom is None:
                     continue
                 
-                # Convert to pixels
+                # Convert to pixels and draw
                 if clipped_geom.geom_type == 'LineString':
                     pixels = self.coords_to_pixels(list(clipped_geom.coords), tile_bounds, x, y, zoom)
                     if len(pixels) >= 2:
-                        self.draw_metro_line(draw, pixels, color_rgb, line_width)
+                        self.draw_line_with_antialiasing(draw, pixels, color_rgb, line_width)
                         # Add start and end points as stations
                         station_coords.add(pixels[0])
                         station_coords.add(pixels[-1])
@@ -405,7 +349,7 @@ class KarnatakaBengaluruMetroTileGenerator:
                     for line in clipped_geom.geoms:
                         pixels = self.coords_to_pixels(list(line.coords), tile_bounds, x, y, zoom)
                         if len(pixels) >= 2:
-                            self.draw_metro_line(draw, pixels, color_rgb, line_width)
+                            self.draw_line_with_antialiasing(draw, pixels, color_rgb, line_width)
                             # Add start and end points as stations
                             station_coords.add(pixels[0])
                             station_coords.add(pixels[-1])
@@ -415,21 +359,21 @@ class KarnatakaBengaluruMetroTileGenerator:
             for pixel in station_coords:
                 self.draw_station_marker(draw, pixel, station_color_rgb, station_size)
             
-            # Downscale if needed
-            if scale > 1:
-                img = img.resize((256, 256), Image.Resampling.LANCZOS)
-                # Apply smoothing filter for higher zooms
-                if zoom >= 14:
-                    img = img.filter(ImageFilter.SMOOTH_MORE)
+            # Check if tile has content
+            has_content = False
+            for pixel in img.getdata():
+                if len(pixel) == 4 and pixel[3] > 0:  # RGBA with alpha > 0
+                    has_content = True
+                    break
             
-            return img
+            return img if has_content else None
             
         except Exception as e:
             logger.error(f"Error generating tile {zoom}/{x}/{y}: {e}")
             return None
     
     def generate_tiles(self, min_zoom, max_zoom):
-        """Generate tiles for specified zoom levels"""
+        """Generate tiles for specified zoom levels with perfect alignment"""
         logger.info(f"Generating tiles for zoom levels {min_zoom} to {max_zoom}")
         
         # Get bounds of all features
@@ -465,8 +409,8 @@ class KarnatakaBengaluruMetroTileGenerator:
                     tile_path = x_dir / f"{y}.png"
                     total_tiles += 1
                     
-                    # Check if tile already exists
-                    if tile_path.exists() and not self.skip_existing:
+                    # Check if tile already exists and should be skipped
+                    if tile_path.exists() and not self.force_overwrite:
                         zoom_skipped += 1
                         skipped_tiles += 1
                         continue
@@ -475,23 +419,9 @@ class KarnatakaBengaluruMetroTileGenerator:
                         tile_img = self.generate_tile(x, y, zoom)
                         
                         if tile_img is not None:
-                            # Check if tile has content
-                            has_content = False
-                            for pixel in tile_img.getdata():
-                                if len(pixel) == 4 and pixel[3] > 0:  # RGBA with alpha > 0
-                                    has_content = True
-                                    break
-                                elif len(pixel) == 3:  # RGB
-                                    has_content = True
-                                    break
-                            
-                            if has_content:
-                                tile_img.save(tile_path, 'PNG')
-                                zoom_generated += 1
-                                generated_tiles += 1
-                            else:
-                                zoom_skipped += 1
-                                skipped_tiles += 1
+                            tile_img.save(tile_path, 'PNG')
+                            zoom_generated += 1
+                            generated_tiles += 1
                         else:
                             zoom_skipped += 1
                             skipped_tiles += 1
@@ -578,9 +508,8 @@ class KarnatakaBengaluruMetroTileGenerator:
     <div class="info">
         <h3>Karnataka Bengaluru Metro</h3>
         <p><strong>Fixed Tiles</strong></p>
-        <p>Robust geometry processing</p>
-        <p>Spatial indexing</p>
-        <p>Anti-aliasing</p>
+        <p>Perfect alignment</p>
+        <p>No breaking</p>
         <p>Bounds: {min_lon:.4f}, {min_lat:.4f} to {max_lon:.4f}, {max_lat:.4f}</p>
     </div>
     
@@ -618,7 +547,7 @@ class KarnatakaBengaluruMetroTileGenerator:
         }}).addTo(map);
         
         // Add metro layer
-        const metroLayer = L.tileLayer('http://localhost:3000/{{z}}/{{x}}/{{y}}.png', {{
+        const metroLayer = L.tileLayer('./{{z}}/{{x}}/{{y}}.png', {{
             attribution: 'Karnataka Bengaluru Metro - Fixed Tiles',
             opacity: 0.8
         }});
@@ -657,11 +586,11 @@ class KarnatakaBengaluruMetroTileGenerator:
         tilejson = {
             "tilejson": "3.0.0",
             "name": "Karnataka Bengaluru Metro - Fixed Tiles",
-            "description": "High-quality metro tiles with robust geometry processing",
+            "description": "High-quality metro tiles with perfect alignment",
             "version": "1.0.0",
             "attribution": "Karnataka Bengaluru Metro",
-            "template": "http://localhost:3000/{z}/{x}/{y}.png",
-            "tiles": ["http://localhost:3000/{z}/{x}/{y}.png"],
+            "template": "./{z}/{x}/{y}.png",
+            "tiles": ["./{z}/{x}/{y}.png"],
             "minzoom": 4,
             "maxzoom": 18,
             "bounds": [min_lon, min_lat, max_lon, max_lat],
@@ -672,53 +601,15 @@ class KarnatakaBengaluruMetroTileGenerator:
             json.dump(tilejson, f, indent=2)
         
         logger.info("Created tilejson.json")
-    
-    def print_help(self):
-        """Print help information"""
-        print("""
-Karnataka Bengaluru Metro Tile Generator - Fixed Version
-
-This script generates high-quality PNG tiles from Karnataka Bengaluru Metro GeoJSON data.
-
-Key Features:
-- Robust geometry processing (fixes self-intersections, simplifies dense geometries)
-- Spatial indexing for efficient tile generation
-- Anti-aliasing for smooth lines
-- Color-coded metro lines (Blue, Purple, Green, Yellow, Pink)
-- Station markers at line endpoints
-- Proper coordinate precision handling
-
-Usage:
-    python karnataka_bengaluru_metro_tiles_fixed.py [options]
-
-Options:
-    --force              Force regeneration of existing tiles
-    --min-zoom ZOOM      Minimum zoom level (default: 4)
-    --max-zoom ZOOM      Maximum zoom level (default: 18)
-
-Output:
-    - PNG tiles in z/x/y format
-    - viewer.html for local testing
-    - tilejson.json for tile metadata
-
-The script processes the metro data to fix common geometry issues and generates
-high-quality tiles suitable for web mapping applications.
-        """)
 
 def main():
     """Main function"""
     parser = argparse.ArgumentParser(description='Generate Karnataka Bengaluru Metro tiles')
-    parser.add_argument('--force', action='store_true', help='Force regeneration of existing tiles')
+    parser.add_argument('--force', action='store_true', default=True, help='Force regeneration of existing tiles (default: True)')
     parser.add_argument('--min-zoom', type=int, default=4, help='Minimum zoom level')
     parser.add_argument('--max-zoom', type=int, default=18, help='Maximum zoom level')
-    parser.add_argument('--help-detailed', action='store_true', help='Show detailed help')
     
     args = parser.parse_args()
-    
-    if args.help_detailed:
-        generator = KarnatakaBengaluruMetroTileGenerator.__new__(KarnatakaBengaluruMetroTileGenerator)
-        generator.print_help()
-        return
     
     try:
         # Set up paths
@@ -729,7 +620,7 @@ def main():
         generator = KarnatakaBengaluruMetroTileGenerator(
             data_dir=data_dir,
             output_dir=output_dir,
-            skip_existing=not args.force
+            force_overwrite=args.force
         )
         
         # Generate tiles

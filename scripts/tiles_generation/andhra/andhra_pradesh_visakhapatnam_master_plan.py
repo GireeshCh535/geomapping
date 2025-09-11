@@ -622,7 +622,7 @@ def main():
     print(f"Global bounds: {generator.global_bounds}")
     
     # Generate tiles with optimized sequential processing
-    generator.generate_png_tiles(min_zoom=17, max_zoom=18, batch_size=500)
+    generator.generate_png_tiles(min_zoom=4, max_zoom=14, batch_size=500)
     
     # Create supporting files
     generator.create_mapbox_style_json()
