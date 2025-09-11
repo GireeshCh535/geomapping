@@ -1,15 +1,14 @@
 import json
 import boto3
 import time
-import os
 from urllib.parse import unquote_plus
 from datetime import datetime
 
 cloudfront = boto3.client('cloudfront')
 
-# Environment variables
-DISTRIBUTION_ID = os.environ['DISTRIBUTION_ID']
-MAX_INVALIDATIONS = int(os.environ.get('MAX_INVALIDATIONS_PER_BATCH', '15'))
+# Configuration - Update these values directly
+DISTRIBUTION_ID = 'E3VZOEKNMYD012'  # Your CloudFront distribution ID
+MAX_INVALIDATIONS = 15  # Maximum paths per invalidation batch
 
 # Smart invalidation rules
 INVALIDATION_RULES = {
