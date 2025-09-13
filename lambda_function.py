@@ -3,12 +3,15 @@ import boto3
 import time
 from urllib.parse import unquote_plus
 from datetime import datetime
+from collections import defaultdict
 
 cloudfront = boto3.client('cloudfront')
 
 # Configuration - Update these values directly
 DISTRIBUTION_ID = 'E3VZOEKNMYD012'  # Your CloudFront distribution ID
 MAX_INVALIDATIONS = 15  # Maximum paths per invalidation batch
+MAX_FILES_PER_BATCH = 100  # Maximum files to process in one Lambda execution (reduced for massive uploads)
+MAX_INVALIDATIONS_PER_DAY = 1000  # CloudFront daily limit
 
 # Smart invalidation rules
 INVALIDATION_RULES = {
@@ -44,6 +47,17 @@ INVALIDATION_RULES = {
     '.log': 'skip'
 }
 
+# Tile-specific rules for large tile uploads
+TILE_PATTERNS = {
+    'tiles': 'batch_invalidate',  # For tile directories, use batch invalidation
+    'viewer.html': 'self_only',   # Viewer files
+    'tilejson.json': 'self_only', # TileJSON files
+    'style.json': 'self_only'     # Style files
+}
+
+# For massive uploads (100M+ files), we need to be extremely conservative
+MASSIVE_UPLOAD_THRESHOLD = 10000  # If more than 10k files in one batch, use minimal invalidation
+
 def get_invalidation_paths(key):
     """Determine which paths to invalidate based on the file"""
     
@@ -51,21 +65,42 @@ def get_invalidation_paths(key):
     if not key.startswith('/'):
         key = '/' + key
     
-    # Check skip patterns
+    # Check skip patterns first
     for pattern, action in INVALIDATION_RULES.items():
         if pattern in key.lower() and action == 'skip':
             return []
     
     # Check specific file rules
-    filename = key.split('/')[-1]
+    filename = key.split('/')[-1].lower()
     if filename in INVALIDATION_RULES:
         paths = INVALIDATION_RULES[filename]
         if isinstance(paths, list):
             return paths
+        elif paths == 'invalidate_all':
+            return ['/*']
+        elif paths == 'self_only':
+            return [key]
+        elif paths == 'skip':
+            return []
+    
+    # Check tile-specific patterns for large tile uploads
+    for pattern, rule in TILE_PATTERNS.items():
+        if pattern in key.lower():
+            if rule == 'batch_invalidate':
+                # For tile uploads, invalidate the parent directory instead of individual files
+                path_parts = key.split('/')
+                if len(path_parts) >= 4:  # e.g., /karnataka/bengaluru/bengaluru_strr/18/187799/121307.png
+                    # Invalidate the layer directory (e.g., /karnataka/bengaluru/bengaluru_strr/*)
+                    layer_path = '/'.join(path_parts[:4]) + '/*'
+                    return [layer_path]
+            elif rule == 'self_only':
+                return [key]
     
     # Check extension rules
-    for pattern, action in INVALIDATION_RULES.items():
-        if pattern in key.lower():
+    if '.' in key:
+        ext = '.' + key.split('.')[-1].lower()
+        if ext in INVALIDATION_RULES:
+            action = INVALIDATION_RULES[ext]
             if action == 'invalidate_all':
                 return ['/*']
             elif action == 'self_only':
@@ -132,14 +167,16 @@ def create_invalidation(paths):
         }
 
 def lambda_handler(event, context):
-    """Main Lambda handler"""
+    """Main Lambda handler - Optimized for massive file uploads (100M+ files)"""
     
     print(f"Processing {len(event['Records'])} S3 events")
     
-    all_paths = []
-    processed_files = []
+    # For massive uploads, we need to be extremely conservative
+    tile_files = []
+    critical_files = []
+    other_files = []
     
-    # Process each S3 event
+    # Categorize files by importance
     for record in event['Records']:
         event_name = record['eventName']
         
@@ -150,54 +187,173 @@ def lambda_handler(event, context):
         bucket = record['s3']['bucket']['name']
         key = unquote_plus(record['s3']['object']['key'])
         
-        print(f"Processing: {event_name} for {key} in {bucket}")
-        
-        # Get invalidation paths for this file
-        paths = get_invalidation_paths(key)
-        
-        if paths:
-            all_paths.extend(paths)
-            processed_files.append(key)
+        # Categorize files
+        if any(pattern in key.lower() for pattern in ['tiles', '.png', '.jpg', '.jpeg']):
+            tile_files.append(key)
+        elif any(pattern in key.lower() for pattern in ['viewer.html', 'tilejson.json', 'style.json', 'index.html']):
+            critical_files.append(key)
+        else:
+            other_files.append(key)
     
-    if not all_paths:
-        print("No paths require invalidation")
-        return {
-            'statusCode': 200,
-            'body': json.dumps({
-                'message': 'No invalidation needed',
-                'processed_files': processed_files
-            })
-        }
+    total_files = len(tile_files) + len(critical_files) + len(other_files)
+    print(f"File breakdown: {len(tile_files)} tiles, {len(critical_files)} critical, {len(other_files)} other")
     
-    # Check if we should invalidate everything
-    if '/*' in all_paths:
-        all_paths = ['/*']
-    else:
+    # For massive uploads, use minimal invalidation strategy
+    if total_files > MASSIVE_UPLOAD_THRESHOLD:
+        print(f"MASSIVE UPLOAD DETECTED: {total_files} files")
+        print("Using minimal invalidation strategy to avoid rate limits")
+        
+        # Only invalidate critical files and use wildcard for tiles
+        invalidation_paths = []
+        
+        # Always invalidate critical files
+        for file_path in critical_files:
+            invalidation_paths.extend(get_invalidation_paths(file_path))
+        
+        # For tiles, use a single wildcard invalidation for the entire bucket
+        if tile_files:
+            # Extract the top-level directory structure
+            # e.g., /karnataka/bengaluru/bengaluru_strr/* for all STRR tiles
+            tile_dirs = set()
+            for tile_file in tile_files:
+                parts = tile_file.split('/')
+                if len(parts) >= 4:
+                    # Get the layer directory (e.g., /karnataka/bengaluru/bengaluru_strr)
+                    layer_dir = '/'.join(parts[:4])
+                    tile_dirs.add(layer_dir + '/*')
+            
+            invalidation_paths.extend(list(tile_dirs))
+        
         # Remove duplicates
-        all_paths = list(set(all_paths))
+        invalidation_paths = list(set(invalidation_paths))
+        
+        if invalidation_paths:
+            print(f"Creating {len(invalidation_paths)} strategic invalidations for {total_files} files")
+            result = create_invalidation(invalidation_paths)
+            
+            if result['success']:
+                return {
+                    'statusCode': 200,
+                    'body': json.dumps({
+                        'message': f'Strategic invalidation created for {total_files} files',
+                        'invalidationId': result['invalidationId'],
+                        'paths': result['paths'],
+                        'total_files': total_files,
+                        'strategy': 'massive_upload_optimized'
+                    })
+                }
+            else:
+                return {
+                    'statusCode': 202,
+                    'body': json.dumps({
+                        'message': 'Invalidation delayed due to rate limits',
+                        'error': result.get('error'),
+                        'total_files': total_files,
+                        'strategy': 'massive_upload_optimized'
+                    })
+                }
+        else:
+            return {
+                'statusCode': 200,
+                'body': json.dumps({
+                    'message': 'No invalidation needed for massive upload',
+                    'total_files': total_files,
+                    'strategy': 'massive_upload_optimized'
+                })
+            }
     
-    # Create the invalidation
-    result = create_invalidation(all_paths)
-    
-    if result['success']:
-        print(f"Successfully created invalidation: {result['invalidationId']}")
-        return {
-            'statusCode': 200,
-            'body': json.dumps({
-                'message': 'Invalidation created successfully',
-                'invalidationId': result['invalidationId'],
-                'paths': result['paths'],
-                'processed_files': processed_files
-            })
-        }
+    # For smaller uploads, use the original logic
     else:
-        # Don't fail the Lambda, just log the issue
-        print(f"Failed to create invalidation: {result.get('error')}")
-        return {
-            'statusCode': 202,
-            'body': json.dumps({
-                'message': 'Invalidation delayed',
-                'error': result.get('error'),
-                'processed_files': processed_files
-            })
-        }
+        print(f"Standard upload: {total_files} files")
+        
+        # Group files by directory to optimize invalidations
+        directory_groups = defaultdict(list)
+        processed_files = []
+        
+        # Process all files
+        all_files = tile_files + critical_files + other_files
+        for key in all_files:
+            paths = get_invalidation_paths(key)
+            
+            if paths:
+                # Group by directory for batch processing
+                for path in paths:
+                    if path.endswith('/*'):
+                        # This is already a directory wildcard
+                        directory_groups[path].append(key)
+                    else:
+                        # Group individual files by their parent directory
+                        dir_path = '/'.join(path.split('/')[:-1]) + '/*'
+                        directory_groups[dir_path].append(key)
+                
+                processed_files.append(key)
+        
+        if not directory_groups:
+            print("No paths require invalidation")
+            return {
+                'statusCode': 200,
+                'body': json.dumps({
+                    'message': 'No invalidation needed',
+                    'processed_files': len(processed_files)
+                })
+            }
+        
+        # Limit the number of files processed to avoid timeout
+        total_grouped_files = sum(len(files) for files in directory_groups.values())
+        if total_grouped_files > MAX_FILES_PER_BATCH:
+            print(f"Too many files ({total_grouped_files}), processing only first {MAX_FILES_PER_BATCH}")
+            # Take the largest directories first
+            sorted_groups = sorted(directory_groups.items(), key=lambda x: len(x[1]), reverse=True)
+            directory_groups = {}
+            file_count = 0
+            for dir_path, files in sorted_groups:
+                if file_count + len(files) <= MAX_FILES_PER_BATCH:
+                    directory_groups[dir_path] = files
+                    file_count += len(files)
+                else:
+                    # Take partial files from this directory
+                    remaining = MAX_FILES_PER_BATCH - file_count
+                    directory_groups[dir_path] = files[:remaining]
+                    break
+        
+        # Create invalidations for each directory group
+        results = []
+        for dir_path, files in directory_groups.items():
+            print(f"Creating invalidation for {dir_path} ({len(files)} files)")
+            result = create_invalidation([dir_path])
+            results.append(result)
+            
+            # Add small delay between invalidations to avoid rate limits
+            if len(results) > 1:
+                time.sleep(0.5)
+        
+        # Check results
+        successful_invalidations = [r for r in results if r['success']]
+        failed_invalidations = [r for r in results if not r['success']]
+        
+        if successful_invalidations:
+            print(f"Successfully created {len(successful_invalidations)} invalidations")
+            return {
+                'statusCode': 200,
+                'body': json.dumps({
+                    'message': f'Created {len(successful_invalidations)} invalidations successfully',
+                    'successful_invalidations': len(successful_invalidations),
+                    'failed_invalidations': len(failed_invalidations),
+                    'processed_files': len(processed_files),
+                    'total_files': total_files,
+                    'strategy': 'standard_batch'
+                })
+            }
+        else:
+            # All invalidations failed
+            print(f"All {len(failed_invalidations)} invalidations failed")
+            return {
+                'statusCode': 202,
+                'body': json.dumps({
+                    'message': 'All invalidations delayed due to rate limits',
+                    'failed_invalidations': len(failed_invalidations),
+                    'processed_files': len(processed_files),
+                    'total_files': total_files,
+                    'strategy': 'standard_batch'
+                })
+            }

@@ -1,6 +1,6 @@
 """
-Django management command to insert Warangal data for multiple layer types
-This creates separate layers for each data type: residential, commercial, industrial, etc.
+Django management command to insert Bengaluru infrastructure data
+This creates separate layers for: highways, metro, STRR, and workspace
 """
 
 from django.core.management.base import BaseCommand, CommandError
@@ -10,6 +10,7 @@ from django.utils.text import slugify
 from pathlib import Path
 import json
 import glob
+import os
 
 from maps.models import (
     State, City, LayerCategory, DataLayer, GeoFeature, 
@@ -18,18 +19,18 @@ from maps.models import (
 
 
 class Command(BaseCommand):
-    help = 'Insert Warangal data for multiple layer types'
+    help = 'Insert Bengaluru infrastructure data for highways, metro, STRR, and workspace'
 
     def add_arguments(self, parser):
         parser.add_argument(
             '--delete-existing',
             action='store_true',
-            help='Delete existing Warangal data before inserting new data',
+            help='Delete existing Bengaluru infrastructure data before inserting new data',
         )
 
     def handle(self, *args, **options):
         self.stdout.write(
-            self.style.SUCCESS('🚀 Starting Warangal Data Insertion')
+            self.style.SUCCESS('🚀 Starting Bengaluru Infrastructure Data Insertion')
         )
         
         try:
@@ -40,7 +41,7 @@ class Command(BaseCommand):
                 
                 # Delete existing data if requested
                 if options['delete_existing']:
-                    self.delete_existing_warangal_data()
+                    self.delete_existing_bengaluru_infrastructure_data()
                 
                 # Define layer configurations
                 self.layer_configs = self.get_layer_configurations()
@@ -58,7 +59,7 @@ class Command(BaseCommand):
                 self.calculate_all_layer_bounds()
             
             self.stdout.write(
-                self.style.SUCCESS('\n✅ WARANGAL DATA INSERTION COMPLETED SUCCESSFULLY!')
+                self.style.SUCCESS('\n✅ BENGALURU INFRASTRUCTURE DATA INSERTION COMPLETED SUCCESSFULLY!')
             )
             
             # Print summary
@@ -82,12 +83,12 @@ class Command(BaseCommand):
         
         # Create/update State
         self.state, created = State.objects.get_or_create(
-            code='TS',
+            code='KA',
             defaults={
-                'name': 'Telangana',
-                'slug': 'telangana',
-                'center_lat': 18.1124,
-                'center_lng': 79.0193,
+                'name': 'Karnataka',
+                'slug': 'karnataka',
+                'center_lat': 15.3173,
+                'center_lng': 75.7139,
                 'default_zoom': 7
             }
         )
@@ -98,13 +99,13 @@ class Command(BaseCommand):
         
         # Create/update City
         self.city, created = City.objects.get_or_create(
-            slug='warangal',
+            slug='bengaluru',
             defaults={
-                'name': 'Warangal',
-                'state': 'Telangana',
+                'name': 'Bengaluru',
+                'state': 'Karnataka',
                 'state_ref': self.state,
-                'center_lat': 17.9689,
-                'center_lng': 79.5941,
+                'center_lat': 12.9716,
+                'center_lng': 77.5946,
                 'min_zoom': 8,
                 'max_zoom': 18
             }
@@ -119,20 +120,9 @@ class Command(BaseCommand):
         self.stdout.write("📂 Setting up layer categories...")
         
         categories_to_create = [
-            ('RESIDENTIAL', 'Residential', 'Residential areas and housing'),
-            ('COMMERCIAL', 'Commercial', 'Commercial and business areas'),
-            ('INDUSTRIAL', 'Industrial', 'Industrial zones and manufacturing'),
-            ('MIXED_USE', 'Mixed Use', 'Mixed use development areas'),
-            ('PUBLIC', 'Public/Semi-Public', 'Public and semi-public facilities'),
             ('TRANSPORT', 'Transportation', 'Transportation infrastructure'),
-            ('UTILITIES', 'Utilities', 'Public utilities and infrastructure'),
-            ('PARKS_GREEN', 'Parks & Green Spaces', 'Parks, recreational areas, and green spaces'),
-            ('WATER_BODIES', 'Water Bodies', 'Lakes, rivers, and water features'),
-            ('PROTECTED', 'Protected/Forest', 'Protected areas and forests'),
-            ('AGRICULTURAL', 'Agricultural', 'Agricultural land and farming areas'),
-            ('HERITAGE', 'Heritage', 'Heritage and cultural areas'),
-            ('BOUNDARIES', 'Administrative Boundaries', 'City and administrative boundaries'),
-            ('DEVELOPMENT', 'Development', 'Development zones and areas'),
+            ('INDUSTRIAL', 'Industrial', 'Industrial zones and manufacturing'),
+            ('UNCLASSIFIED', 'Unclassified', 'Unclassified or miscellaneous areas'),
         ]
         
         created_count = 0
@@ -156,257 +146,80 @@ class Command(BaseCommand):
     def get_layer_configurations(self):
         """Define configurations for each layer type"""
         return {
-            'warangal_residential': {
-                'name': 'Warangal Residential',
-                'description': 'Residential areas and housing zones',
-                'category': 'RESIDENTIAL',
-                'data_path': 'data/Telangana/warangal/master_plan',
-                'file_pattern': 'Residential.geojson',
-                'geometry_type': 'POLYGON',
-                'color': '#FFB6C1',
-                'stroke': '#FF69B4',
-                'stroke_width': 1
+            'bengaluru_highways': {
+                'name': 'Highways',
+                'description': 'National Highways and major roads in Bengaluru',
+                'category': 'TRANSPORT',
+                'data_path': 'data/karnataka/bengaluru/highways',
+                'file_pattern': '*.geojson',
+                'geometry_type': 'MULTILINESTRING',
+                'color': '#FF6B6B',
+                'stroke': '#E53E3E',
+                'stroke_width': 3
             },
-            'warangal_commercial': {
-                'name': 'Warangal Commercial',
-                'description': 'Commercial and business areas',
-                'category': 'COMMERCIAL',
-                'data_path': 'data/Telangana/warangal/master_plan',
-                'file_pattern': 'Commercial.geojson',
-                'geometry_type': 'POLYGON',
-                'color': '#FFD700',
-                'stroke': '#FFA500',
-                'stroke_width': 1
+            'bengaluru_metro_lines': {
+                'name': 'Metro lines',
+                'description': 'Bangalore Metro lines - Phases 1, 2, 2A & 2B',
+                'category': 'TRANSPORT',
+                'data_path': 'data/karnataka/bengaluru/metro',
+                'file_pattern': '*.geojson',
+                'geometry_type': 'MULTILINESTRING',
+                'color': '#3182CE',
+                'stroke': '#2C5282',
+                'stroke_width': 4
             },
-            'warangal_industrial': {
-                'name': 'Warangal Industrial',
-                'description': 'Industrial zones and manufacturing areas',
+            'bengaluru_strr': {
+                'name': 'STRR',
+                'description': 'Satellite Town Ring Road',
+                'category': 'TRANSPORT',
+                'data_path': 'data/karnataka/bengaluru/strr',
+                'file_pattern': '*.geojson',
+                'geometry_type': 'MULTILINESTRING',
+                'color': '#38A169',
+                'stroke': '#2F855A',
+                'stroke_width': 3
+            },
+            'bengaluru_workspaces': {
+                'name': 'Workspaces',
+                'description': 'Industrial areas and workspaces in Bengaluru',
                 'category': 'INDUSTRIAL',
-                'data_path': 'data/Telangana/warangal/master_plan',
-                'file_pattern': 'Industrial.geojson',
-                'geometry_type': 'POLYGON',
-                'color': '#D2691E',
-                'stroke': '#8B4513',
-                'stroke_width': 1
-            },
-            'warangal_mixed_use': {
-                'name': 'Warangal Mixed Use',
-                'description': 'Mixed use development areas',
-                'category': 'MIXED_USE',
-                'data_path': 'data/Telangana/warangal/master_plan',
-                'file_pattern': 'MixedUse.geojson',
-                'geometry_type': 'POLYGON',
-                'color': '#9370DB',
-                'stroke': '#8A2BE2',
-                'stroke_width': 1
-            },
-            'warangal_public_semipublic': {
-                'name': 'Warangal Public & Semi-Public',
-                'description': 'Public and semi-public facilities',
-                'category': 'PUBLIC',
-                'data_path': 'data/Telangana/warangal/master_plan',
-                'file_pattern': 'Public_and_SemiPublic.geojson',
-                'geometry_type': 'POLYGON',
-                'color': '#87CEEB',
-                'stroke': '#4682B4',
-                'stroke_width': 1
-            },
-            'warangal_transportation': {
-                'name': 'Warangal Transportation',
-                'description': 'Transportation infrastructure',
-                'category': 'TRANSPORT',
-                'data_path': 'data/Telangana/warangal/master_plan',
-                'file_pattern': 'Transportation.geojson',
-                'geometry_type': 'POLYGON',
-                'color': '#808080',
-                'stroke': '#2F4F4F',
-                'stroke_width': 1
-            },
-            'warangal_public_utilities': {
-                'name': 'Warangal Public Utilities',
-                'description': 'Public utilities and infrastructure',
-                'category': 'UTILITIES',
-                'data_path': 'data/Telangana/warangal/master_plan',
-                'file_pattern': 'PublicUtilities.geojson',
-                'geometry_type': 'POLYGON',
-                'color': '#A9A9A9',
-                'stroke': '#696969',
-                'stroke_width': 1
-            },
-            'warangal_recreational': {
-                'name': 'Warangal Recreational',
-                'description': 'Recreational areas and parks',
-                'category': 'PARKS_GREEN',
-                'data_path': 'data/Telangana/warangal/master_plan',
-                'file_pattern': 'Recreational.geojson',
-                'geometry_type': 'POLYGON',
-                'color': '#90EE90',
-                'stroke': '#228B22',
-                'stroke_width': 1
-            },
-            'warangal_water_bodies': {
-                'name': 'Warangal Water Bodies',
-                'description': 'Lakes, rivers, and water features',
-                'category': 'WATER_BODIES',
-                'data_path': 'data/Telangana/warangal/master_plan',
-                'file_pattern': 'Water_Bodies.geojson',
-                'geometry_type': 'POLYGON',
-                'color': '#4169E1',
-                'stroke': '#0000CD',
-                'stroke_width': 1
-            },
-            'warangal_forest': {
-                'name': 'Warangal Forest',
-                'description': 'Forest and protected areas',
-                'category': 'PROTECTED',
-                'data_path': 'data/Telangana/warangal/master_plan',
-                'file_pattern': 'Forest.geojson',
-                'geometry_type': 'POLYGON',
-                'color': '#228B22',
-                'stroke': '#006400',
-                'stroke_width': 1
-            },
-            'warangal_agricultural': {
-                'name': 'Warangal Agricultural',
-                'description': 'Agricultural land and farming areas',
-                'category': 'AGRICULTURAL',
-                'data_path': 'data/Telangana/warangal/master_plan',
-                'file_pattern': 'Agriculture.geojson',
-                'geometry_type': 'POLYGON',
-                'color': '#9ACD32',
-                'stroke': '#556B2F',
-                'stroke_width': 1
-            },
-            'warangal_heritage': {
-                'name': 'Warangal Heritage',
-                'description': 'Heritage and cultural areas',
-                'category': 'HERITAGE',
-                'data_path': 'data/Telangana/warangal/master_plan',
-                'file_pattern': 'Heritage.geojson',
-                'geometry_type': 'POLYGON',
-                'color': '#CD853F',
-                'stroke': '#8B4513',
-                'stroke_width': 1
-            },
-            'warangal_railway_land': {
-                'name': 'Warangal Railway Land',
-                'description': 'Railway land and infrastructure',
-                'category': 'TRANSPORT',
-                'data_path': 'data/Telangana/warangal/master_plan',
-                'file_pattern': 'RailwayLand.geojson',
-                'geometry_type': 'POLYGON',
-                'color': '#8B4513',
-                'stroke': '#654321',
-                'stroke_width': 1
-            },
-            'warangal_zoological_park': {
-                'name': 'Warangal Zoological Park',
-                'description': 'Zoological park and wildlife areas',
-                'category': 'PARKS_GREEN',
-                'data_path': 'data/Telangana/warangal/master_plan',
-                'file_pattern': 'ZoologicalPark.geojson',
-                'geometry_type': 'POLYGON',
-                'color': '#32CD32',
-                'stroke': '#228B22',
-                'stroke_width': 1
-            },
-            'warangal_air_strip': {
-                'name': 'Warangal Air Strip',
-                'description': 'Airport and aviation facilities',
-                'category': 'TRANSPORT',
-                'data_path': 'data/Telangana/warangal/master_plan',
-                'file_pattern': 'AirStrip.geojson',
-                'geometry_type': 'POLYGON',
-                'color': '#708090',
-                'stroke': '#2F4F4F',
-                'stroke_width': 1
-            },
-            'warangal_growth_corridor': {
-                'name': 'Warangal Growth Corridor',
-                'description': 'Growth corridor development areas',
-                'category': 'DEVELOPMENT',
-                'data_path': 'data/Telangana/warangal/master_plan',
-                'file_pattern': 'GrowthCorridor*.geojson',
-                'geometry_type': 'POLYGON',
-                'color': '#FF6347',
-                'stroke': '#DC143C',
-                'stroke_width': 1
-            },
-            'warangal_hill_buffer': {
-                'name': 'Warangal Hill Buffer',
-                'description': 'Hill buffer zones and protection areas',
-                'category': 'PROTECTED',
-                'data_path': 'data/Telangana/warangal/master_plan',
-                'file_pattern': 'HillBuffer.geojson',
-                'geometry_type': 'POLYGON',
-                'color': '#8B7355',
-                'stroke': '#654321',
-                'stroke_width': 1
-            },
-            'warangal_hillocks': {
-                'name': 'Warangal Hillocks',
-                'description': 'Hillocks and elevated areas',
-                'category': 'PROTECTED',
-                'data_path': 'data/Telangana/warangal/master_plan',
-                'file_pattern': 'Hillocks.geojson',
-                'geometry_type': 'POLYGON',
-                'color': '#A0522D',
-                'stroke': '#8B4513',
-                'stroke_width': 1
-            },
-            'warangal_road_buffer': {
-                'name': 'Warangal Road Buffer',
-                'description': 'Road buffer zones and setbacks',
-                'category': 'TRANSPORT',
-                'data_path': 'data/Telangana/warangal/master_plan',
-                'file_pattern': 'RoadBuffer.geojson',
-                'geometry_type': 'POLYGON',
-                'color': '#C0C0C0',
-                'stroke': '#808080',
-                'stroke_width': 1
-            },
-            'warangal_water_body_buffer': {
-                'name': 'Warangal Water Body Buffer',
-                'description': 'Water body buffer zones and protection areas',
-                'category': 'WATER_BODIES',
-                'data_path': 'data/Telangana/warangal/master_plan',
-                'file_pattern': 'WaterBodyBuffer.geojson',
-                'geometry_type': 'POLYGON',
-                'color': '#87CEFA',
-                'stroke': '#4682B4',
-                'stroke_width': 1
-            },
-            'warangal_residential_expansion': {
-                'name': 'Warangal Residential Expansion',
-                'description': 'Residential expansion areas',
-                'category': 'RESIDENTIAL',
-                'data_path': 'data/Telangana/warangal/master_plan',
-                'file_pattern': 'ResidentialExpansion.geojson',
-                'geometry_type': 'POLYGON',
-                'color': '#FFA07A',
-                'stroke': '#FF7F50',
-                'stroke_width': 1
+                'data_path': 'data/karnataka/bengaluru/workspace',
+                'file_pattern': '*.geojson',
+                'geometry_type': 'MULTIPOLYGON',
+                'color': '#D69E2E',
+                'stroke': '#B7791F',
+                'stroke_width': 2
             }
         }
 
-    def delete_existing_warangal_data(self):
-        """Delete existing Warangal data to start fresh"""
-        self.stdout.write("🗑️ Deleting existing Warangal data...")
+    def delete_existing_bengaluru_infrastructure_data(self):
+        """Delete existing Bengaluru infrastructure data to start fresh"""
+        self.stdout.write("🗑️ Deleting existing Bengaluru infrastructure data...")
+        
+        # Define the layer slugs to delete
+        layer_slugs = ['bengaluru_highways', 'bengaluru_metro_lines', 'bengaluru_strr', 'bengaluru_workspaces']
         
         # Delete features first (due to foreign key constraints)
-        features_deleted = GeoFeature.objects.filter(layer__city=self.city).count()
-        GeoFeature.objects.filter(layer__city=self.city).delete()
+        features_deleted = GeoFeature.objects.filter(
+            layer__city=self.city,
+            layer__slug__in=layer_slugs
+        ).count()
+        GeoFeature.objects.filter(
+            layer__city=self.city,
+            layer__slug__in=layer_slugs
+        ).delete()
         self.stdout.write(f"  🗑️ Deleted {features_deleted} features")
         
         # Delete layers
-        layers_deleted = DataLayer.objects.filter(city=self.city).count()
-        DataLayer.objects.filter(city=self.city).delete()
+        layers_deleted = DataLayer.objects.filter(
+            city=self.city,
+            slug__in=layer_slugs
+        ).count()
+        DataLayer.objects.filter(
+            city=self.city,
+            slug__in=layer_slugs
+        ).delete()
         self.stdout.write(f"  🗑️ Deleted {layers_deleted} layers")
-        
-        # Delete layer styles
-        styles_deleted = CityLayerStyle.objects.filter(city=self.city).count()
-        CityLayerStyle.objects.filter(city=self.city).delete()
-        self.stdout.write(f"  🗑️ Deleted {styles_deleted} layer styles")
 
     def create_all_layers(self):
         """Create all layer records"""
@@ -448,7 +261,8 @@ class Command(BaseCommand):
                     'categorization_method': 'FILENAME',
                     'geometry_type': config['geometry_type'],
                     'is_processed': False,
-                    'feature_count': 0
+                    'feature_count': 0,
+                    'is_true': True  # Make it visible by default
                 }
             )
             
@@ -531,6 +345,7 @@ class Command(BaseCommand):
                     
                     file_feature_count = 0
                     skipped_none_geometry = 0
+                    
                     for feature_data in features:
                         try:
                             # Create geometry - handle 3D coordinates by converting to 2D
@@ -599,9 +414,6 @@ class Command(BaseCommand):
                             
                         except Exception as e:
                             self.stdout.write(f"      ⚠️ Error processing feature: {e}")
-                            # Debug: print more details about the error
-                            import traceback
-                            self.stdout.write(f"      Debug: {traceback.format_exc()}")
                             continue
                     
                     self.stdout.write(f"      ✅ Inserted {file_feature_count} features from {file_name}")
@@ -636,19 +448,43 @@ class Command(BaseCommand):
             'properties': properties
         }
         
-        # Warangal-specific field mapping based on the data structure
-        feature_data.update({
-            'name': properties.get('Name', '') or properties.get('PLU_NAME', ''),
-            'zone_category': properties.get('PLU', '') or properties.get('Category', ''),
-            'plot_category': properties.get('PLU_Catego', '') or properties.get('Sub_Catego', ''),
-            'symbology': properties.get('PLU', '') or properties.get('Category', ''),
-            'area': properties.get('Area') or properties.get('Shape_Area'),
-            'shape_length': properties.get('Shape_Length'),
-            'shape_area': properties.get('Shape_Area'),
-            'objectid': properties.get('OBJECTID'),
-            'kuda': properties.get('KUDA', ''),
-            'ex_pr': properties.get('Ex_PR', ''),
-        })
+        # Layer-specific field mapping
+        if layer_slug == 'bengaluru_highways':
+            feature_data.update({
+                'name': properties.get('Name', '') or '',
+                'zone_category': properties.get('Notation', '') or '',
+                'zone_subcategory': properties.get('Width', '') or '',
+                'area': properties.get('Shape_Length'),
+                'shape_length': properties.get('Shape_Length'),
+                'objectid': properties.get('OBJECTID'),
+            })
+        elif layer_slug == 'bengaluru_metro_lines':
+            feature_data.update({
+                'name': properties.get('Name ', '') or properties.get('Name', '') or '',
+                'zone_category': properties.get('linecolour', '') or '',
+                'zone_subcategory': properties.get('fromjunction', '') or '',
+                'area': properties.get('length'),
+                'shape_length': properties.get('st_length(shape)'),
+                'objectid': properties.get('objectid'),
+                'fid': properties.get('fid'),
+            })
+        elif layer_slug == 'bengaluru_strr':
+            feature_data.update({
+                'name': properties.get('Name', '') or '',
+                'zone_category': properties.get('Notation', '') or '',
+                'zone_subcategory': properties.get('Current_Status', '') or '',
+                'area': properties.get('Shape_Length'),
+                'shape_length': properties.get('Shape_Length'),
+                'objectid': properties.get('OBJECTID'),
+            })
+        elif layer_slug == 'bengaluru_workspaces':
+            feature_data.update({
+                'name': properties.get('Name', '') or '',
+                'zone_category': properties.get('Type', '') or '',
+                'zone_subcategory': properties.get('Industry', '') or '',
+                'area': properties.get('Size(Acre)'),
+                'objectid': properties.get('OBJECTID'),
+            })
         
         return GeoFeature.objects.create(**feature_data)
 
