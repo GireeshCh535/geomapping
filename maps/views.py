@@ -2746,3 +2746,333 @@ class LayerCoordinateSearchView(APIView):
             return Response({
                 'detail': f'Internal server error: {str(e)}'
             }, status=500)
+
+
+@extend_schema_view(
+    get=extend_schema(
+        summary="Get layer bounds and zoom levels",
+        description="Provides bounds and optimal zoom levels for layers based on actual data in the database. Supports single or multiple layers - if multiple layers are called, returns combined bounds.",
+        parameters=[
+            OpenApiParameter(
+                name='state_slug',
+                location=OpenApiParameter.PATH,
+                description='State slug (e.g., karnataka, telangana)',
+                required=True,
+                type=str
+            ),
+            OpenApiParameter(
+                name='city_slug',
+                location=OpenApiParameter.PATH,
+                description='City slug (e.g., bengaluru, hyderabad)',
+                required=True,
+                type=str
+            ),
+            OpenApiParameter(
+                name='layer_slugs',
+                location=OpenApiParameter.PATH,
+                description='Layer slug(s) - comma-separated for multiple layers (e.g., bengaluru_master_plan_2015 or highways,metro_combined)',
+                required=True,
+                type=str
+            )
+        ],
+        responses={
+            200: extend_schema(
+                description="Successfully retrieved bounds and zoom levels",
+                examples=[
+                    OpenApiExample(
+                        'Single Layer Response',
+                        value={
+                            "success": True,
+                            "state": {
+                                "slug": "karnataka",
+                                "name": "Karnataka"
+                            },
+                            "city": {
+                                "slug": "bengaluru",
+                                "name": "Bengaluru",
+                                "center_lat": 12.9716,
+                                "center_lng": 77.5946,
+                                "min_zoom": 8,
+                                "max_zoom": 18
+                            },
+                            "layers": [
+                                {
+                                    "slug": "bengaluru_master_plan_2015",
+                                    "name": "Bengaluru Master Plan 2015",
+                                    "category": "Mixed Use",
+                                    "feature_count": 1250,
+                                    "geometry_type": "POLYGON",
+                                    "is_processed": True,
+                                    "tiles_generated": True
+                                }
+                            ],
+                            "bounds": {
+                                "west": 77.1234,
+                                "south": 12.5678,
+                                "east": 78.1234,
+                                "north": 13.5678,
+                                "center_lat": 13.0678,
+                                "center_lng": 77.6234
+                            },
+                            "zoom": {
+                                "optimal": 12,
+                                "min_zoom": 8,
+                                "max_zoom": 18,
+                                "recommended_range": {
+                                    "min": 10,
+                                    "max": 14
+                                }
+                            },
+                            "statistics": {
+                                "total_layers": 1,
+                                "total_features": 1250,
+                                "bounds_width_degrees": 1.0,
+                                "bounds_height_degrees": 1.0
+                            },
+                            "message": "Bounds calculated from 1250 features across 1 layer(s)"
+                        }
+                    )
+                ]
+            ),
+            404: extend_schema(
+                description="City or layers not found",
+                examples=[
+                    OpenApiExample(
+                        'City Not Found',
+                        value={
+                            "error": "City \"invalid_city\" not found in state \"karnataka\""
+                        }
+                    ),
+                    OpenApiExample(
+                        'Layers Not Found',
+                        value={
+                            "error": "No processed layers found with slugs: ['invalid_layer']"
+                        }
+                    )
+                ]
+            )
+        },
+        tags=['layers', 'bounds']
+    )
+)
+class LayerBoundsZoomAPIView(APIView):
+    """
+    Layer Bounds and Zoom Level API
+    
+    Provides bounds and optimal zoom levels for layers based on actual data in the database.
+    Supports single or multiple layers - if multiple layers are called, returns combined bounds.
+    
+    GET /api/layers/<state_slug>/<city_slug>/<layer_slug>/bounds-zoom/
+    GET /api/layers/<state_slug>/<city_slug>/<layer_slug1>,<layer_slug2>,<layer_slug3>/bounds-zoom/
+    
+    Examples:
+    - /api/layers/karnataka/bengaluru/bengaluru_master_plan_2015/bounds-zoom/
+    - /api/layers/telangana/hyderabad/highways,metro_combined/bounds-zoom/
+    
+    Returns:
+    - Bounds calculated from actual GeoFeature geometries
+    - Optimal zoom level to fit all bounds in view
+    - Center point for map positioning
+    - Feature count and layer information
+    """
+    permission_classes = [AllowAny]
+    
+    def get(self, request, state_slug, city_slug, layer_slugs):
+        """Get bounds and zoom levels for specified layers"""
+        try:
+            # Parse layer slugs (comma-separated for multiple layers)
+            layer_slug_list = [slug.strip() for slug in layer_slugs.split(',')]
+            
+            # Get city
+            try:
+                city = City.objects.select_related('state_ref').get(
+                    slug=city_slug,
+                    state_ref__slug=state_slug,
+                    is_active=True
+                )
+            except City.DoesNotExist:
+                return Response({
+                    'error': f'City "{city_slug}" not found in state "{state_slug}"'
+                }, status=status.HTTP_404_NOT_FOUND)
+            
+            # Get layers
+            layers = DataLayer.objects.filter(
+                city=city,
+                slug__in=layer_slug_list,
+                is_processed=True
+            ).select_related('category')
+            
+            if not layers.exists():
+                return Response({
+                    'error': f'No processed layers found with slugs: {layer_slug_list}'
+                }, status=status.HTTP_404_NOT_FOUND)
+            
+            # Check if all requested layers were found
+            found_slugs = [layer.slug for layer in layers]
+            missing_slugs = [slug for slug in layer_slug_list if slug not in found_slugs]
+            if missing_slugs:
+                return Response({
+                    'error': f'Layers not found: {missing_slugs}',
+                    'found_layers': found_slugs
+                }, status=status.HTTP_404_NOT_FOUND)
+            
+            # Calculate combined bounds from all features in all layers
+            combined_bounds = self._calculate_combined_bounds(layers)
+            
+            if not combined_bounds:
+                return Response({
+                    'error': 'No features found in the specified layers',
+                    'layers': [{'slug': layer.slug, 'name': layer.name, 'feature_count': layer.feature_count} for layer in layers]
+                }, status=status.HTTP_404_NOT_FOUND)
+            
+            # Calculate optimal zoom level
+            optimal_zoom = self._calculate_optimal_zoom(combined_bounds)
+            
+            # Calculate center point
+            center_lat = (combined_bounds['south'] + combined_bounds['north']) / 2
+            center_lng = (combined_bounds['west'] + combined_bounds['east']) / 2
+            
+            # Prepare layer information
+            layer_info = []
+            total_features = 0
+            for layer in layers:
+                layer_info.append({
+                    'slug': layer.slug,
+                    'name': layer.name,
+                    'category': layer.category.name,
+                    'feature_count': layer.feature_count,
+                    'geometry_type': layer.geometry_type,
+                    'is_processed': layer.is_processed,
+                    'tiles_generated': layer.tiles_generated
+                })
+                total_features += layer.feature_count
+            
+            # Prepare response
+            response_data = {
+                'success': True,
+                'state': {
+                    'slug': state_slug,
+                    'name': city.state_ref.name if city.state_ref else state_slug
+                },
+                'city': {
+                    'slug': city_slug,
+                    'name': city.name,
+                    'center_lat': city.center_lat,
+                    'center_lng': city.center_lng,
+                    'min_zoom': city.min_zoom,
+                    'max_zoom': city.max_zoom
+                },
+                'layers': layer_info,
+                'bounds': {
+                    'west': round(combined_bounds['west'], 6),
+                    'south': round(combined_bounds['south'], 6),
+                    'east': round(combined_bounds['east'], 6),
+                    'north': round(combined_bounds['north'], 6),
+                    'center_lat': round(center_lat, 6),
+                    'center_lng': round(center_lng, 6)
+                },
+                'zoom': {
+                    'optimal': optimal_zoom,
+                    'min_zoom': city.min_zoom,
+                    'max_zoom': city.max_zoom,
+                    'recommended_range': {
+                        'min': max(optimal_zoom - 2, city.min_zoom),
+                        'max': min(optimal_zoom + 2, city.max_zoom)
+                    }
+                },
+                'statistics': {
+                    'total_layers': len(layers),
+                    'total_features': total_features,
+                    'bounds_width_degrees': round(combined_bounds['east'] - combined_bounds['west'], 6),
+                    'bounds_height_degrees': round(combined_bounds['north'] - combined_bounds['south'], 6)
+                },
+                'message': f'Bounds calculated from {total_features} features across {len(layers)} layer(s)'
+            }
+            
+            return Response(response_data)
+            
+        except Exception as e:
+            logger.error(f"Error in layer bounds zoom API: {str(e)}")
+            return Response({
+                'error': f'Internal server error: {str(e)}'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
+    def _calculate_combined_bounds(self, layers):
+        """Calculate combined bounds from all features in the specified layers"""
+        from django.contrib.gis.db.models import Extent
+        
+        # Get all features from all layers
+        features = GeoFeature.objects.filter(
+            layer__in=layers,
+            is_valid=True
+        )
+        
+        if not features.exists():
+            return None
+        
+        # Calculate extent of all features
+        extent = features.aggregate(extent=Extent('geometry'))['extent']
+        
+        if not extent:
+            return None
+        
+        # extent is (xmin, ymin, xmax, ymax) in the geometry's SRID
+        # For 4326 (WGS84), this is (lng_min, lat_min, lng_max, lat_max)
+        return {
+            'west': extent[0],   # xmin (longitude)
+            'south': extent[1],  # ymin (latitude)
+            'east': extent[2],   # xmax (longitude)
+            'north': extent[3]   # ymax (latitude)
+        }
+    
+    def _calculate_optimal_zoom(self, bounds):
+        """Calculate optimal zoom level to fit the bounds in view"""
+        import math
+        
+        # Calculate the span of the bounds
+        lat_span = bounds['north'] - bounds['south']
+        lng_span = bounds['east'] - bounds['west']
+        
+        # Use the larger span to determine zoom level
+        max_span = max(lat_span, lng_span)
+        
+        # Calculate zoom level based on span
+        # This is a simplified calculation - you might want to fine-tune this
+        if max_span > 180:
+            zoom = 1
+        elif max_span > 90:
+            zoom = 2
+        elif max_span > 45:
+            zoom = 3
+        elif max_span > 22.5:
+            zoom = 4
+        elif max_span > 11.25:
+            zoom = 5
+        elif max_span > 5.625:
+            zoom = 6
+        elif max_span > 2.813:
+            zoom = 7
+        elif max_span > 1.406:
+            zoom = 8
+        elif max_span > 0.703:
+            zoom = 9
+        elif max_span > 0.352:
+            zoom = 10
+        elif max_span > 0.176:
+            zoom = 11
+        elif max_span > 0.088:
+            zoom = 12
+        elif max_span > 0.044:
+            zoom = 13
+        elif max_span > 0.022:
+            zoom = 14
+        elif max_span > 0.011:
+            zoom = 15
+        elif max_span > 0.0055:
+            zoom = 16
+        elif max_span > 0.00275:
+            zoom = 17
+        else:
+            zoom = 18
+        
+        return zoom

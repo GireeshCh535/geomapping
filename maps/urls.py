@@ -70,4 +70,8 @@ urlpatterns = [
     path('search-coords-by-layer/',
          views.LayerCoordinateSearchView.as_view(), name='layer_coordinate_search'),
     
+    # Layer bounds and zoom level API
+    path('layers/<slug:state_slug>/<slug:city_slug>/<str:layer_slugs>/bounds-zoom/',
+         views.LayerBoundsZoomAPIView.as_view(), name='layer_bounds_zoom'),
+    
 ]
