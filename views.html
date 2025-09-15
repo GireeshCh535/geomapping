@@ -207,8 +207,8 @@
 </head>
 <body>
     <div class="header">
-        <h1>🏛️ Amaravati Master Plan</h1>
-        <p>Interactive Zoning Map Viewer</p>
+        <h1>🗺️ Andhra Pradesh & Telangana Map</h1>
+        <p>Interactive Master Plan & Highway Viewer</p>
     </div>
     
     <div class="controls">
@@ -219,6 +219,14 @@
                 <option value="satellite">Satellite</option>
                 <option value="terrain">Terrain</option>
                 <option value="none">None</option>
+            </select>
+        </div>
+        
+        <div class="control-group">
+            <label for="highwayLayer">Highways:</label>
+            <select id="highwayLayer">
+                <option value="none">None</option>
+                <option value="hyderabad">Hyderabad Highways</option>
             </select>
         </div>
         
@@ -254,29 +262,53 @@
     
     <div id="map"></div>
     
+    <div class="legend">
+        <h3>Map Layers</h3>
+        <div class="legend-item">
+            <div class="legend-color" style="background: #667eea;"></div>
+            <span>Amaravati Master Plan</span>
+        </div>
+        <div class="legend-item">
+            <div class="legend-color" style="background: #14E098;"></div>
+            <span>Hyderabad Highways</span>
+        </div>
+    </div>
+    
     <div class="loading" id="loading">
         <div class="spinner"></div>
         <div>Loading tiles...</div>
     </div>
     
     <script>
-        // Amaravati coordinates (approximate center)
-        const AMARAVATI_CENTER = [16.5, 80.5];
+        // Combined coordinates for Amaravati and Hyderabad
+        const MAP_CENTER = [16.8, 79.2]; // Center between Amaravati and Hyderabad
+        const MAP_BOUNDS = [
+            [16.3, 77.5],  // Southwest (includes both cities)
+            [18.1, 80.7]   // Northeast (includes both cities)
+        ];
+        
+        // Individual city bounds
         const AMARAVATI_BOUNDS = [
             [16.3, 80.3],  // Southwest
             [16.7, 80.7]   // Northeast
         ];
         
+        const HYDERABAD_BOUNDS = [
+            [16.75493174, 77.77862838],  // Southwest
+            [18.05930434, 79.12891209]   // Northeast
+        ];
+        
         let map;
         let tileLayer;
+        let highwayLayer;
         let currentZoom = 10;
         
         // Initialize the map
         function initMap() {
             map = L.map('map', {
-                center: AMARAVATI_CENTER,
+                center: MAP_CENTER,
                 zoom: currentZoom,
-                maxBounds: AMARAVATI_BOUNDS,
+                maxBounds: MAP_BOUNDS,
                 maxBoundsViscosity: 1.0
             });
             
@@ -314,6 +346,15 @@
                 bounds: AMARAVATI_BOUNDS
             });
             
+            // Create highway layer for Hyderabad
+            highwayLayer = L.tileLayer('./hyderabad_highways_tiles/{z}/{x}/{y}.png', {
+                attribution: '© Hyderabad Highways',
+                opacity: 0.9,
+                maxZoom: 18,
+                minZoom: 5,
+                bounds: HYDERABAD_BOUNDS
+            });
+            
             // Add tile layer to map
             tileLayer.addTo(map);
             
@@ -330,7 +371,7 @@
                 
                 // Remove all base layers
                 map.eachLayer(function(layer) {
-                    if (layer !== tileLayer) {
+                    if (layer !== tileLayer && layer !== highwayLayer) {
                         map.removeLayer(layer);
                     }
                 });
@@ -346,6 +387,21 @@
                 // 'none' means no base layer
             });
             
+            // Highway layer change handler
+            document.getElementById('highwayLayer').addEventListener('change', function() {
+                const selectedHighway = this.value;
+                
+                // Remove highway layer if it exists
+                if (highwayLayer && map.hasLayer(highwayLayer)) {
+                    map.removeLayer(highwayLayer);
+                }
+                
+                // Add selected highway layer
+                if (selectedHighway === 'hyderabad') {
+                    highwayLayer.addTo(map);
+                }
+            });
+            
             // Opacity control
             const opacitySlider = document.getElementById('opacity');
             const opacityValue = document.getElementById('opacityValue');
@@ -358,7 +414,7 @@
             
             // Reset view button
             document.getElementById('resetView').addEventListener('click', function() {
-                map.setView(AMARAVATI_CENTER, 12);
+                map.setView(MAP_CENTER, 10);
             });
             
             // Check tile availability
@@ -424,7 +480,7 @@
         // Add keyboard shortcuts
         document.addEventListener('keydown', function(e) {
             if (e.key === 'r' || e.key === 'R') {
-                map.setView(AMARAVATI_CENTER, 12);
+                map.setView(MAP_CENTER, 10);
             }
         });
     </script>

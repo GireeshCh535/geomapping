@@ -752,7 +752,7 @@ def main():
                        help='Output directory for tiles')
     parser.add_argument('--min-zoom', type=int, default=8,
                        help='Minimum zoom level')
-    parser.add_argument('--max-zoom', type=int, default=16,
+    parser.add_argument('--max-zoom', type=int, default=18,
                        help='Maximum zoom level')
     parser.add_argument('--force', action='store_true',
                        help='Force regeneration of existing tiles')

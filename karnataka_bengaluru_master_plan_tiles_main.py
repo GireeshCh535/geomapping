@@ -53,7 +53,7 @@ class KarnatakaBengaluruMasterPlanTileGenerator:
         self.output_dir.mkdir(exist_ok=True)
         
         # Zoom level configuration - Same as Amaravati
-        self.min_zoom = 4
+        self.min_zoom = 17
         self.max_zoom = 18
         
         # Tile size

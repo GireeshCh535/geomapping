@@ -738,7 +738,7 @@ def main():
         
         # Generate tiles for zoom levels 1-16
         logger.info("\n🚀 Starting tile generation for zoom levels 1-16...")
-        generator.generate_tiles(min_zoom=17, max_zoom=18)
+        generator.generate_tiles(min_zoom=5, max_zoom=18)
         
         # Create viewer and metadata
         generator.create_viewer_html()
