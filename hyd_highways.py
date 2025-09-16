@@ -11,7 +11,6 @@ Generates PNG tiles for Hyderabad highways with:
 - Zoom levels 1-16 as requested
 - Highway-appropriate styling
 - Smart tile skipping (existing tiles are preserved by default)
-- Mapbox-safe blank/transparent tiles (prevents overzoom artifacts)
 
 Highway color: #14E098 (Gold - standard for highways)
 
@@ -29,7 +28,7 @@ import pandas as pd
 import geopandas as gpd
 from pathlib import Path
 from PIL import Image, ImageDraw, ImageFilter
-from typing import Tuple, List, Union
+from typing import Tuple, List, Optional, Union
 import mercantile
 from shapely.geometry import LineString, MultiLineString, Point, Polygon, box, GeometryCollection
 from shapely.ops import unary_union, linemerge
@@ -52,7 +51,7 @@ class HyderabadHighwaysTileGenerator:
     Complete tile generator for Hyderabad highways with all fixes applied
     """
     
-    def __init__(self, geojson_path: str, output_dir: str = "hyderabad_highways_tiles", skip_existing: bool = True):
+    def __init__(self, geojson_path: str, output_dir: str = "RRR_Final", skip_existing: bool = True):
         """
         Initialize the Highways tile generator
         
@@ -202,7 +201,9 @@ class HyderabadHighwaysTileGenerator:
             13: 5.5,
             14: 7.0,  # Neighborhood level
             15: 9.0,
-            16: 11.0  # Street level
+            16: 11.0, # Street level
+            17: 13.0,
+            18: 15.0
         }
         
         return zoom_widths.get(zoom, 3.0)
@@ -309,25 +310,41 @@ class HyderabadHighwaysTileGenerator:
             return None
     
     def coords_to_pixels(self, coords: List[Tuple[float, float]], 
-                        tile_bounds: mercantile.LngLatBbox) -> List[Tuple[float, float]]:
+                        x: int, y: int, zoom: int) -> List[Tuple[float, float]]:
         """
-        Convert geographic coordinates to pixel coordinates
+        Convert geographic coordinates to pixel coordinates using Web Mercator (Mapbox) projection
         
         Args:
             coords: List of (lon, lat) coordinates
-            tile_bounds: Tile bounds
+            x, y: Tile x/y indices
+            zoom: Zoom level
             
         Returns:
-            List of (x, y) pixel coordinates
+            List of (px, py) pixel coordinates within the tile
         """
-        tile_width = tile_bounds.east - tile_bounds.west
-        tile_height = tile_bounds.north - tile_bounds.south
+        def clamp_lat(lat: float) -> float:
+            # Web Mercator valid latitude range
+            return max(min(lat, 85.05112878), -85.05112878)
         
-        pixels = []
+        n = 2 ** zoom
+        world_size = self.tile_size * n
+        tile_origin_x = x * self.tile_size
+        tile_origin_y = y * self.tile_size
+        
+        pixels: List[Tuple[float, float]] = []
         for lon, lat in coords:
-            x = ((lon - tile_bounds.west) / tile_width) * self.tile_size
-            y = ((tile_bounds.north - lat) / tile_height) * self.tile_size
-            pixels.append((x, y))
+            lat = clamp_lat(lat)
+            lat_rad = math.radians(lat)
+            # Normalized Web Mercator coordinates [0,1]
+            u = (lon + 180.0) / 360.0
+            v = (1.0 - (math.log(math.tan(lat_rad) + (1.0 / math.cos(lat_rad))) / math.pi)) / 2.0
+            # Convert to world pixels
+            world_x = u * world_size
+            world_y = v * world_size
+            # Convert to tile-local pixels
+            px = world_x - tile_origin_x
+            py = world_y - tile_origin_y
+            pixels.append((px, py))
         
         return pixels
     
@@ -353,11 +370,22 @@ class HyderabadHighwaysTileGenerator:
             center_width = max(1, width - 3)
             draw.line(pixels, fill=color_rgb + (220,), width=center_width)
     
-    def create_blank_tile(self) -> Image.Image:
-        """Create a fully transparent PNG tile (Mapbox-safe empty tile)"""
-        return Image.new('RGBA', (self.tile_size, self.tile_size), (0, 0, 0, 0))
+    def _pixel_path_length(self, pixels: List[Tuple[float, float]]) -> float:
+        """Compute total path length in pixels for a sequence of points"""
+        if len(pixels) < 2:
+            return 0.0
+        length = 0.0
+        prev_x, prev_y = pixels[0]
+        for i in range(1, len(pixels)):
+            x, y = pixels[i]
+            dx = x - prev_x
+            dy = y - prev_y
+            length += math.hypot(dx, dy)
+            prev_x, prev_y = x, y
+        return length
 
-    def generate_tile(self, x: int, y: int, zoom: int) -> Image.Image:
+
+    def generate_tile(self, x: int, y: int, zoom: int) -> Optional[Image.Image]:
         """
         Generate a single tile
         
@@ -366,7 +394,7 @@ class HyderabadHighwaysTileGenerator:
             zoom: Zoom level
             
         Returns:
-            PIL Image (always returns an image, transparent if no data)
+            PIL Image or None if no data
         """
         try:
             # Get tile bounds
@@ -376,8 +404,7 @@ class HyderabadHighwaysTileGenerator:
             features = self.get_features_for_tile(tile_bounds)
             
             if features.empty:
-                # Always return a transparent tile if no data
-                return self.create_blank_tile()
+                return None
             
             # Create transparent image
             img = Image.new('RGBA', (self.tile_size, self.tile_size), (0, 0, 0, 0))
@@ -404,13 +431,18 @@ class HyderabadHighwaysTileGenerator:
                 # Draw based on geometry type
                 if isinstance(clipped, LineString):
                     coords = list(clipped.coords)
-                    pixels = self.coords_to_pixels(coords, tile_bounds)
+                    pixels = self.coords_to_pixels(coords, x, y, zoom)
                     
                     # Filter pixels to those near or in tile (with margin)
                     margin = 20
                     filtered_pixels = [(x, y) for x, y in pixels 
                                      if -margin <= x <= self.tile_size + margin 
                                      and -margin <= y <= self.tile_size + margin]
+                    
+                    # Skip tiny segments that become visual artifacts at high widths
+                    min_visual_len = max(2 * line_width, 8)
+                    if self._pixel_path_length(filtered_pixels) < min_visual_len:
+                        continue
                     
                     if len(filtered_pixels) >= 2:
                         self.draw_highway_line(draw, filtered_pixels, color_rgb, line_width)
@@ -419,13 +451,18 @@ class HyderabadHighwaysTileGenerator:
                 elif isinstance(clipped, MultiLineString):
                     for line in clipped.geoms:
                         coords = list(line.coords)
-                        pixels = self.coords_to_pixels(coords, tile_bounds)
+                        pixels = self.coords_to_pixels(coords, x, y, zoom)
                         
                         # Filter pixels
                         margin = 20
                         filtered_pixels = [(x, y) for x, y in pixels 
                                          if -margin <= x <= self.tile_size + margin 
                                          and -margin <= y <= self.tile_size + margin]
+                        
+                        # Skip tiny segments
+                        min_visual_len = max(2 * line_width, 8)
+                        if self._pixel_path_length(filtered_pixels) < min_visual_len:
+                            continue
                         
                         if len(filtered_pixels) >= 2:
                             self.draw_highway_line(draw, filtered_pixels, color_rgb, line_width)
@@ -434,15 +471,16 @@ class HyderabadHighwaysTileGenerator:
             if not drawn:
                 return None
             
-            # Apply smoothing for better appearance at higher zooms
-            if zoom >= 10:
-                img = img.filter(ImageFilter.SMOOTH)
-            
+            # Removed smoothing to avoid alpha bleeding artifacts in Mapbox raster resampling
             return img
             
         except Exception as e:
             logger.error(f"Error generating tile {zoom}/{x}/{y}: {e}")
-            return self.create_blank_tile()
+            return None
+
+    def create_blank_tile(self) -> Image.Image:
+        """Create a fully transparent PNG tile (Mapbox-safe empty tile)"""
+        return Image.new('RGBA', (self.tile_size, self.tile_size), (0, 0, 0, 0))
     
     def generate_tiles(self, min_zoom: int = 1, max_zoom: int = 16):
         """
@@ -501,20 +539,20 @@ class HyderabadHighwaysTileGenerator:
                     logger.debug(f"   ⏭️  Tile {zoom}/{x}/{y} already exists, skipping...")
                     continue
                 
-                # Generate tile image (always returns an image)
+                # Generate tile image
                 img = self.generate_tile(x, y, zoom)
                 
-                # Always save the tile image. If there's no content, this will be a fully transparent PNG.
-                img.save(tile_path, 'PNG', optimize=True)
-                tiles_generated += 1
-                total_tiles += 1
-                
-                # Check if this is an empty tile by comparing with a blank tile
-                blank_tile = self.create_blank_tile()
-                if img.tobytes() == blank_tile.tobytes():
+                if img is not None:
+                    img.save(tile_path, 'PNG', optimize=True)
+                    tiles_generated += 1
+                    total_tiles += 1
+                else:
+                    # Always write a blank transparent tile to prevent Mapbox overzoom artifacts
+                    blank = self.create_blank_tile()
+                    blank.save(tile_path, 'PNG', optimize=True)
                     tiles_empty += 1
                     empty_tiles += 1
-                
+                    
                 # Progress update
                 if (i + 1) % 50 == 0 or (i + 1) == len(tiles):
                     elapsed = time.time() - zoom_start
@@ -609,7 +647,7 @@ class HyderabadHighwaysTileGenerator:
     <div class="info">
         <h3>🛣️ Hyderabad Highways</h3>
         <p><strong>Color:</strong> {self.highway_color} (Gold)</p>
-        <p><strong>Tiles:</strong> Zoom 1-16</p>
+        <p><strong>Tiles:</strong> Zoom 1-18</p>
         <p><strong>Format:</strong> PNG (256x256)</p>
         <p><strong>Features:</strong> All major highways</p>
         <small>✅ Complete coverage<br>✅ No missing tiles</small>
@@ -631,7 +669,7 @@ class HyderabadHighwaysTileGenerator:
         var highwayLayer = L.tileLayer('{self.output_dir.absolute()}/{{z}}/{{x}}/{{y}}.png', {{
             attribution: 'Hyderabad Highways',
             minZoom: 1,
-            maxZoom: 16,
+            maxZoom: 18,
             opacity: 1.0,
             bounds: [[{self.bounds[1]}, {self.bounds[0]}], [{self.bounds[3]}, {self.bounds[2]}]]
         }}).addTo(map);
@@ -652,7 +690,7 @@ class HyderabadHighwaysTileGenerator:
         L.control.scale().addTo(map);
         
         console.log('🛣️ Hyderabad Highways tiles loaded');
-        console.log('✅ Zoom levels 1-16 available');
+        console.log('✅ Zoom levels 1-18 available');
         console.log('📍 Bounds:', {self.bounds});
     </script>
 </body>
@@ -663,6 +701,110 @@ class HyderabadHighwaysTileGenerator:
             f.write(html_content)
         
         logger.info(f"✅ Created viewer: {viewer_path}")
+
+    def create_viewer_mapbox_html(self, mapbox_token: str, base_style: str = 'mapbox://styles/mapbox/satellite-streets-v12'):
+        """Create a Mapbox GL HTML viewer for the tiles"""
+        center_lon = (self.bounds[0] + self.bounds[2]) / 2
+        center_lat = (self.bounds[1] + self.bounds[3]) / 2
+        minx, miny, maxx, maxy = self.bounds
+
+        html_content = f"""<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="initial-scale=1,maximum-scale=1,user-scalable=no" />
+    <title>Hyderabad Highways - Mapbox GL</title>
+    <link href="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.css" rel="stylesheet" />
+    <script src="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.js"></script>
+    <style>
+        body {{ margin: 0; padding: 0; }}
+        #map {{ position: absolute; top: 0; bottom: 0; width: 100%; }}
+        .info {{
+            position: fixed;
+            top: 10px;
+            right: 10px;
+            background: white;
+            padding: 15px;
+            border-radius: 5px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+            z-index: 1;
+            font-family: Arial, sans-serif;
+        }}
+        .info h3 {{ margin-top: 0; }}
+        .zoom-info {{
+            position: fixed;
+            bottom: 10px;
+            left: 10px;
+            background: rgba(0,0,0,0.8);
+            color: white;
+            padding: 8px 12px;
+            border-radius: 4px;
+            z-index: 1;
+            font-family: monospace;
+        }}
+    </style>
+</head>
+<body>
+    <div id="map"></div>
+    <div class="info">
+        <h3>🛣️ Hyderabad Highways (Mapbox)</h3>
+        <p><strong>Color:</strong> {self.highway_color} (Gold)</p>
+        <p><strong>Tiles:</strong> Zoom 1-18</p>
+        <p><strong>Format:</strong> PNG (256x256)</p>
+        <p><strong>Features:</strong> All major highways</p>
+        <small>Serve this folder via a local web server</small>
+    </div>
+    <div class="zoom-info" id="zoom-display">Zoom: 10</div>
+    <script>
+        mapboxgl.accessToken = '{mapbox_token}';
+        const map = new mapboxgl.Map({{
+            container: 'map',
+            style: '{base_style}',
+            center: [{center_lon}, {center_lat}],
+            zoom: 10
+        }});
+
+        map.addControl(new mapboxgl.NavigationControl(), 'top-left');
+        map.addControl(new mapboxgl.ScaleControl());
+
+        function updateZoom() {{
+            document.getElementById('zoom-display').textContent = 'Zoom: ' + map.getZoom().toFixed(2);
+        }}
+
+        map.on('zoomend', updateZoom);
+        map.on('load', () => {{
+            updateZoom();
+
+            // Add raster source for local PNG tiles
+            const cacheBuster = Date.now();
+            map.addSource('hyderabad-highways', {{
+                type: 'raster',
+                tiles: ['./{{z}}/{{x}}/{{y}}.png?v=' + cacheBuster],
+                tileSize: 256,
+                minzoom: 1,
+                maxzoom: 18,
+                bounds: [{minx}, {miny}, {maxx}, {maxy}]
+            }});
+
+            map.addLayer({{
+                id: 'hyderabad-highways',
+                type: 'raster',
+                source: 'hyderabad-highways',
+                paint: {{ 'raster-opacity': 0.8, 'raster-resampling': 'nearest' }}
+            }});
+
+            // Fit to data bounds
+            map.fitBounds([[{minx}, {miny}], [{maxx}, {maxy}]]);
+        }});
+    </script>
+</body>
+</html>"""
+
+        viewer_path = self.output_dir / "viewer_mapbox.html"
+        with open(viewer_path, 'w', encoding='utf-8') as f:
+            f.write(html_content)
+
+        logger.info(f"✅ Created Mapbox viewer: {viewer_path}")
     
     def create_tilejson(self):
         """Create TileJSON metadata file"""
@@ -675,7 +817,7 @@ class HyderabadHighwaysTileGenerator:
             "scheme": "xyz",
             "tiles": [f"file://{self.output_dir.absolute()}/{{z}}/{{x}}/{{y}}.png"],
             "minzoom": 1,
-            "maxzoom": 16,
+            "maxzoom": 18,
             "bounds": list(self.bounds),
             "center": [
                 (self.bounds[0] + self.bounds[2]) / 2,
@@ -703,13 +845,18 @@ def main():
                        help='Path to the highways GeoJSON file')
     parser.add_argument('--output', default="hyderabad_highways_tiles",
                        help='Output directory for tiles')
+    parser.add_argument('--mapbox-token', default=None,
+                       help='If provided, also generate Mapbox GL viewer (viewer_mapbox.html)')
     
     args = parser.parse_args()
     
     # Configuration - single merged file
-    geojson_path = args.geojson
+    geojson_path =  "hyd_highways_merged.geojson"
+    #args.geojson
     output_dir = args.output
     skip_existing = not args.force
+    mapbox_token = "pk.eyJ1IjoiYXYxYWNyZSIsImEiOiJjbTJtZmdxN3owa2FzMmpyMjJ4OHV5MHhzIn0.FXpMd91JSER-r7LVpSZN-A"
+    #args.mapbox_token
     
     # Check multiple possible locations for the file
     possible_paths = [
@@ -718,7 +865,9 @@ def main():
         f"./{geojson_path}",
         "hyd_highways_merged.geojson",
         "/app/hyd_highways_merged.geojson",
-        "./hyd_highways_merged.geojson"
+        "./hyd_highways_merged.geojson",
+        "data/Telangana/Hyderabad/highways/hyd_highways_merged.geojson",
+        "./data/Telangana/Hyderabad/highways/hyd_highways_merged.geojson"
     ]
     
     # Find the file
@@ -748,6 +897,8 @@ def main():
         
         # Create viewer and metadata
         generator.create_viewer_html()
+        if mapbox_token:
+            generator.create_viewer_mapbox_html(mapbox_token)
         generator.create_tilejson()
         
         logger.info("\n" + "="*60)
@@ -760,12 +911,18 @@ def main():
         logger.info(f"  • Output: {generator.output_dir.absolute()}")
         logger.info(f"  • Data file: {Path(actual_path).name}")
         logger.info(f"  • Skip existing tiles: {skip_existing}")
+        if mapbox_token:
+            logger.info("  • Mapbox viewer: viewer_mapbox.html (token provided)")
         logger.info("\n🌐 To view the tiles:")
         logger.info(f"  1. Open: {generator.output_dir.absolute()}/viewer.html")
+        if mapbox_token:
+            logger.info(f"  1b. Open (Mapbox): {generator.output_dir.absolute()}/viewer_mapbox.html")
         logger.info(f"  2. Or serve locally:")
         logger.info(f"     cd {output_dir}")
         logger.info(f"     python -m http.server 8000")
         logger.info(f"     Open: http://localhost:8000/viewer.html")
+        if mapbox_token:
+            logger.info(f"     Open (Mapbox): http://localhost:8000/viewer_mapbox.html")
         logger.info("\n✅ All issues fixed:")
         logger.info("  • No missing tiles")
         logger.info("  • No broken lines")

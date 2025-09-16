@@ -3,6 +3,7 @@
 Perfect STRR Tile Generator for Bangalore
 Generates high-quality PNG tiles from STRR GeoJSON data with color #14e098
 Clean, robust, and optimized for production use
+- Mapbox-safe blank/transparent tiles (prevents overzoom artifacts)
 """
 
 import os
@@ -11,7 +12,7 @@ import math
 import json
 import logging
 from pathlib import Path
-from typing import List, Tuple, Optional, Dict, Any
+from typing import List, Tuple, Dict, Any
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import argparse
 
@@ -90,6 +91,7 @@ class PerfectSTRRTileGenerator:
         logger.info(f"Output directory: {self.output_dir}")
         logger.info(f"Zoom levels: {self.min_zoom} to {self.max_zoom}")
         logger.info(f"STRR Color: #14e098")
+        logger.info("Mapbox-safe blank/transparent tiles enabled")
     
     def load_and_validate_data(self) -> bool:
         """
@@ -289,7 +291,10 @@ class PerfectSTRRTileGenerator:
     def coords_to_pixels(self, coords: List[Tuple[float, float]], tile_bounds) -> List[Tuple[float, float]]:
         """Convert geographic coordinates to pixel coordinates"""
         pixels = []
-        for lon, lat in coords:
+        for coord in coords:
+            # Handle both 2D and 3D coordinates
+            lon, lat = coord[0], coord[1]
+            
             # Convert to tile-relative coordinates (0-1)
             x = (lon - tile_bounds.west) / (tile_bounds.east - tile_bounds.west)
             y = (tile_bounds.north - lat) / (tile_bounds.north - tile_bounds.south)
@@ -301,6 +306,10 @@ class PerfectSTRRTileGenerator:
             pixels.append((pixel_x, pixel_y))
         
         return pixels
+    
+    def create_blank_tile(self) -> Image.Image:
+        """Create a fully transparent PNG tile (Mapbox-safe empty tile)"""
+        return Image.new('RGBA', (self.tile_size, self.tile_size), (0, 0, 0, 0))
     
     def draw_line_with_antialiasing(self, draw: ImageDraw.Draw, pixels: List[Tuple[float, float]], 
                                   color: Tuple[int, int, int], width: int):
@@ -329,48 +338,55 @@ class PerfectSTRRTileGenerator:
             # Get features for this tile
             features = self.get_features_for_tile(tile)
             
-            if features.empty:
-                # Create empty tile
-                tile_path.parent.mkdir(parents=True, exist_ok=True)
-                empty_img = Image.new('RGBA', (self.tile_size, self.tile_size), (0, 0, 0, 0))
-                empty_img.save(tile_path, 'PNG')
-                self.stats['tiles_empty'] += 1
-                return "empty"
-            
-            # Create tile image
+            # Create tile image (always create, even if empty)
             img = Image.new('RGBA', (self.tile_size, self.tile_size), (0, 0, 0, 0))
-            draw = ImageDraw.Draw(img)
             
-            # Get tile bounds and line width
-            tile_bounds = mercantile.bounds(tile)
-            line_width = self.line_widths.get(tile.z, 3)
-            
-            # Render each feature
-            for _, feature in features.iterrows():
-                geom = feature.geometry
+            if not features.empty:
+                draw = ImageDraw.Draw(img)
                 
-                # Handle different geometry types
-                if hasattr(geom, 'geoms'):  # MultiLineString
-                    for g in geom.geoms:
-                        if hasattr(g, 'coords') and len(g.coords) >= 2:
-                            pixels = self.coords_to_pixels(g.coords, tile_bounds)
-                            self.draw_line_with_antialiasing(draw, pixels, self.strr_color, line_width)
+                # Get tile bounds and line width
+                tile_bounds = mercantile.bounds(tile)
+                line_width = self.line_widths.get(tile.z, 3)
                 
-                elif hasattr(geom, 'coords') and len(geom.coords) >= 2:  # LineString
-                    pixels = self.coords_to_pixels(geom.coords, tile_bounds)
-                    self.draw_line_with_antialiasing(draw, pixels, self.strr_color, line_width)
+                # Render each feature
+                for _, feature in features.iterrows():
+                    geom = feature.geometry
+                    
+                    # Handle different geometry types
+                    if hasattr(geom, 'geoms'):  # MultiLineString
+                        for g in geom.geoms:
+                            if hasattr(g, 'coords') and len(g.coords) >= 2:
+                                pixels = self.coords_to_pixels(g.coords, tile_bounds)
+                                self.draw_line_with_antialiasing(draw, pixels, self.strr_color, line_width)
+                    
+                    elif hasattr(geom, 'coords') and len(geom.coords) >= 2:  # LineString
+                        pixels = self.coords_to_pixels(geom.coords, tile_bounds)
+                        self.draw_line_with_antialiasing(draw, pixels, self.strr_color, line_width)
+                
+                self.stats['tiles_generated'] += 1
+            else:
+                self.stats['tiles_empty'] += 1
             
-            # Save tile
+            # Always save the tile image. If there's no content, this will be a fully transparent PNG.
             tile_path.parent.mkdir(parents=True, exist_ok=True)
             img.save(tile_path, 'PNG')
-            self.stats['tiles_generated'] += 1
             
-            return "generated"
+            return "generated" if not features.empty else "empty"
             
         except Exception as e:
             logger.error(f"Error generating tile {tile.z}/{tile.x}/{tile.y}: {e}")
             self.stats['errors'] += 1
-            return "error"
+            
+            # Create and save blank tile on error
+            try:
+                tile_path = self.output_dir / str(tile.z) / str(tile.x) / f"{tile.y}.png"
+                tile_path.parent.mkdir(parents=True, exist_ok=True)
+                blank_img = self.create_blank_tile()
+                blank_img.save(tile_path, 'PNG')
+                self.stats['tiles_empty'] += 1
+                return "error_blank"
+            except:
+                return "error"
     
     def generate_tiles_parallel(self):
         """Generate tiles using parallel processing"""

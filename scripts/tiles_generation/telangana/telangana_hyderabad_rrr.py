@@ -10,6 +10,7 @@ Fixes applied:
 - Handle closed loops properly
 - Improved tile intersection detection
 - Better error handling for edge cases
+- Mapbox-safe blank/transparent tiles (prevents overzoom artifacts)
 
 Usage:
   python telangana_hyderabad_rrr_fixed.py                # Skip existing tiles (default)
@@ -24,7 +25,7 @@ import time
 import geopandas as gpd
 from pathlib import Path
 from PIL import Image, ImageDraw, ImageFilter
-from typing import Tuple, List, Optional, Union
+from typing import Tuple, List, Union
 import mercantile
 from shapely.geometry import LineString, MultiLineString, Point, Polygon, box, GeometryCollection
 from shapely.ops import unary_union, linemerge
@@ -472,7 +473,11 @@ class HyderabadRRRTileGenerator:
                 center_color = tuple(min(255, c + 30) for c in color_rgb)
                 draw.line(int_pixels, fill=center_color + (200,), width=center_width)
     
-    def generate_tile(self, x: int, y: int, zoom: int) -> Optional[Image.Image]:
+    def create_blank_tile(self) -> Image.Image:
+        """Create a fully transparent PNG tile (Mapbox-safe empty tile)"""
+        return Image.new('RGBA', (self.tile_size, self.tile_size), (0, 0, 0, 0))
+
+    def generate_tile(self, x: int, y: int, zoom: int) -> Image.Image:
         """
         Generate a single tile with improved rendering
         
@@ -481,7 +486,7 @@ class HyderabadRRRTileGenerator:
             zoom: Zoom level
             
         Returns:
-            PIL Image or None if no data
+            PIL Image (always returns an image, transparent if no data)
         """
         try:
             # Get tile bounds
@@ -491,7 +496,8 @@ class HyderabadRRRTileGenerator:
             features = self.get_features_for_tile(tile_bounds)
             
             if features.empty:
-                return None
+                # Always return a transparent tile if no data
+                return self.create_blank_tile()
             
             # Create transparent image with higher internal resolution for anti-aliasing
             scale = 2 if zoom >= 12 else 1  # Use 2x resolution for higher zooms
@@ -556,7 +562,7 @@ class HyderabadRRRTileGenerator:
                             drawn = True
             
             if not drawn:
-                return None
+                return self.create_blank_tile()
             
             # Downscale if we used higher resolution (anti-aliasing effect)
             if scale > 1:
@@ -570,7 +576,7 @@ class HyderabadRRRTileGenerator:
             
         except Exception as e:
             logger.debug(f"Error generating tile {zoom}/{x}/{y}: {e}")
-            return None
+            return self.create_blank_tile()
     
     def generate_tiles(self, min_zoom: int = 5, max_zoom: int = 18):
         """
@@ -630,19 +636,19 @@ class HyderabadRRRTileGenerator:
                     tiles_skipped += 1
                     continue
                 
-                # Generate tile image
+                # Generate tile image (always returns an image)
                 img = self.generate_tile(x, y, zoom)
                 
-                if img is not None:
-                    img.save(tile_path, 'PNG', optimize=True)
-                    tiles_generated += 1
-                    total_tiles += 1
-                else:
+                # Always save the tile image. If there's no content, this will be a fully transparent PNG.
+                img.save(tile_path, 'PNG', optimize=True)
+                tiles_generated += 1
+                total_tiles += 1
+                
+                # Check if this is an empty tile by comparing with a blank tile
+                blank_tile = self.create_blank_tile()
+                if img.tobytes() == blank_tile.tobytes():
                     tiles_empty += 1
                     empty_tiles += 1
-                    # Remove empty tile file if exists
-                    if tile_path.exists():
-                        tile_path.unlink()
                 
                 # Progress update
                 if (i + 1) % 50 == 0 or (i + 1) == len(tiles):

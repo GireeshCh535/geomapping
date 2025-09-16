@@ -13,6 +13,7 @@ Fixes applied:
 - Proper geometry clipping to tile bounds
 - Anti-aliasing and subpixel precision rendering
 - Buffer-based intersection detection
+- Mapbox-safe blank/transparent tiles (prevents overzoom artifacts)
 
 Usage:
   python karnataka_bengaluru_highways_tiles_fixed.py                # Skip existing tiles (default)
@@ -27,7 +28,7 @@ import time
 import geopandas as gpd
 from pathlib import Path
 from PIL import Image, ImageDraw, ImageFilter
-from typing import Tuple, List, Optional, Union
+from typing import Tuple, List, Union
 import mercantile
 from shapely.geometry import LineString, MultiLineString, Point, Polygon, box, GeometryCollection
 from shapely.ops import unary_union, linemerge
@@ -511,7 +512,11 @@ class KarnatakaBengaluruHighwaysTileGenerator:
                 center_color = tuple(min(255, c + 30) for c in color_rgb)
                 draw.line(int_pixels, fill=center_color + (200,), width=center_width)
     
-    def generate_tile(self, x: int, y: int, zoom: int) -> Optional[Image.Image]:
+    def create_blank_tile(self) -> Image.Image:
+        """Create a fully transparent PNG tile (Mapbox-safe empty tile)"""
+        return Image.new('RGBA', (self.tile_size, self.tile_size), (0, 0, 0, 0))
+
+    def generate_tile(self, x: int, y: int, zoom: int) -> Image.Image:
         """
         Generate a single tile with improved rendering
         
@@ -520,7 +525,7 @@ class KarnatakaBengaluruHighwaysTileGenerator:
             zoom: Zoom level
             
         Returns:
-            PIL Image or None if no data
+            PIL Image (always returns an image, transparent if no data)
         """
         try:
             # Get tile bounds
@@ -530,7 +535,8 @@ class KarnatakaBengaluruHighwaysTileGenerator:
             features = self.get_features_for_tile(tile_bounds)
             
             if features.empty:
-                return None
+                # Always return a transparent tile if no data
+                return self.create_blank_tile()
             
             # Create transparent image with higher internal resolution for anti-aliasing
             scale = 2 if zoom >= 12 else 1  # Use 2x resolution for higher zooms
@@ -572,7 +578,7 @@ class KarnatakaBengaluruHighwaysTileGenerator:
             
         except Exception as e:
             logger.error(f"Error generating tile {zoom}/{x}/{y}: {e}")
-            return None
+            return self.create_blank_tile()
     
     def generate_tiles(self, min_zoom: int = 8, max_zoom: int = 16, force: bool = False):
         """
@@ -591,6 +597,7 @@ class KarnatakaBengaluruHighwaysTileGenerator:
         
         total_tiles = 0
         generated_tiles = 0
+        empty_tiles = 0
         skipped_tiles = 0
         
         for zoom in range(min_zoom, max_zoom + 1):
@@ -605,6 +612,7 @@ class KarnatakaBengaluruHighwaysTileGenerator:
             
             zoom_tiles = 0
             zoom_generated = 0
+            zoom_empty = 0
             zoom_skipped = 0
             
             for x in range(min_tile.x, max_tile.x + 1):
@@ -622,29 +630,30 @@ class KarnatakaBengaluruHighwaysTileGenerator:
                         zoom_skipped += 1
                         continue
                     
-                    # Generate tile
+                    # Generate tile (always returns an image)
                     tile_img = self.generate_tile(x, y, zoom)
                     
-                    if tile_img is not None:
-                        tile_img.save(tile_path, 'PNG')
-                        generated_tiles += 1
-                        zoom_generated += 1
-                    else:
-                        # Create empty tile if no data
-                        empty_img = Image.new('RGBA', (self.tile_size, self.tile_size), (0, 0, 0, 0))
-                        empty_img.save(tile_path, 'PNG')
-                        generated_tiles += 1
-                        zoom_generated += 1
+                    # Always save the tile image. If there's no content, this will be a fully transparent PNG.
+                    tile_img.save(tile_path, 'PNG', optimize=True)
+                    generated_tiles += 1
+                    zoom_generated += 1
+                    
+                    # Check if this is an empty tile by comparing with a blank tile
+                    blank_tile = self.create_blank_tile()
+                    if tile_img.tobytes() == blank_tile.tobytes():
+                        empty_tiles += 1
+                        zoom_empty += 1
                     
                     # Log progress every 100 tiles
                     if total_tiles % 100 == 0:
                         logger.info(f"   Generated {total_tiles} tiles so far...")
             
-            logger.info(f"   Zoom {zoom}: {zoom_generated} generated, {zoom_skipped} skipped, {zoom_tiles} total")
+            logger.info(f"   Zoom {zoom}: {zoom_generated} generated ({zoom_generated - zoom_empty} with data, {zoom_empty} empty), {zoom_skipped} skipped, {zoom_tiles} total")
         
         logger.info(f"✅ Tile generation completed!")
         logger.info(f"📊 Total tiles: {total_tiles}")
         logger.info(f"🆕 Generated: {generated_tiles}")
+        logger.info(f"📭 Empty tiles: {empty_tiles}")
         logger.info(f"⏭️  Skipped: {skipped_tiles}")
         
         # Create supporting files
@@ -750,7 +759,7 @@ def main():
                        help='Directory containing GeoJSON files')
     parser.add_argument('--output-dir', default='karnataka_bengaluru_highways_tiles',
                        help='Output directory for tiles')
-    parser.add_argument('--min-zoom', type=int, default=8,
+    parser.add_argument('--min-zoom', type=int, default=4,
                        help='Minimum zoom level')
     parser.add_argument('--max-zoom', type=int, default=18,
                        help='Maximum zoom level')
