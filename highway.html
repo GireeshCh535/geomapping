@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="initial-scale=1,maximum-scale=1,user-scalable=no" />
+    <title>Hyderabad Highways - Mapbox GL</title>
+    <link href="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.css" rel="stylesheet" />
+    <script src="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.js"></script>
+    <style>
+        body { margin: 0; padding: 0; }
+        #map { position: absolute; top: 0; bottom: 0; width: 100%; }
+        .info {
+            position: fixed;
+            top: 10px;
+            right: 10px;
+            background: white;
+            padding: 15px;
+            border-radius: 5px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+            z-index: 1;
+            font-family: Arial, sans-serif;
+        }
+        .info h3 { margin-top: 0; }
+        .zoom-info {
+            position: fixed;
+            bottom: 10px;
+            left: 10px;
+            background: rgba(0,0,0,0.8);
+            color: white;
+            padding: 8px 12px;
+            border-radius: 4px;
+            z-index: 1;
+            font-family: monospace;
+        }
+    </style>
+</head>
+<body>
+    <div id="map"></div>
+    <div class="info">
+        <h3>🛣️ Hyderabad Highways (Mapbox)</h3>
+        <p><strong>Color:</strong> #14E098 (Gold)</p>
+        <p><strong>Tiles:</strong> Zoom 1-18</p>
+        <p><strong>Format:</strong> PNG (256x256)</p>
+        <p><strong>Features:</strong> Highways and major roads</p>
+        <small>Serve this folder via a local web server</small>
+    </div>
+    <div class="zoom-info" id="zoom-display">Zoom: 18</div>
+    <script>
+        mapboxgl.accessToken = 'pk.eyJ1IjoiYXYxYWNyZSIsImEiOiJjbTJtZmdxN3owa2FzMmpyMjJ4OHV5MHhzIn0.FXpMd91JSER-r7LVpSZN-A';
+        const map = new mapboxgl.Map({
+            container: 'map',
+            style: 'mapbox://styles/mapbox/satellite-streets-v12',
+            center: [79.12878492753299, 17.23117164145431],
+            zoom: 18
+        });
+
+        map.addControl(new mapboxgl.NavigationControl(), 'top-left');
+        map.addControl(new mapboxgl.ScaleControl());
+
+        function updateZoom() {
+            document.getElementById('zoom-display').textContent = 'Zoom: ' + map.getZoom().toFixed(2);
+        }
+
+        map.on('zoomend', updateZoom);
+        map.on('load', () => {
+            updateZoom();
+
+            // Add raster source for local PNG tiles
+            const cacheBuster = Date.now();
+            map.addSource('hyderabad-highways', {
+                type: 'raster',
+                tiles: ['./{z}/{x}/{y}.png?v=' + cacheBuster],
+                tileSize: 256,
+                minzoom: 1,
+                maxzoom: 18,
+                bounds: [78.0, 16.5, 80.0, 18.0]
+            });
+
+            map.addLayer({
+                id: 'hyderabad-highways',
+                type: 'raster',
+                source: 'hyderabad-highways',
+                paint: { 'raster-opacity': 0.8, 'raster-resampling': 'nearest' }
+            });
+
+            // Auto-zoom to specified coordinates
+            map.flyTo({
+                center: [79.12878492753299, 17.23117164145431],
+                zoom: 18,
+                duration: 2000
+            });
+        });
+    </script>
+</body>
+</html>

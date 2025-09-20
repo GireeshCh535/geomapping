@@ -523,7 +523,7 @@ class HyderabadRRRTileGenerator:
         cropped = img.crop((bleed_px, bleed_px, bleed_px + 256, bleed_px + 256))
         return cropped
     
-    def generate_tiles(self, min_zoom: int = 5, max_zoom: int = 18):
+    def generate_tiles(self, min_zoom: int = 18, max_zoom: int = 18):
         """
         Generate all tiles for zoom levels 5-18
         
@@ -786,7 +786,7 @@ class HyderabadRRRTileGenerator:
             "tiles": [
                 "http://localhost:8000/{z}/{x}/{y}.png"
             ],
-            "minzoom": 5,
+            "minzoom": 18,
             "maxzoom": 18,
             "bounds": [minx, miny, maxx, maxy],
             "center": center,
@@ -868,7 +868,7 @@ def main():
         generator = HyderabadRRRTileGenerator(geojson_path, output_dir, skip_existing)
         
         # Generate tiles
-        generator.generate_tiles(min_zoom=5, max_zoom=18)
+        generator.generate_tiles(min_zoom=18, max_zoom=18)
         
         # Create viewer and metadata
         generator.create_viewer_html()
