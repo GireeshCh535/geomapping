@@ -1037,7 +1037,8 @@ class CoordinateSearchTestView(APIView):
                     feature_data = self._process_feature_data(closest_feature)
                     
                     # Calculate distance in meters
-                    distance_degrees = float(closest_feature.distance)
+                    # Use the distance method directly on the geometry
+                    distance_degrees = closest_feature.geometry.distance(search_point)
                     distance_meters = distance_degrees * 111000  # Approximate conversion
                     
                     # Check if this is one of the special layers that need custom response
