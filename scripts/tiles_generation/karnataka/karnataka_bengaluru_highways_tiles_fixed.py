@@ -24,6 +24,7 @@ Usage:
 import json
 import os
 import sys
+import math
 import time
 import geopandas as gpd
 from pathlib import Path
@@ -67,14 +68,14 @@ class KarnatakaBengaluruHighwaysTileGenerator:
         """
         self.data_dir = Path(data_dir)
         self.output_dir = Path(output_dir)
-        self.highway_color = "#14E098"  # Green for highways
+        self.highway_color = "#14E098"  # RGB(20, 224, 152) - bright teal green
         self.tile_size = 256  # Standard tile size
         self.skip_existing = skip_existing
         
         # Quality settings
         self.buffer_factor = 0.15  # 15% buffer for better intersection detection
-        self.precision_threshold = 6  # Reduced from 8 to 6 for better performance
-        self.simplification_tolerance = 0.00001  # For simplifying dense geometries
+        self.precision_threshold = 6  # Reduced from 8 to 6 for better performance (about 0.1 meter precision)
+        self.simplification_tolerance = 0.00001  # More precise tolerance for geometry simplification
         
         # Create output directory
         self.output_dir.mkdir(parents=True, exist_ok=True)
@@ -113,21 +114,47 @@ class KarnatakaBengaluruHighwaysTileGenerator:
     
     def simplify_dense_geometry(self, geom, max_points=1000):
         """
-        Simplify geometries with too many points
+        Simplify geometries with too many points using adaptive tolerance
         """
         if isinstance(geom, LineString):
             num_coords = len(geom.coords)
             if num_coords > max_points:
-                # Progressive simplification
+                # Progressive simplification with adaptive tolerance
                 tolerance = self.simplification_tolerance
                 simplified = geom
                 
-                while len(simplified.coords) > max_points and tolerance < 0.01:
+                # Try progressive simplification first
+                while len(simplified.coords) > max_points and tolerance < 0.001:
                     simplified = geom.simplify(tolerance, preserve_topology=True)
-                    tolerance *= 2
+                    tolerance *= 1.5  # Gradual increase
+                
+                # If still too dense, use point sampling as fallback
+                if len(simplified.coords) > max_points:
+                    coords = list(simplified.coords)
+                    step = len(coords) // max_points
+                    sampled_coords = coords[::max(1, step)]
+                    simplified = LineString(sampled_coords)
                 
                 logger.info(f"   Simplified geometry from {num_coords} to {len(simplified.coords)} points")
                 return simplified
+                
+        elif isinstance(geom, MultiLineString):
+            total_points = sum(len(line.coords) for line in geom.geoms)
+            if total_points > max_points:
+                # Simplify each line in the MultiLineString
+                simplified_lines = []
+                for line in geom.geoms:
+                    if len(line.coords) > 100:  # Only simplify dense lines
+                        simplified = self.simplify_dense_geometry(line, max_points=100)
+                        if simplified is not None:
+                            simplified_lines.append(simplified)
+                    else:
+                        simplified_lines.append(line)
+                
+                if simplified_lines:
+                    return MultiLineString(simplified_lines)
+                else:
+                    return None
         
         return geom
     
@@ -136,7 +163,7 @@ class KarnatakaBengaluruHighwaysTileGenerator:
         Round coordinates to reasonable precision to avoid floating point issues
         """
         def round_coords(coords):
-            # Round to 6 decimal places (about 11cm precision)
+            # Round to 6 decimal places (about 11cm precision) - much more aggressive than 14-15 decimal places
             return [(round(float(x), self.precision_threshold), 
                     round(float(y), self.precision_threshold)) for x, y in coords]
         
@@ -171,6 +198,96 @@ class KarnatakaBengaluruHighwaysTileGenerator:
             
         return geom
     
+    def remove_duplicate_segments(self, geom, tolerance=0.00001):
+        """
+        Remove duplicate/overlapping segments from MultiLineString geometries
+        
+        Args:
+            geom: Shapely geometry
+            tolerance: Distance tolerance for considering segments as duplicates
+            
+        Returns:
+            Geometry with duplicate segments removed
+        """
+        if isinstance(geom, MultiLineString):
+            lines = list(geom.geoms)
+            if len(lines) <= 1:
+                return geom
+            
+            # Remove duplicate lines by comparing their geometries
+            unique_lines = []
+            for line in lines:
+                is_duplicate = False
+                for existing_line in unique_lines:
+                    # Check if lines are very similar (within tolerance)
+                    if line.distance(existing_line) < tolerance:
+                        # Check if they have similar length (within 10%)
+                        length_ratio = min(line.length, existing_line.length) / max(line.length, existing_line.length)
+                        if length_ratio > 0.9:  # 90% similarity
+                            is_duplicate = True
+                            break
+                
+                if not is_duplicate:
+                    unique_lines.append(line)
+            
+            if len(unique_lines) == 1:
+                return unique_lines[0]
+            elif len(unique_lines) > 1:
+                return MultiLineString(unique_lines)
+            else:
+                return None
+        
+        return geom
+    
+    def filter_short_segments(self, geom, min_length=0.0001):
+        """
+        Filter out very short line segments that cause rendering issues
+        
+        Args:
+            geom: Shapely geometry
+            min_length: Minimum segment length in degrees
+            
+        Returns:
+            Geometry with short segments removed
+        """
+        if geom.geom_type == 'LineString':
+            coords = list(geom.coords)
+            if len(coords) < 2:
+                return None
+            
+            # Calculate segment lengths and filter
+            filtered_coords = [coords[0]]  # Always keep first point
+            for i in range(1, len(coords)):
+                prev_coord = filtered_coords[-1]
+                curr_coord = coords[i]
+                
+                # Calculate distance
+                import math
+                dist = math.sqrt((curr_coord[0] - prev_coord[0])**2 + (curr_coord[1] - prev_coord[1])**2)
+                
+                if dist >= min_length:
+                    filtered_coords.append(curr_coord)
+            
+            if len(filtered_coords) < 2:
+                return None
+            return LineString(filtered_coords)
+            
+        elif geom.geom_type == 'MultiLineString':
+            filtered_lines = []
+            for line in geom.geoms:
+                filtered_line = self.filter_short_segments(line, min_length)
+                if filtered_line is not None:
+                    filtered_lines.append(filtered_line)
+            
+            if not filtered_lines:
+                return None
+            elif len(filtered_lines) == 1:
+                return filtered_lines[0]
+            else:
+                return MultiLineString(filtered_lines)
+        
+        return geom
+    
     def handle_closed_loop(self, geom):
         """
         Handle closed loop geometries (convert to proper ring if needed)
@@ -191,6 +308,91 @@ class KarnatakaBengaluruHighwaysTileGenerator:
         
         return geom
     
+    def convert_multipolygon_to_linestring(self, geom):
+        """
+        Convert MultiPolygon to LineString by extracting the exterior rings
+        """
+        if geom.geom_type == 'MultiPolygon':
+            lines = []
+            for polygon in geom.geoms:
+                # Extract exterior ring as LineString
+                exterior_coords = list(polygon.exterior.coords)
+                if len(exterior_coords) >= 2:
+                    # Remove duplicate consecutive points
+                    cleaned_coords = [exterior_coords[0]]
+                    for i in range(1, len(exterior_coords)):
+                        if exterior_coords[i] != exterior_coords[i-1]:
+                            cleaned_coords.append(exterior_coords[i])
+                    
+                    if len(cleaned_coords) >= 2:
+                        lines.append(LineString(cleaned_coords))
+            
+            if not lines:
+                return None
+            elif len(lines) == 1:
+                return lines[0]
+            else:
+                return MultiLineString(lines)
+        return geom
+    
+    def merge_strr_features(self, features):
+        """
+        Merge multiple STRR features into a single geometry
+        """
+        # Look for STRR features by checking if name contains "STRR" or "Satellite Town Ring Road"
+        strr_features = []
+        other_features = []
+        
+        for f in features:
+            name = f.get('properties', {}).get('Name', '').upper()
+            if 'STRR' in name or 'SATELLITE TOWN RING ROAD' in name:
+                strr_features.append(f)
+            else:
+                other_features.append(f)
+        
+        if len(strr_features) > 1:
+            logger.info(f"   Merging {len(strr_features)} STRR features...")
+            
+            # Extract geometries from STRR features
+            strr_geoms = []
+            for feature in strr_features:
+                geom = feature.get('geometry', {})
+                if geom.get('type') == 'MultiLineString':
+                    for line_coords in geom.get('coordinates', []):
+                        if len(line_coords) >= 2:  # Only add lines with at least 2 points
+                            line = LineString(line_coords)
+                            # Filter out very short lines (less than 10 meters)
+                            if line.length > 0.0001:  # About 11 meters
+                                strr_geoms.append(line)
+                elif geom.get('type') == 'LineString':
+                    coords = geom.get('coordinates', [])
+                    if len(coords) >= 2:
+                        line = LineString(coords)
+                        if line.length > 0.0001:
+                            strr_geoms.append(line)
+            
+            # Create merged STRR feature
+            if strr_geoms:
+                merged_geom = MultiLineString(strr_geoms) if len(strr_geoms) > 1 else strr_geoms[0]
+                merged_feature = {
+                    'type': 'Feature',
+                    'geometry': {
+                        'type': 'MultiLineString' if len(strr_geoms) > 1 else 'LineString',
+                        'coordinates': [list(line.coords) for line in strr_geoms] if len(strr_geoms) > 1 else list(strr_geoms[0].coords)
+                    },
+                    'properties': {
+                        'Name': 'STRR',
+                        'Description': 'Satellite Town Ring Road (Merged)'
+                    }
+                }
+                other_features.append(merged_feature)
+                logger.info(f"   Merged STRR into single feature with {len(strr_geoms)} parts")
+        else:
+            # If only one STRR feature, just add it as is
+            other_features.extend(strr_features)
+        
+        return other_features
+
     def load_and_process_data(self):
         """Load and process GeoJSON data with all fixes applied"""
         try:
@@ -218,6 +420,9 @@ class KarnatakaBengaluruHighwaysTileGenerator:
             if not all_features:
                 raise ValueError("No features found in any GeoJSON files")
             
+            # Merge STRR features if multiple exist
+            all_features = self.merge_strr_features(all_features)
+            
             # Create GeoDataFrame
             self.gdf = gpd.GeoDataFrame.from_features(all_features)
             
@@ -240,6 +445,11 @@ class KarnatakaBengaluruHighwaysTileGenerator:
                 
                 logger.info(f"   Processing {name}...")
                 
+                # Step 0: Handle MultiPolygon (NICE Road)
+                if geom.geom_type == 'MultiPolygon':
+                    logger.info(f"     Converting MultiPolygon to LineString...")
+                    geom = self.convert_multipolygon_to_linestring(geom)
+                
                 # Step 1: Fix self-intersections
                 if not geom.is_simple:
                     logger.info(f"     Fixing self-intersections...")
@@ -248,7 +458,13 @@ class KarnatakaBengaluruHighwaysTileGenerator:
                 # Step 2: Handle closed loops
                 geom = self.handle_closed_loop(geom)
                 
-                # Step 3: Simplify if too dense
+                # Step 3: Filter short segments first
+                geom = self.filter_short_segments(geom, min_length=0.0001)
+                if geom is None:
+                    logger.info(f"     Skipping {name} - no valid segments after filtering")
+                    continue
+                
+                # Step 4: Simplify if too dense
                 if isinstance(geom, LineString) and len(geom.coords) > 1000:
                     logger.info(f"     Simplifying dense geometry ({len(geom.coords)} points)...")
                     geom = self.simplify_dense_geometry(geom, max_points=1000)
@@ -266,11 +482,18 @@ class KarnatakaBengaluruHighwaysTileGenerator:
                                 simplified_lines.append(line)
                         geom = MultiLineString(simplified_lines)
                 
-                # Step 4: Round coordinates and remove duplicates
+                # Step 5: Remove duplicate/overlapping segments
+                geom = self.remove_duplicate_segments(geom)
+                if geom is None:
+                    logger.info(f"     Skipping {name} - no valid segments after deduplication")
+                    continue
+                
+                # Step 6: Round coordinates and remove duplicates
                 geom = self.round_coordinates(geom)
                 
-                # Step 5: Fix any remaining invalid geometries
+                # Step 7: Fix any remaining invalid geometries
                 if not geom.is_valid:
+                    logger.info(f"     Fixing invalid geometry...")
                     geom = geom.buffer(0)
                 
                 processed_geoms.append(geom)
@@ -328,22 +551,22 @@ class KarnatakaBengaluruHighwaysTileGenerator:
         Returns:
             Line width in pixels
         """
-        # Highway-specific widths (appropriate for major roads)
+        # Highway-specific widths (visible but controlled rendering)
         zoom_widths = {
-            5: 1.0,   # Start becoming visible
-            6: 1.3,
-            7: 1.6,
-            8: 2.0,   # Clear at city level
-            9: 2.5,
-            10: 3.0,  # City overview
-            11: 3.5,
-            12: 4.5,  # District level
-            13: 5.5,  # Neighborhood level
-            14: 6.5,  # Street level
-            15: 8.0,  # Building level
-            16: 10.0, # Detail level
-            17: 12.0, # High detail
-            18: 15.0  # Maximum detail
+            5: 1.5,   # Start becoming visible
+            6: 1.8,
+            7: 2.0,
+            8: 2.2,   # Clear at city level
+            9: 2.4,
+            10: 2.6,  # City overview
+            11: 2.8,
+            12: 3.0,  # District level
+            13: 3.2,  # Neighborhood level
+            14: 3.4,  # Street level
+            15: 3.6,  # Building level
+            16: 3.8,  # Detail level
+            17: 4.0,  # High detail
+            18: 4.2   # Maximum detail
         }
         return zoom_widths.get(zoom, 3.0)
     
@@ -462,33 +685,32 @@ class KarnatakaBengaluruHighwaysTileGenerator:
             return None
     
     def coords_to_pixels(self, coords: List[Tuple[float, float]], 
-                        tile_bounds: mercantile.LngLatBbox) -> List[Tuple[float, float]]:
+                        tile_bounds: mercantile.LngLatBbox, tile_x: int, tile_y: int, zoom: int) -> List[Tuple[float, float]]:
         """
-        Convert geographic coordinates to pixel coordinates with subpixel precision
+        Convert geographic coordinates to pixel coordinates using proper Web Mercator projection
         
         Args:
             coords: List of (lon, lat) coordinates
             tile_bounds: Tile bounds
+            tile_x: Tile X coordinate
+            tile_y: Tile Y coordinate
+            zoom: Zoom level
             
         Returns:
             List of (x, y) pixel coordinates
         """
-        tile_width = tile_bounds.east - tile_bounds.west
-        tile_height = tile_bounds.north - tile_bounds.south
-        
         pixels = []
         for lon, lat in coords:
-            # Use floating point for subpixel accuracy
-            x = ((lon - tile_bounds.west) / tile_width) * self.tile_size
-            y = ((tile_bounds.north - lat) / tile_height) * self.tile_size
-            pixels.append((x, y))
+            # Use the proper Web Mercator conversion
+            pixel_x, pixel_y = self.wgs84_to_tile_pixel(lon, lat, tile_x, tile_y, zoom)
+            pixels.append((pixel_x, pixel_y))
         
         return pixels
     
     def draw_highway_line(self, draw: ImageDraw.Draw, pixels: List[Tuple[float, float]], 
                          color_rgb: Tuple[int, int, int], width: int):
         """
-        Draw highway line with anti-aliasing and proper styling
+        Draw highway line with clean, consistent rendering
         
         Args:
             draw: PIL ImageDraw object
@@ -496,89 +718,173 @@ class KarnatakaBengaluruHighwaysTileGenerator:
             color_rgb: RGB color
             width: Line width
         """
-        if len(pixels) < 2:
-            return
-        
-        # Convert to integer pixels for drawing
-        int_pixels = [(int(round(x)), int(round(y))) for x, y in pixels]
-        
-        # Draw main line with full opacity
-        if len(int_pixels) >= 2:
-            draw.line(int_pixels, fill=color_rgb + (255,), width=width)
+        try:
+            if len(pixels) < 2:
+                return
             
-            # Add subtle center line for wider roads (road marking effect)
-            if width >= 6:
-                center_width = max(1, width // 3)
-                center_color = tuple(min(255, c + 30) for c in color_rgb)
-                draw.line(int_pixels, fill=center_color + (200,), width=center_width)
+            # Convert to integer pixels for drawing and filter out invalid coordinates
+            int_pixels = []
+            for x, y in pixels:
+                try:
+                    int_x = int(round(x))
+                    int_y = int(round(y))
+                    # Check if coordinates are within extended tile bounds (with buffer for thick lines)
+                    if -10 <= int_x < 266 and -10 <= int_y < 266:
+                        int_pixels.append((int_x, int_y))
+                except (ValueError, OverflowError):
+                    continue
+            
+            # Remove duplicate consecutive points to prevent rendering artifacts
+            cleaned_pixels = []
+            prev_point = None
+            for point in int_pixels:
+                if prev_point is None or point != prev_point:
+                    cleaned_pixels.append(point)
+                    prev_point = point
+            
+            # Draw main line with full opacity - use consistent width
+            if len(cleaned_pixels) >= 2:
+                # Ensure width is at least 1 and reasonable
+                actual_width = max(1, min(width, 6))  # Cap at 6 pixels max for controlled rendering
+                draw.line(cleaned_pixels, fill=color_rgb + (255,), width=actual_width)
+                
+        except Exception as e:
+            logger.debug(f"Error drawing highway line: {e}")
+            return
     
     def create_blank_tile(self) -> Image.Image:
         """Create a fully transparent PNG tile (Mapbox-safe empty tile)"""
         return Image.new('RGBA', (self.tile_size, self.tile_size), (0, 0, 0, 0))
+    
+    
+
+    def wgs84_to_tile_pixel(self, lon: float, lat: float, tile_x: int, tile_y: int, zoom: int) -> Tuple[int, int]:
+        """Convert WGS84 coordinates to pixel coordinates within a tile (matching master)"""
+        try:
+            # Clamp latitude to avoid math domain error
+            lat = max(-85.051129, min(85.051129, lat))
+            
+            # Clamp longitude to valid range
+            lon = max(-180, min(180, lon))
+            
+            # Convert to tile coordinates
+            tile_lon = (lon + 180) / 360 * (2 ** zoom)
+            tile_lat = (1 - math.asinh(math.tan(math.radians(lat))) / math.pi) / 2 * (2 ** zoom)
+            
+            # Convert to pixel coordinates within the tile (top-left origin)
+            pixel_x = int((tile_lon - tile_x) * 256)
+            pixel_y = int((tile_lat - tile_y) * 256)
+            
+            # Clamp pixel coordinates to tile bounds with some buffer for line rendering
+            pixel_x = max(-10, min(266, pixel_x))  # Allow some buffer for thick lines
+            pixel_y = max(-10, min(266, pixel_y))
+            
+            return pixel_x, pixel_y
+            
+        except Exception as e:
+            logger.debug(f"Error converting coordinates ({lon}, {lat}) to pixel: {e}")
+            return 0, 0
+
+    def draw_line(self, draw: ImageDraw, coordinates: List[Tuple[float, float]], 
+                  color: str, width: int, tile_x: int, tile_y: int, zoom: int,
+                  offset_x: int = 0, offset_y: int = 0):
+        """Draw a line on the tile (matching master)"""
+        if len(coordinates) < 2:
+            return
+            
+        # Convert coordinates to pixel positions
+        pixel_coords = []
+        for lon, lat in coordinates:
+            pixel_x, pixel_y = self.wgs84_to_tile_pixel(lon, lat, tile_x, tile_y, zoom)
+            pixel_coords.append((pixel_x + offset_x, pixel_y + offset_y))
+        
+        # Draw the line segments
+        if len(pixel_coords) >= 2:
+            try:
+                draw.line(pixel_coords, fill=color, width=width)
+            except Exception as e:
+                # If line drawing fails, draw individual segments
+                for i in range(len(pixel_coords) - 1):
+                    start = pixel_coords[i]
+                    end = pixel_coords[i + 1]
+                    try:
+                        draw.line([start, end], fill=color, width=width)
+                    except:
+                        continue
+
 
     def generate_tile(self, x: int, y: int, zoom: int) -> Image.Image:
-        """
-        Generate a single tile with improved rendering
-        
-        Args:
-            x, y: Tile coordinates
-            zoom: Zoom level
-            
-        Returns:
-            PIL Image (always returns an image, transparent if no data)
-        """
+        """Generate a single tile with clean, single lines"""
         try:
+            # Create a transparent tile
+            img = Image.new('RGBA', (self.tile_size, self.tile_size), (0, 0, 0, 0))
+            draw = ImageDraw.Draw(img)
+            
             # Get tile bounds
             tile_bounds = mercantile.bounds(x, y, zoom)
             
-            # Get intersecting features
+            # Get features that intersect with this tile
             features = self.get_features_for_tile(tile_bounds)
             
             if features.empty:
-                # Always return a transparent tile if no data
-                return self.create_blank_tile()
+                return img
             
-            # Create transparent image with higher internal resolution for anti-aliasing
-            scale = 2 if zoom >= 12 else 1  # Use 2x resolution for higher zooms
-            img_size = self.tile_size * scale
-            img = Image.new('RGBA', (img_size, img_size), (0, 0, 0, 0))
-            draw = ImageDraw.Draw(img)
-            
-            # Get line width for this zoom level
-            line_width = self.get_highway_line_width(zoom)
-            line_width_scaled = int(line_width * scale)
+            # Get line width for this zoom level - ensure it's reasonable
+            line_width = max(1, min(int(self.get_highway_line_width(zoom)), 6))
             
             # Convert color to RGB
             color_hex = self.highway_color.lstrip('#')
             color_rgb = tuple(int(color_hex[i:i+2], 16) for i in (0, 2, 4))
             
-            # Render each feature
-            for idx, feature in features.iterrows():
-                geom = feature.geometry
-                
-                # Clip geometry to tile bounds
-                clipped_geom = self.clip_geometry_to_tile(geom, tile_bounds)
-                if clipped_geom is None:
-                    continue
-                
-                # Convert to pixel coordinates
-                if isinstance(clipped_geom, LineString):
-                    pixels = self.coords_to_pixels(list(clipped_geom.coords), tile_bounds)
-                    self.draw_highway_line(draw, pixels, color_rgb, line_width_scaled)
-                elif isinstance(clipped_geom, MultiLineString):
-                    for line in clipped_geom.geoms:
-                        pixels = self.coords_to_pixels(list(line.coords), tile_bounds)
-                        self.draw_highway_line(draw, pixels, color_rgb, line_width_scaled)
+            # Track drawn segments to prevent duplicates
+            drawn_segments = set()
             
-            # Scale down if we used higher resolution
-            if scale > 1:
-                img = img.resize((self.tile_size, self.tile_size), Image.LANCZOS)
+            # Draw each feature as a clean line
+            for idx, feature in features.iterrows():
+                try:
+                    geom = feature.geometry
+                    
+                    # Skip invalid geometries
+                    if not geom or not geom.is_valid:
+                        continue
+                    
+                    # Clip geometry to tile bounds
+                    clipped_geom = self.clip_geometry_to_tile(geom, tile_bounds)
+                    if clipped_geom is None:
+                        continue
+                    
+                    # Draw the clipped geometry
+                    if clipped_geom.geom_type == 'LineString':
+                        coords = list(clipped_geom.coords)
+                        if len(coords) >= 2:
+                            # Create a hash of the coordinate sequence to avoid duplicates
+                            coord_hash = hash(tuple((round(c[0], 6), round(c[1], 6)) for c in coords))
+                            if coord_hash not in drawn_segments:
+                                pixels = self.coords_to_pixels(coords, tile_bounds, x, y, zoom)
+                                self.draw_highway_line(draw, pixels, color_rgb, line_width)
+                                drawn_segments.add(coord_hash)
+                    elif clipped_geom.geom_type == 'MultiLineString':
+                        for line in clipped_geom.geoms:
+                            if line and line.is_valid:
+                                coords = list(line.coords)
+                                if len(coords) >= 2:
+                                    # Create a hash of the coordinate sequence to avoid duplicates
+                                    coord_hash = hash(tuple((round(c[0], 6), round(c[1], 6)) for c in coords))
+                                    if coord_hash not in drawn_segments:
+                                        pixels = self.coords_to_pixels(coords, tile_bounds, x, y, zoom)
+                                        self.draw_highway_line(draw, pixels, color_rgb, line_width)
+                                        drawn_segments.add(coord_hash)
+                
+                except Exception as e:
+                    logger.debug(f"Error drawing feature {idx} in tile {x}/{y}/{zoom}: {e}")
+                    continue
             
             return img
             
         except Exception as e:
-            logger.error(f"Error generating tile {zoom}/{x}/{y}: {e}")
-            return self.create_blank_tile()
+            logger.error(f"Error generating tile {x}/{y}/{zoom}: {e}")
+            # Return a blank tile on error
+            return Image.new('RGBA', (self.tile_size, self.tile_size), (0, 0, 0, 0))
     
     def generate_tiles(self, min_zoom: int = 8, max_zoom: int = 16, force: bool = False):
         """

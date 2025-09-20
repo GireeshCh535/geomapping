@@ -288,8 +288,23 @@ class PerfectSTRRTileGenerator:
             logger.error(f"Error getting features for tile {tile}: {e}")
             return self.gdf.iloc[0:0]
     
+    def wgs84_to_tile_pixel(self, lon: float, lat: float, tile_x: int, tile_y: int, zoom: int) -> Tuple[int, int]:
+        """Convert WGS84 coordinates to pixel coordinates within a tile (matching master)"""
+        # Clamp latitude to avoid math domain error
+        lat = max(-85.051129, min(85.051129, lat))
+        
+        # Convert to tile coordinates
+        tile_lon = (lon + 180) / 360 * (2 ** zoom)
+        tile_lat = (1 - math.asinh(math.tan(math.radians(lat))) / math.pi) / 2 * (2 ** zoom)
+        
+        # Convert to pixel coordinates within the tile (top-left origin)
+        pixel_x = int((tile_lon - tile_x) * 256)
+        pixel_y = int((tile_lat - tile_y) * 256)
+        
+        return pixel_x, pixel_y
+
     def coords_to_pixels(self, coords: List[Tuple[float, float]], tile_bounds) -> List[Tuple[float, float]]:
-        """Convert geographic coordinates to pixel coordinates"""
+        """Convert geographic coordinates to pixel coordinates (legacy method)"""
         pixels = []
         for coord in coords:
             # Handle both 2D and 3D coordinates
@@ -310,6 +325,89 @@ class PerfectSTRRTileGenerator:
     def create_blank_tile(self) -> Image.Image:
         """Create a fully transparent PNG tile (Mapbox-safe empty tile)"""
         return Image.new('RGBA', (self.tile_size, self.tile_size), (0, 0, 0, 0))
+
+    def draw_line(self, draw: ImageDraw, coordinates: List[Tuple[float, float]], 
+                  color: str, width: int, tile_x: int, tile_y: int, zoom: int,
+                  offset_x: int = 0, offset_y: int = 0):
+        """Draw a line on the tile (matching master)"""
+        if len(coordinates) < 2:
+            return
+            
+        # Convert coordinates to pixel positions
+        pixel_coords = []
+        for coord in coordinates:
+            # Handle both 2D and 3D coordinates
+            lon, lat = coord[0], coord[1]
+            pixel_x, pixel_y = self.wgs84_to_tile_pixel(lon, lat, tile_x, tile_y, zoom)
+            pixel_coords.append((pixel_x + offset_x, pixel_y + offset_y))
+        
+        # Draw the line segments
+        if len(pixel_coords) >= 2:
+            try:
+                draw.line(pixel_coords, fill=color, width=width)
+            except Exception as e:
+                # If line drawing fails, draw individual segments
+                for i in range(len(pixel_coords) - 1):
+                    start = pixel_coords[i]
+                    end = pixel_coords[i + 1]
+                    try:
+                        draw.line([start, end], fill=color, width=width)
+                    except:
+                        continue
+
+    def generate_tile_master(self, x: int, y: int, zoom: int) -> Image.Image:
+        """Generate a single tile (matching master)"""
+        # Determine styles for this zoom level
+        line_width = max(1, int(self.line_widths.get(zoom, 3)))
+
+        # Add bleed to avoid seams across adjacent tiles
+        bleed_px = max(2, line_width * 2)
+
+        # Create a transparent image larger than a tile to draw with bleed
+        canvas_size = 256 + 2 * bleed_px
+        img = Image.new('RGBA', (canvas_size, canvas_size), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(img)
+        
+        # Get tile bounds
+        tile_bounds = mercantile.bounds(x, y, zoom)
+        
+        # Create a shapely box for the tile bounds with slight buffer for intersection
+        from shapely.geometry import box
+        tile_width_deg = tile_bounds.east - tile_bounds.west
+        tile_height_deg = tile_bounds.north - tile_bounds.south
+        buffer_px = bleed_px + max(line_width, 1)
+        buffer_lon = tile_width_deg * (buffer_px / 256.0)
+        buffer_lat = tile_height_deg * (buffer_px / 256.0)
+        tile_box = box(
+            tile_bounds.west - buffer_lon,
+            tile_bounds.south - buffer_lat,
+            tile_bounds.east + buffer_lon,
+            tile_bounds.north + buffer_lat
+        )
+        
+        # Get color
+        color = "#14e098"
+        
+        # Draw STRR lines
+        for idx, row in self.gdf.iterrows():
+            geometry = row.geometry
+            
+            # Check if geometry intersects with tile bounds
+            if geometry.intersects(tile_box):
+                # Draw the line
+                if geometry.geom_type == 'MultiLineString':
+                    for line in geometry.geoms:
+                        coords = list(line.coords)
+                        if len(coords) >= 2:
+                            self.draw_line(draw, coords, color, line_width, x, y, zoom, bleed_px, bleed_px)
+                elif geometry.geom_type == 'LineString':
+                    coords = list(geometry.coords)
+                    if len(coords) >= 2:
+                        self.draw_line(draw, coords, color, line_width, x, y, zoom, bleed_px, bleed_px)
+        
+        # Crop to the central 256x256 tile area to remove the bleed
+        cropped = img.crop((bleed_px, bleed_px, bleed_px + 256, bleed_px + 256))
+        return cropped
     
     def draw_line_with_antialiasing(self, draw: ImageDraw.Draw, pixels: List[Tuple[float, float]], 
                                   color: Tuple[int, int, int], width: int):
@@ -335,34 +433,11 @@ class PerfectSTRRTileGenerator:
                 self.stats['tiles_skipped'] += 1
                 return "skipped"
             
-            # Get features for this tile
-            features = self.get_features_for_tile(tile)
+            # Generate tile using master's approach
+            img = self.generate_tile_master(tile.x, tile.y, tile.z)
             
-            # Create tile image (always create, even if empty)
-            img = Image.new('RGBA', (self.tile_size, self.tile_size), (0, 0, 0, 0))
-            
-            if not features.empty:
-                draw = ImageDraw.Draw(img)
-                
-                # Get tile bounds and line width
-                tile_bounds = mercantile.bounds(tile)
-                line_width = self.line_widths.get(tile.z, 3)
-                
-                # Render each feature
-                for _, feature in features.iterrows():
-                    geom = feature.geometry
-                    
-                    # Handle different geometry types
-                    if hasattr(geom, 'geoms'):  # MultiLineString
-                        for g in geom.geoms:
-                            if hasattr(g, 'coords') and len(g.coords) >= 2:
-                                pixels = self.coords_to_pixels(g.coords, tile_bounds)
-                                self.draw_line_with_antialiasing(draw, pixels, self.strr_color, line_width)
-                    
-                    elif hasattr(geom, 'coords') and len(geom.coords) >= 2:  # LineString
-                        pixels = self.coords_to_pixels(geom.coords, tile_bounds)
-                        self.draw_line_with_antialiasing(draw, pixels, self.strr_color, line_width)
-                
+            # Update statistics
+            if img.getbbox() is not None:  # Has content
                 self.stats['tiles_generated'] += 1
             else:
                 self.stats['tiles_empty'] += 1
@@ -371,7 +446,7 @@ class PerfectSTRRTileGenerator:
             tile_path.parent.mkdir(parents=True, exist_ok=True)
             img.save(tile_path, 'PNG')
             
-            return "generated" if not features.empty else "empty"
+            return "generated" if img.getbbox() is not None else "empty"
             
         except Exception as e:
             logger.error(f"Error generating tile {tile.z}/{tile.x}/{tile.y}: {e}")
@@ -606,7 +681,7 @@ def main():
     parser.add_argument('--output-dir', type=str, 
                        default='karnataka_bengaluru_strr_tiles',
                        help='Output directory for tiles')
-    parser.add_argument('--min-zoom', type=int, default=8,
+    parser.add_argument('--min-zoom', type=int, default=4,
                        help='Minimum zoom level (default: 8)')
     parser.add_argument('--max-zoom', type=int, default=18,
                        help='Maximum zoom level (default: 18)')

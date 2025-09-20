@@ -157,7 +157,7 @@ class Command(BaseCommand):
                 'stroke': '#E53E3E',
                 'stroke_width': 3
             },
-            'bengaluru_metro_lines': {
+            'bengaluru_metro': {
                 'name': 'Metro lines',
                 'description': 'Bangalore Metro lines - Phases 1, 2, 2A & 2B',
                 'category': 'TRANSPORT',
@@ -196,8 +196,14 @@ class Command(BaseCommand):
         """Delete existing Bengaluru infrastructure data to start fresh"""
         self.stdout.write("🗑️ Deleting existing Bengaluru infrastructure data...")
         
-        # Define the layer slugs to delete
-        layer_slugs = ['bengaluru_highways', 'bengaluru_metro_lines', 'bengaluru_strr', 'bengaluru_workspaces']
+        # Define the layer slugs to delete (including any old/duplicate slugs)
+        layer_slugs = [
+            'bengaluru_highways', 
+            'bengaluru_strr', 
+            'bengaluru_workspaces',
+            # Include any old/duplicate layer slugs that might exist
+            'bengaluru_metro',  # Old metro layer slug
+        ]
         
         # Delete features first (due to foreign key constraints)
         features_deleted = GeoFeature.objects.filter(
@@ -458,7 +464,7 @@ class Command(BaseCommand):
                 'shape_length': properties.get('Shape_Length'),
                 'objectid': properties.get('OBJECTID'),
             })
-        elif layer_slug == 'bengaluru_metro_lines':
+        elif layer_slug == 'bengaluru_metro':
             feature_data.update({
                 'name': properties.get('Name ', '') or properties.get('Name', '') or '',
                 'zone_category': properties.get('linecolour', '') or '',

@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="initial-scale=1,maximum-scale=1,user-scalable=no" />
+  <title>Bengaluru Metro Tiles Viewer</title>
+  <link href="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.css" rel="stylesheet" />
+  <style>
+    body, html, #map { margin: 0; padding: 0; height: 100%; width: 100%; }
+    .mapboxgl-ctrl-logo { display: none !important; }
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+  <script src="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.js"></script>
+  <script>
+    mapboxgl.accessToken = 'pk.eyJ1IjoiYXYxYWNyZSIsImEiOiJjbTJtZmdxN3owa2FzMmpyMjJ4OHV5MHhzIn0.FXpMd91JSER-r7LVpSZN-A';
+    const map = new mapboxgl.Map({
+      container: 'map',
+      style: 'mapbox://styles/mapbox/satellite-streets-v12',
+      center: [77.60939566184248, 13.00731309246967],
+      zoom: 11
+    });
+
+    map.addControl(new mapboxgl.NavigationControl(), 'top-right');
+
+    map.on('load', () => {
+      map.fitBounds([[77.46064731299538, 12.816225954394909], [77.75814401068959, 13.198400230544427]], { padding: 40 });
+      map.addSource('metro-tiles', {
+        type: 'raster',
+        tiles: ['http://localhost:8001/{z}/{x}/{y}.png'],
+        tileSize: 256,
+        minzoom: 8,
+        maxzoom: 18
+      });
+      map.addLayer({ id: 'metro-tiles', type: 'raster', source: 'metro-tiles', paint: { 'raster-opacity': 1 } });
+    });
+  </script>
+</body>
+</html>

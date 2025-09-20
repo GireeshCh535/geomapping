@@ -104,7 +104,8 @@ DATABASES = {
         'NAME': os.getenv('DJANGO_DB_NAME', 'geo_mapping_db'),
         'USER': os.getenv('DJANGO_DB_USER', 'postgres'),
         'PASSWORD': os.getenv('DJANGO_DB_PASSWORD', 'postgres'),
-        'HOST': os.getenv('DJANGO_DB_HOST', 'db'),
+        'HOST': os.getenv('DJANGO_DB_HOST', 'localhost'),
+        # 'HOST': os.getenv('DJANGO_DB_HOST', 'db'),
         'PORT': os.getenv('DJANGO_DB_PORT', '5432'),
         'CONN_MAX_AGE': 0,
     }
@@ -271,7 +272,7 @@ LOGGING = {
         'file': {
             'level': 'ERROR',
             'class': 'logging.FileHandler',
-            'filename': '/app/logs/django_errors.log',
+            'filename': os.path.join(BASE_DIR, 'logs', 'django_errors.log'),
             'formatter': 'verbose',
         },
     },

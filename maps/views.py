@@ -9,6 +9,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from django.http import HttpResponseRedirect, HttpResponse
 from django.contrib.gis.geos import Point
+from django.contrib.gis.db.models.functions import Distance
 from drf_spectacular.utils import extend_schema, extend_schema_view, OpenApiParameter, OpenApiExample
 from .models import *
 from .serializers import *
@@ -1019,6 +1020,162 @@ class CoordinateSearchTestView(APIView):
             ).order_by('-area')  # Order by area (largest first)
             
             if not features.exists():
+                # If no exact intersection found, search for nearby features within 100m buffer
+                buffer_100m = search_point.buffer(0.0009)  # ~100m buffer (0.0009 degrees ≈ 100m)
+                
+                nearby_features = GeoFeature.objects.filter(
+                    layer=layer,
+                    is_valid=True,
+                    geometry__intersects=buffer_100m
+                ).annotate(
+                    distance=Distance('geometry', search_point)
+                ).order_by('distance')
+                
+                if nearby_features.exists():
+                    # Found nearby features within 100m, return the closest one
+                    closest_feature = nearby_features.first()
+                    feature_data = self._process_feature_data(closest_feature)
+                    
+                    # Calculate distance in meters
+                    distance_degrees = float(closest_feature.distance)
+                    distance_meters = distance_degrees * 111000  # Approximate conversion
+                    
+                    # Check if this is one of the special layers that need custom response
+                    if layer.slug == 'bengaluru_master_plan_2015':
+                        zone_category = feature_data.get('zone_category', '')
+                        zone_subcategory = feature_data.get('zone_subcategory', '')
+                        
+                        if zone_category and zone_subcategory:
+                            data = f"{zone_category} , {zone_subcategory}"
+                        elif zone_category:
+                            data = zone_category
+                        else:
+                            data = "Unknown"
+                        
+                        return {
+                            'data': data,
+                            'distance_meters': round(distance_meters, 2)
+                        }
+                    
+                    elif layer.slug == 'bengaluru_strr':
+                        feature_name = feature_data.get('feature_name', '')
+                        zone_subcategory = feature_data.get('zone_subcategory', '')
+                        
+                        if feature_name and zone_subcategory:
+                            data = f"{feature_name} , {zone_subcategory}"
+                        elif feature_name:
+                            data = feature_name
+                        else:
+                            data = "Unknown"
+                        
+                        return {
+                            'data': data,
+                            'distance_meters': round(distance_meters, 2)
+                        }
+                    
+                    elif layer.slug == 'hyderabad_highways':
+                        plot_category = feature_data.get('plot_category', '')
+                        symbology = feature_data.get('symbology', '')
+                        
+                        if plot_category and symbology:
+                            data = f"{plot_category} , {symbology}"
+                        elif plot_category:
+                            data = plot_category
+                        elif symbology:
+                            data = symbology
+                        else:
+                            data = "Unknown"
+                        
+                        return {
+                            'data': data,
+                            'distance_meters': round(distance_meters, 2)
+                        }
+                    
+                    elif layer.slug == 'hyderabad_rrr':
+                        detailed_category = feature_data.get('detailed_category', {})
+                        properties = detailed_category.get('properties', {})
+                        
+                        name = properties.get('Name', '')
+                        alignment = properties.get('Alignment', '')
+                        
+                        if name and alignment:
+                            data = f"{name} , {alignment}"
+                        elif name:
+                            data = name
+                        elif alignment:
+                            data = alignment
+                        else:
+                            data = "Unknown"
+                        
+                        return {
+                            'data': data,
+                            'distance_meters': round(distance_meters, 2)
+                        }
+                    
+                    elif layer.slug == 'hyderabad_ratan_tata_road':
+                        detailed_category = feature_data.get('detailed_category', {})
+                        properties = detailed_category.get('properties', {})
+                        
+                        name = properties.get('Name', '')
+                        end_to_end = properties.get('End_to_End', '')
+                        
+                        if name and end_to_end:
+                            data = f"{name} , {end_to_end}"
+                        elif name:
+                            data = name
+                        elif end_to_end:
+                            data = end_to_end
+                        else:
+                            data = "Unknown"
+                        
+                        return {
+                            'data': data,
+                            'distance_meters': round(distance_meters, 2)
+                        }
+                    
+                    elif layer.slug == 'hyderabad_future_city':
+                        detailed_category = feature_data.get('detailed_category', {})
+                        properties = detailed_category.get('properties', {})
+                        
+                        name = properties.get('Name', '')
+                        
+                        if name:
+                            data = name
+                        else:
+                            data = "Unknown"
+                        
+                        return {
+                            'data': data,
+                            'distance_meters': round(distance_meters, 2)
+                        }
+                    
+                    # For other layers, return the full feature data with distance info
+                    return {
+                        'search_point': {
+                            'latitude': latitude,
+                            'longitude': longitude,
+                            'coordinates': [longitude, latitude],
+                            'wkt': f'POINT({longitude} {latitude})'
+                        },
+                        'found': True,
+                        'layer': {
+                            'slug': layer.slug,
+                            'name': layer.name,
+                            'city': layer.city.slug,
+                            'city_name': layer.city.name,
+                            'state': layer.city.state_ref.slug if layer.city.state_ref else '',
+                            'state_name': layer.city.state_ref.name if layer.city.state_ref else ''
+                        },
+                        'features': [feature_data],
+                        'nearby_features': [],
+                        'administrative_boundaries': {},
+                        'summary': f'Found nearby feature within {round(distance_meters, 2)}m',
+                        'search_scope': 'layer_specific',
+                        'search_radius_meters': round(distance_meters, 2),
+                        'status': 'success'
+                    }
+                
+                # No features found even within 100m buffer
                 return {
                     'search_point': {
                         'latitude': latitude,
@@ -1049,6 +1206,154 @@ class CoordinateSearchTestView(APIView):
             for feature in features:
                 feature_data = self._process_feature_data(feature)
                 containing_features.append(feature_data)
+            
+            # Special handling for bengaluru_master_plan_2015 layer
+            if layer.slug == 'bengaluru_master_plan_2015' and containing_features:
+                primary_feature = containing_features[0]
+                zone_category = primary_feature.get('zone_category', '')
+                zone_subcategory = primary_feature.get('zone_subcategory', '')
+                
+                # Combine zone_category and zone_subcategory
+                if zone_category and zone_subcategory:
+                    data = f"{zone_category} , {zone_subcategory}"
+                elif zone_category:
+                    data = zone_category
+                else:
+                    data = "Unknown"
+                
+                return {
+                    'data': data
+                }
+            
+            # Special handling for bengaluru_strr layer
+            if layer.slug == 'bengaluru_strr' and containing_features:
+                primary_feature = containing_features[0]
+                feature_name = primary_feature.get('feature_name', '')
+                zone_subcategory = primary_feature.get('zone_subcategory', '')
+                
+                # Combine feature_name and zone_subcategory
+                if feature_name and zone_subcategory:
+                    data = f"{feature_name} , {zone_subcategory}"
+                elif feature_name:
+                    data = feature_name
+                else:
+                    data = "Unknown"
+                
+                return {
+                    'data': data
+                }
+            
+            # Special handling for bengaluru_metro layer
+            if layer.slug == 'bengaluru_metro' and containing_features:
+                primary_feature = containing_features[0]
+                detailed_category = primary_feature.get('detailed_category', {})
+                properties = detailed_category.get('properties', {})
+                
+                linecolour = properties.get('linecolour', '')
+                name = properties.get('Name ', '')  # Note the space after 'Name'
+                remarks = properties.get('remarks', '')
+                
+                # Combine linecolour, name, and remarks
+                data_parts = []
+                if linecolour:
+                    data_parts.append(linecolour)
+                if name:
+                    data_parts.append(name)
+                if remarks:
+                    data_parts.append(remarks)
+                
+                if data_parts:
+                    data = " , ".join(data_parts)
+                else:
+                    data = "Unknown"
+                
+                return {
+                    'data': data
+                }
+            
+            # Special handling for hyderabad_highways layer
+            if layer.slug == 'hyderabad_highways' and containing_features:
+                primary_feature = containing_features[0]
+                plot_category = primary_feature.get('plot_category', '')
+                symbology = primary_feature.get('symbology', '')
+                
+                # Combine plot_category and symbology
+                if plot_category and symbology:
+                    data = f"{plot_category} , {symbology}"
+                elif plot_category:
+                    data = plot_category
+                elif symbology:
+                    data = symbology
+                else:
+                    data = "Unknown"
+                
+                return {
+                    'data': data
+                }
+            
+            # Special handling for hyderabad_rrr layer
+            if layer.slug == 'hyderabad_rrr' and containing_features:
+                primary_feature = containing_features[0]
+                detailed_category = primary_feature.get('detailed_category', {})
+                properties = detailed_category.get('properties', {})
+                
+                name = properties.get('Name', '')
+                alignment = properties.get('Alignment', '')
+                
+                # Combine Name and Alignment
+                if name and alignment:
+                    data = f"{name} , {alignment}"
+                elif name:
+                    data = name
+                elif alignment:
+                    data = alignment
+                else:
+                    data = "Unknown"
+                
+                return {
+                    'data': data
+                }
+            
+            # Special handling for hyderabad_ratan_tata_road layer
+            if layer.slug == 'hyderabad_ratan_tata_road' and containing_features:
+                primary_feature = containing_features[0]
+                detailed_category = primary_feature.get('detailed_category', {})
+                properties = detailed_category.get('properties', {})
+                
+                name = properties.get('Name', '')
+                end_to_end = properties.get('End_to_End', '')
+                
+                # Combine Name and End_to_End
+                if name and end_to_end:
+                    data = f"{name} , {end_to_end}"
+                elif name:
+                    data = name
+                elif end_to_end:
+                    data = end_to_end
+                else:
+                    data = "Unknown"
+                
+                return {
+                    'data': data
+                }
+            
+            # Special handling for hyderabad_future_city layer
+            if layer.slug == 'hyderabad_future_city' and containing_features:
+                primary_feature = containing_features[0]
+                detailed_category = primary_feature.get('detailed_category', {})
+                properties = detailed_category.get('properties', {})
+                
+                name = properties.get('Name', '')
+                
+                # Return just the Name
+                if name:
+                    data = name
+                else:
+                    data = "Unknown"
+                
+                return {
+                    'data': data
+                }
             
             # Generate summary
             if containing_features:

@@ -21,11 +21,12 @@ Usage:
 import json
 import os
 import sys
+import math
 import time
 import geopandas as gpd
 from pathlib import Path
 from PIL import Image, ImageDraw, ImageFilter
-from typing import Tuple, List, Union
+from typing import Tuple, List, Union, Optional
 import mercantile
 from shapely.geometry import LineString, MultiLineString, Point, Polygon, box, GeometryCollection
 from shapely.ops import unary_union, linemerge
@@ -422,161 +423,105 @@ class HyderabadRRRTileGenerator:
             logger.debug(f"Error clipping geometry: {e}")
             return None
     
-    def coords_to_pixels(self, coords: List[Tuple[float, float]], 
-                        tile_bounds: mercantile.LngLatBbox) -> List[Tuple[float, float]]:
-        """
-        Convert geographic coordinates to pixel coordinates with subpixel precision
+    def wgs84_to_tile_pixel(self, lon: float, lat: float, tile_x: int, tile_y: int, zoom: int) -> Tuple[int, int]:
+        """Convert WGS84 coordinates to pixel coordinates within a tile"""
+        # Clamp latitude to avoid math domain error
+        lat = max(-85.051129, min(85.051129, lat))
         
-        Args:
-            coords: List of (lon, lat) coordinates
-            tile_bounds: Tile bounds
-            
-        Returns:
-            List of (x, y) pixel coordinates
-        """
-        tile_width = tile_bounds.east - tile_bounds.west
-        tile_height = tile_bounds.north - tile_bounds.south
+        # Convert to tile coordinates
+        tile_lon = (lon + 180) / 360 * (2 ** zoom)
+        tile_lat = (1 - math.asinh(math.tan(math.radians(lat))) / math.pi) / 2 * (2 ** zoom)
         
-        pixels = []
-        for lon, lat in coords:
-            # Use floating point for subpixel accuracy
-            x = ((lon - tile_bounds.west) / tile_width) * self.tile_size
-            y = ((tile_bounds.north - lat) / tile_height) * self.tile_size
-            pixels.append((x, y))
+        # Convert to pixel coordinates within the tile (top-left origin)
+        pixel_x = int((tile_lon - tile_x) * 256)
+        pixel_y = int((tile_lat - tile_y) * 256)
         
-        return pixels
+        return pixel_x, pixel_y
     
-    def draw_rrr_line(self, draw: ImageDraw.Draw, pixels: List[Tuple[float, float]], 
-                     color_rgb: Tuple[int, int, int], width: int):
-        """
-        Draw RRR road line with anti-aliasing and proper styling
-        
-        Args:
-            draw: PIL ImageDraw object
-            pixels: Pixel coordinates
-            color_rgb: RGB color
-            width: Line width
-        """
-        if len(pixels) < 2:
+    def draw_line(self, draw: ImageDraw, coordinates: List[Tuple[float, float]], 
+                  color: str, width: int, tile_x: int, tile_y: int, zoom: int,
+                  offset_x: int = 0, offset_y: int = 0):
+        """Draw a line on the tile"""
+        if len(coordinates) < 2:
             return
         
-        # Convert to integer pixels for drawing
-        int_pixels = [(int(round(x)), int(round(y))) for x, y in pixels]
+        # Convert coordinates to pixel positions
+        pixel_coords = []
+        for lon, lat in coordinates:
+            pixel_x, pixel_y = self.wgs84_to_tile_pixel(lon, lat, tile_x, tile_y, zoom)
+            pixel_coords.append((pixel_x + offset_x, pixel_y + offset_y))
         
-        # Draw main line with full opacity
-        if len(int_pixels) >= 2:
-            draw.line(int_pixels, fill=color_rgb + (255,), width=width)
-            
-            # Add subtle center line for wider roads (road marking effect)
-            if width >= 6:
-                center_width = max(1, width // 3)
-                center_color = tuple(min(255, c + 30) for c in color_rgb)
-                draw.line(int_pixels, fill=center_color + (200,), width=center_width)
+        # Draw the line segments
+        if len(pixel_coords) >= 2:
+            try:
+                draw.line(pixel_coords, fill=color, width=width)
+            except Exception as e:
+                # If line drawing fails, draw individual segments
+                for i in range(len(pixel_coords) - 1):
+                    start = pixel_coords[i]
+                    end = pixel_coords[i + 1]
+                    try:
+                        draw.line([start, end], fill=color, width=width)
+                    except:
+                        continue
     
     def create_blank_tile(self) -> Image.Image:
         """Create a fully transparent PNG tile (Mapbox-safe empty tile)"""
         return Image.new('RGBA', (self.tile_size, self.tile_size), (0, 0, 0, 0))
 
     def generate_tile(self, x: int, y: int, zoom: int) -> Image.Image:
-        """
-        Generate a single tile with improved rendering
+        """Generate a single tile"""
+        # Get line width for this zoom level
+        line_width = max(1, int(self.get_rrr_line_width(zoom)))
+
+        # Add bleed to avoid seams across adjacent tiles
+        bleed_px = max(2, line_width * 2)
+
+        # Create a transparent image larger than a tile to draw with bleed
+        canvas_size = 256 + 2 * bleed_px
+        img = Image.new('RGBA', (canvas_size, canvas_size), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(img)
         
-        Args:
-            x, y: Tile coordinates
-            zoom: Zoom level
+        # Get tile bounds
+        tile_bounds = mercantile.bounds(x, y, zoom)
+        
+        # Create a shapely box for the tile bounds with slight buffer for intersection
+        from shapely.geometry import box
+        tile_width_deg = tile_bounds.east - tile_bounds.west
+        tile_height_deg = tile_bounds.north - tile_bounds.south
+        buffer_px = bleed_px + line_width
+        buffer_lon = tile_width_deg * (buffer_px / 256.0)
+        buffer_lat = tile_height_deg * (buffer_px / 256.0)
+        tile_box = box(
+            tile_bounds.west - buffer_lon,
+            tile_bounds.south - buffer_lat,
+            tile_bounds.east + buffer_lon,
+            tile_bounds.north + buffer_lat
+        )
+        
+        # Draw RRR lines
+        for idx, row in self.gdf.iterrows():
+            geometry = row.geometry
             
-        Returns:
-            PIL Image (always returns an image, transparent if no data)
-        """
-        try:
-            # Get tile bounds
-            tile_bounds = mercantile.bounds(x, y, zoom)
-            
-            # Get intersecting features
-            features = self.get_features_for_tile(tile_bounds)
-            
-            if features.empty:
-                # Always return a transparent tile if no data
-                return self.create_blank_tile()
-            
-            # Create transparent image with higher internal resolution for anti-aliasing
-            scale = 2 if zoom >= 12 else 1  # Use 2x resolution for higher zooms
-            img_size = self.tile_size * scale
-            img = Image.new('RGBA', (img_size, img_size), (0, 0, 0, 0))
-            draw = ImageDraw.Draw(img, 'RGBA')
-            
-            # Get line width for zoom (scaled if using higher resolution)
-            line_width = max(1, int(self.get_rrr_line_width(zoom) * scale))
-            
-            # Convert color
-            color_rgb = tuple(int(self.rrr_color[i:i+2], 16) for i in (1, 3, 5))
-            
-            # Track if anything was drawn
-            drawn = False
-            
-            # Process each feature
-            for idx, row in features.iterrows():
-                geom = row.geometry
+            # Check if geometry intersects with tile bounds
+            if geometry.intersects(tile_box):
+                # Get color for this line
+                color = self.rrr_color
                 
-                # Clip to tile
-                clipped = self.clip_geometry_to_tile(geom, tile_bounds)
-                if clipped is None:
-                    continue
-                
-                # Draw based on geometry type
-                if isinstance(clipped, LineString):
-                    coords = list(clipped.coords)
-                    pixels = self.coords_to_pixels(coords, tile_bounds)
-                    
-                    # Scale pixels if using higher resolution
-                    if scale > 1:
-                        pixels = [(x * scale, y * scale) for x, y in pixels]
-                    
-                    # Filter pixels to those near or in tile (with margin)
-                    margin = 20 * scale
-                    filtered_pixels = [(x, y) for x, y in pixels 
-                                     if -margin <= x <= img_size + margin 
-                                     and -margin <= y <= img_size + margin]
-                    
-                    if len(filtered_pixels) >= 2:
-                        self.draw_rrr_line(draw, filtered_pixels, color_rgb, line_width)
-                        drawn = True
-                
-                elif isinstance(clipped, MultiLineString):
-                    for line in clipped.geoms:
+                # Draw the line
+                if geometry.geom_type == 'MultiLineString':
+                    for line in geometry.geoms:
                         coords = list(line.coords)
-                        pixels = self.coords_to_pixels(coords, tile_bounds)
-                        
-                        # Scale pixels if using higher resolution
-                        if scale > 1:
-                            pixels = [(x * scale, y * scale) for x, y in pixels]
-                        
-                        # Filter pixels
-                        margin = 20 * scale
-                        filtered_pixels = [(x, y) for x, y in pixels 
-                                         if -margin <= x <= img_size + margin 
-                                         and -margin <= y <= img_size + margin]
-                        
-                        if len(filtered_pixels) >= 2:
-                            self.draw_rrr_line(draw, filtered_pixels, color_rgb, line_width)
-                            drawn = True
-            
-            if not drawn:
-                return self.create_blank_tile()
-            
-            # Downscale if we used higher resolution (anti-aliasing effect)
-            if scale > 1:
-                img = img.resize((self.tile_size, self.tile_size), Image.Resampling.LANCZOS)
-            
-            # Apply slight smoothing for better appearance at higher zooms
-            if zoom >= 12:
-                img = img.filter(ImageFilter.SMOOTH_MORE)
-            
-            return img
-            
-        except Exception as e:
-            logger.debug(f"Error generating tile {zoom}/{x}/{y}: {e}")
-            return self.create_blank_tile()
+                        if len(coords) >= 2:
+                            self.draw_line(draw, coords, color, line_width, x, y, zoom, bleed_px, bleed_px)
+                elif geometry.geom_type == 'LineString':
+                    coords = list(geometry.coords)
+                    if len(coords) >= 2:
+                        self.draw_line(draw, coords, color, line_width, x, y, zoom, bleed_px, bleed_px)
+        
+        # Crop to the central 256x256 tile area to remove the bleed
+        cropped = img.crop((bleed_px, bleed_px, bleed_px + 256, bleed_px + 256))
+        return cropped
     
     def generate_tiles(self, min_zoom: int = 5, max_zoom: int = 18):
         """
