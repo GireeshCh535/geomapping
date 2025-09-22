@@ -169,22 +169,44 @@ class HyderabadRatanTataRoadTileGenerator:
         cropped = img.crop((bleed_px, bleed_px, bleed_px + 256, bleed_px + 256))
         return cropped
     
-    def generate_png_tiles(self, min_zoom: int = 8, max_zoom: int = 18):
-        """Generate PNG tiles for all zoom levels"""
+    def generate_png_tiles(self, min_zoom: int = 8, max_zoom: int = 18, buffer_tiles: int = 2):
+        """Generate PNG tiles for all zoom levels with empty buffer tiles around the data"""
         print(f"Generating tiles for zoom levels {min_zoom} to {max_zoom}")
+        print(f"Adding {buffer_tiles} empty tiles buffer around data to prevent bleeding")
         
         # Get the bounds of all features
         bounds = self.gdf.total_bounds
         min_lon, min_lat, max_lon, max_lat = bounds
+        
+        # Add buffer around the data bounds to create empty tiles
+        # Calculate buffer in degrees (approximately 1 degree = 111km)
+        buffer_deg = 0.01  # ~1.1km buffer
+        buffered_bounds = [
+            min_lon - buffer_deg,  # west
+            min_lat - buffer_deg,  # south  
+            max_lon + buffer_deg,  # east
+            max_lat + buffer_deg   # north
+        ]
+        
+        print(f"Original bounds: {bounds}")
+        print(f"Buffered bounds: {buffered_bounds}")
         
         total_tiles = 0
         
         for zoom in range(min_zoom, max_zoom + 1):
             print(f"Processing zoom level {zoom}...")
             
-            # Calculate tile range
-            min_tile = mercantile.tile(min_lon, min_lat, zoom)
-            max_tile = mercantile.tile(max_lon, max_lat, zoom)
+            # Calculate tile range using buffered bounds
+            min_tile = mercantile.tile(buffered_bounds[0], buffered_bounds[1], zoom)
+            max_tile = mercantile.tile(buffered_bounds[2], buffered_bounds[3], zoom)
+            
+            # Add extra buffer tiles around the bounds
+            min_tile_x = min_tile.x - buffer_tiles
+            max_tile_x = max_tile.x + buffer_tiles
+            min_tile_y = max_tile.y - buffer_tiles  # Note: y is inverted
+            max_tile_y = min_tile.y + buffer_tiles
+            
+            print(f"  Tile range: x={min_tile_x} to {max_tile_x}, y={min_tile_y} to {max_tile_y}")
             
             zoom_tiles = 0
             
@@ -192,13 +214,13 @@ class HyderabadRatanTataRoadTileGenerator:
             zoom_dir = self.output_dir / str(zoom)
             zoom_dir.mkdir(exist_ok=True)
             
-            # Generate tiles for this zoom level
-            for x in range(min_tile.x, max_tile.x + 1):
+            # Generate tiles for this zoom level (including buffer tiles)
+            for x in range(min_tile_x, max_tile_x + 1):
                 # Create x directory
                 x_dir = zoom_dir / str(x)
                 x_dir.mkdir(exist_ok=True)
                 
-                for y in range(max_tile.y, min_tile.y + 1):
+                for y in range(min_tile_y, max_tile_y + 1):
                     tile_path = x_dir / f"{y}.png"
                     
                     # Skip if tile already exists
@@ -217,12 +239,22 @@ class HyderabadRatanTataRoadTileGenerator:
         
         print(f"Total tiles generated: {total_tiles}")
         print(f"Output directory: {self.output_dir}")
+        print(f"Empty buffer tiles added around data to prevent bleeding")
 
     def write_mapbox_viewer_html(self, access_token: str, port: int) -> Path:
         """Create an index.html in the tiles output dir that overlays the raster tiles on a Mapbox basemap."""
+        # Use buffered bounds for better display
         bounds = self.gdf.total_bounds
-        center_lon = (bounds[0] + bounds[2]) / 2
-        center_lat = (bounds[1] + bounds[3]) / 2
+        buffer_deg = 0.01  # Same buffer as in generate_png_tiles
+        buffered_bounds = [
+            bounds[0] - buffer_deg,  # west
+            bounds[1] - buffer_deg,  # south  
+            bounds[2] + buffer_deg,  # east
+            bounds[3] + buffer_deg   # north
+        ]
+        
+        center_lon = (buffered_bounds[0] + buffered_bounds[2]) / 2
+        center_lat = (buffered_bounds[1] + buffered_bounds[3]) / 2
         
         # Calculate appropriate zoom level to show the full road
         import math
@@ -299,7 +331,7 @@ class HyderabadRatanTataRoadTileGenerator:
         map.addControl(new mapboxgl.NavigationControl(), 'top-right');
 
         map.on('load', () => {{
-            map.fitBounds([[{bounds[0]}, {bounds[1]}], [{bounds[2]}, {bounds[3]}]], {{ padding: 40 }});
+            map.fitBounds([[{buffered_bounds[0]}, {buffered_bounds[1]}], [{buffered_bounds[2]}, {buffered_bounds[3]}]], {{ padding: 40 }});
             map.addSource('ratan-tata-road-tiles', {{
                 type: 'raster',
                 tiles: ['http://localhost:{port}/{{z}}/{{x}}/{{y}}.png'],
@@ -329,6 +361,44 @@ class HyderabadRatanTataRoadTileGenerator:
         
         return index_path
 
+    def write_tilejson(self) -> Path:
+        """Create a tilejson.json file with proper bounds for the tiles"""
+        bounds = self.gdf.total_bounds
+        buffer_deg = 0.01  # Same buffer as in generate_png_tiles
+        buffered_bounds = [
+            bounds[0] - buffer_deg,  # west
+            bounds[1] - buffer_deg,  # south  
+            bounds[2] + buffer_deg,  # east
+            bounds[3] + buffer_deg   # north
+        ]
+        
+        center_lon = (buffered_bounds[0] + buffered_bounds[2]) / 2
+        center_lat = (buffered_bounds[1] + buffered_bounds[3]) / 2
+        
+        tilejson = {
+            "tilejson": "3.0.0",
+            "name": "Hyderabad Ratan Tata Road",
+            "description": "Hyderabad Ratan Tata Road with empty buffer tiles to prevent bleeding",
+            "version": "1.0.0",
+            "scheme": "xyz",
+            "tiles": [
+                "http://localhost:8001/{z}/{x}/{y}.png"
+            ],
+            "minzoom": 8,
+            "maxzoom": 18,
+            "bounds": buffered_bounds,
+            "center": [center_lon, center_lat, 10],
+            "attribution": "Hyderabad Ratan Tata Road with buffer tiles"
+        }
+        
+        import json
+        tilejson_path = self.output_dir / "tilejson.json"
+        with open(tilejson_path, 'w') as f:
+            json.dump(tilejson, f, indent=2)
+        
+        print(f"Created tilejson.json: {tilejson_path}")
+        return tilejson_path
+
     def serve_tiles_and_open_browser(self, port: int, index_path: Path) -> None:
         """Serve the tiles output directory over HTTP and open the viewer in a browser."""
         handler_cls = partial(SimpleHTTPRequestHandler, directory=str(self.output_dir))
@@ -356,8 +426,11 @@ def main():
 
     generator = HyderabadRatanTataRoadTileGenerator()
     
-    # Generate tiles
-    generator.generate_png_tiles(min_zoom=settings["min_zoom"], max_zoom=settings["max_zoom"])
+    # Generate tiles with buffer
+    generator.generate_png_tiles(min_zoom=settings["min_zoom"], max_zoom=settings["max_zoom"], buffer_tiles=2)
+    
+    # Create tilejson.json
+    generator.write_tilejson()
     
     # Optionally view
     if settings["view"]:

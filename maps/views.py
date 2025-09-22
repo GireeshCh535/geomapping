@@ -1042,75 +1042,77 @@ class CoordinateSearchTestView(APIView):
                     distance_meters = distance_degrees * 111000  # Approximate conversion
                     
                     # Check if this is one of the special layers that need custom response
-                    if layer.slug == 'bengaluru_master_plan_2015':
-                        zone_category = feature_data.get('zone_category', '')
-                        zone_subcategory = feature_data.get('zone_subcategory', '')
+                    if layer.slug == 'bengaluru_strr':
+                        detailed_category = feature_data.get('detailed_category', {})
+                        properties = detailed_category.get('properties', {})
                         
-                        if zone_category and zone_subcategory:
-                            data = f"{zone_category} , {zone_subcategory}"
-                        elif zone_category:
-                            data = zone_category
-                        else:
-                            data = "Unknown"
+                        notation = properties.get('Notation', '')
+                        current_status = properties.get('Current_St', '')
+                        
+                        # Return as comma-separated string
+                        data_string = f"{notation}, status: {current_status}"
                         
                         return {
-                            'data': data,
-                            'distance_meters': round(distance_meters, 2)
+                            'data': data_string
                         }
                     
-                    elif layer.slug == 'bengaluru_strr':
-                        feature_name = feature_data.get('feature_name', '')
-                        zone_subcategory = feature_data.get('zone_subcategory', '')
+                    elif layer.slug == 'bengaluru_metro':
+                        detailed_category = feature_data.get('detailed_category', {})
+                        properties = detailed_category.get('properties', {})
                         
-                        if feature_name and zone_subcategory:
-                            data = f"{feature_name} , {zone_subcategory}"
-                        elif feature_name:
-                            data = feature_name
-                        else:
-                            data = "Unknown"
+                        linecolour = properties.get('linecolour', '')
+                        name = properties.get('Name ', '')  # Note the space after 'Name'
+                        remarks = properties.get('remarks', '')
+                        
+                        # Format: "linecolour" + Line, name, Status: remarks
+                        line_name = f"{linecolour} Line" if linecolour else "Line"
+                        data_string = f"{line_name}, {name}, Status: {remarks}"
                         
                         return {
-                            'data': data,
-                            'distance_meters': round(distance_meters, 2)
+                            'data': data_string
+                        }
+                    
+                    elif layer.slug == 'bengaluru_highways':
+                        detailed_category = feature_data.get('detailed_category', {})
+                        properties = detailed_category.get('properties', {})
+                        
+                        name = properties.get('Name', '')
+                        notation = properties.get('Notation', '')
+                        
+                        # Format: "Name, Notation"
+                        data_string = f"{name}, {notation}"
+                        
+                        return {
+                            'data': data_string
                         }
                     
                     elif layer.slug == 'hyderabad_highways':
-                        plot_category = feature_data.get('plot_category', '')
-                        symbology = feature_data.get('symbology', '')
+                        detailed_category = feature_data.get('detailed_category', {})
+                        properties = detailed_category.get('properties', {})
                         
-                        if plot_category and symbology:
-                            data = f"{plot_category} , {symbology}"
-                        elif plot_category:
-                            data = plot_category
-                        elif symbology:
-                            data = symbology
-                        else:
-                            data = "Unknown"
+                        name = properties.get('Name', '')
+                        notation = properties.get('Notation', '')
+                        
+                        # Format: "Name, Notation"
+                        data_string = f"{name}, {notation}"
                         
                         return {
-                            'data': data,
-                            'distance_meters': round(distance_meters, 2)
+                            'data': data_string
                         }
                     
                     elif layer.slug == 'hyderabad_rrr':
                         detailed_category = feature_data.get('detailed_category', {})
                         properties = detailed_category.get('properties', {})
                         
-                        name = properties.get('Name', '')
+                        notation = properties.get('Notation', '')
                         alignment = properties.get('Alignment', '')
                         
-                        if name and alignment:
-                            data = f"{name} , {alignment}"
-                        elif name:
-                            data = name
-                        elif alignment:
-                            data = alignment
-                        else:
-                            data = "Unknown"
+                        # Format: "Proposed, Status: Alignment"
+                        proposed_notation = f"Proposed {notation}" if notation else "Proposed"
+                        data_string = f"{proposed_notation}, Status: {alignment}"
                         
                         return {
-                            'data': data,
-                            'distance_meters': round(distance_meters, 2)
+                            'data': data_string
                         }
                     
                     elif layer.slug == 'hyderabad_ratan_tata_road':
@@ -1118,20 +1120,12 @@ class CoordinateSearchTestView(APIView):
                         properties = detailed_category.get('properties', {})
                         
                         name = properties.get('Name', '')
-                        end_to_end = properties.get('End_to_End', '')
                         
-                        if name and end_to_end:
-                            data = f"{name} , {end_to_end}"
-                        elif name:
-                            data = name
-                        elif end_to_end:
-                            data = end_to_end
-                        else:
-                            data = "Unknown"
+                        # Format: "Name"
+                        data_string = name
                         
                         return {
-                            'data': data,
-                            'distance_meters': round(distance_meters, 2)
+                            'data': data_string
                         }
                     
                     elif layer.slug == 'hyderabad_future_city':
@@ -1140,14 +1134,14 @@ class CoordinateSearchTestView(APIView):
                         
                         name = properties.get('Name', '')
                         
+                        # Format: "Name"
                         if name:
-                            data = name
+                            data_string = name
                         else:
-                            data = "Unknown"
+                            data_string = "Unknown"
                         
                         return {
-                            'data': data,
-                            'distance_meters': round(distance_meters, 2)
+                            'data': data_string
                         }
                     
                     # For other layers, return the full feature data with distance info
@@ -1209,39 +1203,37 @@ class CoordinateSearchTestView(APIView):
                 containing_features.append(feature_data)
             
             # Special handling for bengaluru_master_plan_2015 layer
-            if layer.slug == 'bengaluru_master_plan_2015' and containing_features:
-                primary_feature = containing_features[0]
-                zone_category = primary_feature.get('zone_category', '')
-                zone_subcategory = primary_feature.get('zone_subcategory', '')
+            # if layer.slug == 'bengaluru_master_plan_2015' and containing_features:
+            #     primary_feature = containing_features[0]
+            #     zone_category = primary_feature.get('zone_category', '')
+            #     zone_subcategory = primary_feature.get('zone_subcategory', '')
                 
-                # Combine zone_category and zone_subcategory
-                if zone_category and zone_subcategory:
-                    data = f"{zone_category} , {zone_subcategory}"
-                elif zone_category:
-                    data = zone_category
-                else:
-                    data = "Unknown"
+            #     # Combine zone_category and zone_subcategory
+            #     if zone_category and zone_subcategory:
+            #         data = f"{zone_category} , {zone_subcategory}"
+            #     elif zone_category:
+            #         data = zone_category
+            #     else:
+            #         data = "Unknown"
                 
-                return {
-                    'data': data
-                }
+            #     return {
+            #         'data': data
+            #     }
             
             # Special handling for bengaluru_strr layer
             if layer.slug == 'bengaluru_strr' and containing_features:
                 primary_feature = containing_features[0]
-                feature_name = primary_feature.get('feature_name', '')
-                zone_subcategory = primary_feature.get('zone_subcategory', '')
+                detailed_category = primary_feature.get('detailed_category', {})
+                properties = detailed_category.get('properties', {})
                 
-                # Combine feature_name and zone_subcategory
-                if feature_name and zone_subcategory:
-                    data = f"{feature_name} , {zone_subcategory}"
-                elif feature_name:
-                    data = feature_name
-                else:
-                    data = "Unknown"
+                notation = properties.get('Notation', '')
+                current_status = properties.get('Current_St', '')
+                
+                # Return as comma-separated string
+                data_string = f"{notation}, Status: {current_status}"
                 
                 return {
-                    'data': data
+                    'data': data_string
                 }
             
             # Special handling for bengaluru_metro layer
@@ -1254,42 +1246,44 @@ class CoordinateSearchTestView(APIView):
                 name = properties.get('Name ', '')  # Note the space after 'Name'
                 remarks = properties.get('remarks', '')
                 
-                # Combine linecolour, name, and remarks
-                data_parts = []
-                if linecolour:
-                    data_parts.append(linecolour)
-                if name:
-                    data_parts.append(name)
-                if remarks:
-                    data_parts.append(remarks)
-                
-                if data_parts:
-                    data = " , ".join(data_parts)
-                else:
-                    data = "Unknown"
+                # Format: "linecolour" + Line, name, Status: remarks
+                line_name = f"{linecolour} Line" if linecolour else "Line"
+                data_string = f"{line_name}, {name}, Status: {remarks}"
                 
                 return {
-                    'data': data
+                    'data': data_string
+                }
+            
+            # Special handling for bengaluru_highways layer
+            if layer.slug == 'bengaluru_highways' and containing_features:
+                primary_feature = containing_features[0]
+                detailed_category = primary_feature.get('detailed_category', {})
+                properties = detailed_category.get('properties', {})
+                
+                name = properties.get('Name', '')
+                notation = properties.get('Notation', '')
+                
+                # Format: "Name, Notation"
+                data_string = f"{name}, {notation}"
+                
+                return {
+                    'data': data_string
                 }
             
             # Special handling for hyderabad_highways layer
             if layer.slug == 'hyderabad_highways' and containing_features:
                 primary_feature = containing_features[0]
-                plot_category = primary_feature.get('plot_category', '')
-                symbology = primary_feature.get('symbology', '')
+                detailed_category = primary_feature.get('detailed_category', {})
+                properties = detailed_category.get('properties', {})
                 
-                # Combine plot_category and symbology
-                if plot_category and symbology:
-                    data = f"{plot_category} , {symbology}"
-                elif plot_category:
-                    data = plot_category
-                elif symbology:
-                    data = symbology
-                else:
-                    data = "Unknown"
+                name = properties.get('Name', '')
+                notation = properties.get('Notation', '')
+                
+                # Format: "Name, Notation"
+                data_string = f"{name}, {notation}"
                 
                 return {
-                    'data': data
+                    'data': data_string
                 }
             
             # Special handling for hyderabad_rrr layer
@@ -1298,21 +1292,15 @@ class CoordinateSearchTestView(APIView):
                 detailed_category = primary_feature.get('detailed_category', {})
                 properties = detailed_category.get('properties', {})
                 
-                name = properties.get('Name', '')
+                notation = properties.get('Notation', '')
                 alignment = properties.get('Alignment', '')
                 
-                # Combine Name and Alignment
-                if name and alignment:
-                    data = f"{name} , {alignment}"
-                elif name:
-                    data = name
-                elif alignment:
-                    data = alignment
-                else:
-                    data = "Unknown"
+                # Format: "Proposed, Status: Alignment"
+                proposed_notation = f"Proposed {notation}" if notation else "Proposed"
+                data_string = f"{proposed_notation}, Status: {alignment}"
                 
                 return {
-                    'data': data
+                    'data': data_string
                 }
             
             # Special handling for hyderabad_ratan_tata_road layer
@@ -1322,20 +1310,12 @@ class CoordinateSearchTestView(APIView):
                 properties = detailed_category.get('properties', {})
                 
                 name = properties.get('Name', '')
-                end_to_end = properties.get('End_to_End', '')
                 
-                # Combine Name and End_to_End
-                if name and end_to_end:
-                    data = f"{name} , {end_to_end}"
-                elif name:
-                    data = name
-                elif end_to_end:
-                    data = end_to_end
-                else:
-                    data = "Unknown"
+                # Format: "Name"
+                data_string = name
                 
                 return {
-                    'data': data
+                    'data': data_string
                 }
             
             # Special handling for hyderabad_future_city layer
@@ -2497,7 +2477,6 @@ class CloudFrontTileView(APIView):
                 'status': 'error'
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-
 class S3DirectTileView(APIView):
     """
     S3 Direct Tile Serving API
@@ -2629,7 +2608,6 @@ class S3DirectTileView(APIView):
                 'error': f'Error returning error tile: {str(e)}',
                 'status': 'error'
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
 
 @extend_schema_view(
     get=extend_schema(
@@ -2819,7 +2797,6 @@ class LayerBoundsAPIView(APIView):
                 'city': city_slug,
                 'layer': layer_slug
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
 
 @extend_schema(
     summary="Search coordinates in specific layer",
@@ -3053,7 +3030,6 @@ class LayerCoordinateSearchView(APIView):
                 'detail': f'Internal server error: {str(e)}'
             }, status=500)
 
-
 @extend_schema_view(
     get=extend_schema(
         summary="Get layer bounds and zoom levels",
@@ -3161,6 +3137,7 @@ class LayerCoordinateSearchView(APIView):
         tags=['layers', 'bounds']
     )
 )
+
 class LayerBoundsZoomAPIView(APIView):
     """
     Layer Bounds and Zoom Level API

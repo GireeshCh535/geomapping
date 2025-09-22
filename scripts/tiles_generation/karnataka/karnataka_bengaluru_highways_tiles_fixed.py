@@ -1065,7 +1065,7 @@ def main():
                        help='Directory containing GeoJSON files')
     parser.add_argument('--output-dir', default='karnataka_bengaluru_highways_tiles',
                        help='Output directory for tiles')
-    parser.add_argument('--min-zoom', type=int, default=18,
+    parser.add_argument('--min-zoom', type=int, default=4,
                        help='Minimum zoom level')
     parser.add_argument('--max-zoom', type=int, default=18,
                        help='Maximum zoom level')
