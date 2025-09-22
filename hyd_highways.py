@@ -464,10 +464,28 @@ class HyderabadHighwaysTileGenerator:
             zoom_dir = self.output_dir / str(zoom)
             zoom_dir.mkdir(exist_ok=True)
             
-            # Get all tiles that intersect with data bounds
+            # Get all tiles that intersect with data bounds + surrounding empty tiles
             minx, miny, maxx, maxy = self.bounds
-            tiles = list(mercantile.tiles(minx, miny, maxx, maxy, zoom))
-            logger.info(f"   🗺️  Total tiles to check: {len(tiles):,}")
+            
+            # Get the tile range that covers the data bounds
+            data_tiles = list(mercantile.tiles(minx, miny, maxx, maxy, zoom))
+            
+            # Find the tile grid bounds to ensure we generate all tiles in the grid
+            if data_tiles:
+                min_tile_x = min(tile.x for tile in data_tiles)
+                max_tile_x = max(tile.x for tile in data_tiles)
+                min_tile_y = min(tile.y for tile in data_tiles)
+                max_tile_y = max(tile.y for tile in data_tiles)
+                
+                # Generate all tiles in the grid (including empty ones)
+                tiles = []
+                for x in range(min_tile_x, max_tile_x + 1):
+                    for y in range(min_tile_y, max_tile_y + 1):
+                        tiles.append(mercantile.Tile(x, y, zoom))
+            else:
+                tiles = data_tiles
+                
+            logger.info(f"   🗺️  Total tiles to generate: {len(tiles):,} (grid coverage)")
             
             tiles_generated = 0
             tiles_empty = 0
@@ -494,7 +512,22 @@ class HyderabadHighwaysTileGenerator:
                 # Generate tile image (always returns an image)
                 img = self.generate_tile(x, y, zoom)
                 
-                # Always save the tile image. If there's no content, this will be a fully transparent PNG.
+                # Ensure the tile is properly transparent if no data
+                # Check if the tile has any non-transparent pixels
+                has_data = False
+                if img.mode == 'RGBA':
+                    # Check if any pixel has alpha > 0
+                    pixels = list(img.getdata())
+                    has_data = any(pixel[3] > 0 for pixel in pixels)
+                
+                # If no data, ensure it's a proper transparent tile
+                if not has_data:
+                    img = self.create_blank_tile()
+                    logger.debug(f"   🔍 Empty tile generated: {zoom}/{x}/{y}")
+                else:
+                    logger.debug(f"   🎨 Data tile generated: {zoom}/{x}/{y}")
+                
+                # Always save the tile image
                 img.save(tile_path, 'PNG', optimize=True)
                 tiles_generated += 1
                 total_tiles += 1
@@ -799,6 +832,10 @@ def main():
                        help='Output directory for tiles')
     parser.add_argument('--mapbox-token', default=None,
                        help='If provided, also generate Mapbox GL viewer (viewer_mapbox.html)')
+    parser.add_argument('--min-zoom', type=int, default=1,
+                       help='Minimum zoom level to generate (default: 1)')
+    parser.add_argument('--max-zoom', type=int, default=18,
+                       help='Maximum zoom level to generate (default: 18)')
     
     args = parser.parse_args()
     
@@ -843,9 +880,9 @@ def main():
         # Initialize generator
         generator = HyderabadHighwaysTileGenerator(actual_path, output_dir, skip_existing=skip_existing)
         
-        # Generate tiles for zoom levels 1-16
-        logger.info("\n🚀 Starting tile generation for zoom levels 1-16...")
-        generator.generate_tiles(min_zoom=5, max_zoom=18)
+        # Generate tiles for specified zoom levels
+        logger.info(f"\n🚀 Starting tile generation for zoom levels {args.min_zoom}-{args.max_zoom}...")
+        generator.generate_tiles(min_zoom=args.min_zoom, max_zoom=args.max_zoom)
         
         # Create viewer and metadata
         generator.create_viewer_html()
