@@ -532,7 +532,7 @@ class HyderabadRRRTileGenerator:
             max_zoom: Maximum zoom level (default 18)
         """
         logger.info(f"🚀 Generating RRR road tiles for zoom levels {min_zoom}-{max_zoom}")
-        logger.info("🔧 Using FIXED geometry processing")
+        logger.info("🔧 Using FIXED geometry processing with empty tile boundaries")
         
         total_tiles = 0
         empty_tiles = 0
@@ -556,8 +556,24 @@ class HyderabadRRRTileGenerator:
             
             # Get all tiles that intersect with data bounds
             minx, miny, maxx, maxy = self.bounds
-            tiles = list(mercantile.tiles(minx, miny, maxx, maxy, zoom))
-            logger.info(f"   🗺️  Total tiles to check: {len(tiles):,}")
+            
+            # Expand bounds to include surrounding tiles (to create empty tile boundary)
+            # Calculate tile size in degrees for this zoom level
+            tile_size_deg = 360.0 / (2 ** zoom)
+            
+            # Add buffer of 2-3 tiles around the data bounds
+            buffer_tiles = 3
+            buffer_deg = tile_size_deg * buffer_tiles
+            
+            expanded_bounds = [
+                minx - buffer_deg,
+                miny - buffer_deg, 
+                maxx + buffer_deg,
+                maxy + buffer_deg
+            ]
+            
+            tiles = list(mercantile.tiles(*expanded_bounds, zoom))
+            logger.info(f"   🗺️  Total tiles to check: {len(tiles):,} (including {buffer_tiles} tile buffer around data)")
             
             tiles_generated = 0
             tiles_empty = 0
@@ -581,8 +597,19 @@ class HyderabadRRRTileGenerator:
                     tiles_skipped += 1
                     continue
                 
-                # Generate tile image (always returns an image)
-                img = self.generate_tile(x, y, zoom)
+                # Check if tile is within original data bounds
+                tile_bounds = mercantile.bounds(x, y, zoom)
+                tile_within_data = (
+                    tile_bounds.west < maxx and tile_bounds.east > minx and
+                    tile_bounds.south < maxy and tile_bounds.north > miny
+                )
+                
+                if tile_within_data:
+                    # Generate tile image (always returns an image)
+                    img = self.generate_tile(x, y, zoom)
+                else:
+                    # Create empty tile for areas outside data bounds
+                    img = self.create_blank_tile()
                 
                 # Always save the tile image. If there's no content, this will be a fully transparent PNG.
                 img.save(tile_path, 'PNG', optimize=True)
@@ -610,7 +637,7 @@ class HyderabadRRRTileGenerator:
             }
             
             zoom_elapsed = time.time() - zoom_start
-            logger.info(f"   ✅ Zoom {zoom} complete: {tiles_generated:,} tiles with data, {tiles_empty:,} empty")
+            logger.info(f"   ✅ Zoom {zoom} complete: {tiles_generated:,} tiles generated, {tiles_empty:,} empty (including boundary tiles)")
             logger.info(f"   ⏱️  Time: {zoom_elapsed:.1f}s")
         
         # Final statistics
@@ -630,6 +657,7 @@ class HyderabadRRRTileGenerator:
         logger.info("   ✅ High-density geometries simplified")
         logger.info("   ✅ Coordinate precision optimized")
         logger.info("   ✅ Closed loops handled properly")
+        logger.info("   ✅ Empty tile boundaries created (prevents bleeding)")
         
         # Detailed zoom statistics
         logger.info("\n📊 Detailed Statistics by Zoom Level:")
@@ -820,6 +848,7 @@ Fixes Applied:
   ✅ Closed loops handled properly
   ✅ Improved tile intersection detection
   ✅ Better error handling
+  ✅ Empty tile boundaries created (prevents bleeding)
 
 Features:
   ✅ Complete tile coverage (no missing tiles)
@@ -868,7 +897,7 @@ def main():
         generator = HyderabadRRRTileGenerator(geojson_path, output_dir, skip_existing)
         
         # Generate tiles
-        generator.generate_tiles(min_zoom=17, max_zoom=18)
+        generator.generate_tiles(min_zoom=5, max_zoom=16)
         
         # Create viewer and metadata
         generator.create_viewer_html()

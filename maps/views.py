@@ -1050,7 +1050,7 @@ class CoordinateSearchTestView(APIView):
                         current_status = properties.get('Current_St', '')
                         
                         # Return as comma-separated string
-                        data_string = f"{notation}, status: {current_status}"
+                        data_string = f"{notation}, Status: {current_status}"
                         
                         return {
                             'data': data_string
@@ -1142,6 +1142,14 @@ class CoordinateSearchTestView(APIView):
                         
                         return {
                             'data': data_string
+                        }
+                    
+                    elif layer.slug in ['bengaluru_anekal_masterplan', 'bengaluru_chikkaballapura_masterplan', 'bengaluru_hosakote_masterplan', 'bengaluru_nelamangala_masterplan']:
+                        # Return just the layer name as plain string
+                        return {
+                            'data': layer.name,
+                            'features': [],
+                            'nearby_features': []
                         }
                     
                     # For other layers, return the full feature data with distance info
@@ -1334,6 +1342,15 @@ class CoordinateSearchTestView(APIView):
                 
                 return {
                     'data': data
+                }
+            
+            # Special handling for BMRDA boundary layers
+            if layer.slug in ['bengaluru_anekal_masterplan', 'bengaluru_chikkaballapura_masterplan', 'bengaluru_hosakote_masterplan', 'bengaluru_nelamangala_masterplan'] and containing_features:
+                # Return just the layer name as plain string
+                return {
+                    'data': layer.name,
+                    'features': [],
+                    'nearby_features': []
                 }
             
             # Generate summary
