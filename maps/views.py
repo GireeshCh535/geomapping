@@ -1152,6 +1152,15 @@ class CoordinateSearchTestView(APIView):
                             'nearby_features': []
                         }
                     
+                    elif layer.slug == 'bengaluru_master_plan_2015':
+                        # Return just the feature name (Layer Name from properties)
+                        detailed_category = feature_data.get('detailed_category', {})
+                        properties = detailed_category.get('properties', {})
+                        layer_name = properties.get('Layer Name', '')
+                        return {
+                            'data': layer_name
+                        }
+                    
                     # For other layers, return the full feature data with distance info
                     return {
                         'search_point': {
@@ -1210,23 +1219,6 @@ class CoordinateSearchTestView(APIView):
                 feature_data = self._process_feature_data(feature)
                 containing_features.append(feature_data)
             
-            # Special handling for bengaluru_master_plan_2015 layer
-            # if layer.slug == 'bengaluru_master_plan_2015' and containing_features:
-            #     primary_feature = containing_features[0]
-            #     zone_category = primary_feature.get('zone_category', '')
-            #     zone_subcategory = primary_feature.get('zone_subcategory', '')
-                
-            #     # Combine zone_category and zone_subcategory
-            #     if zone_category and zone_subcategory:
-            #         data = f"{zone_category} , {zone_subcategory}"
-            #     elif zone_category:
-            #         data = zone_category
-            #     else:
-            #         data = "Unknown"
-                
-            #     return {
-            #         'data': data
-            #     }
             
             # Special handling for bengaluru_strr layer
             if layer.slug == 'bengaluru_strr' and containing_features:
@@ -1351,6 +1343,17 @@ class CoordinateSearchTestView(APIView):
                     'data': layer.name,
                     'features': [],
                     'nearby_features': []
+                }
+            
+            # Special handling for bengaluru_master_plan_2015
+            if layer.slug == 'bengaluru_master_plan_2015' and containing_features:
+                # Return just the feature name (Layer Name from properties)
+                primary_feature = containing_features[0]
+                detailed_category = primary_feature.get('detailed_category', {})
+                properties = detailed_category.get('properties', {})
+                layer_name = properties.get('Layer Name', '')
+                return {
+                    'data': layer_name
                 }
             
             # Generate summary

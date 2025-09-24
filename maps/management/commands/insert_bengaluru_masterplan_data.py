@@ -207,9 +207,9 @@ class Command(BaseCommand):
                 'description': 'Complete master plan data for Bengaluru with all land use zones and infrastructure',
                 'category': self.categories['MIXED_USE'],
                 'layer_group': self.layer_group,
-                'file_format': 'ESRI_JSON',
+                'file_format': 'GEOJSON',
                 'is_directory': True,
-                'file_pattern': '*.json',
+                'file_pattern': '*.geojson',
                 'file_path': 'data/karnataka/bengaluru/master_plan/',
                 'geometry_type': 'POLYGON',
                 'categorization_method': 'FILENAME',
@@ -281,7 +281,7 @@ class Command(BaseCommand):
         self.stdout.write('Processing all masterplan files...')
         
         masterplan_dir = Path('data/karnataka/bengaluru/master_plan/')
-        json_files = list(masterplan_dir.glob('*.json'))
+        json_files = list(masterplan_dir.glob('*.geojson'))
         
         self.stdout.write(f'Found {len(json_files)} masterplan files to process')
         
@@ -341,24 +341,30 @@ class Command(BaseCommand):
                 if not geometry_data:
                     continue
                 
-                # Convert ESRI geometry to GeoJSON format
-                geojson_geometry = self.convert_esri_to_geojson(geometry_data)
-                if not geojson_geometry:
-                    continue
+                # Handle GeoJSON geometry (already in correct format)
+                if geometry_data.get('type') in ['Polygon', 'MultiPolygon', 'LineString', 'MultiLineString', 'Point', 'MultiPoint']:
+                    # Already in GeoJSON format
+                    geojson_geometry = geometry_data
+                else:
+                    # Convert ESRI geometry to GeoJSON format
+                    geojson_geometry = self.convert_esri_to_geojson(geometry_data)
+                    if not geojson_geometry:
+                        continue
                 
                 # Convert to GEOS geometry
                 geometry = GEOSGeometry(json.dumps(geojson_geometry))
                 
-                # Extract attributes
-                attributes = feature_data.get('attributes', {})
+                # Extract attributes (GeoJSON uses 'properties', ESRI JSON uses 'attributes')
+                attributes = feature_data.get('properties', feature_data.get('attributes', {}))
                 
                 # Create GeoFeature
                 geo_feature = GeoFeature.objects.create(
                     layer=self.masterplan_layer,
                     geometry=geometry,
+                    name=attributes.get('Layer Name', ''),  # Capture Layer Name
                     source_layer_name=json_file.stem,
                     zone_category=category.name,
-                    zone_subcategory=json_file.stem,
+                    zone_subcategory=attributes.get('Layer Name', json_file.stem),  # Use Layer Name as subcategory
                     
                     # Bengaluru-specific PLU fields
                     plu_primary_code=attributes.get('PLU_Cd', ''),
@@ -369,11 +375,11 @@ class Command(BaseCommand):
                     plu_authority=attributes.get('PLU_BDA', ''),
                     
                     # Common fields
-                    area=attributes.get('Shape_Area'),
-                    shape_length=attributes.get('Shape_Length'),
-                    shape_area=attributes.get('Shape_Area'),
+                    area=attributes.get('Shape_Area') or attributes.get('SHAPE.STArea()'),
+                    shape_length=attributes.get('Shape_Length') or attributes.get('SHAPE.STLength()'),
+                    shape_area=attributes.get('Shape_Area') or attributes.get('SHAPE.STArea()'),
                     objectid=attributes.get('OBJECTID'),
-                    fid=attributes.get('FID'),
+                    fid=attributes.get('FID') or attributes.get('fid'),
                     
                     # Store all original properties
                     properties=attributes,

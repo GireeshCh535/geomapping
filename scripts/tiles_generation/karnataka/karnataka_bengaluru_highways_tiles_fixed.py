@@ -201,6 +201,7 @@ class KarnatakaBengaluruHighwaysTileGenerator:
     def remove_duplicate_segments(self, geom, tolerance=0.00001):
         """
         Remove duplicate/overlapping segments from MultiLineString geometries
+        More conservative approach that doesn't create incorrect connections
         
         Args:
             geom: Shapely geometry
@@ -214,31 +215,229 @@ class KarnatakaBengaluruHighwaysTileGenerator:
             if len(lines) <= 1:
                 return geom
             
-            # Remove duplicate lines by comparing their geometries
+            # Remove exact or near-exact duplicates
             unique_lines = []
-            for line in lines:
+            
+            for i, line in enumerate(lines):
+                if len(line.coords) < 2:
+                    continue
+                    
                 is_duplicate = False
+                
                 for existing_line in unique_lines:
-                    # Check if lines are very similar (within tolerance)
-                    if line.distance(existing_line) < tolerance:
+                    # Check if lines are essentially the same
+                    if line.equals(existing_line):
+                        is_duplicate = True
+                        break
+                    
+                    # Check if one line contains the other
+                    if line.buffer(tolerance).contains(existing_line) or existing_line.buffer(tolerance).contains(line):
                         # Check if they have similar length (within 10%)
                         length_ratio = min(line.length, existing_line.length) / max(line.length, existing_line.length)
-                        if length_ratio > 0.9:  # 90% similarity
+                        if length_ratio > 0.9:
+                            is_duplicate = True
+                            break
+                    
+                    # Check if they share the same endpoints (regardless of direction)
+                    line_start = line.coords[0]
+                    line_end = line.coords[-1]
+                    existing_start = existing_line.coords[0]
+                    existing_end = existing_line.coords[-1]
+                    
+                    # Calculate endpoint distances
+                    same_endpoints = (
+                        (abs(line_start[0] - existing_start[0]) < tolerance and 
+                        abs(line_start[1] - existing_start[1]) < tolerance and
+                        abs(line_end[0] - existing_end[0]) < tolerance and
+                        abs(line_end[1] - existing_end[1]) < tolerance) or
+                        (abs(line_start[0] - existing_end[0]) < tolerance and 
+                        abs(line_start[1] - existing_end[1]) < tolerance and
+                        abs(line_end[0] - existing_start[0]) < tolerance and
+                        abs(line_end[1] - existing_start[1]) < tolerance)
+                    )
+                    
+                    if same_endpoints:
+                        # Same endpoints, check if they follow similar path
+                        if line.distance(existing_line) < tolerance:
                             is_duplicate = True
                             break
                 
                 if not is_duplicate:
                     unique_lines.append(line)
             
-            if len(unique_lines) == 1:
-                return unique_lines[0]
-            elif len(unique_lines) > 1:
-                return MultiLineString(unique_lines)
-            else:
+            # Return based on number of unique lines
+            if not unique_lines:
                 return None
+            elif len(unique_lines) == 1:
+                return unique_lines[0]
+            else:
+                # Try to merge connected lines using linemerge
+                from shapely.ops import linemerge
+                merged = linemerge(unique_lines)
+                
+                if isinstance(merged, LineString):
+                    return merged
+                else:
+                    return MultiLineString(unique_lines)
         
         return geom
-    
+
+
+    def merge_strr_features(self, features):
+        """
+        Merge multiple STRR features while preserving correct geometry
+        Only connects segments that actually form a continuous road
+        """
+        strr_features = []
+        other_features = []
+        
+        for f in features:
+            name = f.get('properties', {}).get('Name', '').upper()
+            if 'STRR' in name or 'SATELLITE TOWN RING ROAD' in name:
+                strr_features.append(f)
+            else:
+                other_features.append(f)
+        
+        if len(strr_features) > 1:
+            logger.info(f"   Merging {len(strr_features)} STRR features...")
+            
+            # Extract line segments from each STRR feature separately
+            north_segments = []
+            south_segments = []
+            
+            for feature in strr_features:
+                name = feature.get('properties', {}).get('Name', '')
+                geom = feature.get('geometry', {})
+                
+                segments = []
+                if geom.get('type') == 'MultiLineString':
+                    for line_coords in geom.get('coordinates', []):
+                        if len(line_coords) >= 2:
+                            line = LineString(line_coords)
+                            if line.length > 0.0001:  # Minimum length filter
+                                segments.append(line)
+                elif geom.get('type') == 'LineString':
+                    coords = geom.get('coordinates', [])
+                    if len(coords) >= 2:
+                        line = LineString(coords)
+                        if line.length > 0.0001:
+                            segments.append(line)
+                
+                # Separate North and South segments
+                if 'North' in name or 'NORTH' in name:
+                    north_segments.extend(segments)
+                elif 'South' in name or 'SOUTH' in name:
+                    south_segments.extend(segments)
+                else:
+                    # If no North/South designation, add to both for processing
+                    north_segments.extend(segments)
+            
+            # Process each group separately to avoid incorrect connections
+            all_segments = []
+            
+            # Process North segments
+            if north_segments:
+                from shapely.ops import linemerge
+                merged_north = linemerge(north_segments)
+                if isinstance(merged_north, LineString):
+                    all_segments.append(merged_north)
+                else:
+                    all_segments.extend(merged_north.geoms)
+            
+            # Process South segments
+            if south_segments:
+                from shapely.ops import linemerge
+                merged_south = linemerge(south_segments)
+                if isinstance(merged_south, LineString):
+                    all_segments.append(merged_south)
+                else:
+                    all_segments.extend(merged_south.geoms)
+            
+            # Now check if North and South connect (they should at endpoints)
+            if len(all_segments) == 2:
+                seg1, seg2 = all_segments[0], all_segments[1]
+                
+                # Check if endpoints connect
+                tolerance = 0.0001  # About 11 meters
+                seg1_start = seg1.coords[0]
+                seg1_end = seg1.coords[-1]
+                seg2_start = seg2.coords[0]
+                seg2_end = seg2.coords[-1]
+                
+                # Calculate distances
+                dist1 = ((seg1_end[0] - seg2_start[0])**2 + (seg1_end[1] - seg2_start[1])**2)**0.5
+                dist2 = ((seg1_start[0] - seg2_end[0])**2 + (seg1_start[1] - seg2_end[1])**2)**0.5
+                
+                # If they connect, merge them
+                if dist1 < tolerance:
+                    # seg1 end connects to seg2 start
+                    coords = list(seg1.coords) + list(seg2.coords)[1:]
+                    all_segments = [LineString(coords)]
+                    logger.info("   Connected North and South STRR segments at endpoints")
+                elif dist2 < tolerance:
+                    # seg1 start connects to seg2 end  
+                    coords = list(seg2.coords) + list(seg1.coords)[1:]
+                    all_segments = [LineString(coords)]
+                    logger.info("   Connected South and North STRR segments at endpoints")
+            
+            # Remove duplicate segments
+            unique_segments = []
+            seen_hashes = set()
+            
+            for segment in all_segments:
+                if len(segment.coords) < 2:
+                    continue
+                    
+                # Create hash based on endpoints
+                coords = list(segment.coords)
+                start = (round(coords[0][0], 6), round(coords[0][1], 6))
+                end = (round(coords[-1][0], 6), round(coords[-1][1], 6))
+                
+                # Bidirectional hash
+                segment_hash = tuple(sorted([start, end]))
+                
+                if segment_hash not in seen_hashes:
+                    seen_hashes.add(segment_hash)
+                    unique_segments.append(segment)
+            
+            # Create the final merged feature
+            if len(unique_segments) == 1:
+                # Single continuous line
+                merged_feature = {
+                    'type': 'Feature',
+                    'geometry': {
+                        'type': 'LineString',
+                        'coordinates': list(unique_segments[0].coords)
+                    },
+                    'properties': {
+                        'Name': 'STRR',
+                        'Description': 'Satellite Town Ring Road'
+                    }
+                }
+                other_features.append(merged_feature)
+                logger.info(f"   Merged STRR into single continuous line")
+            elif len(unique_segments) > 0:
+                # Multiple segments
+                merged_feature = {
+                    'type': 'Feature',
+                    'geometry': {
+                        'type': 'MultiLineString',
+                        'coordinates': [list(line.coords) for line in unique_segments]
+                    },
+                    'properties': {
+                        'Name': 'STRR',
+                        'Description': f'Satellite Town Ring Road ({len(unique_segments)} segments)'
+                    }
+                }
+                other_features.append(merged_feature)
+                logger.info(f"   Merged STRR into {len(unique_segments)} segments")
+            
+        else:
+            # Single or no STRR features
+            other_features.extend(strr_features)
+        
+        return other_features
+
     def filter_short_segments(self, geom, min_length=0.0001):
         """
         Filter out very short line segments that cause rendering issues
@@ -337,9 +536,8 @@ class KarnatakaBengaluruHighwaysTileGenerator:
     
     def merge_strr_features(self, features):
         """
-        Merge multiple STRR features into a single geometry
+        Merge multiple STRR features into a single continuous ring road
         """
-        # Look for STRR features by checking if name contains "STRR" or "Satellite Town Ring Road"
         strr_features = []
         other_features = []
         
@@ -353,48 +551,187 @@ class KarnatakaBengaluruHighwaysTileGenerator:
         if len(strr_features) > 1:
             logger.info(f"   Merging {len(strr_features)} STRR features...")
             
-            # Extract geometries from STRR features
-            strr_geoms = []
+            # Extract all line segments from all STRR features
+            all_segments = []
+            
             for feature in strr_features:
                 geom = feature.get('geometry', {})
                 if geom.get('type') == 'MultiLineString':
                     for line_coords in geom.get('coordinates', []):
-                        if len(line_coords) >= 2:  # Only add lines with at least 2 points
+                        if len(line_coords) >= 2:
                             line = LineString(line_coords)
-                            # Filter out very short lines (less than 10 meters)
+                            # Only add segments with meaningful length
                             if line.length > 0.0001:  # About 11 meters
-                                strr_geoms.append(line)
+                                all_segments.append(line)
                 elif geom.get('type') == 'LineString':
                     coords = geom.get('coordinates', [])
                     if len(coords) >= 2:
                         line = LineString(coords)
                         if line.length > 0.0001:
-                            strr_geoms.append(line)
+                            all_segments.append(line)
             
-            # Create merged STRR feature
-            if strr_geoms:
-                merged_geom = MultiLineString(strr_geoms) if len(strr_geoms) > 1 else strr_geoms[0]
-                merged_feature = {
-                    'type': 'Feature',
-                    'geometry': {
-                        'type': 'MultiLineString' if len(strr_geoms) > 1 else 'LineString',
-                        'coordinates': [list(line.coords) for line in strr_geoms] if len(strr_geoms) > 1 else list(strr_geoms[0].coords)
-                    },
-                    'properties': {
-                        'Name': 'STRR',
-                        'Description': 'Satellite Town Ring Road (Merged)'
-                    }
-                }
-                other_features.append(merged_feature)
-                logger.info(f"   Merged STRR into single feature with {len(strr_geoms)} parts")
+            if all_segments:
+                try:
+                    from shapely.ops import linemerge, unary_union
+                    
+                    # First attempt: Try to merge all segments into a continuous line
+                    merged = linemerge(all_segments)
+                    
+                    # If we get a single LineString, we're done
+                    if isinstance(merged, LineString):
+                        merged_feature = {
+                            'type': 'Feature',
+                            'geometry': {
+                                'type': 'LineString',
+                                'coordinates': list(merged.coords)
+                            },
+                            'properties': {
+                                'Name': 'STRR',
+                                'Description': 'Satellite Town Ring Road (Merged)'
+                            }
+                        }
+                        other_features.append(merged_feature)
+                        logger.info(f"   Successfully merged STRR into single continuous line")
+                        
+                    else:
+                        # We have a MultiLineString - need to connect segments properly
+                        segments_to_merge = list(merged.geoms) if isinstance(merged, MultiLineString) else [merged]
+                        
+                        # Remove duplicate/overlapping segments
+                        unique_segments = []
+                        segment_hashes = set()
+                        
+                        for segment in segments_to_merge:
+                            # Create a hash based on start and end points
+                            coords = list(segment.coords)
+                            if len(coords) < 2:
+                                continue
+                                
+                            # Round coordinates for comparison
+                            start = (round(coords[0][0], 6), round(coords[0][1], 6))
+                            end = (round(coords[-1][0], 6), round(coords[-1][1], 6))
+                            
+                            # Create bidirectional hash (forward and reverse are same segment)
+                            segment_hash = tuple(sorted([start, end]))
+                            
+                            if segment_hash not in segment_hashes:
+                                segment_hashes.add(segment_hash)
+                                unique_segments.append(segment)
+                        
+                        # Try to connect segments that share endpoints
+                        connected = []
+                        used_segments = set()
+                        
+                        if unique_segments:
+                            # Start with the longest segment
+                            unique_segments.sort(key=lambda s: s.length, reverse=True)
+                            current_line = unique_segments[0]
+                            used_segments.add(0)
+                            
+                            # Keep connecting segments until we can't find any more connections
+                            segments_added = True
+                            while segments_added:
+                                segments_added = False
+                                current_coords = list(current_line.coords)
+                                current_start = current_coords[0]
+                                current_end = current_coords[-1]
+                                
+                                for i, segment in enumerate(unique_segments):
+                                    if i in used_segments:
+                                        continue
+                                        
+                                    seg_coords = list(segment.coords)
+                                    seg_start = seg_coords[0]
+                                    seg_end = seg_coords[-1]
+                                    
+                                    # Check if this segment connects to current line
+                                    tolerance = 0.0001  # About 11 meters
+                                    
+                                    # Calculate distances
+                                    dist_end_to_start = ((current_end[0] - seg_start[0])**2 + 
+                                                        (current_end[1] - seg_start[1])**2)**0.5
+                                    dist_end_to_end = ((current_end[0] - seg_end[0])**2 + 
+                                                    (current_end[1] - seg_end[1])**2)**0.5
+                                    dist_start_to_start = ((current_start[0] - seg_start[0])**2 + 
+                                                        (current_start[1] - seg_start[1])**2)**0.5
+                                    dist_start_to_end = ((current_start[0] - seg_end[0])**2 + 
+                                                        (current_start[1] - seg_end[1])**2)**0.5
+                                    
+                                    new_line = None
+                                    if dist_end_to_start < tolerance:
+                                        # Connect end of current to start of segment
+                                        new_line = LineString(current_coords + seg_coords[1:])
+                                    elif dist_end_to_end < tolerance:
+                                        # Connect end of current to end of segment (reverse segment)
+                                        new_line = LineString(current_coords + list(reversed(seg_coords))[1:])
+                                    elif dist_start_to_end < tolerance:
+                                        # Connect start of current to end of segment
+                                        new_line = LineString(seg_coords + current_coords[1:])
+                                    elif dist_start_to_start < tolerance:
+                                        # Connect start of current to start of segment (reverse segment)
+                                        new_line = LineString(list(reversed(seg_coords)) + current_coords[1:])
+                                    
+                                    if new_line:
+                                        current_line = new_line
+                                        used_segments.add(i)
+                                        segments_added = True
+                                        break
+                            
+                            connected.append(current_line)
+                            
+                            # Add any remaining unconnected segments
+                            for i, segment in enumerate(unique_segments):
+                                if i not in used_segments:
+                                    connected.append(segment)
+                        
+                        # Create the final merged feature
+                        if len(connected) == 1:
+                            # Successfully merged into single line
+                            merged_feature = {
+                                'type': 'Feature',
+                                'geometry': {
+                                    'type': 'LineString',
+                                    'coordinates': list(connected[0].coords)
+                                },
+                                'properties': {
+                                    'Name': 'STRR',
+                                    'Description': 'Satellite Town Ring Road (Connected)'
+                                }
+                            }
+                            other_features.append(merged_feature)
+                            logger.info(f"   Merged STRR into single connected line with {len(connected[0].coords)} points")
+                        else:
+                            # Still have multiple segments, but deduplicated
+                            merged_feature = {
+                                'type': 'Feature',
+                                'geometry': {
+                                    'type': 'MultiLineString',
+                                    'coordinates': [list(line.coords) for line in connected]
+                                },
+                                'properties': {
+                                    'Name': 'STRR',
+                                    'Description': f'Satellite Town Ring Road ({len(connected)} segments after deduplication)'
+                                }
+                            }
+                            other_features.append(merged_feature)
+                            logger.info(f"   Merged STRR into {len(connected)} deduplicated segments")
+                            
+                            # Log segment details for debugging
+                            for i, seg in enumerate(connected):
+                                logger.debug(f"     Segment {i+1}: {len(seg.coords)} points, length: {seg.length:.6f}")
+                    
+                except Exception as e:
+                    logger.warning(f"   Could not merge STRR lines: {e}, using first feature only")
+                    # On error, just use the first STRR feature to avoid duplicates
+                    other_features.append(strr_features[0])
         else:
-            # If only one STRR feature, just add it as is
+            # If only one or no STRR features, just add them as-is
             other_features.extend(strr_features)
         
         return other_features
 
     def load_and_process_data(self):
-        """Load and process GeoJSON data with all fixes applied"""
+        """Load and process GeoJSON data with duplicate detection and removal"""
         try:
             if not self.data_dir.exists():
                 raise FileNotFoundError(f"Data directory not found: {self.data_dir}")
@@ -407,6 +744,11 @@ class KarnatakaBengaluruHighwaysTileGenerator:
             logger.info(f"📖 Loading {len(geojson_files)} highway files...")
             
             all_features = []
+            duplicate_count = 0
+            
+            # Track all loaded geometries to detect duplicates
+            loaded_geometries = {}
+            
             for geojson_path in geojson_files:
                 logger.info(f"   Loading {geojson_path.name}")
                 
@@ -414,14 +756,122 @@ class KarnatakaBengaluruHighwaysTileGenerator:
                     geojson_data = json.load(f)
                 
                 features = geojson_data.get('features', [])
-                all_features.extend(features)
-                logger.info(f"   Loaded {len(features)} features")
+                
+                # Check for duplicate geometries within the file
+                for feature in features:
+                    name = feature.get('properties', {}).get('Name', 'Unknown')
+                    geom = feature.get('geometry', {})
+                    
+                    # Create a geometry fingerprint
+                    if geom.get('type') == 'MultiLineString':
+                        for line_coords in geom.get('coordinates', []):
+                            if len(line_coords) >= 2:
+                                # Round coordinates for comparison
+                                rounded = tuple(tuple(round(c, 6) for c in coord) for coord in line_coords)
+                                fingerprint = hash(rounded)
+                                
+                                if fingerprint in loaded_geometries:
+                                    duplicate_count += 1
+                                    logger.warning(f"   DUPLICATE FOUND: {name} has same geometry as {loaded_geometries[fingerprint]}")
+                                    # Don't add this feature
+                                    continue
+                                else:
+                                    loaded_geometries[fingerprint] = name
+                    elif geom.get('type') == 'LineString':
+                        coords = geom.get('coordinates', [])
+                        if len(coords) >= 2:
+                            rounded = tuple(tuple(round(c, 6) for c in coord) for coord in coords)
+                            fingerprint = hash(rounded)
+                            
+                            if fingerprint in loaded_geometries:
+                                duplicate_count += 1
+                                logger.warning(f"   DUPLICATE FOUND: {name} has same geometry as {loaded_geometries[fingerprint]}")
+                                continue
+                            else:
+                                loaded_geometries[fingerprint] = name
+                    
+                    all_features.append(feature)
+                
+                logger.info(f"   Loaded {len(features)} features from {geojson_path.name}")
+            
+            logger.info(f"   Found and removed {duplicate_count} duplicate geometries")
             
             if not all_features:
                 raise ValueError("No features found in any GeoJSON files")
             
-            # Merge STRR features if multiple exist
-            all_features = self.merge_strr_features(all_features)
+            # Special handling for Bengaluru-Chennai Expressway
+            processed_features = []
+            expressway_segments = []
+            
+            for feature in all_features:
+                name = feature.get('properties', {}).get('Name', '')
+                if 'Chennai' in name or 'Bengaluru-Chennai' in name or 'NE7' in name:
+                    expressway_segments.append(feature)
+                else:
+                    processed_features.append(feature)
+            
+            # Merge and deduplicate expressway segments
+            if len(expressway_segments) > 1:
+                logger.info(f"   Processing {len(expressway_segments)} Bengaluru-Chennai Expressway segments...")
+                
+                # Extract unique geometries
+                unique_lines = []
+                seen_coords = set()
+                
+                for feature in expressway_segments:
+                    geom = feature.get('geometry', {})
+                    if geom.get('type') == 'MultiLineString':
+                        for line_coords in geom.get('coordinates', []):
+                            if len(line_coords) >= 2:
+                                rounded = tuple(tuple(round(c, 6) for c in coord) for coord in line_coords)
+                                reverse = tuple(reversed(rounded))
+                                
+                                if rounded not in seen_coords and reverse not in seen_coords:
+                                    unique_lines.append(line_coords)
+                                    seen_coords.add(rounded)
+                    elif geom.get('type') == 'LineString':
+                        coords = geom.get('coordinates', [])
+                        if len(coords) >= 2:
+                            rounded = tuple(tuple(round(c, 6) for c in coord) for coord in coords)
+                            reverse = tuple(reversed(rounded))
+                            
+                            if rounded not in seen_coords and reverse not in seen_coords:
+                                unique_lines.append(coords)
+                                seen_coords.add(rounded)
+                
+                # Create single merged feature
+                if unique_lines:
+                    if len(unique_lines) == 1:
+                        merged_feature = {
+                            'type': 'Feature',
+                            'geometry': {
+                                'type': 'LineString',
+                                'coordinates': unique_lines[0]
+                            },
+                            'properties': {
+                                'Name': 'Bengaluru-Chennai Expressway',
+                                'Notation': 'NE7'
+                            }
+                        }
+                    else:
+                        merged_feature = {
+                            'type': 'Feature',
+                            'geometry': {
+                                'type': 'MultiLineString',
+                                'coordinates': unique_lines
+                            },
+                            'properties': {
+                                'Name': 'Bengaluru-Chennai Expressway',
+                                'Notation': 'NE7'
+                            }
+                        }
+                    processed_features.append(merged_feature)
+                    logger.info(f"   Merged Bengaluru-Chennai Expressway: {len(unique_lines)} unique segments")
+            else:
+                processed_features.extend(expressway_segments)
+            
+            # Now handle STRR if needed
+            all_features = self.merge_strr_features(processed_features)
             
             # Create GeoDataFrame
             self.gdf = gpd.GeoDataFrame.from_features(all_features)
@@ -445,6 +895,7 @@ class KarnatakaBengaluruHighwaysTileGenerator:
                 
                 logger.info(f"   Processing {name}...")
                 
+                # [Rest of the geometry processing code remains the same]
                 # Step 0: Handle MultiPolygon (NICE Road)
                 if geom.geom_type == 'MultiPolygon':
                     logger.info(f"     Converting MultiPolygon to LineString...")
@@ -472,7 +923,6 @@ class KarnatakaBengaluruHighwaysTileGenerator:
                     total_points = sum(len(line.coords) for line in geom.geoms)
                     if total_points > 1000:
                         logger.info(f"     Simplifying dense MultiLineString ({total_points} points)...")
-                        # Simplify each line in the MultiLineString
                         simplified_lines = []
                         for line in geom.geoms:
                             if len(line.coords) > 100:
@@ -509,6 +959,52 @@ class KarnatakaBengaluruHighwaysTileGenerator:
             
             # Remove any invalid geometries
             self.gdf = self.gdf[self.gdf.geometry.is_valid].copy()
+            
+            # Final deduplication check
+            logger.info("🔍 Final geometry deduplication check...")
+            final_geoms = []
+            seen_geoms = set()
+            
+            for idx, row in self.gdf.iterrows():
+                geom = row.geometry
+                name = row.get('Name', f'Feature {idx}')
+                
+                # Create geometry fingerprint
+                if isinstance(geom, LineString):
+                    coords = tuple(tuple(round(c, 6) for c in coord) for coord in geom.coords)
+                    fingerprint = hash(coords)
+                    reverse_fingerprint = hash(tuple(reversed(coords)))
+                    
+                    if fingerprint not in seen_geoms and reverse_fingerprint not in seen_geoms:
+                        final_geoms.append(geom)
+                        seen_geoms.add(fingerprint)
+                        seen_geoms.add(reverse_fingerprint)
+                    else:
+                        logger.warning(f"   Removing duplicate geometry: {name}")
+                elif isinstance(geom, MultiLineString):
+                    # For MultiLineString, check each component
+                    unique_lines = []
+                    for line in geom.geoms:
+                        coords = tuple(tuple(round(c, 6) for c in coord) for coord in line.coords)
+                        fingerprint = hash(coords)
+                        reverse_fingerprint = hash(tuple(reversed(coords)))
+                        
+                        if fingerprint not in seen_geoms and reverse_fingerprint not in seen_geoms:
+                            unique_lines.append(line)
+                            seen_geoms.add(fingerprint)
+                            seen_geoms.add(reverse_fingerprint)
+                    
+                    if unique_lines:
+                        if len(unique_lines) == 1:
+                            final_geoms.append(unique_lines[0])
+                        else:
+                            final_geoms.append(MultiLineString(unique_lines))
+                    else:
+                        logger.warning(f"   Removing entirely duplicate geometry: {name}")
+                else:
+                    final_geoms.append(geom)
+            
+            self.gdf['geometry'] = final_geoms
             
             # Calculate bounds
             self.bounds = self.gdf.total_bounds
@@ -814,7 +1310,7 @@ class KarnatakaBengaluruHighwaysTileGenerator:
 
 
     def generate_tile(self, x: int, y: int, zoom: int) -> Image.Image:
-        """Generate a single tile with clean, single lines"""
+        """Generate a single tile with aggressive deduplication to prevent multiple lines"""
         try:
             # Create a transparent tile
             img = Image.new('RGBA', (self.tile_size, self.tile_size), (0, 0, 0, 0))
@@ -829,17 +1325,20 @@ class KarnatakaBengaluruHighwaysTileGenerator:
             if features.empty:
                 return img
             
-            # Get line width for this zoom level - ensure it's reasonable
+            # Get line width for this zoom level
             line_width = max(1, min(int(self.get_highway_line_width(zoom)), 6))
             
             # Convert color to RGB
             color_hex = self.highway_color.lstrip('#')
             color_rgb = tuple(int(color_hex[i:i+2], 16) for i in (0, 2, 4))
             
-            # Track drawn segments to prevent duplicates
+            # CRITICAL: Track ALL drawn segments to prevent ANY duplicates
             drawn_segments = set()
+            drawn_pixel_segments = set()  # Track at pixel level too
             
-            # Draw each feature as a clean line
+            # First pass: collect all line segments and deduplicate
+            all_segments = []
+            
             for idx, feature in features.iterrows():
                 try:
                     geom = feature.geometry
@@ -853,31 +1352,102 @@ class KarnatakaBengaluruHighwaysTileGenerator:
                     if clipped_geom is None:
                         continue
                     
-                    # Draw the clipped geometry
+                    # Extract all line segments
                     if clipped_geom.geom_type == 'LineString':
                         coords = list(clipped_geom.coords)
                         if len(coords) >= 2:
-                            # Create a hash of the coordinate sequence to avoid duplicates
-                            coord_hash = hash(tuple((round(c[0], 6), round(c[1], 6)) for c in coords))
-                            if coord_hash not in drawn_segments:
-                                pixels = self.coords_to_pixels(coords, tile_bounds, x, y, zoom)
-                                self.draw_highway_line(draw, pixels, color_rgb, line_width)
-                                drawn_segments.add(coord_hash)
+                            # Round coordinates for comparison
+                            rounded_coords = tuple((round(c[0], 6), round(c[1], 6)) for c in coords)
+                            all_segments.append((rounded_coords, feature.get('Name', '')))
+                            
                     elif clipped_geom.geom_type == 'MultiLineString':
                         for line in clipped_geom.geoms:
                             if line and line.is_valid:
                                 coords = list(line.coords)
                                 if len(coords) >= 2:
-                                    # Create a hash of the coordinate sequence to avoid duplicates
-                                    coord_hash = hash(tuple((round(c[0], 6), round(c[1], 6)) for c in coords))
-                                    if coord_hash not in drawn_segments:
-                                        pixels = self.coords_to_pixels(coords, tile_bounds, x, y, zoom)
-                                        self.draw_highway_line(draw, pixels, color_rgb, line_width)
-                                        drawn_segments.add(coord_hash)
-                
+                                    rounded_coords = tuple((round(c[0], 6), round(c[1], 6)) for c in coords)
+                                    all_segments.append((rounded_coords, feature.get('Name', '')))
+                    
                 except Exception as e:
-                    logger.debug(f"Error drawing feature {idx} in tile {x}/{y}/{zoom}: {e}")
+                    logger.debug(f"Error processing feature {idx}: {e}")
                     continue
+            
+            # Deduplicate segments aggressively
+            unique_segments = []
+            segment_hashes = set()
+            
+            for coords, name in all_segments:
+                # Create multiple hash representations to catch duplicates
+                forward_hash = hash(coords)
+                reverse_hash = hash(tuple(reversed(coords)))
+                
+                # Also create a simplified hash (first and last points only)
+                if len(coords) >= 2:
+                    endpoint_hash = hash((coords[0], coords[-1]))
+                    reverse_endpoint_hash = hash((coords[-1], coords[0]))
+                else:
+                    endpoint_hash = forward_hash
+                    reverse_endpoint_hash = reverse_hash
+                
+                # Check if this is a duplicate
+                is_duplicate = False
+                
+                # Check exact duplicates (forward or reverse)
+                if forward_hash in segment_hashes or reverse_hash in segment_hashes:
+                    is_duplicate = True
+                
+                # Check for segments with same endpoints but potentially different intermediate points
+                if not is_duplicate:
+                    for existing_coords, existing_name in unique_segments:
+                        # Check if segments have same start and end points
+                        if len(existing_coords) >= 2 and len(coords) >= 2:
+                            if ((coords[0] == existing_coords[0] and coords[-1] == existing_coords[-1]) or
+                                (coords[0] == existing_coords[-1] and coords[-1] == existing_coords[0])):
+                                # Check if they're essentially the same line
+                                # Convert to LineString for geometric comparison
+                                try:
+                                    line1 = LineString(coords)
+                                    line2 = LineString(existing_coords)
+                                    # If lines are very close (within 1 meter), consider them duplicates
+                                    if line1.distance(line2) < 0.00001:  # ~1 meter
+                                        is_duplicate = True
+                                        logger.debug(f"Found duplicate segment for {name}: distance {line1.distance(line2)}")
+                                        break
+                                except:
+                                    pass
+                
+                # If not a duplicate, add it
+                if not is_duplicate:
+                    unique_segments.append((coords, name))
+                    segment_hashes.add(forward_hash)
+                    segment_hashes.add(reverse_hash)
+            
+            # Draw unique segments
+            for coords, name in unique_segments:
+                try:
+                    # Convert to pixels
+                    pixels = self.coords_to_pixels(list(coords), tile_bounds, x, y, zoom)
+                    
+                    # Create pixel-level hash to prevent drawing the same pixels twice
+                    if len(pixels) >= 2:
+                        # Round pixels to integers for comparison
+                        int_pixels = tuple((int(round(p[0])), int(round(p[1]))) for p in pixels)
+                        pixel_hash = hash(int_pixels)
+                        pixel_reverse_hash = hash(tuple(reversed(int_pixels)))
+                        
+                        # Check if we've already drawn these exact pixels
+                        if pixel_hash not in drawn_pixel_segments and pixel_reverse_hash not in drawn_pixel_segments:
+                            self.draw_highway_line(draw, pixels, color_rgb, line_width)
+                            drawn_pixel_segments.add(pixel_hash)
+                            drawn_pixel_segments.add(pixel_reverse_hash)
+                        else:
+                            logger.debug(f"Skipping duplicate pixel segment for {name}")
+                            
+                except Exception as e:
+                    logger.debug(f"Error drawing segment: {e}")
+                    continue
+            
+            logger.debug(f"Tile {x}/{y}/{zoom}: Drew {len(drawn_pixel_segments)//2} unique segments from {len(all_segments)} total")
             
             return img
             
@@ -1065,7 +1635,7 @@ def main():
                        help='Directory containing GeoJSON files')
     parser.add_argument('--output-dir', default='karnataka_bengaluru_highways_tiles',
                        help='Output directory for tiles')
-    parser.add_argument('--min-zoom', type=int, default=4,
+    parser.add_argument('--min-zoom', type=int, default=5,
                        help='Minimum zoom level')
     parser.add_argument('--max-zoom', type=int, default=18,
                        help='Maximum zoom level')
