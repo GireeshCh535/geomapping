@@ -1147,7 +1147,7 @@ class CoordinateSearchTestView(APIView):
                     elif layer.slug in ['bengaluru_anekal_masterplan', 'bengaluru_chikkaballapura_masterplan', 'bengaluru_hosakote_masterplan', 'bengaluru_nelamangala_masterplan']:
                         # Return just the layer name as plain string
                         return {
-                            'data': layer.name,
+                            'data': layer.slug,
                             'features': [],
                             'nearby_features': []
                         }
@@ -1340,7 +1340,7 @@ class CoordinateSearchTestView(APIView):
             if layer.slug in ['bengaluru_anekal_masterplan', 'bengaluru_chikkaballapura_masterplan', 'bengaluru_hosakote_masterplan', 'bengaluru_nelamangala_masterplan'] and containing_features:
                 # Return just the layer name as plain string
                 return {
-                    'data': layer.name,
+                    'data': layer.slug,
                     'features': [],
                     'nearby_features': []
                 }
