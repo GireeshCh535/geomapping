@@ -204,11 +204,11 @@ MEDIA_ROOT = BASE_DIR / 'media'
 AWS_ACCESS_KEY_ID = 'AKIAW3MEBMOOEQKR3BXV'
 AWS_SECRET_ACCESS_KEY = '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'
 AWS_S3_REGION_NAME = "ap-south-1"
-AWS_STORAGE_BUCKET_NAME = 'gis-portal-layers'
+AWS_STORAGE_BUCKET_NAME = 'prod-gis-layers'
 AWS_S3_CUSTOM_DOMAIN = f'{AWS_STORAGE_BUCKET_NAME}.s3.{AWS_S3_REGION_NAME}.amazonaws.com'
 
 # CloudFront Configuration - TILES ONLY
-CLOUDFRONT_DOMAIN = 'd17yosovmfjm4.cloudfront.net'
+CLOUDFRONT_DOMAIN = 'df77x5vpgut6a.cloudfront.net'
 USE_CLOUDFRONT = os.getenv('USE_CLOUDFRONT', 'True').lower() == 'true'
 
 # S3-Only Tile Serving Configuration
