@@ -54,8 +54,8 @@ class LayerCategorySerializer(serializers.ModelSerializer):
         model = LayerCategory
         fields = [
             'name', 'code', 'description', 'default_color', 
-            'default_stroke', 'default_opacity', 'min_zoom', 'max_zoom',
-            'display_order', 'is_active', 'layer_count'
+            'default_stroke', 'default_opacity', 'display_order', 
+            'is_active', 'layer_count'
         ]
     
     def get_layer_count(self, obj):
@@ -140,20 +140,18 @@ class GeoFeatureSerializer(GeoFeatureModelSerializer):
     layer_name = serializers.CharField(source='layer.name', read_only=True)
     city_name = serializers.CharField(source='layer.city.name', read_only=True)
     category_name = serializers.CharField(source='layer.category.name', read_only=True)
-    display_name = serializers.CharField(source='get_display_name', read_only=True)
-    plu_description = serializers.CharField(source='get_plu_description', read_only=True)
     color = serializers.SerializerMethodField()
     
     class Meta:
         model = GeoFeature
         geo_field = 'geometry'
         fields = [
-            'id', 'layer_name', 'city_name', 'category_name', 'display_name',
-            'source_fid', 'name', 'derived_category', 'land_use_type',
+            'id', 'layer_name', 'city_name', 'category_name',
+            'name', 'zone_category', 'zone_subcategory',
             'plu_primary_code', 'plu_secondary_1', 'plu_secondary_2',
-            'plu_proposed_use', 'plu_authority', 'plu_description',
-            'calculated_area', 'calculated_perimeter', 'source_area_value',
-            'is_valid', 'geometry_simplified', 'created_at', 'color'
+            'plu_proposed_use', 'plu_authority',
+            'area', 'shape_length', 'shape_area', 'objectid', 'fid',
+            'is_valid', 'created_at', 'color'
         ]
     
     def get_color(self, obj):
@@ -161,12 +159,17 @@ class GeoFeatureSerializer(GeoFeatureModelSerializer):
         from .config import get_city_config
         
         city_slug = obj.layer.city.slug
-        category_code = obj.derived_category
+        state_slug = obj.layer.city.state_ref.slug if obj.layer.city.state_ref else None
+        category_code = obj.zone_category or obj.layer.category.code if obj.layer.category else None
         
         # Get city-specific color
-        city_config = get_city_config(city_slug)
-        if city_config and 'colors' in city_config:
-            return city_config['colors'].get(category_code, '#666666')
+        if state_slug:
+            try:
+                city_config = get_city_config(state_slug, city_slug)
+                if city_config and 'colors' in city_config and category_code:
+                    return city_config['colors'].get(category_code, '#666666')
+            except:
+                pass
         
         # Fallback to layer style
         try:
@@ -184,23 +187,19 @@ class GeoFeatureSerializer(GeoFeatureModelSerializer):
 class GeoFeatureListSerializer(serializers.ModelSerializer):
     """Lightweight serializer for listing features without geometry"""
     layer_name = serializers.CharField(source='layer.name', read_only=True)
-    display_name = serializers.CharField(source='get_display_name', read_only=True)
     centroid = serializers.SerializerMethodField()
     
     class Meta:
         model = GeoFeature
         fields = [
-            'id', 'layer_name', 'display_name', 'derived_category',
-            'plu_primary_code', 'calculated_area', 'centroid', 'is_valid'
+            'id', 'layer_name', 'name', 'zone_category',
+            'plu_primary_code', 'area', 'is_valid'
         ]
     
     def get_centroid(self, obj):
         """Get feature centroid coordinates"""
-        if obj.calculated_centroid_lat and obj.calculated_centroid_lng:
-            return {
-                'lat': obj.calculated_centroid_lat,
-                'lng': obj.calculated_centroid_lng
-            }
+        # For now, return None since we don't have calculated centroid fields
+        # This can be enhanced later if needed
         return None
 
 class VectorTileLayerSerializer(serializers.ModelSerializer):
@@ -216,40 +215,7 @@ class VectorTileLayerSerializer(serializers.ModelSerializer):
             'generated_at', 'updated_at'
         ]
 
-class ImportJobSerializer(serializers.ModelSerializer):
-    city_name = serializers.CharField(source='city.name', read_only=True)
-    duration_seconds = serializers.SerializerMethodField()
-    success_rate = serializers.SerializerMethodField()
-    
-    class Meta:
-        model = ImportJob
-        fields = [
-            'id', 'city_name', 'filename', 'file_format', 'category_mapped',
-            'categorization_method', 'status', 'features_imported', 
-            'features_failed', 'features_skipped', 'plu_codes_detected',
-            'plu_mapping_applied', 'geometry_conversions', 'coordinate_optimizations',
-            'duration_seconds', 'success_rate', 'error_message', 
-            'started_at', 'completed_at'
-        ]
-    
-    def get_duration_seconds(self, obj):
-        """Get processing duration in seconds"""
-        if obj.processing_duration:
-            return obj.processing_duration.total_seconds()
-        return None
-    
-    def get_success_rate(self, obj):
-        """Calculate import success rate"""
-        total = obj.features_imported + obj.features_failed + obj.features_skipped
-        if total > 0:
-            return round((obj.features_imported / total) * 100, 1)
-        return 0
 
-class ImportJobDetailSerializer(ImportJobSerializer):
-    """Detailed serializer with error details"""
-    
-    class Meta(ImportJobSerializer.Meta):
-        fields = ImportJobSerializer.Meta.fields + ['error_details']
 
 # Specialized serializers for different use cases
 
@@ -340,25 +306,3 @@ class CityConfigDetailSerializer(serializers.Serializer):
     data_format = serializers.CharField()
     coordinate_precision = serializers.IntegerField()
     plu_mapping = serializers.DictField(required=False)
-
-class PlotSerializer(GeoFeatureModelSerializer):
-    """GeoJSON serializer for Plot data"""
-    
-    class Meta:
-        model = Plot
-        geo_field = 'location'
-        fields = [
-            'plot_id', 'area_sq_yards', 'price_per_sq_yard', 'total_price',
-            'marker_title', 'marker_id', 'is_active'
-        ]
-
-class LandSerializer(GeoFeatureModelSerializer):
-    """GeoJSON serializer for Land data"""
-    
-    class Meta:
-        model = Land
-        geo_field = 'location'
-        fields = [
-            'land_id', 'area_text', 'price_text', 
-            'marker_title', 'marker_id', 'is_active'
-        ]

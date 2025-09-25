@@ -16,6 +16,14 @@ DEBUG = os.getenv('DJANGO_DEBUG', 'False').lower() == 'true'
 # ALLOWED HOSTS
 ALLOWED_HOSTS = ['*']
 
+CSRF_TRUSTED_ORIGINS = [
+    'https://gis-map.1acre.in',
+    'http://gis-map.1acre.in',  # if you also use HTTP
+]
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+USE_X_FORWARDED_HOST = True
+
+
 # GDAL/GEOS Configuration for Docker
 if os.getenv('DJANGO_DB_HOST'):  # Docker environment
     pass  # Let Django auto-detect
@@ -43,6 +51,7 @@ INSTALLED_APPS = [
     'corsheaders',
     'rest_framework',
     'django_filters',
+    'drf_spectacular',
     'maps',
 ]
 
@@ -95,24 +104,25 @@ DATABASES = {
         'NAME': os.getenv('DJANGO_DB_NAME', 'geo_mapping_db'),
         'USER': os.getenv('DJANGO_DB_USER', 'postgres'),
         'PASSWORD': os.getenv('DJANGO_DB_PASSWORD', 'postgres'),
+        # 'HOST': os.getenv('DJANGO_DB_HOST', 'localhost'),
         'HOST': os.getenv('DJANGO_DB_HOST', 'db'),
         'PORT': os.getenv('DJANGO_DB_PORT', '5432'),
-        'CONN_MAX_AGE': 60,
+        'CONN_MAX_AGE': 0,
     }
 }
 
 # REDIS CACHE
-CACHES = {
-    'default': {
-        'BACKEND': 'django_redis.cache.RedisCache',
-        'LOCATION': os.getenv('REDIS_URL', 'redis://redis:6379/1'),
-        'OPTIONS': {
-            'CLIENT_CLASS': 'django_redis.client.DefaultClient',
-            'COMPRESSOR': 'django_redis.compressors.zlib.ZlibCompressor',
-            'IGNORE_EXCEPTIONS': True,
-        }
-    }
-}
+# CACHES = {
+#     'default': {
+#         'BACKEND': 'django_redis.cache.RedisCache',
+#         'LOCATION': os.getenv('REDIS_URL', 'redis://redis:6379/1'),
+#         'OPTIONS': {
+#             'CLIENT_CLASS': 'django_redis.client.DefaultClient',
+#             'COMPRESSOR': 'django_redis.compressors.zlib.ZlibCompressor',
+#             'IGNORE_EXCEPTIONS': True,
+#         }
+#     }
+# }
 
 # REST FRAMEWORK
 REST_FRAMEWORK = {
@@ -128,6 +138,7 @@ REST_FRAMEWORK = {
         'rest_framework.throttling.AnonRateThrottle',
         'rest_framework.throttling.UserRateThrottle'
     ],
+    'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
 }
 
 # PASSWORD VALIDATION
@@ -193,12 +204,41 @@ MEDIA_ROOT = BASE_DIR / 'media'
 AWS_ACCESS_KEY_ID = 'AKIAW3MEBMOOEQKR3BXV'
 AWS_SECRET_ACCESS_KEY = '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'
 AWS_S3_REGION_NAME = "ap-south-1"
-AWS_STORAGE_BUCKET_NAME = 'gis-portal'
+AWS_STORAGE_BUCKET_NAME = 'gis-portal-layers'
 AWS_S3_CUSTOM_DOMAIN = f'{AWS_STORAGE_BUCKET_NAME}.s3.{AWS_S3_REGION_NAME}.amazonaws.com'
 
 # CloudFront Configuration - TILES ONLY
 CLOUDFRONT_DOMAIN = 'd17yosovmfjm4.cloudfront.net'
 USE_CLOUDFRONT = os.getenv('USE_CLOUDFRONT', 'True').lower() == 'true'
+
+# S3-Only Tile Serving Configuration
+S3_ONLY_TILE_SERVING = True
+DISABLE_LOCAL_TILES = True
+GENERATE_TILES_DIRECT_TO_S3 = True
+SKIP_LOCAL_TILE_STORAGE = True
+
+# Tile Serving Fallback Configuration
+TILE_SERVING_FALLBACK_ORDER = [
+    'cloudfront',  # Primary: CloudFront CDN
+    's3_direct',   # Secondary: S3 Direct
+    'on_demand'    # Tertiary: On-demand generation (optional)
+]
+
+# Tile No-Cache Headers
+TILE_CACHE_HEADERS = {
+    'png': {
+        'CacheControl': 'no-cache, no-store, must-revalidate',  # No caching
+        'Pragma': 'no-cache',
+        'Expires': '0',
+        'ContentType': 'image/png'
+    },
+    'mvt': {
+        'CacheControl': 'no-cache, no-store, must-revalidate',  # No caching
+        'Pragma': 'no-cache',
+        'Expires': '0',
+        'ContentType': 'application/vnd.mapbox-vector-tile'
+    }
+}
 
 
 if not DEBUG:
@@ -206,9 +246,8 @@ if not DEBUG:
     SECURE_CONTENT_TYPE_NOSNIFF = True
     X_FRAME_OPTIONS = 'DENY'
 
-# SESSION CONFIGURATION
-SESSION_ENGINE = 'django.contrib.sessions.backends.cache'
-SESSION_CACHE_ALIAS = 'default'
+# SESSION CONFIGURATION - No Caching
+SESSION_ENGINE = 'django.contrib.sessions.backends.db'  # Use database instead of cache
 SESSION_COOKIE_AGE = 86400  # 24 hours
 
 LOGGING = {
@@ -233,7 +272,7 @@ LOGGING = {
         'file': {
             'level': 'ERROR',
             'class': 'logging.FileHandler',
-            'filename': '/app/logs/django_errors.log',
+            'filename': os.path.join(BASE_DIR, 'logs', 'django_errors.log'),
             'formatter': 'verbose',
         },
     },
@@ -264,3 +303,30 @@ LOGGING = {
 # Data directory
 DATA_DIR = BASE_DIR / 'data'
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+# ===================================
+# DRF SPECTACULAR - API DOCUMENTATION
+# ===================================
+
+SPECTACULAR_SETTINGS = {
+    'TITLE': 'Geo Mapping API',
+    'DESCRIPTION': 'A comprehensive API for geospatial data management and tile serving',
+    'VERSION': '1.0.0',
+    'SERVE_INCLUDE_SCHEMA': False,
+    'COMPONENT_SPLIT_REQUEST': True,
+    'SCHEMA_PATH_PREFIX': '/api/',
+    'SWAGGER_UI_SETTINGS': {
+        'deepLinking': True,
+        'persistAuthorization': True,
+        'displayOperationId': True,
+    },
+    'TAGS': [
+        {'name': 'states', 'description': 'State management endpoints'},
+        {'name': 'cities', 'description': 'City management endpoints'},
+        {'name': 'categories', 'description': 'Layer category management'},
+        {'name': 'layers', 'description': 'Data layer management'},
+        {'name': 'features', 'description': 'Geospatial features'},
+        {'name': 'tiles', 'description': 'Map tile serving endpoints'},
+        {'name': 'hierarchy', 'description': 'Hierarchical data structure'},
+    ],
+}

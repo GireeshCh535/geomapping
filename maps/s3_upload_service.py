@@ -31,17 +31,13 @@ class S3TileUploadService:
             if not content_type:
                 content_type = 'application/octet-stream'
             
-            # Set cache headers for tiles (NO ACL)
+            # No caching - always serve fresh content
             extra_args = {
                 'ContentType': content_type,
-                'CacheControl': 'max-age=31536000',  # 1 year cache
-                # Removed 'ACL': 'public-read' - bucket policy handles access
+                'CacheControl': 'no-cache, no-store, must-revalidate',  # No caching
+                'Pragma': 'no-cache',
+                'Expires': '0'
             }
-            
-            if content_type == 'image/png':
-                extra_args['CacheControl'] = 'max-age=31536000'  # 1 year for PNG tiles
-            elif content_type == 'application/vnd.mapbox-vector-tile':
-                extra_args['CacheControl'] = 'max-age=86400'     # 1 day for MVT tiles
             
             self.s3_client.upload_file(
                 local_file_path, 

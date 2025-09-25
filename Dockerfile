@@ -9,6 +9,8 @@ RUN apt-get update && apt-get install -y \
     binutils \
     postgresql-client \
     python3-gdal \
+    g++ \
+    build-essential \
     && rm -rf /var/lib/apt/lists/*
 
 # Set environment variables for GeoDjango
