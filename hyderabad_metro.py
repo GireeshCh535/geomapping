@@ -1,21 +1,22 @@
 #!/usr/bin/env python3
 """
-Hyderabad Metro Tile Generator
+Hyderabad Metro Tile Generator - Enhanced with Empty Border Tiles
 Generates Mapbox-compatible PNG tiles for Hyderabad Metro lines with color coding
-Based on complete analysis of metro data from data/Telangana/Hyderabad/metro-lines/
+Includes empty border tiles to prevent edge bleeding
 """
 
 import os
 import sys
 import math
 from pathlib import Path
-from typing import List, Tuple, Dict
+from typing import List, Tuple, Dict, Optional
 import mercantile
 from PIL import Image, ImageDraw
 import geopandas as gpd
 from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 from functools import partial
 import webbrowser
+from shapely.geometry import box, Point, LineString, MultiLineString
 
 # Add the project root to the Python path
 script_dir = Path(__file__).parent
@@ -27,8 +28,8 @@ DEFAULT_VIEW_SETTINGS = {
     "min_zoom": 8,
     "max_zoom": 18,
     "view": True,
-    "port": 8001,  # Different port from Bangalore
-    "token": "pk.eyJ1IjoiYXYxYWNyZSIsImEiOiJjbTJtZmdxN3owa2FzMmpyMjJ4OHV5MHhzIn0.FXpMd91JSER-r7LVpSZN-A"  # Set your Mapbox access token here
+    "port": 8001,
+    "token": "pk.eyJ1IjoiYXYxYWNyZSIsImEiOiJjbTJtZmdxN3owa2FzMmpyMjJ4OHV5MHhzIn0.FXpMd91JSER-r7LVpSZN-A"
 }
 
 class HyderabadMetroTileGenerator:
@@ -41,54 +42,59 @@ class HyderabadMetroTileGenerator:
         # Create output directory
         self.output_dir.mkdir(exist_ok=True)
         
-        # Color mapping for Hyderabad Metro lines based on provided scheme
+        # Color mapping for Hyderabad Metro lines
         self.color_mapping = {
-            # Metro Phase 1 (Existing)
-            'Green Line Phase 1': '#00933D',      # JBS Parade Ground → MG Bus Station
-            'Blue Line Phase 1': '#2D6BA1',       # Nagole → Raidurg  
-            'Red Line Phase 1': '#E40D17',        # Miyapur → L.B. Nagar
-            
-            # Metro Phase 2A (Upcoming)
-            'Green Line Phase 2A': '#00933D',     # MG Bus Station → Chandrayangutta
-            'Purple Line Phase 2A': '#8C06ED',    # Nagole → RGIA Shamshabad
-            
-            # Metro Phase 2B (Upcoming)
-            'Future City Line': '#EF6908',        # RGIA Shamshabad → Future City
-            'Blue Line Phase 2B': '#2D6BA1',      # JBS Parade Ground → Shamirpet
-            'Green Line Phase 2B': '#00933D',     # Paradise → Medchal
-            
-            # Default colors for any unmapped lines
+            'Green Line Phase 1': '#00933D',
+            'Blue Line Phase 1': '#2D6BA1',
+            'Red Line Phase 1': '#E40D17',
+            'Green Line Phase 2A': '#00933D',
+            'Purple Line Phase 2A': '#8C06ED',
+            'Future City Line': '#EF6908',
+            'Blue Line Phase 2B': '#2D6BA1',
+            'Green Line Phase 2B': '#00933D',
             'Metro Phase 1': '#00933D',
-            'Metro Phase 2A': '#8C06ED', 
+            'Metro Phase 2A': '#8C06ED',
             'Metro Phase 2B': '#EF6908'
         }
         
-        # Line width for different zoom levels (adjusted for better visibility)
+        # Line widths and station sizes
         self.line_widths = {
-            8: 1, 9: 1, 10: 2, 11: 2, 12: 3, 13: 3, 
-            14: 4, 15: 5, 16: 6, 17: 7, 18: 8
+            8: 1, 9: 1, 10: 1, 11: 1, 12: 2, 13: 2,
+            14: 2, 15: 3, 16: 3, 17: 4, 18: 4
         }
         
-        # Station marker sizes for different zoom levels (adjusted)
         self.station_sizes = {
-            8: 0, 9: 0, 10: 2, 11: 3, 12: 3, 13: 4,
-            14: 5, 15: 6, 16: 7, 17: 8, 18: 10
+            8: 0, 9: 0, 10: 1, 11: 2, 12: 2, 13: 3,
+            14: 3, 15: 4, 16: 4, 17: 5, 18: 6
         }
         
-        # Station marker colors - all stations are red
-        self.station_colors = {
-            'Terminus': '#FF0000',                    # Red for terminus stations
-            'Interchange': '#FF0000',                 # Red for interchange stations
-            'General Station': '#FF0000',             # Red for general stations
-            'Railway & MMTS': '#FF0000',              # Red for railway connections
-            'Airport Shuttle Service': '#FF0000',     # Red for airport connections
-            'Bus Station': '#FF0000',                 # Red for bus stations
-            'default': '#FF0000'                      # Default red
-        }
+        # All stations are red
+        self.station_color = '#FF0000'
         
         # Load the GeoJSON data
         self.load_metro_data()
         
+        # Calculate data bounds once
+        self.data_bounds = self.calculate_data_bounds()
+        
+    def calculate_data_bounds(self) -> Optional[Tuple[float, float, float, float]]:
+        """Calculate the actual bounds of the metro data (without buffer)"""
+        all_bounds = []
+        if not self.lines_gdf.empty:
+            all_bounds.append(self.lines_gdf.total_bounds)
+        if not self.stations_gdf.empty:
+            all_bounds.append(self.stations_gdf.total_bounds)
+        
+        if not all_bounds:
+            return None
+            
+        min_lon = min(bounds[0] for bounds in all_bounds)
+        min_lat = min(bounds[1] for bounds in all_bounds)
+        max_lon = max(bounds[2] for bounds in all_bounds)
+        max_lat = max(bounds[3] for bounds in all_bounds)
+        
+        return (min_lon, min_lat, max_lon, max_lat)
+    
     def load_metro_data(self):
         """Load metro lines and stations data"""
         try:
@@ -96,7 +102,6 @@ class HyderabadMetroTileGenerator:
             if self.metro_lines_path.exists():
                 self.lines_gdf = gpd.read_file(self.metro_lines_path)
                 print(f"Loaded {len(self.lines_gdf)} metro lines")
-                # Ensure CRS is set to WGS84
                 if self.lines_gdf.crs is None:
                     self.lines_gdf.set_crs('EPSG:4326', inplace=True)
                 elif self.lines_gdf.crs.to_string() != 'EPSG:4326':
@@ -109,7 +114,6 @@ class HyderabadMetroTileGenerator:
             if self.metro_stations_path.exists():
                 self.stations_gdf = gpd.read_file(self.metro_stations_path)
                 print(f"Loaded {len(self.stations_gdf)} metro stations")
-                # Ensure CRS is set to WGS84
                 if self.stations_gdf.crs is None:
                     self.stations_gdf.set_crs('EPSG:4326', inplace=True)
                 elif self.stations_gdf.crs.to_string() != 'EPSG:4326':
@@ -125,30 +129,26 @@ class HyderabadMetroTileGenerator:
     
     def get_line_color(self, line_name: str, line_colour: str = None) -> str:
         """Get color for a metro line based on its linecolour field"""
-        # Use linecolour field if available, otherwise fall back to line_name
         color_field = line_colour if line_colour else line_name
         
         if not color_field:
-            return '#800080'  # Default purple
+            return '#800080'
             
         color_field_lower = color_field.lower()
         
-        # Direct mapping based on linecolour field
         if 'blue line' in color_field_lower:
-            return self.color_mapping['Blue Line Phase 1']  # #2D6BA1
+            return self.color_mapping['Blue Line Phase 1']
         elif 'green line' in color_field_lower:
-            return self.color_mapping['Green Line Phase 1']  # #00933D
+            return self.color_mapping['Green Line Phase 1']
         elif 'red line' in color_field_lower:
-            return self.color_mapping['Red Line Phase 1']  # #E40D17
+            return self.color_mapping['Red Line Phase 1']
         elif 'purple line' in color_field_lower:
-            return self.color_mapping['Purple Line Phase 2A']  # #8C06ED
+            return self.color_mapping['Purple Line Phase 2A']
         elif 'future' in color_field_lower:
-            return self.color_mapping['Future City Line']  # #EF6908
+            return self.color_mapping['Future City Line']
         
-        # Fallback to line_name analysis
         line_name_lower = line_name.lower() if line_name else ''
         
-        # Check for specific line patterns in name
         if 'phase 1' in line_name_lower:
             return self.color_mapping['Metro Phase 1']
         elif 'phase 2a' in line_name_lower:
@@ -156,42 +156,17 @@ class HyderabadMetroTileGenerator:
         elif 'phase 2b' in line_name_lower:
             return self.color_mapping['Metro Phase 2B']
         
-        # Default mapping
         return self.color_mapping.get(color_field, '#800080')
-    
-    def get_station_color(self, station_type: str) -> str:
-        """Get color for a station based on its type"""
-        if not station_type:
-            return self.station_colors['default']
-            
-        # Check for multiple types (e.g., "Terminus, Airport Shuttle Service")
-        station_type_lower = station_type.lower()
-        
-        if 'terminus' in station_type_lower:
-            return self.station_colors['Terminus']
-        elif 'interchange' in station_type_lower:
-            return self.station_colors['Interchange']
-        elif 'railway' in station_type_lower or 'mmts' in station_type_lower:
-            return self.station_colors['Railway & MMTS']
-        elif 'airport' in station_type_lower:
-            return self.station_colors['Airport Shuttle Service']
-        elif 'bus' in station_type_lower:
-            return self.station_colors['Bus Station']
-        else:
-            return self.station_colors['General Station']
     
     def wgs84_to_tile_pixel(self, lon: float, lat: float, tile_x: int, tile_y: int, zoom: int) -> Tuple[float, float]:
         """Convert WGS84 coordinates to pixel coordinates within a tile"""
-        # Clamp latitude to avoid math domain error
         lat = max(-85.051129, min(85.051129, lat))
         
-        # Convert to tile coordinates (floating point)
         n = 2.0 ** zoom
         tile_lon = (lon + 180.0) / 360.0 * n
         lat_rad = math.radians(lat)
         tile_lat = (1.0 - math.asinh(math.tan(lat_rad)) / math.pi) / 2.0 * n
         
-        # Convert to pixel coordinates within the tile (256x256 pixels)
         pixel_x = (tile_lon - tile_x) * 256.0
         pixel_y = (tile_lat - tile_y) * 256.0
         
@@ -203,14 +178,11 @@ class HyderabadMetroTileGenerator:
         if len(coordinates) < 2:
             return
         
-        # Convert coordinates to pixel positions (keep as float for smoother lines)
         pixel_coords = []
         for lon, lat in coordinates:
             px, py = self.wgs84_to_tile_pixel(lon, lat, tile_x, tile_y, zoom)
             pixel_coords.append((px, py))
         
-        # Filter out segments that are completely outside the tile bounds
-        # Add some padding to avoid cutting off lines at tile edges
         padding = width + 10
         visible_segments = []
         
@@ -218,60 +190,44 @@ class HyderabadMetroTileGenerator:
             x1, y1 = pixel_coords[i]
             x2, y2 = pixel_coords[i + 1]
             
-            # Check if segment intersects with padded tile bounds
             if not ((max(x1, x2) < -padding or min(x1, x2) > 256 + padding) or
                     (max(y1, y2) < -padding or min(y1, y2) > 256 + padding)):
                 visible_segments.append([(x1, y1), (x2, y2)])
         
-        # Draw visible segments
         for segment in visible_segments:
             try:
-                # Round coordinates only when drawing
                 rounded_segment = [(round(x), round(y)) for x, y in segment]
                 draw.line(rounded_segment, fill=color, width=width, joint="curve")
             except Exception:
-                pass  # Skip problematic segments
+                pass
     
     def draw_station_marker(self, draw: ImageDraw, lon: float, lat: float, 
-                           color: str, size: int, tile_x: int, tile_y: int, zoom: int):
+                           size: int, tile_x: int, tile_y: int, zoom: int):
         """Draw a station marker on the tile"""
         if size <= 0:
-            return  # Don't draw if size is 0 or negative
+            return
             
         pixel_x, pixel_y = self.wgs84_to_tile_pixel(lon, lat, tile_x, tile_y, zoom)
         
-        # Check if marker is within tile bounds with some padding
         padding = size + 5
         if -padding <= pixel_x <= 256 + padding and -padding <= pixel_y <= 256 + padding:
-            # Round coordinates for drawing
             px, py = round(pixel_x), round(pixel_y)
             
-            # Draw white background circle (slightly larger)
+            # White background
             white_size = size + 1
             white_bbox = [px - white_size, py - white_size, px + white_size, py + white_size]
             draw.ellipse(white_bbox, fill='white', outline=None)
             
-            # Draw colored circle
+            # Red station marker
             bbox = [px - size, py - size, px + size, py + size]
-            draw.ellipse(bbox, fill=color, outline=None)
+            draw.ellipse(bbox, fill=self.station_color, outline=None)
     
-    def generate_tile(self, x: int, y: int, zoom: int) -> Image.Image:
-        """Generate a single tile with improved rendering"""
-        # Create tile with antialiasing support
-        img = Image.new('RGBA', (256, 256), (0, 0, 0, 0))
-        draw = ImageDraw.Draw(img, 'RGBA')
+    def tile_has_data(self, tile_x: int, tile_y: int, zoom: int) -> bool:
+        """Check if a tile contains any metro data"""
+        tile_bounds = mercantile.bounds(tile_x, tile_y, zoom)
         
-        # Get tile bounds
-        tile_bounds = mercantile.bounds(x, y, zoom)
-        
-        # Determine styles for this zoom level
-        line_width = self.line_widths.get(zoom, 3)
-        station_size = self.station_sizes.get(zoom, 0)
-        
-        # Create bounding box for intersection testing
-        from shapely.geometry import box
-        # Add a small buffer to catch features at tile edges
-        buffer_deg = 0.001  # Small buffer in degrees
+        # Create a slightly larger box for intersection testing
+        buffer_deg = 0.001
         tile_box = box(
             tile_bounds.west - buffer_deg,
             tile_bounds.south - buffer_deg,
@@ -279,7 +235,45 @@ class HyderabadMetroTileGenerator:
             tile_bounds.north + buffer_deg
         )
         
-        # Draw metro lines first (so stations appear on top)
+        # Check lines
+        if not self.lines_gdf.empty:
+            for _, row in self.lines_gdf.iterrows():
+                if row.geometry and row.geometry.intersects(tile_box):
+                    return True
+        
+        # Check stations (only at higher zoom levels)
+        station_size = self.station_sizes.get(zoom, 0)
+        if station_size > 0 and not self.stations_gdf.empty:
+            for _, row in self.stations_gdf.iterrows():
+                if row.geometry and row.geometry.intersects(tile_box):
+                    return True
+        
+        return False
+    
+    def generate_tile(self, x: int, y: int, zoom: int, force_empty: bool = False) -> Image.Image:
+        """Generate a single tile"""
+        # Create transparent tile
+        img = Image.new('RGBA', (256, 256), (0, 0, 0, 0))
+        
+        # If forced empty, return the transparent tile
+        if force_empty:
+            return img
+        
+        draw = ImageDraw.Draw(img, 'RGBA')
+        tile_bounds = mercantile.bounds(x, y, zoom)
+        
+        line_width = self.line_widths.get(zoom, 3)
+        station_size = self.station_sizes.get(zoom, 0)
+        
+        buffer_deg = 0.001
+        tile_box = box(
+            tile_bounds.west - buffer_deg,
+            tile_bounds.south - buffer_deg,
+            tile_bounds.east + buffer_deg,
+            tile_bounds.north + buffer_deg
+        )
+        
+        # Draw metro lines
         if not self.lines_gdf.empty:
             for idx, row in self.lines_gdf.iterrows():
                 geometry = row.geometry
@@ -288,14 +282,11 @@ class HyderabadMetroTileGenerator:
                     continue
                 
                 try:
-                    # Check if geometry intersects with tile bounds
                     if geometry.intersects(tile_box):
-                        # Get color for this line
                         line_name = row.get('name', '')
                         line_colour = row.get('linecolour', '')
                         color = self.get_line_color(line_name, line_colour)
                         
-                        # Extract coordinates and draw
                         if geometry.geom_type == 'MultiLineString':
                             for line in geometry.geoms:
                                 coords = list(line.coords)
@@ -306,10 +297,9 @@ class HyderabadMetroTileGenerator:
                             if len(coords) >= 2:
                                 self.draw_line_antialiased(draw, coords, color, line_width, x, y, zoom)
                 except Exception as e:
-                    print(f"Error drawing line at tile {zoom}/{x}/{y}: {e}")
                     continue
         
-        # Draw station markers (only at higher zoom levels)
+        # Draw station markers
         if station_size > 0 and not self.stations_gdf.empty:
             for idx, row in self.stations_gdf.iterrows():
                 geometry = row.geometry
@@ -318,104 +308,111 @@ class HyderabadMetroTileGenerator:
                     continue
                 
                 try:
-                    # Check if station is within tile bounds
                     if geometry.intersects(tile_box):
                         if geometry.geom_type == 'Point':
                             lon, lat = geometry.x, geometry.y
-                            station_type = row.get('stationtype', '')
-                            station_color = self.get_station_color(station_type)
-                            self.draw_station_marker(draw, lon, lat, station_color, station_size, x, y, zoom)
+                            self.draw_station_marker(draw, lon, lat, station_size, x, y, zoom)
                 except Exception as e:
-                    print(f"Error drawing station at tile {zoom}/{x}/{y}: {e}")
                     continue
         
         return img
     
     def generate_png_tiles(self, min_zoom: int = 8, max_zoom: int = 18):
-        """Generate PNG tiles for all zoom levels"""
+        """Generate PNG tiles with empty border tiles to prevent bleeding"""
         print(f"Generating tiles for zoom levels {min_zoom} to {max_zoom}")
         
-        # Get the bounds of all features
-        all_bounds = []
-        if not self.lines_gdf.empty:
-            all_bounds.append(self.lines_gdf.total_bounds)
-        if not self.stations_gdf.empty:
-            all_bounds.append(self.stations_gdf.total_bounds)
-        
-        if not all_bounds:
+        if self.data_bounds is None:
             print("No data to generate tiles from")
             return
-            
-        # Calculate combined bounds
-        min_lon = min(bounds[0] for bounds in all_bounds)
-        min_lat = min(bounds[1] for bounds in all_bounds)
-        max_lon = max(bounds[2] for bounds in all_bounds)
-        max_lat = max(bounds[3] for bounds in all_bounds)
         
-        print(f"Bounds: [{min_lon:.4f}, {min_lat:.4f}] to [{max_lon:.4f}, {max_lat:.4f}]")
+        min_lon, min_lat, max_lon, max_lat = self.data_bounds
+        print(f"Data bounds: [{min_lon:.4f}, {min_lat:.4f}] to [{max_lon:.4f}, {max_lat:.4f}]")
         
         total_tiles = 0
+        total_empty_tiles = 0
         
         for zoom in range(min_zoom, max_zoom + 1):
             print(f"Processing zoom level {zoom}...")
             
-            # Calculate tile range
-            min_tile = mercantile.tile(min_lon, max_lat, zoom)  # NW corner
-            max_tile = mercantile.tile(max_lon, min_lat, zoom)  # SE corner
+            # Calculate tile range for actual data (no buffer)
+            data_min_tile = mercantile.tile(min_lon, max_lat, zoom)
+            data_max_tile = mercantile.tile(max_lon, min_lat, zoom)
+            
+            # Add buffer of empty tiles around the data
+            # The buffer size increases at lower zoom levels
+            if zoom <= 10:
+                tile_buffer = 3  # More buffer at low zoom
+            elif zoom <= 14:
+                tile_buffer = 2  # Medium buffer at mid zoom
+            else:
+                tile_buffer = 1  # Less buffer at high zoom
+            
+            # Extended tile range with buffer
+            buffered_min_x = data_min_tile.x - tile_buffer
+            buffered_max_x = data_max_tile.x + tile_buffer
+            buffered_min_y = data_min_tile.y - tile_buffer
+            buffered_max_y = data_max_tile.y + tile_buffer
             
             zoom_tiles = 0
+            empty_tiles = 0
             
             # Create zoom directory
             zoom_dir = self.output_dir / str(zoom)
             zoom_dir.mkdir(exist_ok=True)
             
             # Generate tiles for this zoom level
-            for tile_x in range(min_tile.x, max_tile.x + 1):
+            for tile_x in range(buffered_min_x, buffered_max_x + 1):
                 # Create x directory
                 x_dir = zoom_dir / str(tile_x)
                 x_dir.mkdir(exist_ok=True)
                 
-                for tile_y in range(min_tile.y, max_tile.y + 1):
+                for tile_y in range(buffered_min_y, buffered_max_y + 1):
                     tile_path = x_dir / f"{tile_y}.png"
                     
-                    # Generate tile (even if it exists, for testing)
+                    # Determine if this tile is in the buffer zone (should be empty)
+                    is_buffer_tile = (
+                        tile_x < data_min_tile.x or tile_x > data_max_tile.x or
+                        tile_y < data_min_tile.y or tile_y > data_max_tile.y
+                    )
+                    
                     try:
-                        tile_img = self.generate_tile(tile_x, tile_y, zoom)
-                        
-                        # Optimize PNG (remove fully transparent tiles to save space)
-                        if tile_img.getextrema()[3] == (0, 0):  # Alpha channel is fully transparent
-                            # Don't save empty tiles
-                            if tile_path.exists():
-                                tile_path.unlink()
+                        if is_buffer_tile:
+                            # Generate empty tile for buffer zone
+                            tile_img = self.generate_tile(tile_x, tile_y, zoom, force_empty=True)
+                            empty_tiles += 1
                         else:
-                            tile_img.save(tile_path, 'PNG', optimize=True)
-                            zoom_tiles += 1
+                            # Check if tile actually contains data
+                            if self.tile_has_data(tile_x, tile_y, zoom):
+                                # Generate normal tile with data
+                                tile_img = self.generate_tile(tile_x, tile_y, zoom, force_empty=False)
+                            else:
+                                # Generate empty tile for areas without data
+                                tile_img = self.generate_tile(tile_x, tile_y, zoom, force_empty=True)
+                                empty_tiles += 1
+                        
+                        # Save all tiles (including empty ones)
+                        tile_img.save(tile_path, 'PNG', optimize=True)
+                        zoom_tiles += 1
+                        
                     except Exception as e:
                         print(f"Error generating tile {zoom}/{tile_x}/{tile_y}: {e}")
             
-            print(f"Generated {zoom_tiles} non-empty tiles for zoom level {zoom}")
+            print(f"  Generated {zoom_tiles} tiles ({empty_tiles} empty border/buffer tiles)")
             total_tiles += zoom_tiles
+            total_empty_tiles += empty_tiles
         
-        print(f"Total tiles generated: {total_tiles}")
+        print(f"\nTotal tiles generated: {total_tiles}")
+        print(f"  - Data tiles: {total_tiles - total_empty_tiles}")
+        print(f"  - Empty border tiles: {total_empty_tiles}")
         print(f"Output directory: {self.output_dir}")
 
     def write_mapbox_viewer_html(self, access_token: str, port: int) -> Path:
         """Create an index.html in the tiles output dir that overlays the raster tiles on a Mapbox basemap."""
-        # Get combined bounds
-        all_bounds = []
-        if not self.lines_gdf.empty:
-            all_bounds.append(self.lines_gdf.total_bounds)
-        if not self.stations_gdf.empty:
-            all_bounds.append(self.stations_gdf.total_bounds)
-        
-        if not all_bounds:
+        if self.data_bounds is None:
             # Default Hyderabad bounds
             min_lon, min_lat, max_lon, max_lat = 78.2, 17.2, 78.7, 17.6
         else:
-            min_lon = min(bounds[0] for bounds in all_bounds)
-            min_lat = min(bounds[1] for bounds in all_bounds)
-            max_lon = max(bounds[2] for bounds in all_bounds)
-            max_lat = max(bounds[3] for bounds in all_bounds)
+            min_lon, min_lat, max_lon, max_lat = self.data_bounds
         
         center_lon = (min_lon + max_lon) / 2
         center_lat = (min_lat + max_lat) / 2
@@ -444,31 +441,46 @@ class HyderabadMetroTileGenerator:
     .legend h3 {{ margin: 0 0 10px 0; font-size: 14px; }}
     .legend-item {{ margin: 5px 0; display: flex; align-items: center; }}
     .legend-color {{ width: 20px; height: 3px; margin-right: 8px; }}
+    .info-box {{
+      position: absolute;
+      top: 10px;
+      right: 50px;
+      background: white;
+      padding: 10px;
+      border-radius: 5px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+      font-family: Arial, sans-serif;
+      font-size: 11px;
+    }}
   </style>
 </head>
 <body>
   <div id="map"></div>
+  <div class="info-box">
+    <strong>Hyderabad Metro</strong><br>
+    Zoom: <span id="zoom-level">11</span>
+  </div>
   <div class="legend">
-    <h3>Hyderabad Metro Lines</h3>
+    <h3>Metro Lines</h3>
     <div class="legend-item">
       <div class="legend-color" style="background-color: #00933D;"></div>
-      <span>Green Line (Phase 1 & 2)</span>
+      <span>Green Line</span>
     </div>
     <div class="legend-item">
       <div class="legend-color" style="background-color: #2D6BA1;"></div>
-      <span>Blue Line (Phase 1 & 2B)</span>
+      <span>Blue Line</span>
     </div>
     <div class="legend-item">
       <div class="legend-color" style="background-color: #E40D17;"></div>
-      <span>Red Line (Phase 1)</span>
+      <span>Red Line</span>
     </div>
     <div class="legend-item">
       <div class="legend-color" style="background-color: #8C06ED;"></div>
-      <span>Purple Line (Phase 2A)</span>
+      <span>Purple Line</span>
     </div>
     <div class="legend-item">
       <div class="legend-color" style="background-color: #EF6908;"></div>
-      <span>Future City Line (Phase 2B)</span>
+      <span>Future City Line</span>
     </div>
   </div>
   <script src="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.js"></script>
@@ -478,21 +490,37 @@ class HyderabadMetroTileGenerator:
       container: 'map',
       style: 'mapbox://styles/mapbox/satellite-streets-v12',
       center: [{center_lon}, {center_lat}],
-      zoom: 11
+      zoom: 11,
+      maxBounds: [[{min_lon - 0.5}, {min_lat - 0.5}], [{max_lon + 0.5}, {max_lat + 0.5}]]
     }});
 
     map.addControl(new mapboxgl.NavigationControl(), 'top-right');
 
     map.on('load', () => {{
-      map.fitBounds([[{min_lon}, {min_lat}], [{max_lon}, {max_lat}]], {{ padding: 40 }});
+      map.fitBounds([[{min_lon}, {min_lat}], [{max_lon}, {max_lat}]], {{ padding: 50 }});
+      
       map.addSource('metro-tiles', {{
         type: 'raster',
         tiles: ['http://localhost:{port}/{{z}}/{{x}}/{{y}}.png'],
         tileSize: 256,
         minzoom: 8,
-        maxzoom: 18
+        maxzoom: 18,
+        bounds: [{min_lon - 0.1}, {min_lat - 0.1}, {max_lon + 0.1}, {max_lat + 0.1}]
       }});
-      map.addLayer({{ id: 'metro-tiles', type: 'raster', source: 'metro-tiles', paint: {{ 'raster-opacity': 1 }} }});
+      
+      map.addLayer({{ 
+        id: 'metro-tiles', 
+        type: 'raster', 
+        source: 'metro-tiles', 
+        paint: {{ 
+          'raster-opacity': 1,
+          'raster-fade-duration': 0
+        }} 
+      }});
+    }});
+    
+    map.on('zoom', () => {{
+      document.getElementById('zoom-level').textContent = map.getZoom().toFixed(1);
     }});
   </script>
 </body>
@@ -524,14 +552,14 @@ class HyderabadMetroTileGenerator:
 
 def main():
     """Main function"""
-    print("=== Hyderabad Metro Tile Generator ===")
-    print("Based on complete analysis of metro data from data/Telangana/Hyderabad/metro-lines/")
+    print("=== Hyderabad Metro Tile Generator (Enhanced) ===")
+    print("Generating tiles with empty border tiles to prevent edge bleeding\n")
     
     settings = DEFAULT_VIEW_SETTINGS
 
     generator = HyderabadMetroTileGenerator()
     
-    # Generate tiles
+    # Generate tiles with empty borders
     generator.generate_png_tiles(min_zoom=settings["min_zoom"], max_zoom=settings["max_zoom"])
     
     # Optionally view
@@ -544,7 +572,7 @@ def main():
         index_path = generator.write_mapbox_viewer_html(token, port)
         generator.serve_tiles_and_open_browser(port, index_path)
     
-    print("Tile generation completed!")
+    print("\nTile generation completed!")
 
 if __name__ == "__main__":
     main()
