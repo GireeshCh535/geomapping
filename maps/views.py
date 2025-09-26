@@ -5,6 +5,7 @@ from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.permissions import AllowAny
 from django.conf import settings
+from django.core.cache import cache
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from django.http import HttpResponseRedirect, HttpResponse
@@ -2695,25 +2696,38 @@ class LayerBoundsAPIView(APIView):
     
     Returns the bounding box coordinates (west, south, east, north) for the layer,
     calculated from the actual feature geometries in the database.
+    
+    Optimized for performance with:
+    - Single optimized query with select_related
+    - Caching for bounds calculation
+    - Reduced database hits
     """
     permission_classes = [AllowAny]
     
     def get(self, request, state_slug, city_slug, layer_slug):
         try:
-            # Get the state
-            state = State.objects.get(slug=state_slug, is_active=True)
+            # Create cache key for this layer bounds
+            cache_key = f"layer_bounds_{state_slug}_{city_slug}_{layer_slug}"
             
-            # Get the city within the state
-            city = City.objects.get(slug=city_slug, state_ref=state, is_active=True)
+            # Try to get from cache first
+            cached_result = cache.get(cache_key)
+            if cached_result:
+                return Response(cached_result)
             
-            # Get the specific layer
-            layer = DataLayer.objects.get(
+            # Single optimized query to get layer with all related data
+            layer = DataLayer.objects.select_related(
+                'city__state_ref', 
+                'category'
+            ).get(
                 slug=layer_slug,
-                city=city,
+                city__slug=city_slug,
+                city__state_ref__slug=state_slug,
+                city__is_active=True,
+                city__state_ref__is_active=True,
                 is_processed=True
             )
             
-            # Check if layer has stored bounds
+            # Check if layer has stored bounds (fastest path)
             if all([layer.bbox_xmin, layer.bbox_ymin, layer.bbox_xmax, layer.bbox_ymax]):
                 bounds = {
                     'west': layer.bbox_xmin,
@@ -2722,14 +2736,22 @@ class LayerBoundsAPIView(APIView):
                     'north': layer.bbox_ymax
                 }
                 data_source = 'stored_bounds'
+                feature_count = layer.feature_count  # Use stored count
             else:
-                # Calculate bounds from actual features
+                # Calculate bounds from actual features (optimized query)
                 from django.contrib.gis.db.models import Extent
                 
-                extent = GeoFeature.objects.filter(
+                # Single query to get both extent and count
+                result = GeoFeature.objects.filter(
                     layer=layer,
                     is_valid=True
-                ).aggregate(extent=Extent('geometry'))['extent']
+                ).aggregate(
+                    extent=Extent('geometry'),
+                    count=Count('id')
+                )
+                
+                extent = result['extent']
+                feature_count = result['count']
                 
                 if not extent:
                     return Response({
@@ -2755,17 +2777,11 @@ class LayerBoundsAPIView(APIView):
             width = bounds['east'] - bounds['west']
             height = bounds['north'] - bounds['south']
             
-            # Get feature count
-            feature_count = GeoFeature.objects.filter(
-                layer=layer,
-                is_valid=True
-            ).count()
-            
-            return Response({
+            response_data = {
                 'state': state_slug,
-                'state_name': state.name,
+                'state_name': layer.city.state_ref.name,
                 'city': city_slug,
-                'city_name': city.name,
+                'city_name': layer.city.name,
                 'layer': layer_slug,
                 'layer_name': layer.name,
                 'bounds': bounds,
@@ -2786,22 +2802,13 @@ class LayerBoundsAPIView(APIView):
                     'is_processed': layer.is_processed,
                     'created_at': layer.created_at.isoformat() if layer.created_at else None
                 }
-            })
+            }
             
-        except State.DoesNotExist:
-            return Response({
-                'error': f'State not found: {state_slug}',
-                'state': state_slug,
-                'city': city_slug,
-                'layer': layer_slug
-            }, status=status.HTTP_404_NOT_FOUND)
-        except City.DoesNotExist:
-            return Response({
-                'error': f'City not found: {city_slug} in state: {state_slug}',
-                'state': state_slug,
-                'city': city_slug,
-                'layer': layer_slug
-            }, status=status.HTTP_404_NOT_FOUND)
+            # Cache the result for 1 hour (3600 seconds)
+            cache.set(cache_key, response_data, 3600)
+            
+            return Response(response_data)
+            
         except DataLayer.DoesNotExist:
             return Response({
                 'error': f'Layer not found: {layer_slug} in city: {city_slug}',
