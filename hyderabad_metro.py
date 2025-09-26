@@ -63,16 +63,16 @@ class HyderabadMetroTileGenerator:
             'Metro Phase 2B': '#EF6908'
         }
         
-        # Line width for different zoom levels (reduced)
+        # Line width for different zoom levels (adjusted for better visibility)
         self.line_widths = {
-            8: 1, 9: 1, 10: 1, 11: 2, 12: 2, 13: 3, 
-            14: 4, 15: 5, 16: 6, 17: 8, 18: 10
+            8: 1, 9: 1, 10: 2, 11: 2, 12: 3, 13: 3, 
+            14: 4, 15: 5, 16: 6, 17: 7, 18: 8
         }
         
-        # Station marker sizes for different zoom levels (reduced but visible)
+        # Station marker sizes for different zoom levels (adjusted)
         self.station_sizes = {
-            8: 2, 9: 2, 10: 3, 11: 3, 12: 4, 13: 4,
-            14: 5, 15: 6, 16: 7, 17: 8, 18: 9
+            8: 0, 9: 0, 10: 2, 11: 3, 12: 3, 13: 4,
+            14: 5, 15: 6, 16: 7, 17: 8, 18: 10
         }
         
         # Station marker colors - all stations are red
@@ -96,6 +96,11 @@ class HyderabadMetroTileGenerator:
             if self.metro_lines_path.exists():
                 self.lines_gdf = gpd.read_file(self.metro_lines_path)
                 print(f"Loaded {len(self.lines_gdf)} metro lines")
+                # Ensure CRS is set to WGS84
+                if self.lines_gdf.crs is None:
+                    self.lines_gdf.set_crs('EPSG:4326', inplace=True)
+                elif self.lines_gdf.crs.to_string() != 'EPSG:4326':
+                    self.lines_gdf = self.lines_gdf.to_crs('EPSG:4326')
             else:
                 print(f"Warning: Metro lines file not found at {self.metro_lines_path}")
                 self.lines_gdf = gpd.GeoDataFrame()
@@ -104,6 +109,11 @@ class HyderabadMetroTileGenerator:
             if self.metro_stations_path.exists():
                 self.stations_gdf = gpd.read_file(self.metro_stations_path)
                 print(f"Loaded {len(self.stations_gdf)} metro stations")
+                # Ensure CRS is set to WGS84
+                if self.stations_gdf.crs is None:
+                    self.stations_gdf.set_crs('EPSG:4326', inplace=True)
+                elif self.stations_gdf.crs.to_string() != 'EPSG:4326':
+                    self.stations_gdf = self.stations_gdf.to_crs('EPSG:4326')
             else:
                 print(f"Warning: Metro stations file not found at {self.metro_stations_path}")
                 self.stations_gdf = gpd.GeoDataFrame()
@@ -170,138 +180,156 @@ class HyderabadMetroTileGenerator:
         else:
             return self.station_colors['General Station']
     
-    def wgs84_to_tile_pixel(self, lon: float, lat: float, tile_x: int, tile_y: int, zoom: int) -> Tuple[int, int]:
+    def wgs84_to_tile_pixel(self, lon: float, lat: float, tile_x: int, tile_y: int, zoom: int) -> Tuple[float, float]:
         """Convert WGS84 coordinates to pixel coordinates within a tile"""
         # Clamp latitude to avoid math domain error
         lat = max(-85.051129, min(85.051129, lat))
         
-        # Convert to tile coordinates
-        tile_lon = (lon + 180) / 360 * (2 ** zoom)
-        tile_lat = (1 - math.asinh(math.tan(math.radians(lat))) / math.pi) / 2 * (2 ** zoom)
+        # Convert to tile coordinates (floating point)
+        n = 2.0 ** zoom
+        tile_lon = (lon + 180.0) / 360.0 * n
+        lat_rad = math.radians(lat)
+        tile_lat = (1.0 - math.asinh(math.tan(lat_rad)) / math.pi) / 2.0 * n
         
-        # Convert to pixel coordinates within the tile (top-left origin)
-        pixel_x = int((tile_lon - tile_x) * 256)
-        pixel_y = int((tile_lat - tile_y) * 256)
+        # Convert to pixel coordinates within the tile (256x256 pixels)
+        pixel_x = (tile_lon - tile_x) * 256.0
+        pixel_y = (tile_lat - tile_y) * 256.0
         
         return pixel_x, pixel_y
     
-    def draw_line(self, draw: ImageDraw, coordinates: List[Tuple[float, float]], 
-                  color: str, width: int, tile_x: int, tile_y: int, zoom: int,
-                  offset_x: int = 0, offset_y: int = 0):
-        """Draw a line on the tile"""
+    def draw_line_antialiased(self, draw: ImageDraw, coordinates: List[Tuple[float, float]], 
+                             color: str, width: int, tile_x: int, tile_y: int, zoom: int):
+        """Draw a line on the tile with improved antialiasing"""
         if len(coordinates) < 2:
             return
-            
-        # Convert coordinates to pixel positions
+        
+        # Convert coordinates to pixel positions (keep as float for smoother lines)
         pixel_coords = []
         for lon, lat in coordinates:
-            pixel_x, pixel_y = self.wgs84_to_tile_pixel(lon, lat, tile_x, tile_y, zoom)
-            pixel_coords.append((pixel_x + offset_x, pixel_y + offset_y))
+            px, py = self.wgs84_to_tile_pixel(lon, lat, tile_x, tile_y, zoom)
+            pixel_coords.append((px, py))
         
-        # Draw the line segments
-        if len(pixel_coords) >= 2:
+        # Filter out segments that are completely outside the tile bounds
+        # Add some padding to avoid cutting off lines at tile edges
+        padding = width + 10
+        visible_segments = []
+        
+        for i in range(len(pixel_coords) - 1):
+            x1, y1 = pixel_coords[i]
+            x2, y2 = pixel_coords[i + 1]
+            
+            # Check if segment intersects with padded tile bounds
+            if not ((max(x1, x2) < -padding or min(x1, x2) > 256 + padding) or
+                    (max(y1, y2) < -padding or min(y1, y2) > 256 + padding)):
+                visible_segments.append([(x1, y1), (x2, y2)])
+        
+        # Draw visible segments
+        for segment in visible_segments:
             try:
-                draw.line(pixel_coords, fill=color, width=width)
-            except Exception as e:
-                # If line drawing fails, draw individual segments
-                for i in range(len(pixel_coords) - 1):
-                    start = pixel_coords[i]
-                    end = pixel_coords[i + 1]
-                    try:
-                        draw.line([start, end], fill=color, width=width)
-                    except:
-                        continue
+                # Round coordinates only when drawing
+                rounded_segment = [(round(x), round(y)) for x, y in segment]
+                draw.line(rounded_segment, fill=color, width=width, joint="curve")
+            except Exception:
+                pass  # Skip problematic segments
     
     def draw_station_marker(self, draw: ImageDraw, lon: float, lat: float, 
-                           color: str, size: int, tile_x: int, tile_y: int, zoom: int,
-                           offset_x: int = 0, offset_y: int = 0):
+                           color: str, size: int, tile_x: int, tile_y: int, zoom: int):
         """Draw a station marker on the tile"""
+        if size <= 0:
+            return  # Don't draw if size is 0 or negative
+            
         pixel_x, pixel_y = self.wgs84_to_tile_pixel(lon, lat, tile_x, tile_y, zoom)
-        pixel_x += offset_x
-        pixel_y += offset_y
         
         # Check if marker is within tile bounds with some padding
-        if -size <= pixel_x <= 256 + size and -size <= pixel_y <= 256 + size:
-            # Draw a filled circle for the station with white outline for better visibility
-            bbox = [pixel_x - size, pixel_y - size, pixel_x + size, pixel_y + size]
-            draw.ellipse(bbox, fill=color, outline='white', width=2)
+        padding = size + 5
+        if -padding <= pixel_x <= 256 + padding and -padding <= pixel_y <= 256 + padding:
+            # Round coordinates for drawing
+            px, py = round(pixel_x), round(pixel_y)
+            
+            # Draw white background circle (slightly larger)
+            white_size = size + 1
+            white_bbox = [px - white_size, py - white_size, px + white_size, py + white_size]
+            draw.ellipse(white_bbox, fill='white', outline=None)
+            
+            # Draw colored circle
+            bbox = [px - size, py - size, px + size, py + size]
+            draw.ellipse(bbox, fill=color, outline=None)
     
     def generate_tile(self, x: int, y: int, zoom: int) -> Image.Image:
-        """Generate a single tile"""
-        # Determine styles for this zoom level
-        line_width = self.line_widths.get(zoom, 3)
-        station_size = self.station_sizes.get(zoom, 5)
-
-        # Add bleed to avoid seams across adjacent tiles
-        bleed_px = max(2, line_width * 2)
-
-        # Create a transparent image larger than a tile to draw with bleed
-        canvas_size = 256 + 2 * bleed_px
-        img = Image.new('RGBA', (canvas_size, canvas_size), (0, 0, 0, 0))
-        draw = ImageDraw.Draw(img)
+        """Generate a single tile with improved rendering"""
+        # Create tile with antialiasing support
+        img = Image.new('RGBA', (256, 256), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(img, 'RGBA')
         
         # Get tile bounds
         tile_bounds = mercantile.bounds(x, y, zoom)
         
-        # Create a shapely box for the tile bounds with slight buffer for intersection
+        # Determine styles for this zoom level
+        line_width = self.line_widths.get(zoom, 3)
+        station_size = self.station_sizes.get(zoom, 0)
+        
+        # Create bounding box for intersection testing
         from shapely.geometry import box
-        tile_width_deg = tile_bounds.east - tile_bounds.west
-        tile_height_deg = tile_bounds.north - tile_bounds.south
-        buffer_px = bleed_px + max(line_width, station_size)
-        buffer_lon = tile_width_deg * (buffer_px / 256.0)
-        buffer_lat = tile_height_deg * (buffer_px / 256.0)
+        # Add a small buffer to catch features at tile edges
+        buffer_deg = 0.001  # Small buffer in degrees
         tile_box = box(
-            tile_bounds.west - buffer_lon,
-            tile_bounds.south - buffer_lat,
-            tile_bounds.east + buffer_lon,
-            tile_bounds.north + buffer_lat
+            tile_bounds.west - buffer_deg,
+            tile_bounds.south - buffer_deg,
+            tile_bounds.east + buffer_deg,
+            tile_bounds.north + buffer_deg
         )
         
-        # Draw metro lines
+        # Draw metro lines first (so stations appear on top)
         if not self.lines_gdf.empty:
             for idx, row in self.lines_gdf.iterrows():
                 geometry = row.geometry
                 
-                # Check if geometry intersects with tile bounds
-                if geometry.intersects(tile_box):
-                    # Get color for this line
-                    line_name = row.get('name', '')
-                    line_colour = row.get('linecolour', '')
-                    color = self.get_line_color(line_name, line_colour)
-                    
-                    # Draw the line
-                    if geometry.geom_type == 'MultiLineString':
-                        for line in geometry.geoms:
-                            coords = list(line.coords)
+                if geometry is None:
+                    continue
+                
+                try:
+                    # Check if geometry intersects with tile bounds
+                    if geometry.intersects(tile_box):
+                        # Get color for this line
+                        line_name = row.get('name', '')
+                        line_colour = row.get('linecolour', '')
+                        color = self.get_line_color(line_name, line_colour)
+                        
+                        # Extract coordinates and draw
+                        if geometry.geom_type == 'MultiLineString':
+                            for line in geometry.geoms:
+                                coords = list(line.coords)
+                                if len(coords) >= 2:
+                                    self.draw_line_antialiased(draw, coords, color, line_width, x, y, zoom)
+                        elif geometry.geom_type == 'LineString':
+                            coords = list(geometry.coords)
                             if len(coords) >= 2:
-                                self.draw_line(draw, coords, color, line_width, x, y, zoom, bleed_px, bleed_px)
-                    elif geometry.geom_type == 'LineString':
-                        coords = list(geometry.coords)
-                        if len(coords) >= 2:
-                            self.draw_line(draw, coords, color, line_width, x, y, zoom, bleed_px, bleed_px)
+                                self.draw_line_antialiased(draw, coords, color, line_width, x, y, zoom)
+                except Exception as e:
+                    print(f"Error drawing line at tile {zoom}/{x}/{y}: {e}")
+                    continue
         
-        # Draw station markers (only at higher zoom levels to avoid clutter)
-        if zoom >= 10 and not self.stations_gdf.empty:
+        # Draw station markers (only at higher zoom levels)
+        if station_size > 0 and not self.stations_gdf.empty:
             for idx, row in self.stations_gdf.iterrows():
                 geometry = row.geometry
                 
-                # Check if station is within tile bounds
-                if geometry.intersects(tile_box):
-                    if geometry.geom_type == 'Point':
-                        lon, lat = geometry.coords[0]
-                        station_name = row.get('name', '')
-                        station_type = row.get('stationtype', '')
-                        station_color = self.get_station_color(station_type)
-                        
-                        # Debug output for Paradise station
-                        if 'Paradise' in station_name:
-                            print(f"Drawing Paradise station at {lon}, {lat} for tile {zoom}/{x}/{y}")
-                        
-                        self.draw_station_marker(draw, lon, lat, station_color, station_size, x, y, zoom, bleed_px, bleed_px)
+                if geometry is None:
+                    continue
+                
+                try:
+                    # Check if station is within tile bounds
+                    if geometry.intersects(tile_box):
+                        if geometry.geom_type == 'Point':
+                            lon, lat = geometry.x, geometry.y
+                            station_type = row.get('stationtype', '')
+                            station_color = self.get_station_color(station_type)
+                            self.draw_station_marker(draw, lon, lat, station_color, station_size, x, y, zoom)
+                except Exception as e:
+                    print(f"Error drawing station at tile {zoom}/{x}/{y}: {e}")
+                    continue
         
-        # Crop to the central 256x256 tile area to remove the bleed
-        cropped = img.crop((bleed_px, bleed_px, bleed_px + 256, bleed_px + 256))
-        return cropped
+        return img
     
     def generate_png_tiles(self, min_zoom: int = 8, max_zoom: int = 18):
         """Generate PNG tiles for all zoom levels"""
@@ -324,14 +352,16 @@ class HyderabadMetroTileGenerator:
         max_lon = max(bounds[2] for bounds in all_bounds)
         max_lat = max(bounds[3] for bounds in all_bounds)
         
+        print(f"Bounds: [{min_lon:.4f}, {min_lat:.4f}] to [{max_lon:.4f}, {max_lat:.4f}]")
+        
         total_tiles = 0
         
         for zoom in range(min_zoom, max_zoom + 1):
             print(f"Processing zoom level {zoom}...")
             
             # Calculate tile range
-            min_tile = mercantile.tile(min_lon, min_lat, zoom)
-            max_tile = mercantile.tile(max_lon, max_lat, zoom)
+            min_tile = mercantile.tile(min_lon, max_lat, zoom)  # NW corner
+            max_tile = mercantile.tile(max_lon, min_lat, zoom)  # SE corner
             
             zoom_tiles = 0
             
@@ -340,26 +370,30 @@ class HyderabadMetroTileGenerator:
             zoom_dir.mkdir(exist_ok=True)
             
             # Generate tiles for this zoom level
-            for x in range(min_tile.x, max_tile.x + 1):
+            for tile_x in range(min_tile.x, max_tile.x + 1):
                 # Create x directory
-                x_dir = zoom_dir / str(x)
+                x_dir = zoom_dir / str(tile_x)
                 x_dir.mkdir(exist_ok=True)
                 
-                for y in range(max_tile.y, min_tile.y + 1):
-                    tile_path = x_dir / f"{y}.png"
+                for tile_y in range(min_tile.y, max_tile.y + 1):
+                    tile_path = x_dir / f"{tile_y}.png"
                     
-                    # Skip if tile already exists
-                    if not tile_path.exists():
-                        try:
-                            tile_img = self.generate_tile(x, y, zoom)
-                            
-                            # Always save the tile image. If there's no content, this will be a fully transparent PNG.
-                            tile_img.save(tile_path, 'PNG')
+                    # Generate tile (even if it exists, for testing)
+                    try:
+                        tile_img = self.generate_tile(tile_x, tile_y, zoom)
+                        
+                        # Optimize PNG (remove fully transparent tiles to save space)
+                        if tile_img.getextrema()[3] == (0, 0):  # Alpha channel is fully transparent
+                            # Don't save empty tiles
+                            if tile_path.exists():
+                                tile_path.unlink()
+                        else:
+                            tile_img.save(tile_path, 'PNG', optimize=True)
                             zoom_tiles += 1
-                        except Exception as e:
-                            print(f"Error generating tile {zoom}/{x}/{y}: {e}")
+                    except Exception as e:
+                        print(f"Error generating tile {zoom}/{tile_x}/{tile_y}: {e}")
             
-            print(f"Generated {zoom_tiles} tiles for zoom level {zoom}")
+            print(f"Generated {zoom_tiles} non-empty tiles for zoom level {zoom}")
             total_tiles += zoom_tiles
         
         print(f"Total tiles generated: {total_tiles}")
