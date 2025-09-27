@@ -37,3 +37,4 @@ django-redis==6.0.0
 psutil==7.0.0
 matplotlib==3.10.6
 rtree==1.4.1
+tqdm==4.67.1
