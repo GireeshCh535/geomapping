@@ -31,7 +31,7 @@ class Command(BaseCommand):
         parser.add_argument(
             '--data-dir',
             type=str,
-            default='data/tamil_nadu/coimbatore/',
+            default='data/tamil_nadu/coimbatore/coimbatore_master_plan/',
             help='Directory containing the master plan data files',
         )
 
