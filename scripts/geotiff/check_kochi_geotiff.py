@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Comprehensive GeoTIFF Analyzer
-Gathers all necessary information to debug and fix tile generation issues
+Enhanced GeoTIFF Deep Scanner
+Thoroughly scans the entire image to find where actual data exists
 """
 
 import os
@@ -11,566 +11,418 @@ import warnings
 from pathlib import Path
 import numpy as np
 from datetime import datetime
+import random
 
-# Suppress warnings temporarily
 warnings.filterwarnings('ignore')
 
-# Try imports
-libraries = {}
 try:
     import rasterio
     from rasterio.windows import Window
-    from rasterio.transform import from_bounds
-    from rasterio.warp import transform_bounds
-    libraries['rasterio'] = rasterio.__version__
 except ImportError as e:
     print(f"ERROR: rasterio not installed - {e}")
     sys.exit(1)
 
-try:
-    import mercantile
-    libraries['mercantile'] = mercantile.__version__ if hasattr(mercantile, '__version__') else 'installed'
-except ImportError:
-    libraries['mercantile'] = 'not installed'
-
-try:
-    from PIL import Image
-    libraries['PIL'] = Image.__version__ if hasattr(Image, '__version__') else 'installed'
-except ImportError:
-    libraries['PIL'] = 'not installed'
-
-try:
-    import gdal
-    from osgeo import gdal
-    libraries['GDAL'] = gdal.__version__
-except ImportError:
-    libraries['GDAL'] = 'not available'
-
-class GeoTIFFAnalyzer:
+class EnhancedTiffScanner:
     def __init__(self, tiff_path):
         self.tiff_path = Path(tiff_path)
-        self.report = {
+        self.scan_results = {
             'timestamp': datetime.now().isoformat(),
             'file': str(self.tiff_path),
-            'file_exists': self.tiff_path.exists(),
-            'file_size_mb': 0,
-            'libraries': libraries,
-            'basic_info': {},
-            'georeferencing': {},
-            'data_info': {},
-            'corruption_check': {},
-            'tile_generation_params': {},
-            'recommendations': []
+            'file_size_mb': self.tiff_path.stat().st_size / (1024 * 1024) if self.tiff_path.exists() else 0,
+            'data_regions': [],
+            'empty_regions': [],
+            'band_statistics': [],
+            'actual_data_bounds': None,
+            'percentage_with_data': 0,
+            'scan_summary': {}
         }
-        
-        if self.tiff_path.exists():
-            self.report['file_size_mb'] = self.tiff_path.stat().st_size / (1024 * 1024)
     
-    def analyze(self):
-        """Run complete analysis"""
+    def deep_scan(self, grid_size=10, sample_size=256):
+        """
+        Perform a deep scan of the image using a grid pattern
+        grid_size: divide image into NxN grid
+        sample_size: size of sample window at each grid point
+        """
         print("="*70)
-        print(f"GEOTIFF ANALYZER - {self.tiff_path.name}")
+        print("ENHANCED GEOTIFF DEEP SCANNER")
         print("="*70)
         
-        if not self.tiff_path.exists():
-            print(f"ERROR: File not found: {self.tiff_path}")
-            return self.report
-        
-        print(f"File size: {self.report['file_size_mb']:.2f} MB")
-        print()
-        
-        # Run all analysis steps
-        self.analyze_basic_info()
-        self.analyze_georeferencing()
-        self.analyze_data_characteristics()
-        self.check_corruption()
-        self.calculate_tile_params()
-        self.generate_recommendations()
-        
-        return self.report
-    
-    def analyze_basic_info(self):
-        """Analyze basic file information"""
-        print("1. BASIC INFORMATION")
-        print("-" * 40)
-        
         try:
             with rasterio.open(self.tiff_path) as src:
-                self.report['basic_info'] = {
-                    'width': src.width,
-                    'height': src.height,
-                    'total_pixels': src.width * src.height,
-                    'count_bands': src.count,
-                    'dtype': str(src.dtypes[0]),
-                    'driver': src.driver,
-                    'compression': src.compression.name if src.compression else 'none',
-                    'interleave': src.interleaving.name if src.interleaving else 'none',
-                    'photometric': src.photometric.name if src.photometric else 'none',
-                    'tiled': src.is_tiled,
-                    'block_shape': src.block_shapes[0] if src.block_shapes else None,
-                    'nodata': src.nodata,
-                    'has_overviews': len(src.overviews(1)) > 0,
-                    'overview_levels': src.overviews(1) if src.overviews(1) else [],
-                    'profile': {k: str(v) for k, v in src.profile.items()}
-                }
+                width, height = src.width, src.height
+                bands = src.count
                 
-                print(f"Dimensions: {src.width} x {src.height} pixels")
-                print(f"Total pixels: {src.width * src.height:,}")
-                print(f"Bands: {src.count}")
-                print(f"Data type: {src.dtypes[0]}")
-                print(f"Compression: {self.report['basic_info']['compression']}")
-                print(f"Tiled: {src.is_tiled}")
-                if src.is_tiled:
-                    print(f"Tile size: {src.block_shapes[0]}")
-                print(f"Overviews: {len(src.overviews(1))} levels - {src.overviews(1)}")
+                print(f"File: {self.tiff_path.name}")
+                print(f"Dimensions: {width}x{height} pixels")
+                print(f"Bands: {bands}")
+                print(f"File size: {self.scan_results['file_size_mb']:.2f} MB")
+                print()
                 
-        except Exception as e:
-            print(f"ERROR reading basic info: {e}")
-            self.report['basic_info']['error'] = str(e)
-        
-        print()
-    
-    def analyze_georeferencing(self):
-        """Analyze georeferencing information"""
-        print("2. GEOREFERENCING")
-        print("-" * 40)
-        
-        try:
-            with rasterio.open(self.tiff_path) as src:
-                # Get CRS info
-                crs_info = {
-                    'crs': str(src.crs) if src.crs else None,
-                    'crs_wkt': src.crs.wkt if src.crs else None,
-                    'is_geographic': src.crs.is_geographic if src.crs else None,
-                    'is_projected': src.crs.is_projected if src.crs else None,
-                }
+                # Calculate grid points
+                x_step = width // grid_size
+                y_step = height // grid_size
                 
-                # Get bounds
-                bounds = src.bounds
-                bounds_info = {
-                    'left': bounds.left,
-                    'bottom': bounds.bottom,
-                    'right': bounds.right,
-                    'top': bounds.top,
-                    'width_degrees': bounds.right - bounds.left,
-                    'height_degrees': bounds.top - bounds.bottom
-                }
+                print(f"Scanning {grid_size}x{grid_size} grid points across image...")
+                print(f"Each sample: {sample_size}x{sample_size} pixels")
+                print("-"*70)
                 
-                # Get transform
-                transform = src.transform
-                transform_info = {
-                    'transform': str(transform),
-                    'pixel_width': transform.a,
-                    'pixel_height': abs(transform.e),
-                    'rotation_x': transform.b,
-                    'rotation_y': transform.d,
-                    'origin_x': transform.c,
-                    'origin_y': transform.f,
-                    'is_identity': transform.is_identity,
-                    'is_rectilinear': transform.is_rectilinear if hasattr(transform, 'is_rectilinear') else None
-                }
+                data_points = []
+                empty_points = []
+                all_values = []
                 
-                # Calculate WGS84 bounds if needed
-                wgs84_bounds = None
-                if src.crs and str(src.crs) != 'EPSG:4326':
-                    try:
-                        wgs84_bounds = transform_bounds(src.crs, 'EPSG:4326', *bounds)
-                        wgs84_info = {
-                            'west': wgs84_bounds[0],
-                            'south': wgs84_bounds[1],
-                            'east': wgs84_bounds[2],
-                            'north': wgs84_bounds[3]
-                        }
-                    except:
-                        wgs84_info = None
-                else:
-                    wgs84_info = bounds_info.copy()
-                
-                self.report['georeferencing'] = {
-                    'crs': crs_info,
-                    'bounds': bounds_info,
-                    'transform': transform_info,
-                    'wgs84_bounds': wgs84_info,
-                    'resolution_meters': None
-                }
-                
-                # Try to calculate resolution in meters
-                if src.crs and src.crs.is_projected:
-                    self.report['georeferencing']['resolution_meters'] = {
-                        'x': abs(transform.a),
-                        'y': abs(transform.e)
-                    }
-                
-                print(f"CRS: {crs_info['crs']}")
-                print(f"Bounds: ({bounds.left:.6f}, {bounds.bottom:.6f}, {bounds.right:.6f}, {bounds.top:.6f})")
-                print(f"Pixel size: {transform.a:.10f} x {abs(transform.e):.10f}")
-                print(f"Transform identity: {transform.is_identity}")
-                if wgs84_info and str(src.crs) != 'EPSG:4326':
-                    print(f"WGS84 bounds: ({wgs84_info['west']:.6f}, {wgs84_info['south']:.6f}, "
-                          f"{wgs84_info['east']:.6f}, {wgs84_info['north']:.6f})")
-                
-        except Exception as e:
-            print(f"ERROR reading georeferencing: {e}")
-            self.report['georeferencing']['error'] = str(e)
-        
-        print()
-    
-    def analyze_data_characteristics(self):
-        """Analyze data characteristics by sampling"""
-        print("3. DATA CHARACTERISTICS")
-        print("-" * 40)
-        
-        try:
-            with rasterio.open(self.tiff_path) as src:
-                data_info = {
-                    'bands': [],
-                    'has_alpha': False,
-                    'sample_successful': False,
-                    'estimated_memory_mb': 0
-                }
-                
-                # Calculate memory requirement
-                dtype_size = np.dtype(src.dtypes[0]).itemsize
-                data_info['estimated_memory_mb'] = (src.width * src.height * src.count * dtype_size) / (1024 * 1024)
-                
-                print(f"Estimated memory requirement: {data_info['estimated_memory_mb']:.2f} MB")
-                
-                # Sample each band
-                sample_size = min(1000, src.width, src.height)
-                sample_window = Window(0, 0, sample_size, sample_size)
-                
-                print(f"Sampling {sample_size}x{sample_size} pixels from each band...")
-                
-                for band_idx in range(1, src.count + 1):
-                    try:
-                        sample_data = src.read(band_idx, window=sample_window)
+                # Scan grid
+                for grid_y in range(grid_size):
+                    for grid_x in range(grid_size):
+                        # Calculate window position
+                        col = min(grid_x * x_step, width - sample_size)
+                        row = min(grid_y * y_step, height - sample_size)
                         
-                        band_info = {
-                            'index': band_idx,
-                            'min': float(np.min(sample_data)),
-                            'max': float(np.max(sample_data)),
-                            'mean': float(np.mean(sample_data)),
-                            'std': float(np.std(sample_data)),
-                            'has_data': np.any(sample_data != 0),
-                            'unique_values': min(len(np.unique(sample_data)), 100),
-                            'sample_successful': True
-                        }
+                        window = Window(col, row, 
+                                      min(sample_size, width - col),
+                                      min(sample_size, height - row))
                         
-                        # Check if this might be alpha channel
-                        if band_idx == src.count and band_idx == 4:
-                            unique_vals = np.unique(sample_data)
-                            if len(unique_vals) <= 2 and 255 in unique_vals:
-                                data_info['has_alpha'] = True
-                                band_info['is_alpha'] = True
-                        
-                        data_info['bands'].append(band_info)
-                        print(f"  Band {band_idx}: min={band_info['min']:.1f}, "
-                              f"max={band_info['max']:.1f}, mean={band_info['mean']:.1f}")
-                        
-                    except Exception as e:
-                        print(f"  Band {band_idx}: ERROR - {e}")
-                        data_info['bands'].append({
-                            'index': band_idx,
-                            'error': str(e),
-                            'sample_successful': False
-                        })
-                
-                data_info['sample_successful'] = all(b.get('sample_successful', False) for b in data_info['bands'])
-                self.report['data_info'] = data_info
-                
-        except Exception as e:
-            print(f"ERROR analyzing data: {e}")
-            self.report['data_info']['error'] = str(e)
-        
-        print()
-    
-    def check_corruption(self):
-        """Check for file corruption"""
-        print("4. CORRUPTION CHECK")
-        print("-" * 40)
-        
-        corruption_info = {
-            'quick_read_test': False,
-            'random_tile_test': False,
-            'corrupted_areas': [],
-            'error_messages': [],
-            'is_corrupted': False
-        }
-        
-        try:
-            with warnings.catch_warnings(record=True) as w:
-                warnings.simplefilter("always")
-                
-                with rasterio.open(self.tiff_path) as src:
-                    # Test 1: Quick read of small area
-                    try:
-                        test_window = Window(0, 0, min(100, src.width), min(100, src.height))
-                        test_data = src.read(window=test_window)
-                        corruption_info['quick_read_test'] = True
-                        print("✓ Quick read test: PASSED")
-                    except Exception as e:
-                        corruption_info['quick_read_test'] = False
-                        corruption_info['error_messages'].append(f"Quick read: {str(e)}")
-                        print(f"✗ Quick read test: FAILED - {e}")
-                    
-                    # Test 2: Random tile reads
-                    print("Testing random tiles...")
-                    num_tests = min(10, (src.width // 512) * (src.height // 512))
-                    failed_tiles = 0
-                    
-                    for i in range(num_tests):
                         try:
-                            # Random position
-                            col = np.random.randint(0, max(1, src.width - 512))
-                            row = np.random.randint(0, max(1, src.height - 512))
-                            test_window = Window(col, row, min(512, src.width - col), min(512, src.height - row))
-                            test_data = src.read(1, window=test_window)
+                            # Read all bands for this window
+                            data = src.read(window=window)
+                            
+                            # Analyze data
+                            has_data = False
+                            band_info = []
+                            
+                            for b in range(data.shape[0]):
+                                band_data = data[b]
+                                non_zero = np.count_nonzero(band_data)
+                                
+                                if non_zero > 0:
+                                    has_data = True
+                                    band_stats = {
+                                        'min': float(np.min(band_data)),
+                                        'max': float(np.max(band_data)),
+                                        'mean': float(np.mean(band_data)),
+                                        'non_zero_pixels': non_zero,
+                                        'unique_values': len(np.unique(band_data))
+                                    }
+                                    band_info.append(band_stats)
+                                    all_values.extend(band_data[band_data > 0].flatten().tolist()[:100])
+                            
+                            point_info = {
+                                'grid_x': grid_x,
+                                'grid_y': grid_y,
+                                'col': col,
+                                'row': row,
+                                'width': window.width,
+                                'height': window.height,
+                                'has_data': has_data
+                            }
+                            
+                            if has_data:
+                                point_info['band_stats'] = band_info
+                                data_points.append(point_info)
+                                print(f"✓ Grid[{grid_x},{grid_y}] at pixel({col},{row}): DATA FOUND")
+                            else:
+                                empty_points.append(point_info)
+                                print(f"✗ Grid[{grid_x},{grid_y}] at pixel({col},{row}): empty")
+                            
                         except Exception as e:
-                            failed_tiles += 1
-                            if 'LZW' in str(e) or 'TIFFRead' in str(e):
-                                corruption_info['corrupted_areas'].append({
-                                    'col': col,
-                                    'row': row,
-                                    'error': str(e)[:100]
-                                })
-                    
-                    corruption_info['random_tile_test'] = failed_tiles == 0
-                    if failed_tiles > 0:
-                        print(f"✗ Random tile test: {failed_tiles}/{num_tests} tiles failed")
-                        corruption_info['is_corrupted'] = True
-                    else:
-                        print(f"✓ Random tile test: PASSED ({num_tests} tiles)")
-                    
-                    # Check warnings
-                    if w:
-                        for warning in w:
-                            if 'LZW' in str(warning.message) or 'TIFF' in str(warning.message):
-                                corruption_info['error_messages'].append(str(warning.message)[:200])
+                            print(f"ERROR at grid[{grid_x},{grid_y}]: {e}")
                 
-                self.report['corruption_check'] = corruption_info
+                print("-"*70)
+                
+                # Analyze results
+                self.scan_results['data_regions'] = data_points
+                self.scan_results['empty_regions'] = empty_points
+                self.scan_results['percentage_with_data'] = (len(data_points) / (grid_size * grid_size)) * 100
+                
+                # Find actual data bounds
+                if data_points:
+                    min_col = min(p['col'] for p in data_points)
+                    max_col = max(p['col'] + p['width'] for p in data_points)
+                    min_row = min(p['row'] for p in data_points)
+                    max_row = max(p['row'] + p['height'] for p in data_points)
+                    
+                    self.scan_results['actual_data_bounds'] = {
+                        'pixel_bounds': {
+                            'min_col': min_col,
+                            'max_col': max_col,
+                            'min_row': min_row,
+                            'max_row': max_row,
+                            'width': max_col - min_col,
+                            'height': max_row - min_row
+                        }
+                    }
+                    
+                    # Calculate geographic bounds
+                    transform = src.transform
+                    west = transform.c + min_col * transform.a
+                    north = transform.f + min_row * transform.e
+                    east = transform.c + max_col * transform.a
+                    south = transform.f + max_row * transform.e
+                    
+                    self.scan_results['actual_data_bounds']['geo_bounds'] = {
+                        'west': west,
+                        'north': north,
+                        'east': east,
+                        'south': south
+                    }
+                    
+                    # Sample statistics
+                    if all_values:
+                        all_values = np.array(all_values)
+                        self.scan_results['scan_summary'] = {
+                            'regions_with_data': len(data_points),
+                            'regions_empty': len(empty_points),
+                            'sample_value_range': [float(np.min(all_values)), float(np.max(all_values))],
+                            'sample_mean': float(np.mean(all_values)),
+                            'sample_std': float(np.std(all_values)),
+                            'unique_values_sampled': min(len(np.unique(all_values)), 1000)
+                        }
+                
+                return self.scan_results
                 
         except Exception as e:
-            print(f"ERROR during corruption check: {e}")
-            corruption_info['error_messages'].append(str(e))
-            corruption_info['is_corrupted'] = True
-            self.report['corruption_check'] = corruption_info
-        
-        print()
+            print(f"ERROR: {e}")
+            self.scan_results['error'] = str(e)
+            return self.scan_results
     
-    def calculate_tile_params(self):
-        """Calculate optimal tile generation parameters"""
-        print("5. TILE GENERATION PARAMETERS")
-        print("-" * 40)
+    def edge_scan(self):
+        """Specifically scan the edges of the image"""
+        print("\nEDGE SCAN")
+        print("-"*40)
+        
+        edge_results = {
+            'top': None,
+            'bottom': None,
+            'left': None,
+            'right': None,
+            'center': None
+        }
         
         try:
             with rasterio.open(self.tiff_path) as src:
-                params = {}
+                width, height = src.width, src.height
+                sample_size = 500
                 
-                # Get bounds for tile calculation
-                if src.crs and str(src.crs) == 'EPSG:4326':
-                    bounds = src.bounds
-                elif src.crs:
-                    try:
-                        bounds = transform_bounds(src.crs, 'EPSG:4326', *src.bounds)
-                    except:
-                        # Fallback to approximate Kochi bounds
-                        bounds = (76.2371, 9.8927, 76.3399, 10.0496)
-                else:
-                    # No CRS, use Kochi bounds
-                    bounds = (76.2371, 9.8927, 76.3399, 10.0496)
-                
-                params['wgs84_bounds'] = {
-                    'west': bounds[0],
-                    'south': bounds[1],
-                    'east': bounds[2],
-                    'north': bounds[3]
+                # Define edge samples
+                samples = {
+                    'top': Window(width//2 - sample_size//2, 0, sample_size, sample_size),
+                    'bottom': Window(width//2 - sample_size//2, height - sample_size, sample_size, sample_size),
+                    'left': Window(0, height//2 - sample_size//2, sample_size, sample_size),
+                    'right': Window(width - sample_size, height//2 - sample_size//2, sample_size, sample_size),
+                    'center': Window(width//2 - sample_size//2, height//2 - sample_size//2, sample_size, sample_size)
                 }
                 
-                # Calculate tiles needed for different zoom levels
-                params['tiles_per_zoom'] = {}
-                total_tiles = 0
+                for location, window in samples.items():
+                    try:
+                        data = src.read(window=window)
+                        has_data = np.any(data > 0)
+                        
+                        if has_data:
+                            edge_results[location] = {
+                                'has_data': True,
+                                'max_value': float(np.max(data)),
+                                'mean_value': float(np.mean(data[data > 0])),
+                                'non_zero_pixels': int(np.count_nonzero(data))
+                            }
+                            print(f"✓ {location.upper()}: Data found (max={edge_results[location]['max_value']:.0f})")
+                        else:
+                            edge_results[location] = {'has_data': False}
+                            print(f"✗ {location.upper()}: Empty")
+                    except Exception as e:
+                        print(f"ERROR scanning {location}: {e}")
+                        edge_results[location] = {'error': str(e)}
                 
-                print("Tiles needed per zoom level:")
-                for zoom in [8, 10, 12, 14, 16, 18]:
-                    if mercantile:
-                        min_tile = mercantile.tile(bounds[0], bounds[1], zoom)
-                        max_tile = mercantile.tile(bounds[2], bounds[3], zoom)
-                        tiles_x = max_tile.x - min_tile.x + 1
-                        tiles_y = min_tile.y - max_tile.y + 1
-                        tiles_count = tiles_x * tiles_y
-                        params['tiles_per_zoom'][zoom] = {
-                            'count': tiles_count,
-                            'x_range': [min_tile.x, max_tile.x],
-                            'y_range': [max_tile.y, min_tile.y]
-                        }
-                        total_tiles += tiles_count
-                        print(f"  Zoom {zoom}: {tiles_count:,} tiles ({tiles_x}x{tiles_y})")
-                
-                params['total_tiles_8_18'] = total_tiles
-                
-                # Memory strategy recommendation
-                mem_mb = self.report['data_info'].get('estimated_memory_mb', 0)
-                if mem_mb < 500:
-                    params['recommended_strategy'] = 'memory'
-                elif mem_mb < 2000:
-                    params['recommended_strategy'] = 'windowed'
-                else:
-                    params['recommended_strategy'] = 'windowed_large'
-                
-                # Worker recommendation
-                import multiprocessing
-                cpu_count = multiprocessing.cpu_count()
-                if mem_mb > 2000:
-                    params['recommended_workers'] = min(4, cpu_count - 1)
-                else:
-                    params['recommended_workers'] = min(8, cpu_count - 1)
-                
-                params['recommended_batch_size'] = 100 if mem_mb < 2000 else 50
-                
-                self.report['tile_generation_params'] = params
-                
-                print(f"\nRecommended settings:")
-                print(f"  Strategy: {params['recommended_strategy']}")
-                print(f"  Workers: {params['recommended_workers']}")
-                print(f"  Batch size: {params['recommended_batch_size']}")
+                self.scan_results['edge_scan'] = edge_results
                 
         except Exception as e:
-            print(f"ERROR calculating tile params: {e}")
-            self.report['tile_generation_params']['error'] = str(e)
-        
-        print()
+            print(f"Edge scan error: {e}")
     
-    def generate_recommendations(self):
-        """Generate recommendations based on analysis"""
-        print("6. RECOMMENDATIONS")
-        print("-" * 40)
+    def random_scan(self, num_samples=20):
+        """Randomly sample points across the image"""
+        print("\nRANDOM SAMPLING")
+        print("-"*40)
         
-        recs = []
+        random_results = []
         
-        # Check compression
-        if self.report['basic_info'].get('compression') == 'lzw':
-            if self.report['corruption_check'].get('is_corrupted'):
-                recs.append({
-                    'priority': 'HIGH',
-                    'issue': 'LZW compression with corruption detected',
-                    'action': 'Recompress file with DEFLATE or repair corruption',
-                    'command': 'gdal_translate -co COMPRESS=DEFLATE -co TILED=YES -co BIGTIFF=YES input.tif output.tif'
+        try:
+            with rasterio.open(self.tiff_path) as src:
+                width, height = src.width, src.height
+                sample_size = 256
+                
+                for i in range(num_samples):
+                    col = random.randint(0, max(1, width - sample_size))
+                    row = random.randint(0, max(1, height - sample_size))
+                    
+                    window = Window(col, row, 
+                                  min(sample_size, width - col),
+                                  min(sample_size, height - row))
+                    
+                    try:
+                        data = src.read(window=window)
+                        has_data = np.any(data > 0)
+                        
+                        result = {
+                            'sample_id': i,
+                            'col': col,
+                            'row': row,
+                            'has_data': has_data
+                        }
+                        
+                        if has_data:
+                            result['max_value'] = float(np.max(data))
+                            result['non_zero_ratio'] = float(np.count_nonzero(data) / data.size)
+                            print(f"✓ Sample {i}: ({col},{row}) - Data found")
+                        else:
+                            print(f"✗ Sample {i}: ({col},{row}) - Empty")
+                        
+                        random_results.append(result)
+                        
+                    except Exception as e:
+                        print(f"ERROR sampling at ({col},{row}): {e}")
+                
+                self.scan_results['random_samples'] = random_results
+                
+                # Calculate statistics
+                samples_with_data = sum(1 for r in random_results if r.get('has_data', False))
+                print(f"\nRandom sampling: {samples_with_data}/{num_samples} samples contain data")
+                
+        except Exception as e:
+            print(f"Random scan error: {e}")
+    
+    def diagnose(self):
+        """Provide diagnosis based on scan results"""
+        print("\n" + "="*70)
+        print("DIAGNOSIS")
+        print("="*70)
+        
+        diagnosis = []
+        
+        # Check if any data was found
+        if self.scan_results.get('percentage_with_data', 0) == 0:
+            diagnosis.append({
+                'severity': 'CRITICAL',
+                'issue': 'No data found in any scanned region',
+                'explanation': 'The file appears to be completely empty or data is stored in an unusual format',
+                'action': 'Check if the file was properly written or if it needs special decoding'
+            })
+        elif self.scan_results.get('percentage_with_data', 0) < 10:
+            diagnosis.append({
+                'severity': 'HIGH',
+                'issue': f"Only {self.scan_results['percentage_with_data']:.1f}% of image contains data",
+                'explanation': 'Most of the image is empty, data is highly sparse',
+                'action': 'Extract only the data region to reduce file size and improve performance'
+            })
+        
+        # Check data distribution
+        if self.scan_results.get('actual_data_bounds'):
+            bounds = self.scan_results['actual_data_bounds']['pixel_bounds']
+            if bounds['width'] < 1000 or bounds['height'] < 1000:
+                diagnosis.append({
+                    'severity': 'MEDIUM',
+                    'issue': f"Data region is very small: {bounds['width']}x{bounds['height']} pixels",
+                    'explanation': 'The actual data occupies a tiny portion of the declared image size',
+                    'action': 'Crop the image to the actual data bounds'
                 })
         
-        # Check overviews
-        if not self.report['basic_info'].get('has_overviews'):
-            recs.append({
-                'priority': 'MEDIUM',
-                'issue': 'No overviews found',
-                'action': 'Build overviews for faster tile generation',
-                'command': 'gdaladdo -r average input.tif 2 4 8 16 32'
-            })
+        # Check edge scan results
+        edge_scan = self.scan_results.get('edge_scan', {})
+        if edge_scan:
+            edges_with_data = sum(1 for v in edge_scan.values() if v and v.get('has_data', False))
+            if edges_with_data == 0:
+                diagnosis.append({
+                    'severity': 'HIGH',
+                    'issue': 'No data found at image edges or center',
+                    'explanation': 'Data might be offset or image might have large borders',
+                    'action': 'Use deep scan to locate actual data position'
+                })
         
-        # Check tiling
-        if not self.report['basic_info'].get('tiled'):
-            recs.append({
-                'priority': 'MEDIUM',
-                'issue': 'File is not tiled',
-                'action': 'Convert to tiled format for better performance',
-                'command': 'gdal_translate -co TILED=YES -co BLOCKXSIZE=512 -co BLOCKYSIZE=512 input.tif output.tif'
-            })
+        self.scan_results['diagnosis'] = diagnosis
         
-        # Check CRS
-        if not self.report['georeferencing'].get('crs', {}).get('crs'):
-            recs.append({
-                'priority': 'HIGH',
-                'issue': 'No CRS defined',
-                'action': 'Assign EPSG:4326 if data is in WGS84',
-                'command': 'gdal_translate -a_srs EPSG:4326 input.tif output.tif'
-            })
+        # Print diagnosis
+        for d in diagnosis:
+            print(f"[{d['severity']}] {d['issue']}")
+            print(f"  → {d['explanation']}")
+            print(f"  ⚡ {d['action']}")
+            print()
         
-        # Check transform
-        if self.report['georeferencing'].get('transform', {}).get('is_identity'):
-            recs.append({
-                'priority': 'HIGH',
-                'issue': 'Transform is identity (no georeferencing)',
-                'action': 'Set proper georeferencing with bounds',
-                'command': 'gdal_translate -a_ullr <west> <north> <east> <south> input.tif output.tif'
-            })
+        if not diagnosis:
+            print("✓ No critical issues found with data distribution")
         
-        # Memory recommendations
-        mem_mb = self.report['data_info'].get('estimated_memory_mb', 0)
-        if mem_mb > 4000:
-            recs.append({
-                'priority': 'MEDIUM',
-                'issue': f'Large file ({mem_mb:.0f}MB in memory)',
-                'action': 'Use windowed reading strategy and limit workers to 4',
-                'command': '--strategy windowed_large --workers 4'
-            })
-        
-        self.report['recommendations'] = recs
-        
-        if recs:
-            for rec in recs:
-                print(f"[{rec['priority']}] {rec['issue']}")
-                print(f"  → {rec['action']}")
-                if rec.get('command'):
-                    print(f"  $ {rec['command']}")
-                print()
-        else:
-            print("✓ No critical issues found!")
-        
-        print()
+        return diagnosis
     
     def save_report(self, output_path=None):
-        """Save report to JSON file"""
+        """Save detailed report"""
         if output_path is None:
-            output_path = self.tiff_path.parent / f"{self.tiff_path.stem}_analysis.json"
+            output_path = self.tiff_path.parent / f"{self.tiff_path.stem}_deep_scan.json"
         
         with open(output_path, 'w') as f:
-            json.dump(self.report, f, indent=2, default=str)
+            json.dump(self.scan_results, f, indent=2, default=str)
         
-        print(f"Report saved to: {output_path}")
+        print(f"\n📄 Detailed report saved to: {output_path}")
         return output_path
+    
+    def print_summary(self):
+        """Print summary of findings"""
+        print("\n" + "="*70)
+        print("SCAN SUMMARY")
+        print("="*70)
+        
+        print(f"File: {self.tiff_path.name}")
+        print(f"Regions with data: {len(self.scan_results.get('data_regions', []))}")
+        print(f"Empty regions: {len(self.scan_results.get('empty_regions', []))}")
+        print(f"Data coverage: {self.scan_results.get('percentage_with_data', 0):.1f}%")
+        
+        if self.scan_results.get('actual_data_bounds'):
+            bounds = self.scan_results['actual_data_bounds']['pixel_bounds']
+            print(f"\nActual data location:")
+            print(f"  Pixel range: ({bounds['min_col']},{bounds['min_row']}) to ({bounds['max_col']},{bounds['max_row']})")
+            print(f"  Size: {bounds['width']}x{bounds['height']} pixels")
+            
+            geo = self.scan_results['actual_data_bounds'].get('geo_bounds', {})
+            if geo:
+                print(f"  Geographic: ({geo['west']:.6f},{geo['south']:.6f}) to ({geo['east']:.6f},{geo['north']:.6f})")
+        
+        if self.scan_results.get('scan_summary'):
+            summary = self.scan_results['scan_summary']
+            if 'sample_value_range' in summary:
+                print(f"\nData values:")
+                print(f"  Range: {summary['sample_value_range'][0]:.0f} to {summary['sample_value_range'][1]:.0f}")
+                print(f"  Mean: {summary.get('sample_mean', 0):.1f}")
+                print(f"  Unique values: {summary.get('unique_values_sampled', 0)}")
 
 def main():
-    """Main function"""
     if len(sys.argv) < 2:
-        print("Usage: python analyze_tiff.py <path_to_tiff>")
-        print("\nThis script will analyze your GeoTIFF and generate a detailed report")
-        print("to help fix tile generation issues.")
+        print("Usage: python enhanced_scanner.py <tiff_file> [grid_size]")
+        print("\nThis will thoroughly scan your TIFF to find where data actually exists")
+        print("grid_size: optional, default is 10 (for 10x10 grid scan)")
         sys.exit(1)
     
     tiff_path = sys.argv[1]
+    grid_size = int(sys.argv[2]) if len(sys.argv) > 2 else 10
     
-    analyzer = GeoTIFFAnalyzer(tiff_path)
-    report = analyzer.analyze()
+    scanner = EnhancedTiffScanner(tiff_path)
+    
+    # Perform comprehensive scan
+    scanner.deep_scan(grid_size=grid_size)
+    scanner.edge_scan()
+    scanner.random_scan(num_samples=20)
+    
+    # Diagnose issues
+    scanner.diagnose()
+    
+    # Print summary
+    scanner.print_summary()
     
     # Save report
-    report_path = analyzer.save_report()
+    report_path = scanner.save_report()
     
-    print("="*70)
-    print("ANALYSIS COMPLETE!")
-    print("="*70)
-    print("\nSummary:")
-    
-    # Quick summary
-    if report['corruption_check'].get('is_corrupted'):
-        print("⚠️  FILE IS CORRUPTED - Repair needed")
-    else:
-        print("✓ File integrity OK")
-    
-    if report['basic_info'].get('compression') == 'lzw':
-        print("⚠️  LZW compression detected - May cause issues")
-    
-    if not report['basic_info'].get('has_overviews'):
-        print("⚠️  No overviews - Will be slow for low zoom levels")
-    
-    if report['georeferencing'].get('transform', {}).get('is_identity'):
-        print("⚠️  No georeferencing - Coordinates may be wrong")
-    
-    print(f"\n📄 Full report saved to: {report_path}")
     print("\n" + "="*70)
-    print("NEXT STEPS:")
-    print("1. Share the generated JSON report")
-    print("2. If corruption detected, run repair script")
-    print("3. Follow recommendations in report")
+    print("SCAN COMPLETE!")
     print("="*70)
+    print("\nNext steps:")
+    print("1. Review the diagnosis above")
+    print("2. Check the detailed JSON report")
+    print("3. If data was found, use the actual_data_bounds to extract it")
+    print("4. Run the fixer script to create an optimized version")
 
 if __name__ == "__main__":
     main()

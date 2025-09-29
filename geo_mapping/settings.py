@@ -11,7 +11,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = "django-insecure-9xdea)mc6dhr@)lrhn65!&!uc+#z6nlajj8j091eswp$$2jf!#"
 
 # DEBUG
-DEBUG = os.getenv('DJANGO_DEBUG', 'False').lower() == 'true'
+DEBUG = os.getenv('DJANGO_DEBUG', 'True').lower() == 'true'
 
 # ALLOWED HOSTS
 ALLOWED_HOSTS = ['*']
@@ -104,8 +104,8 @@ DATABASES = {
         'NAME': os.getenv('DJANGO_DB_NAME', 'geo_mapping_db'),
         'USER': os.getenv('DJANGO_DB_USER', 'postgres'),
         'PASSWORD': os.getenv('DJANGO_DB_PASSWORD', 'postgres'),
-        'HOST': os.getenv('DJANGO_DB_HOST', 'localhost'),
-        # 'HOST': os.getenv('DJANGO_DB_HOST', 'db'),
+        # 'HOST': os.getenv('DJANGO_DB_HOST', 'localhost'),
+        'HOST': os.getenv('DJANGO_DB_HOST', 'db'),
         'PORT': os.getenv('DJANGO_DB_PORT', '5432'),
         'CONN_MAX_AGE': 0,
     }
