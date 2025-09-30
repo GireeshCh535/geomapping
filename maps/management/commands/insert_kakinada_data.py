@@ -1,17 +1,16 @@
+#!/usr/bin/env python3
 """
-Django management command to insert Kochi master plan data
-Creates ONE layer (kochi_master_plan) with all masterplan files as features
-Following the hierarchy: State (Kerala) -> City (Kochi) -> DataLayer -> GeoFeatures from all files
+Django management command to insert Kakinada master plan data into the database.
+This command processes GeoJSON files and creates the necessary database entries.
 """
 
-from django.core.management.base import BaseCommand, CommandError
+import json
+import os
+from pathlib import Path
+from django.core.management.base import BaseCommand
 from django.db import transaction
 from django.contrib.gis.geos import GEOSGeometry
 from django.utils.text import slugify
-from pathlib import Path
-import json
-import glob
-import os
 
 from maps.models import (
     State, City, LayerCategory, DataLayer, GeoFeature, 
@@ -20,77 +19,61 @@ from maps.models import (
 
 
 class Command(BaseCommand):
-    help = 'Insert Kochi master plan data into the database'
+    help = 'Insert Kakinada master plan data into the database'
 
     def add_arguments(self, parser):
         parser.add_argument(
             '--delete-existing',
             action='store_true',
-            help='Delete existing Kochi masterplan data before inserting new data',
-        )
-        parser.add_argument(
-            '--data-dir',
-            type=str,
-            default='data/kerela/kochi/kochi_master_plan/',
-            help='Directory containing the master plan data files',
+            help='Delete existing Kakinada masterplan data before inserting new data',
         )
 
     def handle(self, *args, **options):
-        self.stdout.write(
-            self.style.SUCCESS('🚀 Starting Kochi Master Plan Data Insertion')
-        )
+        self.stdout.write(self.style.SUCCESS('🚀 Starting Kakinada Master Plan Data Insertion'))
         
-        self.data_dir = Path(options['data_dir'])
+        # Set up data directory
+        self.data_dir = Path('data/andhra_pradesh/kakinada/master_plan')
         
         if not self.data_dir.exists():
-            raise CommandError(f'Data directory does not exist: {self.data_dir}')
+            self.stdout.write(self.style.ERROR(f'❌ Data directory not found: {self.data_dir}'))
+            return
         
         try:
             with transaction.atomic():
-                # Setup basic entities
+                # Setup state, city, and categories
                 self.setup_state_and_city()
                 self.setup_layer_categories()
                 
                 # Delete existing data if requested
                 if options['delete_existing']:
-                    self.delete_existing_kochi_masterplan_data()
+                    self.delete_existing_kakinada_masterplan_data()
                 
-                # Create ONE master plan layer and process all files into it
+                # Create and populate master plan layer
                 self.create_and_populate_master_plan_layer()
                 
-                # Create city-specific styles
+                # Create city-specific layer styles
                 self.create_city_layer_styles()
                 
-                # Create zone mappings for better categorization
+                # Create zone mappings
                 self.create_zone_mappings()
                 
                 # Print summary
                 self.print_summary()
                 
-                self.stdout.write(
-                    self.style.SUCCESS('✅ Kochi Master Plan Data Insertion Completed Successfully!')
-                )
-                
         except Exception as e:
-            self.stdout.write(
-                self.style.ERROR(f'❌ Error during data insertion: {str(e)}')
-            )
-            raise CommandError(f'Data insertion failed: {str(e)}')
+            self.stdout.write(self.style.ERROR(f'❌ Error during data insertion: {str(e)}'))
+            raise
 
     def setup_state_and_city(self):
-        """Setup Kerala state and Kochi city"""
-        self.stdout.write('Setting up Kerala state and Kochi city...')
+        """Setup Andhra Pradesh state and Kakinada city"""
+        self.stdout.write('Setting up Andhra Pradesh state and Kakinada city...')
         
-        # Create or get Kerala state
+        # Create or get Andhra Pradesh state
         self.state, created = State.objects.get_or_create(
-            code='KL',
+            name='Andhra Pradesh',
             defaults={
-                'name': 'Kerala',
-                'slug': 'kerala',
-                'center_lat': 10.8505,
-                'center_lng': 76.2711,
-                'default_zoom': 7,
-                'is_active': True
+                'slug': 'andhra-pradesh',
+                'code': 'AP'
             }
         )
         
@@ -99,25 +82,16 @@ class Command(BaseCommand):
         else:
             self.stdout.write(f'  ✅ Found existing state: {self.state.name}')
         
-        # Create or get Kochi city
+        # Create or get Kakinada city
         self.city, created = City.objects.get_or_create(
-            slug='kochi',
+            name='Kakinada',
+            state=self.state,
             defaults={
-                'name': 'Kochi',
-                'state': 'Kerala',
-                'state_ref': self.state,
-                'center_lat': 9.9312,
-                'center_lng': 76.2673,
-                'min_zoom': 6,
-                'max_zoom': 18,
-                'is_active': True
+                'slug': 'kakinada',
+                'latitude': 16.9891,
+                'longitude': 82.2475
             }
         )
-        
-        # Update state_ref if city exists but doesn't have it
-        if not created and not self.city.state_ref:
-            self.city.state_ref = self.state
-            self.city.save()
         
         if created:
             self.stdout.write(f'  ✅ Created city: {self.city.name}')
@@ -125,49 +99,91 @@ class Command(BaseCommand):
             self.stdout.write(f'  ✅ Found existing city: {self.city.name}')
 
     def setup_layer_categories(self):
-        """Setup layer categories for Kochi masterplan"""
+        """Setup layer categories for different types of features"""
         self.stdout.write('Setting up layer categories...')
         
-        categories = [
-            ('BOUNDARIES', 'Administrative Boundaries', 'City and administrative boundaries', '#800080'),
-            ('PLANNING', 'Planning Areas', 'Urban planning and development areas', '#FFE4B5'),
-            ('RESIDENTIAL', 'Residential', 'Residential zones and housing areas', '#FFB6C1'),
-            ('COMMERCIAL', 'Commercial', 'Commercial and business zones', '#FFD700'),
-            ('INDUSTRIAL', 'Industrial', 'Industrial zones and manufacturing areas', '#D2691E'),
-            ('MIXED_USE', 'Mixed Use', 'Mixed-use development zones', '#9370DB'),
-            ('UNCLASSIFIED', 'Unclassified', 'Unclassified or miscellaneous areas', '#CCCCCC'),
+        categories_data = [
+            {
+                'name': 'Administrative Boundaries',
+                'code': 'BOUNDARIES',
+                'description': 'Administrative and planning area boundaries',
+                'default_color': '#800080',
+                'default_stroke': '#4B0082',
+                'default_opacity': 0.8
+            },
+            {
+                'name': 'Planning Areas',
+                'code': 'PLANNING',
+                'description': 'General planning and development areas',
+                'default_color': '#FFE4B5',
+                'default_stroke': '#FF8C00',
+                'default_opacity': 0.7
+            },
+            {
+                'name': 'Residential',
+                'code': 'RESIDENTIAL',
+                'description': 'Residential zones and areas',
+                'default_color': '#FFB6C1',
+                'default_stroke': '#FF69B4',
+                'default_opacity': 0.7
+            },
+            {
+                'name': 'Commercial',
+                'code': 'COMMERCIAL',
+                'description': 'Commercial and business zones',
+                'default_color': '#FFD700',
+                'default_stroke': '#FFA500',
+                'default_opacity': 0.7
+            },
+            {
+                'name': 'Industrial',
+                'code': 'INDUSTRIAL',
+                'description': 'Industrial zones and areas',
+                'default_color': '#D2691E',
+                'default_stroke': '#A0522D',
+                'default_opacity': 0.7
+            },
+            {
+                'name': 'Mixed Use',
+                'code': 'MIXED_USE',
+                'description': 'Mixed-use development zones',
+                'default_color': '#9370DB',
+                'default_stroke': '#8A2BE2',
+                'default_opacity': 0.7
+            },
+            {
+                'name': 'Unclassified',
+                'code': 'UNCLASSIFIED',
+                'description': 'Unclassified or other areas',
+                'default_color': '#CCCCCC',
+                'default_stroke': '#999999',
+                'default_opacity': 0.6
+            }
         ]
         
         self.categories = {}
-        for code, name, description, color in categories:
+        
+        for cat_data in categories_data:
             category, created = LayerCategory.objects.get_or_create(
-                code=code,
-                defaults={
-                    'name': name,
-                    'description': description,
-                    'default_color': color,
-                    'default_stroke': '#333333',
-                    'default_stroke_width': 1,
-                    'default_opacity': 0.7,
-                    'is_active': True
-                }
+                code=cat_data['code'],
+                defaults=cat_data
             )
             
-            self.categories[code] = category
+            self.categories[cat_data['code']] = category
             
             if created:
-                self.stdout.write(f'  ✅ Created category: {name}')
+                self.stdout.write(f'  ✅ Created category: {category.name}')
             else:
-                self.stdout.write(f'  ✅ Found existing category: {name}')
+                self.stdout.write(f'  ✅ Found existing category: {category.name}')
 
-    def delete_existing_kochi_masterplan_data(self):
-        """Delete existing Kochi masterplan data"""
-        self.stdout.write('Deleting existing Kochi masterplan data...')
+    def delete_existing_kakinada_masterplan_data(self):
+        """Delete existing Kakinada masterplan data"""
+        self.stdout.write('Deleting existing Kakinada masterplan data...')
         
-        # Delete existing data layers for Kochi masterplan
+        # Delete existing data layers
         deleted_layers = DataLayer.objects.filter(
             city=self.city,
-            slug__icontains='master_plan'
+            slug__in=['kakinada-master-plan']
         ).delete()
         
         if deleted_layers[0] > 0:
@@ -176,15 +192,18 @@ class Command(BaseCommand):
         # Delete existing geo features
         deleted_features = GeoFeature.objects.filter(
             layer__city=self.city,
-            layer__slug__icontains='master_plan'
+            layer__slug__in=['kakinada-master-plan']
         ).delete()
         
         if deleted_features[0] > 0:
             self.stdout.write(f'  ✅ Deleted {deleted_features[0]} existing geo features')
+        
+        # Also delete any layer groups
+        LayerGroup.objects.filter(city=self.city, slug='kakinada-master-plan').delete()
 
     def create_and_populate_master_plan_layer(self):
         """Create ONE master plan layer and populate it with features from all files"""
-        self.stdout.write('\nCreating and populating Kochi master plan layer...')
+        self.stdout.write('\nCreating and populating Kakinada master plan layer...')
         
         # Get all GeoJSON and JSON files in the directory
         geojson_files = list(self.data_dir.glob('*.geojson'))
@@ -205,10 +224,10 @@ class Command(BaseCommand):
             # Create empty layer structure for consistency
             layer_group, created = LayerGroup.objects.get_or_create(
                 city=self.city,
-                slug='kochi-master-plan',
+                slug='kakinada-master-plan',
                 defaults={
-                    'name': 'Kochi Master Plan',
-                    'description': 'Kochi Planning Authority master plan data',
+                    'name': 'Kakinada Master Plan',
+                    'description': 'Kakinada Planning Authority master plan data',
                     'category': self.categories['PLANNING'],
                     'directory_path': str(self.data_dir),
                     'default_color': '#FFE4B5',
@@ -223,10 +242,10 @@ class Command(BaseCommand):
             
             self.master_plan_layer, created = DataLayer.objects.get_or_create(
                 city=self.city,
-                slug='kochi-master-plan',
+                slug='kakinada-master-plan',
                 defaults={
-                    'name': 'Kochi Master Plan',
-                    'description': 'Comprehensive Kochi master plan including all boundaries and land use zones',
+                    'name': 'Kakinada Master Plan',
+                    'description': 'Comprehensive Kakinada master plan including all boundaries and land use zones',
                     'category': self.categories['PLANNING'],
                     'layer_group': layer_group,
                     'file_format': 'GEOJSON',
@@ -239,7 +258,7 @@ class Command(BaseCommand):
                     'is_processed': True,
                     'feature_count': 0,
                     'is_true': True,
-                    'data_source': 'Kochi Planning Authority',
+                    'data_source': 'Kakinada Planning Authority',
                 }
             )
             
@@ -258,10 +277,10 @@ class Command(BaseCommand):
         # Create a layer group for organization
         layer_group, created = LayerGroup.objects.get_or_create(
             city=self.city,
-            slug='kochi-master-plan',
+            slug='kakinada-master-plan',
             defaults={
-                'name': 'Kochi Master Plan',
-                'description': 'Kochi Planning Authority master plan data',
+                'name': 'Kakinada Master Plan',
+                'description': 'Kakinada Planning Authority master plan data',
                 'category': self.categories['PLANNING'],
                 'directory_path': str(self.data_dir),
                 'default_color': '#FFE4B5',
@@ -280,10 +299,10 @@ class Command(BaseCommand):
         # Create or update THE SINGLE master plan layer
         self.master_plan_layer, created = DataLayer.objects.get_or_create(
             city=self.city,
-            slug='kochi-master-plan',
+            slug='kakinada-master-plan',
             defaults={
-                'name': 'Kochi Master Plan',
-                'description': 'Comprehensive Kochi master plan including all boundaries and land use zones',
+                'name': 'Kakinada Master Plan',
+                'description': 'Comprehensive Kakinada master plan including all boundaries and land use zones',
                 'category': self.categories['PLANNING'],
                 'layer_group': layer_group,
                 'file_format': 'GEOJSON',
@@ -296,7 +315,7 @@ class Command(BaseCommand):
                 'is_processed': False,
                 'feature_count': 0,
                 'is_true': True,  # Make visible by default
-                'data_source': 'Kochi Planning Authority',
+                'data_source': 'Kakinada Planning Authority',
             }
         )
         
@@ -425,73 +444,64 @@ class Command(BaseCommand):
             self.stdout.write(f'    ❌ Error reading file {file_path.name}: {str(e)}')
             return 0, None
 
-
-
     def create_city_layer_styles(self):
-        """Create city-specific layer styles for Kochi"""
+        """Create city-specific layer styles for Kakinada"""
         self.stdout.write('Creating city-specific layer styles...')
         
         # Define styles for different feature types
-        styles = [
+        styles_data = [
             {
                 'category': self.categories['BOUNDARIES'],
                 'fill_color': '#800080',
                 'stroke_color': '#4B0082',
-                'stroke_width': 2,
                 'opacity': 0.8,
-                'fill_pattern': 'SOLID'
+                'stroke_width': 2
             },
             {
                 'category': self.categories['PLANNING'],
                 'fill_color': '#FFE4B5',
-                'stroke_color': '#DAA520',
-                'stroke_width': 1,
+                'stroke_color': '#FF8C00',
                 'opacity': 0.7,
-                'fill_pattern': 'SOLID'
+                'stroke_width': 1
             },
             {
                 'category': self.categories['RESIDENTIAL'],
                 'fill_color': '#FFB6C1',
                 'stroke_color': '#FF69B4',
-                'stroke_width': 1,
                 'opacity': 0.7,
-                'fill_pattern': 'SOLID'
+                'stroke_width': 1
             },
             {
                 'category': self.categories['COMMERCIAL'],
                 'fill_color': '#FFD700',
-                'stroke_color': '#B8860B',
-                'stroke_width': 1,
+                'stroke_color': '#FFA500',
                 'opacity': 0.7,
-                'fill_pattern': 'SOLID'
+                'stroke_width': 1
             },
             {
                 'category': self.categories['INDUSTRIAL'],
                 'fill_color': '#D2691E',
                 'stroke_color': '#A0522D',
-                'stroke_width': 1,
                 'opacity': 0.7,
-                'fill_pattern': 'SOLID'
+                'stroke_width': 1
             },
             {
                 'category': self.categories['MIXED_USE'],
                 'fill_color': '#9370DB',
-                'stroke_color': '#663399',
-                'stroke_width': 1,
+                'stroke_color': '#8A2BE2',
                 'opacity': 0.7,
-                'fill_pattern': 'SOLID'
+                'stroke_width': 1
             },
             {
                 'category': self.categories['UNCLASSIFIED'],
                 'fill_color': '#CCCCCC',
                 'stroke_color': '#999999',
-                'stroke_width': 1,
                 'opacity': 0.6,
-                'fill_pattern': 'SOLID'
+                'stroke_width': 1
             }
         ]
         
-        for style_data in styles:
+        for style_data in styles_data:
             style, created = CityLayerStyle.objects.get_or_create(
                 city=self.city,
                 category=style_data['category'],
@@ -504,7 +514,7 @@ class Command(BaseCommand):
                 self.stdout.write(f'  ✅ Found existing style for {style_data["category"].name}')
 
     def create_zone_mappings(self):
-        """Create zone mappings for Kochi"""
+        """Create zone mappings for Kakinada"""
         self.stdout.write('\nCreating zone mappings...')
         
         # Check if master_plan_layer exists and has features
@@ -566,38 +576,34 @@ class Command(BaseCommand):
     def print_summary(self):
         """Print summary of inserted data"""
         self.stdout.write('\n' + '='*60)
-        self.stdout.write(self.style.SUCCESS('📊 KOCHI MASTER PLAN DATA SUMMARY'))
+        self.stdout.write(self.style.SUCCESS('📊 KAKINADA MASTER PLAN DATA SUMMARY'))
         self.stdout.write('='*60)
         
-        # Count features by type
-        feature_counts = {}
-        total_features = 0
-        
-        for feature_type in self.categories.keys():
-            count = GeoFeature.objects.filter(
-                layer=self.master_plan_layer,
-                zone_category=feature_type
-            ).count()
-            
-            if count > 0:
-                feature_counts[feature_type] = count
-                total_features += count
-        
         self.stdout.write(f'🏙️  City: {self.city.name}, {self.state.name}')
-        self.stdout.write(f'📁 Data Layer: {self.master_plan_layer.name}')
-        self.stdout.write(f'📊 Total Features: {total_features}')
-        self.stdout.write(f'📂 Source Directory: {self.data_dir}')
         
-        self.stdout.write('\n📋 Features by Type:')
-        for feature_type, count in feature_counts.items():
-            category_name = self.categories[feature_type].name
-            self.stdout.write(f'  • {category_name}: {count} features')
+        if hasattr(self, 'master_plan_layer') and self.master_plan_layer:
+            self.stdout.write(f'📁 Data Layer: {self.master_plan_layer.name}')
+            
+            # Get feature count
+            feature_count = self.master_plan_layer.geofeature_set.count()
+            self.stdout.write(f'📊 Total Features: {feature_count}')
+            
+            # Get features by type
+            features_by_type = self.master_plan_layer.geofeature_set.values_list(
+                'zone_category', flat=True
+            ).distinct()
+            
+            self.stdout.write(f'\n📂 Source Directory: {self.data_dir}')
+            self.stdout.write(f'\n📋 Features by Type:')
+            for feature_type in features_by_type:
+                count = self.master_plan_layer.geofeature_set.filter(
+                    zone_category=feature_type
+                ).count()
+                self.stdout.write(f'  • {feature_type}: {count} features')
         
-        self.stdout.write('\n🎨 Layer Styles:')
-        styles = CityLayerStyle.objects.filter(
-            city=self.city
-        )
-        
+        # Get layer styles
+        styles = CityLayerStyle.objects.filter(city=self.city)
+        self.stdout.write(f'\n🎨 Layer Styles:')
         for style in styles:
             self.stdout.write(f'  • {style.category.name}: {style.fill_color} (opacity: {style.opacity})')
         

@@ -166,33 +166,50 @@ class HighZoomTileGenerator:
             self.strategy = "windowed"
     
     def calculate_optimal_window(self, tile_bounds, zoom):
-        """Calculate optimal window for reading source data"""
-        # Transform tile bounds to source CRS
-        src_bounds = transform_bounds(
-            'EPSG:4326', self.src_dataset.crs,
-            tile_bounds.west, tile_bounds.south,
-            tile_bounds.east, tile_bounds.north
+        """Calculate optimal window for reading source data with proper overlap"""
+        # Increase overlap significantly to prevent gaps (5% of tile size)
+        overlap_factor = 0.05
+        tile_width = tile_bounds.east - tile_bounds.west
+        tile_height = tile_bounds.north - tile_bounds.south
+        
+        overlap_x = tile_width * overlap_factor
+        overlap_y = tile_height * overlap_factor
+        
+        # Expand bounds to ensure complete coverage with generous overlap
+        expanded_bounds = (
+            tile_bounds.west - overlap_x,
+            tile_bounds.south - overlap_y,
+            tile_bounds.east + overlap_x,
+            tile_bounds.north + overlap_y
         )
         
-        # Calculate window with bounds checking
+        # Transform expanded bounds to source CRS
+        src_bounds = transform_bounds(
+            'EPSG:4326', self.src_dataset.crs,
+            *expanded_bounds
+        )
+        
+        # Calculate window with proper rounding
         try:
             window = window_from_bounds(
                 *src_bounds,
                 transform=self.src_dataset.transform
             )
             
-            # Ensure window is within dataset bounds
-            col_off = max(0, min(window.col_off, self.src_dataset.width - 1))
-            row_off = max(0, min(window.row_off, self.src_dataset.height - 1))
+            # Use floor for offset and ceil for size to ensure complete coverage
+            col_off = max(0, int(window.col_off))
+            row_off = max(0, int(window.row_off))
             
-            # Calculate width and height with bounds checking
-            max_width = self.src_dataset.width - col_off
-            max_height = self.src_dataset.height - row_off
+            # Calculate width and height with generous padding
+            # Use ceil to ensure we capture all edge pixels
+            import math
+            width = min(math.ceil(window.width) + 2, self.src_dataset.width - col_off)
+            height = min(math.ceil(window.height) + 2, self.src_dataset.height - row_off)
             
-            width = max(1, min(window.width, max_width))  # Ensure at least 1 pixel
-            height = max(1, min(window.height, max_height))  # Ensure at least 1 pixel
+            # Ensure minimum size
+            width = max(4, width)
+            height = max(4, height)
             
-            # Return valid window
             return Window(col_off, row_off, width, height)
             
         except Exception as e:
@@ -258,7 +275,7 @@ class HighZoomTileGenerator:
             # Get tile bounds
             tile_bounds = mercantile.bounds(x, y, zoom)
             
-            # Check if tile is within data bounds
+            # Check if tile is within data bounds with generous overlap
             if not self.tile_in_bounds(tile_bounds):
                 return False
             
@@ -293,39 +310,31 @@ class HighZoomTileGenerator:
             return False
     
     def generate_from_memory(self, tile_bounds, window, tile_path):
-        """Generate tile from memory-loaded data"""
+        """Generate tile from memory-loaded data with improved bounds handling"""
         try:
-            # Create destination array
+            # Create destination array - initialize with transparent pixels
             tile_data = np.zeros((4, 256, 256), dtype=np.uint8)
             
-            # Create transform for tile
+            # Create precise transform for tile
             tile_transform = from_bounds(
                 tile_bounds.west, tile_bounds.south,
                 tile_bounds.east, tile_bounds.north,
                 256, 256
             )
             
-            # Extract window from memory array
-            row_start = int(max(0, window.row_off))
-            row_stop = int(min(self.data_array.shape[1], window.row_off + window.height))
-            col_start = int(max(0, window.col_off))
-            col_stop = int(min(self.data_array.shape[2], window.col_off + window.width))
+            # Extract window from memory array with proper rounding
+            row_start = max(0, round(window.row_off))
+            row_stop = min(self.data_array.shape[1], round(window.row_off + window.height))
+            col_start = max(0, round(window.col_off))
+            col_stop = min(self.data_array.shape[2], round(window.col_off + window.width))
             
             if row_stop > row_start and col_stop > col_start:
                 window_data = self.data_array[:, row_start:row_stop, col_start:col_stop]
                 
-                # Get window transform
-                window_transform = rasterio.transform.from_bounds(
-                    *rasterio.transform.array_bounds(
-                        row_stop - row_start,
-                        col_stop - col_start,
-                        self.src_dataset.window_transform(window)
-                    ),
-                    col_stop - col_start,
-                    row_stop - row_start
-                )
+                # Get the exact transform for the window
+                window_transform = self.src_dataset.window_transform(window)
                 
-                # Reproject
+                # Reproject with nearest neighbor resampling for exact color preservation
                 reproject(
                     source=window_data,
                     destination=tile_data,
@@ -333,7 +342,10 @@ class HighZoomTileGenerator:
                     src_crs=self.src_crs,
                     dst_transform=tile_transform,
                     dst_crs='EPSG:4326',
-                    resampling=Resampling.cubic
+                    resampling=Resampling.nearest,  # Use nearest for exact color preservation
+                    src_nodata=0,
+                    dst_nodata=0,
+                    num_threads=1  # Single thread for consistency
                 )
                 
                 return self.save_tile(tile_data, tile_path)
@@ -345,23 +357,23 @@ class HighZoomTileGenerator:
             return False
     
     def generate_from_window(self, tile_bounds, window, tile_path):
-        """Generate tile using windowed reading"""
+        """Generate tile using windowed reading with consistent settings"""
         try:
             # Create destination array
             tile_data = np.zeros((4, 256, 256), dtype=np.uint8)
             
-            # Create transform for tile
+            # Create precise transform for tile
             tile_transform = from_bounds(
                 tile_bounds.west, tile_bounds.south,
                 tile_bounds.east, tile_bounds.north,
                 256, 256
             )
             
-            # Read window from dataset
-            window_data = self.src_dataset.read(window=window)
+            # Read window from dataset with boundschecking=False to handle edge cases
+            window_data = self.src_dataset.read(window=window, boundless=True, fill_value=0)
             window_transform = self.src_dataset.window_transform(window)
             
-            # Reproject with high quality
+            # Reproject with nearest neighbor resampling for exact color preservation
             reproject(
                 source=window_data,
                 destination=tile_data,
@@ -369,7 +381,10 @@ class HighZoomTileGenerator:
                 src_crs=self.src_dataset.crs,
                 dst_transform=tile_transform,
                 dst_crs='EPSG:4326',
-                resampling=Resampling.cubic
+                resampling=Resampling.nearest,  # Use nearest for exact color preservation
+                src_nodata=0,
+                dst_nodata=0,
+                num_threads=1  # Single thread for consistency
             )
             
             return self.save_tile(tile_data, tile_path)
@@ -379,24 +394,61 @@ class HighZoomTileGenerator:
             return False
     
     def save_tile(self, tile_data, tile_path):
-        """Save tile with optimization"""
+        """Save tile with exact color preservation like Anekal approach"""
         try:
-            # Convert to image
+            # Convert to image (tile_data is in CHW format)
             img_array = np.transpose(tile_data, (1, 2, 0))
             
-            # Check for content
-            if not np.any(img_array[:, :, 3] > 0):
+            # Check for content - be more lenient to include edge tiles
+            if np.sum(img_array[:, :, 3]) < 5:  # Very little alpha content
                 return False
+            
+            # Handle transparency intelligently like Anekal script
+            alpha_channel = img_array[:, :, 3]
+            transparent_mask = alpha_channel == 0
+            
+            # Set RGB to 0 where alpha is 0 (prevents black edges)
+            img_array[transparent_mask, 0] = 0  # R
+            img_array[transparent_mask, 1] = 0  # G  
+            img_array[transparent_mask, 2] = 0  # B
+            
+            # Only draw pixels that are not transparent and have some color (like Anekal)
+            valid_pixels = (alpha_channel > 0) & ((img_array[:, :, 0] > 0) | 
+                                                 (img_array[:, :, 1] > 0) | 
+                                                 (img_array[:, :, 2] > 0))
             
             # Create PIL image
             img = Image.fromarray(img_array, mode='RGBA')
             
-            # Enhance quality
-            img = img.filter(ImageFilter.SHARPEN)
-            enhancer = ImageEnhance.Contrast(img)
-            img = enhancer.enhance(1.05)
+            # Apply minimal edge feathering for seamless blending
+            alpha_array = img_array[:, :, 3].astype(np.float32)
             
-            # Save optimized
+            # Apply subtle edge feathering (2-3 pixels) for seamless tiles
+            feather_pixels = 2
+            for i in range(min(feather_pixels, alpha_array.shape[0])):
+                if i < alpha_array.shape[0]:
+                    # Top edge
+                    alpha_array[i, :] *= (0.85 + 0.15 * (i + 1) / feather_pixels)
+                    # Bottom edge  
+                    if alpha_array.shape[0] - 1 - i >= 0:
+                        alpha_array[alpha_array.shape[0] - 1 - i, :] *= (0.85 + 0.15 * (i + 1) / feather_pixels)
+            
+            for j in range(min(feather_pixels, alpha_array.shape[1])):
+                if j < alpha_array.shape[1]:
+                    # Left edge
+                    alpha_array[:, j] *= (0.85 + 0.15 * (j + 1) / feather_pixels)
+                    # Right edge
+                    if alpha_array.shape[1] - 1 - j >= 0:
+                        alpha_array[:, alpha_array.shape[1] - 1 - j] *= (0.85 + 0.15 * (j + 1) / feather_pixels)
+            
+            # Ensure alpha values are in valid range
+            alpha_array = np.clip(alpha_array, 0, 255)
+            img_array[:, :, 3] = alpha_array.astype(np.uint8)
+            
+            # Convert back to PIL image with exact colors preserved
+            img = Image.fromarray(img_array, mode='RGBA')
+            
+            # Save with optimal settings - no enhancement to preserve exact colors
             img.save(tile_path, 'PNG', optimize=True, compress_level=6)
             return True
             
@@ -405,13 +457,36 @@ class HighZoomTileGenerator:
             return False
     
     def tile_in_bounds(self, tile_bounds):
-        """Check if tile intersects data bounds"""
+        """Check if tile intersects data bounds with generous tolerance to prevent gaps"""
+        # Add generous tolerance to avoid gaps at tile boundaries
+        tolerance = 1e-4  # Increased tolerance
+        
         return not (
-            tile_bounds.east < self.wgs84_bounds[0] or
-            tile_bounds.west > self.wgs84_bounds[2] or
-            tile_bounds.south > self.wgs84_bounds[3] or
-            tile_bounds.north < self.wgs84_bounds[1]
+            tile_bounds.east < self.wgs84_bounds[0] - tolerance or
+            tile_bounds.west > self.wgs84_bounds[2] + tolerance or
+            tile_bounds.south > self.wgs84_bounds[3] + tolerance or
+            tile_bounds.north < self.wgs84_bounds[1] - tolerance
         )
+
+    def validate_zoom_level(self, zoom):
+        """Validate that all expected tiles exist for a zoom level"""
+        min_tile = mercantile.tile(self.wgs84_bounds[0], self.wgs84_bounds[1], zoom)
+        max_tile = mercantile.tile(self.wgs84_bounds[2], self.wgs84_bounds[3], zoom)
+        
+        missing = []
+        for x in range(min_tile.x, max_tile.x + 1):
+            for y in range(max_tile.y, min_tile.y + 1):
+                tile_path = self.output_dir / str(zoom) / str(x) / f"{y}.png"
+                if not tile_path.exists():
+                    missing.append((x, y))
+        
+        if missing:
+            logger.warning(f"Zoom {zoom}: {len(missing)} missing tiles")
+            # Regenerate missing tiles with extra overlap
+            for x, y in missing:
+                self.generate_single_tile_highzoom(zoom, x, y)
+        
+        return len(missing)
     
     def generate_zoom_level_optimized(self, zoom):
         """Generate all tiles for a zoom level with optimization"""
@@ -504,6 +579,11 @@ class HighZoomTileGenerator:
                 generated = self.generate_zoom_level_optimized(zoom)
                 total_generated += generated
                 
+                # Validate zoom level to check for gaps
+                missing_count = self.validate_zoom_level(zoom)
+                if missing_count > 0:
+                    logger.info(f"Regenerated {missing_count} missing tiles for zoom {zoom}")
+                
                 logger.info(f"Total tiles so far: {total_generated}")
                 
         finally:
@@ -517,7 +597,131 @@ class HighZoomTileGenerator:
                     f.write(f"{tile}\n")
             logger.info(f"Failed tiles saved to failed_tiles.txt ({len(self.error_tiles)} tiles)")
         
+        # Create supporting files
+        self.create_supporting_files(min_zoom, max_zoom)
+        
         return total_generated
+    
+    def create_supporting_files(self, min_zoom, max_zoom):
+        """Create supporting files for the tile set"""
+        logger.info("Creating supporting files...")
+        
+        # Create Mapbox style JSON
+        style_json = {
+            "version": 8,
+            "name": "Tamil Nadu - Hosur Masterplan",
+            "sources": {
+                "hosur-masterplan": {
+                    "type": "raster",
+                    "tiles": [
+                        f"./{self.output_dir.name}/{{z}}/{{x}}/{{y}}.png"
+                    ],
+                    "tileSize": 256
+                }
+            },
+            "layers": [
+                {
+                    "id": "hosur-masterplan-layer",
+                    "type": "raster",
+                    "source": "hosur-masterplan",
+                    "paint": {
+                        "raster-opacity": 0.8
+                    }
+                }
+            ]
+        }
+        
+        with open(self.output_dir / "style.json", "w") as f:
+            import json
+            json.dump(style_json, f, indent=2)
+        
+        # Create TileJSON
+        tilejson = {
+            "tilejson": "2.2.0",
+            "name": "Tamil Nadu - Hosur Masterplan",
+            "description": "Master plan tiles for Tamil Nadu - Hosur",
+            "version": "1.0.0",
+            "attribution": "Tamil Nadu Government",
+            "template": "",
+            "legend": "",
+            "scheme": "xyz",
+            "tiles": [
+                f"./{self.output_dir.name}/{{z}}/{{x}}/{{y}}.png"
+            ],
+            "grids": [],
+            "data": [],
+            "minzoom": min_zoom,
+            "maxzoom": max_zoom,
+            "bounds": [
+                self.wgs84_bounds[0],
+                self.wgs84_bounds[1],
+                self.wgs84_bounds[2],
+                self.wgs84_bounds[3]
+            ],
+            "center": [
+                (self.wgs84_bounds[0] + self.wgs84_bounds[2]) / 2,
+                (self.wgs84_bounds[1] + self.wgs84_bounds[3]) / 2,
+                10
+            ]
+        }
+        
+        with open(self.output_dir / "tilejson.json", "w") as f:
+            import json
+            json.dump(tilejson, f, indent=2)
+        
+        # Create HTML viewer
+        html_content = f"""
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Tamil Nadu - Hosur Masterplan</title>
+    <script src='https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.js'></script>
+    <link href='https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.css' rel='stylesheet' />
+    <style>
+        body {{ margin: 0; padding: 0; }}
+        #map {{ position: absolute; top: 0; bottom: 0; width: 100%; }}
+    </style>
+</head>
+<body>
+    <div id='map'></div>
+    <script>
+        mapboxgl.accessToken = 'pk.eyJ1IjoiZXhhbXBsZSIsImEiOiJjbGV4YW1wbGUifQ.example';
+        var map = new mapboxgl.Map({{
+            container: 'map',
+            style: {{
+                "version": 8,
+                "sources": {{
+                    "hosur-masterplan": {{
+                        "type": "raster",
+                        "tiles": [
+                            "./{self.output_dir.name}/{{z}}/{{x}}/{{y}}.png"
+                        ],
+                        "tileSize": 256
+                    }}
+                }},
+                "layers": [
+                    {{
+                        "id": "hosur-masterplan-layer",
+                        "type": "raster",
+                        "source": "hosur-masterplan",
+                        "paint": {{
+                            "raster-opacity": 0.8
+                        }}
+                    }}
+                ]
+            }},
+            center: [{(self.wgs84_bounds[0] + self.wgs84_bounds[2]) / 2}, {(self.wgs84_bounds[1] + self.wgs84_bounds[3]) / 2}],
+            zoom: 10
+        }});
+    </script>
+</body>
+</html>
+"""
+        
+        with open(self.output_dir / "index.html", "w") as f:
+            f.write(html_content)
+        
+        logger.info("Created supporting files: style.json, tilejson.json, index.html")
 
 def main():
     """Main function"""

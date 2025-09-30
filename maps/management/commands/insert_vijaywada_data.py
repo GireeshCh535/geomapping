@@ -1,7 +1,7 @@
 """
-Django management command to insert Hosur master plan data
-Creates ONE layer (hosur_master_plan) with all masterplan files as features
-Following the hierarchy: State (Tamil Nadu) -> City (Hosur) -> DataLayer -> GeoFeatures from all files
+Django management command to insert Vijaywada master plan data
+Creates ONE layer (vijaywada_master_plan) with all masterplan files as features
+Following the hierarchy: State (Andhra Pradesh) -> City (Vijaywada) -> DataLayer -> GeoFeatures from all files
 """
 
 from django.core.management.base import BaseCommand, CommandError
@@ -20,24 +20,24 @@ from maps.models import (
 
 
 class Command(BaseCommand):
-    help = 'Insert Hosur master plan data into the database'
+    help = 'Insert Vijaywada master plan data into the database'
 
     def add_arguments(self, parser):
         parser.add_argument(
             '--delete-existing',
             action='store_true',
-            help='Delete existing Hosur masterplan data before inserting new data',
+            help='Delete existing Vijaywada masterplan data before inserting new data',
         )
         parser.add_argument(
             '--data-dir',
             type=str,
-            default='data/tamil_nadu/hosur/',
+            default='data/andhra_pradesh/MGTM/master_plan/',
             help='Directory containing the master plan data files',
         )
 
     def handle(self, *args, **options):
         self.stdout.write(
-            self.style.SUCCESS('🚀 Starting Hosur Master Plan Data Insertion')
+            self.style.SUCCESS('🚀 Starting Vijaywada Master Plan Data Insertion')
         )
         
         self.data_dir = Path(options['data_dir'])
@@ -53,7 +53,7 @@ class Command(BaseCommand):
                 
                 # Delete existing data if requested
                 if options['delete_existing']:
-                    self.delete_existing_hosur_masterplan_data()
+                    self.delete_existing_vijaywada_masterplan_data()
                 
                 # Create ONE master plan layer and process all files into it
                 self.create_and_populate_master_plan_layer()
@@ -68,7 +68,7 @@ class Command(BaseCommand):
                 self.print_summary()
                 
                 self.stdout.write(
-                    self.style.SUCCESS('✅ Hosur Master Plan Data Insertion Completed Successfully!')
+                    self.style.SUCCESS('✅ Vijaywada Master Plan Data Insertion Completed Successfully!')
                 )
                 
         except Exception as e:
@@ -78,17 +78,17 @@ class Command(BaseCommand):
             raise CommandError(f'Data insertion failed: {str(e)}')
 
     def setup_state_and_city(self):
-        """Setup Tamil Nadu state and Hosur city"""
-        self.stdout.write('Setting up Tamil Nadu state and Hosur city...')
+        """Setup Andhra Pradesh state and Vijaywada city"""
+        self.stdout.write('Setting up Andhra Pradesh state and Vijaywada city...')
         
-        # Create or get Tamil Nadu state
+        # Create or get Andhra Pradesh state
         self.state, created = State.objects.get_or_create(
-            code='TN',
+            code='AP',
             defaults={
-                'name': 'Tamil Nadu',
-                'slug': 'tamil-nadu',
-                'center_lat': 11.1271,
-                'center_lng': 78.6569,
+                'name': 'Andhra Pradesh',
+                'slug': 'andhra-pradesh',
+                'center_lat': 15.9129,
+                'center_lng': 79.7400,
                 'default_zoom': 7,
                 'is_active': True
             }
@@ -99,15 +99,15 @@ class Command(BaseCommand):
         else:
             self.stdout.write(f'  ✅ Found existing state: {self.state.name}')
         
-        # Create or get Hosur city
+        # Create or get Vijaywada city
         self.city, created = City.objects.get_or_create(
-            slug='hosur',
+            slug='vijaywada-guntur-tenali-mangalagiri',
             defaults={
-                'name': 'Hosur',
-                'state': 'Tamil Nadu',
+                'name': 'Vijaywada Guntur Tenali Mangalagiri',
+                'state': 'Andhra Pradesh',
                 'state_ref': self.state,
-                'center_lat': 12.7365,
-                'center_lng': 77.8246,
+                'center_lat': 16.5062,
+                'center_lng': 80.6480,
                 'min_zoom': 8,
                 'max_zoom': 18,
                 'is_active': True
@@ -125,7 +125,7 @@ class Command(BaseCommand):
             self.stdout.write(f'  ✅ Found existing city: {self.city.name}')
 
     def setup_layer_categories(self):
-        """Setup layer categories for Hosur masterplan"""
+        """Setup layer categories for Vijaywada masterplan"""
         self.stdout.write('Setting up layer categories...')
         
         categories = [
@@ -159,9 +159,9 @@ class Command(BaseCommand):
             else:
                 self.stdout.write(f'  ✅ Found existing category: {name}')
 
-    def delete_existing_hosur_masterplan_data(self):
-        """Delete existing Hosur masterplan data"""
-        self.stdout.write('Deleting existing Hosur masterplan data...')
+    def delete_existing_vijaywada_masterplan_data(self):
+        """Delete existing Vijaywada masterplan data"""
+        self.stdout.write('Deleting existing Vijaywada masterplan data...')
         
         # Delete the master plan layer and all its features
         deleted_count = 0
@@ -170,21 +170,21 @@ class Command(BaseCommand):
         try:
             layer = DataLayer.objects.get(
                 city=self.city,
-                slug='hosur-master-plan'
+                slug='vijaywada-master-plan'
             )
             feature_count = layer.geofeature_set.count()
             layer.delete()
             deleted_count = 1
             self.stdout.write(f'  ✅ Deleted master plan layer with {feature_count} features')
         except DataLayer.DoesNotExist:
-            self.stdout.write('  ℹ️ No existing Hosur masterplan layer found')
+            self.stdout.write('  ℹ️ No existing Vijaywada masterplan layer found')
         
         # Also delete any layer groups
-        LayerGroup.objects.filter(city=self.city, slug='hosur-master-plan').delete()
+        LayerGroup.objects.filter(city=self.city, slug='vijaywada-master-plan').delete()
 
     def create_and_populate_master_plan_layer(self):
         """Create ONE master plan layer and populate it with features from all files"""
-        self.stdout.write('\nCreating and populating Hosur master plan layer...')
+        self.stdout.write('\nCreating and populating Vijaywada master plan layer...')
         
         # Get all GeoJSON and JSON files in the directory
         geojson_files = list(self.data_dir.glob('*.geojson'))
@@ -205,10 +205,10 @@ class Command(BaseCommand):
             # Create empty layer structure for consistency
             layer_group, created = LayerGroup.objects.get_or_create(
                 city=self.city,
-                slug='hosur-master-plan',
+                slug='vijaywada-master-plan',
                 defaults={
-                    'name': 'Hosur Master Plan',
-                    'description': 'Hosur Planning Authority master plan data',
+                    'name': 'Vijaywada Master Plan',
+                    'description': 'Vijaywada Guntur Tenali Mangalagiri (MGTM) master plan data',
                     'category': self.categories['PLANNING'],
                     'directory_path': str(self.data_dir),
                     'default_color': '#FFE4B5',
@@ -223,10 +223,10 @@ class Command(BaseCommand):
             
             self.master_plan_layer, created = DataLayer.objects.get_or_create(
                 city=self.city,
-                slug='hosur-master-plan',
+                slug='vijaywada-master-plan',
                 defaults={
-                    'name': 'Hosur Master Plan',
-                    'description': 'Comprehensive Hosur master plan including all boundaries and land use zones',
+                    'name': 'Vijaywada Master Plan',
+                    'description': 'Comprehensive Vijaywada Guntur Tenali Mangalagiri master plan including all boundaries and land use zones',
                     'category': self.categories['PLANNING'],
                     'layer_group': layer_group,
                     'file_format': 'GEOJSON',
@@ -239,7 +239,7 @@ class Command(BaseCommand):
                     'is_processed': True,
                     'feature_count': 0,
                     'is_true': True,
-                    'data_source': 'Hosur Planning Authority',
+                    'data_source': 'Vijaywada Guntur Tenali Mangalagiri (MGTM) Planning Authority',
                 }
             )
             
@@ -259,10 +259,10 @@ class Command(BaseCommand):
         # Create a layer group for organization
         layer_group, created = LayerGroup.objects.get_or_create(
             city=self.city,
-            slug='hosur-master-plan',
+            slug='vijaywada-master-plan',
             defaults={
-                'name': 'Hosur Master Plan',
-                'description': 'Hosur Planning Authority master plan data',
+                'name': 'Vijaywada Master Plan',
+                'description': 'Vijaywada Guntur Tenali Mangalagiri (MGTM) master plan data',
                 'category': self.categories['PLANNING'],
                 'directory_path': str(self.data_dir),
                 'default_color': '#FFE4B5',
@@ -281,10 +281,10 @@ class Command(BaseCommand):
         # Create or update THE SINGLE master plan layer
         self.master_plan_layer, created = DataLayer.objects.get_or_create(
             city=self.city,
-            slug='hosur-master-plan',
+            slug='vijaywada-master-plan',
             defaults={
-                'name': 'Hosur Master Plan',
-                'description': 'Comprehensive Hosur master plan including all boundaries and land use zones',
+                'name': 'Vijaywada Master Plan',
+                'description': 'Comprehensive Vijaywada Guntur Tenali Mangalagiri master plan including all boundaries and land use zones',
                 'category': self.categories['PLANNING'],
                 'layer_group': layer_group,
                 'file_format': 'GEOJSON',
@@ -297,7 +297,7 @@ class Command(BaseCommand):
                 'is_processed': False,
                 'feature_count': 0,
                 'is_true': True,  # Make visible by default
-                'data_source': 'Hosur Planning Authority',
+                'data_source': 'Vijaywada Guntur Tenali Mangalagiri (MGTM) Planning Authority',
             }
         )
         
@@ -405,9 +405,9 @@ class Command(BaseCommand):
                 
                 # Validate geometry
                 if not geometry.valid:
-                        geometry = geometry.buffer(0)
-                        if not geometry.valid:
-                            self.stdout.write(f'    ⚠️ Invalid geometry at feature {idx}, skipping')
+                    geometry = geometry.buffer(0)
+                    if not geometry.valid:
+                        self.stdout.write(f'    ⚠️ Invalid geometry at feature {idx}, skipping')
                         continue
                 
                 # Extract properties
@@ -514,7 +514,7 @@ class Command(BaseCommand):
             return float(value)
         except (ValueError, TypeError):
             return None
-                
+
     def safe_int(self, value):
         """Safely convert value to integer"""
         if value is None or value == '':
@@ -540,9 +540,9 @@ class Command(BaseCommand):
         except Exception as e:
             self.stdout.write(f'    ⚠️ Could not calculate bbox: {str(e)}')
         return None
-                
+
     def create_city_layer_styles(self):
-        """Create city-specific layer styles for Hosur"""
+        """Create city-specific layer styles for Vijaywada"""
         self.stdout.write('\nCreating city-specific layer styles...')
         
         style_configs = {
@@ -620,7 +620,7 @@ class Command(BaseCommand):
                     self.stdout.write(f'  ✅ Updated style for {category_code}')
 
     def create_zone_mappings(self):
-        """Create zone mappings for Hosur"""
+        """Create zone mappings for Vijaywada"""
         self.stdout.write('\nCreating zone mappings...')
         
         # Check if master_plan_layer exists and has features

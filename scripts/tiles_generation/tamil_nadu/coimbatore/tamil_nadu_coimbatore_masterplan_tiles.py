@@ -199,7 +199,7 @@ class OptimizedCoimbatoreTileGenerator:
             return False
     
     def generate_from_parent(self, zoom, x, y, tile_path):
-        """Generate high-zoom tile by upsampling parent"""
+        """Generate high-zoom tile by upsampling parent with improved quality"""
         try:
             parent_zoom = zoom - 1
             parent_x = x // 2
@@ -218,7 +218,7 @@ class OptimizedCoimbatoreTileGenerator:
                 quadrant = parent_img.crop((left, top, left + 128, top + 128))
                 tile_img = quadrant.resize((256, 256), Image.Resampling.LANCZOS)
                 
-                # Enhance quality
+                # Apply minimal enhancement to preserve original colors
                 tile_img = tile_img.filter(ImageFilter.SHARPEN)
                 tile_img.save(tile_path, 'PNG', optimize=True, compress_level=6)
                 return True
@@ -240,7 +240,7 @@ class OptimizedCoimbatoreTileGenerator:
                 256, 256
             )
             
-            # Reproject from memory
+            # Reproject from memory with exact color preservation
             reproject(
                 source=self.data_array,
                 destination=tile_data,
@@ -248,7 +248,10 @@ class OptimizedCoimbatoreTileGenerator:
                 src_crs=self.src_crs,
                 dst_transform=tile_transform,
                 dst_crs='EPSG:4326',
-                resampling=Resampling.cubic
+                resampling=Resampling.nearest,  # Use nearest for exact color preservation
+                src_nodata=0,
+                dst_nodata=0,
+                num_threads=1  # Single thread for consistency
             )
             
             return self.save_tile(tile_data, tile_path)
@@ -258,31 +261,51 @@ class OptimizedCoimbatoreTileGenerator:
             return False
     
     def generate_from_window(self, tile_bounds, tile_path):
-        """Generate tile using windowed reading"""
+        """Generate tile using windowed reading with improved overlap handling"""
         try:
             # Check if dataset has proper georeferencing
             if self.src_dataset.transform is None or self.src_dataset.transform == rasterio.Affine.identity():
                 logger.warning("Dataset has no proper geotransform, skipping tile")
                 return False
             
-            # Transform bounds to source CRS
-            src_bounds = transform_bounds(
-                'EPSG:4326', self.src_dataset.crs,
-                tile_bounds.west, tile_bounds.south,
-                tile_bounds.east, tile_bounds.north
+            # Add generous overlap to prevent gaps (5% of tile size)
+            overlap_factor = 0.05
+            tile_width = tile_bounds.east - tile_bounds.west
+            tile_height = tile_bounds.north - tile_bounds.south
+            
+            overlap_x = tile_width * overlap_factor
+            overlap_y = tile_height * overlap_factor
+            
+            # Expand bounds to ensure complete coverage
+            expanded_bounds = (
+                tile_bounds.west - overlap_x,
+                tile_bounds.south - overlap_y,
+                tile_bounds.east + overlap_x,
+                tile_bounds.north + overlap_y
             )
             
-            # Calculate window
+            # Transform expanded bounds to source CRS
+            src_bounds = transform_bounds(
+                'EPSG:4326', self.src_dataset.crs,
+                *expanded_bounds
+            )
+            
+            # Calculate window with proper rounding
             window = window_from_bounds(
                 *src_bounds,
                 transform=self.src_dataset.transform
             )
             
-            # Clamp to dataset bounds
-            col_off = max(0, min(window.col_off, self.src_dataset.width - 1))
-            row_off = max(0, min(window.row_off, self.src_dataset.height - 1))
-            width = max(1, min(window.width, self.src_dataset.width - col_off))
-            height = max(1, min(window.height, self.src_dataset.height - row_off))
+            # Use floor for offset and ceil for size to ensure complete coverage
+            import math
+            col_off = max(0, int(window.col_off))
+            row_off = max(0, int(window.row_off))
+            width = min(math.ceil(window.width) + 2, self.src_dataset.width - col_off)
+            height = min(math.ceil(window.height) + 2, self.src_dataset.height - row_off)
+            
+            # Ensure minimum size
+            width = max(4, width)
+            height = max(4, height)
             
             window = Window(col_off, row_off, width, height)
             
@@ -299,7 +322,7 @@ class OptimizedCoimbatoreTileGenerator:
             # Read and reproject with warning suppression
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
-                window_data = self.src_dataset.read(window=window)
+                window_data = self.src_dataset.read(window=window, boundless=True, fill_value=0)
                 window_transform = self.src_dataset.window_transform(window)
                 
                 reproject(
@@ -309,7 +332,10 @@ class OptimizedCoimbatoreTileGenerator:
                     src_crs=self.src_dataset.crs,
                     dst_transform=tile_transform,
                     dst_crs='EPSG:4326',
-                    resampling=Resampling.cubic
+                    resampling=Resampling.nearest,  # Use nearest for exact color preservation
+                    src_nodata=0,
+                    dst_nodata=0,
+                    num_threads=1  # Single thread for consistency
                 )
             
             return self.save_tile(tile_data, tile_path)
@@ -319,29 +345,61 @@ class OptimizedCoimbatoreTileGenerator:
             return False
     
     def save_tile(self, tile_data, tile_path):
-        """Save tile with optimization and enhancement"""
+        """Save tile with exact color preservation like Anekal approach"""
         try:
-            # Convert to image
+            # Convert to image (tile_data is in CHW format)
             img_array = np.transpose(tile_data, (1, 2, 0))
             
-            # Check for content
-            if not np.any(img_array[:, :, 3] > 0):
+            # Check for content - be more lenient to include edge tiles
+            if np.sum(img_array[:, :, 3]) < 5:  # Very little alpha content
                 return False
             
-            # Ensure uint8 and create PIL image (without deprecated mode parameter)
-            # PIL will auto-detect RGBA from the 4-channel array
-            img = Image.fromarray(img_array.astype(np.uint8))
+            # Handle transparency intelligently like Anekal script
+            alpha_channel = img_array[:, :, 3]
+            transparent_mask = alpha_channel == 0
             
-            # Verify it's RGBA, convert if needed
-            if img.mode != 'RGBA':
-                img = img.convert('RGBA')
+            # Set RGB to 0 where alpha is 0 (prevents black edges)
+            img_array[transparent_mask, 0] = 0  # R
+            img_array[transparent_mask, 1] = 0  # G  
+            img_array[transparent_mask, 2] = 0  # B
             
-            # Apply enhancements
-            img = img.filter(ImageFilter.SHARPEN)
-            enhancer = ImageEnhance.Contrast(img)
-            img = enhancer.enhance(1.05)
+            # Only draw pixels that are not transparent and have some color (like Anekal)
+            valid_pixels = (alpha_channel > 0) & ((img_array[:, :, 0] > 0) | 
+                                                 (img_array[:, :, 1] > 0) | 
+                                                 (img_array[:, :, 2] > 0))
             
-            # Save with optimization
+            # Create PIL image
+            img = Image.fromarray(img_array, mode='RGBA')
+            
+            # Apply minimal edge feathering for seamless blending
+            alpha_array = img_array[:, :, 3].astype(np.float32)
+            
+            # Apply subtle edge feathering (2-3 pixels) for seamless tiles
+            feather_pixels = 2
+            for i in range(min(feather_pixels, alpha_array.shape[0])):
+                if i < alpha_array.shape[0]:
+                    # Top edge
+                    alpha_array[i, :] *= (0.85 + 0.15 * (i + 1) / feather_pixels)
+                    # Bottom edge  
+                    if alpha_array.shape[0] - 1 - i >= 0:
+                        alpha_array[alpha_array.shape[0] - 1 - i, :] *= (0.85 + 0.15 * (i + 1) / feather_pixels)
+            
+            for j in range(min(feather_pixels, alpha_array.shape[1])):
+                if j < alpha_array.shape[1]:
+                    # Left edge
+                    alpha_array[:, j] *= (0.85 + 0.15 * (j + 1) / feather_pixels)
+                    # Right edge
+                    if alpha_array.shape[1] - 1 - j >= 0:
+                        alpha_array[:, alpha_array.shape[1] - 1 - j] *= (0.85 + 0.15 * (j + 1) / feather_pixels)
+            
+            # Ensure alpha values are in valid range
+            alpha_array = np.clip(alpha_array, 0, 255)
+            img_array[:, :, 3] = alpha_array.astype(np.uint8)
+            
+            # Convert back to PIL image with exact colors preserved
+            img = Image.fromarray(img_array, mode='RGBA')
+            
+            # Save with optimal settings - no enhancement to preserve exact colors
             img.save(tile_path, 'PNG', optimize=True, compress_level=6)
             return True
             
@@ -350,12 +408,15 @@ class OptimizedCoimbatoreTileGenerator:
             return False
     
     def tile_in_bounds(self, tile_bounds):
-        """Check if tile intersects data bounds"""
+        """Check if tile intersects data bounds with generous tolerance to prevent gaps"""
+        # Add generous tolerance to avoid gaps at tile boundaries
+        tolerance = 1e-4  # Increased tolerance
+        
         return not (
-            tile_bounds.east < self.wgs84_bounds[0] or
-            tile_bounds.west > self.wgs84_bounds[2] or
-            tile_bounds.south > self.wgs84_bounds[3] or
-            tile_bounds.north < self.wgs84_bounds[1]
+            tile_bounds.east < self.wgs84_bounds[0] - tolerance or
+            tile_bounds.west > self.wgs84_bounds[2] + tolerance or
+            tile_bounds.south > self.wgs84_bounds[3] + tolerance or
+            tile_bounds.north < self.wgs84_bounds[1] - tolerance
         )
     
     def generate_tiles_parallel(self, min_zoom=8, max_zoom=16):
@@ -685,9 +746,9 @@ def main():
     parser.add_argument('--output-dir', 
                        default='coimbatore_masterplan_tiles_main',
                        help='Directory for output tiles')
-    parser.add_argument('--min-zoom', type=int, default=5,
+    parser.add_argument('--min-zoom', type=int, default=8,
                        help='Minimum zoom level (default: 8)')
-    parser.add_argument('--max-zoom', type=int, default=7,
+    parser.add_argument('--max-zoom', type=int, default=18,
                        help='Maximum zoom level (default: 16)')
     parser.add_argument('--workers', type=int, default=None,
                        help='Number of parallel workers (default: auto-detect)')
