@@ -31,7 +31,7 @@ class Command(BaseCommand):
         parser.add_argument(
             '--data-dir',
             type=str,
-            default='data/kerela/kochi/kochi_master_plan/',
+            default='data/kerala/kochi/kochi_master_plan/',
             help='Directory containing the master plan data files',
         )
 
@@ -657,7 +657,7 @@ class Command(BaseCommand):
             return int(value)
         except (ValueError, TypeError):
             return None
-
+                
     def extract_feature_name(self, properties, source_name, index):
         """Extract a meaningful name for the feature"""
         # Try various common name fields
