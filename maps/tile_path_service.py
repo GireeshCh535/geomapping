@@ -38,10 +38,10 @@ class TilePathService:
             S3 key string (e.g., 'karnataka/bengaluru/bengaluru_master_plan_2015/12/2926/1899.png')
         """
         # Ensure all components are properly formatted
-        # Use hyphens for state and city (consistent with existing data)
+        # FIXED: Keep hyphens in all slugs (state, city, and layer) for consistency
         state_slug = slugify(state_slug)
         city_slug = slugify(city_slug)
-        layer_slug = slugify(layer_slug).replace('-', '_')  # Keep underscores for layer names
+        layer_slug = slugify(layer_slug)  # Keep hyphens as-is
         
         # Generate S3 key: state/city/layer/z/x/y.format
         s3_key = f"{state_slug}/{city_slug}/{layer_slug}/{z}/{x}/{y}.{format_type}"

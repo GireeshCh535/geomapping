@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="initial-scale=1,maximum-scale=1,user-scalable=no" />
+    <title>Kakinada Master Plan Viewer</title>
+    <link href="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.css" rel="stylesheet" />
+    <script src="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.js"></script>
+    <style>
+        body { margin: 0; padding: 0; }
+        #map { position: absolute; top: 0; bottom: 0; width: 100%; }
+        .info {
+            position: fixed;
+            top: 10px;
+            right: 10px;
+            background: white;
+            padding: 15px;
+            border-radius: 5px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+            z-index: 1;
+            font-family: Arial, sans-serif;
+            min-width: 280px;
+        }
+        .info h3 { margin-top: 0; }
+        .feature-list {
+            margin: 10px 0;
+            padding-left: 15px;
+        }
+        .feature-list li {
+            margin: 3px 0;
+            font-size: 14px;
+        }
+        .zoom-info {
+            position: fixed;
+            bottom: 10px;
+            left: 10px;
+            background: rgba(0,0,0,0.8);
+            color: white;
+            padding: 8px 12px;
+            border-radius: 4px;
+            z-index: 1;
+            font-family: monospace;
+        }
+        .status {
+            position: fixed;
+            bottom: 10px;
+            right: 10px;
+            background: rgba(0,0,0,0.8);
+            color: white;
+            padding: 8px 12px;
+            border-radius: 4px;
+            z-index: 1;
+            font-family: Arial, sans-serif;
+            font-size: 12px;
+        }
+        .opacity-control {
+            margin: 10px 0;
+        }
+        .opacity-control label {
+            display: block;
+            margin: 5px 0;
+            font-size: 14px;
+        }
+        .opacity-control input[type="range"] {
+            width: 100%;
+            margin: 5px 0;
+        }
+    </style>
+</head>
+<body>
+    <div id="map"></div>
+    <div class="info">
+        <h3>🏙️ Kakinada Master Plan</h3>
+        <p><strong>Dataset:</strong> Kakinada Master Development Plan</p>
+        <p><strong>State:</strong> Andhra Pradesh</p>
+        <p><strong>Zoom:</strong> 4-18</p>
+        <p><strong>Format:</strong> PNG (256x256)</p>
+        <p><strong>Features:</strong></p>
+        <ul class="feature-list">
+            <li>Kakinada City Master Plan</li>
+            <li>Land Use Categories</li>
+            <li>High Resolution Tiles</li>
+            <li>Interactive Controls</li>
+        </ul>
+        <div class="opacity-control">
+            <label for="opacity">Layer Opacity:</label>
+            <input type="range" id="opacity" min="0" max="1" step="0.1" value="0.8">
+            <span id="opacity-value">80%</span>
+        </div>
+        <small>Serve this folder via: python3 -m http.server 8006</small>
+    </div>
+    <div class="zoom-info" id="zoom-display">Zoom: 10</div>
+    <div class="status" id="status">Loading...</div>
+    <script>
+        mapboxgl.accessToken = 'pk.eyJ1IjoiYXYxYWNyZSIsImEiOiJjbTJtZmdxN3owa2FzMmpyMjJ4OHV5MHhzIn0.FXpMd91JSER-r7LVpSZN-A';
+        
+        // Kakinada bounds
+        const kakinadaBounds = [81.69316237559164, 16.677310927800075, 82.56583905868168, 17.391997505244262];
+        
+        const map = new mapboxgl.Map({
+            container: 'map',
+            style: 'mapbox://styles/mapbox/satellite-streets-v12',
+            center: [82.12950071713666, 17.03465421652217], // Kakinada center
+            zoom: 10
+        });
+
+        map.addControl(new mapboxgl.NavigationControl(), 'top-left');
+        map.addControl(new mapboxgl.ScaleControl());
+
+        function updateZoom() {
+            document.getElementById('zoom-display').textContent = 'Zoom: ' + map.getZoom().toFixed(2);
+        }
+
+        function updateStatus(message) {
+            document.getElementById('status').textContent = message;
+        }
+
+        function updateOpacity(value) {
+            const opacity = parseFloat(value);
+            const percentage = Math.round(opacity * 100);
+            document.getElementById('opacity-value').textContent = percentage + '%';
+            
+            if (map.getLayer('kakinada-masterplan-tiles')) {
+                map.setPaintProperty('kakinada-masterplan-tiles', 'raster-opacity', opacity);
+            }
+        }
+
+        map.on('zoomend', updateZoom);
+        map.on('load', () => {
+            updateZoom();
+            updateStatus('Map loaded');
+            
+            // Add Kakinada master plan raster source for local PNG tiles
+            const cacheBuster = Date.now();
+            map.addSource('kakinada-masterplan-tiles', {
+                type: 'raster',
+                tiles: [`./{z}/{x}/{y}.png?v=${cacheBuster}`],
+                tileSize: 256,
+                minzoom: 4,
+                maxzoom: 18,
+                bounds: kakinadaBounds
+            });
+
+            map.addLayer({
+                id: 'kakinada-masterplan-tiles',
+                type: 'raster',
+                source: 'kakinada-masterplan-tiles',
+                paint: { 
+                    'raster-opacity': 0.8, 
+                    'raster-resampling': 'nearest' 
+                }
+            });
+
+            // Fit to Kakinada bounds
+            map.fitBounds([kakinadaBounds.slice(0, 2), kakinadaBounds.slice(2, 4)]);
+            updateStatus('Loaded Kakinada master plan tiles');
+        });
+
+        // Add event listener for opacity control
+        document.getElementById('opacity').addEventListener('input', (e) => {
+            updateOpacity(e.target.value);
+        });
+    </script>
+</body>
+</html>

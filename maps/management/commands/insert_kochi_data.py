@@ -492,13 +492,13 @@ class Command(BaseCommand):
         ]
         
         for style_data in styles:
-            style, created = CityLayerStyle.objects.get_or_create(
-                city=self.city,
+                style, created = CityLayerStyle.objects.get_or_create(
+                    city=self.city,
                 category=style_data['category'],
                 defaults=style_data
-            )
-            
-            if created:
+                )
+                
+                if created:
                 self.stdout.write(f'  ✅ Created style for {style_data["category"].name}')
             else:
                 self.stdout.write(f'  ✅ Found existing style for {style_data["category"].name}')
@@ -621,23 +621,23 @@ class Command(BaseCommand):
             return self.categories.get('INDUSTRIAL', self.categories['PLANNING'])
         elif any(term in filename_lower for term in ['mixed']):
             return self.categories.get('MIXED_USE', self.categories['PLANNING'])
-        else:
+                else:
             return self.categories['PLANNING']
 
     def flatten_geometry(self, geometry):
         """Convert 3D geometry to 2D"""
-        geom_dict = json.loads(geometry.geojson)
-        
-        def remove_z_from_coords(coords):
+                    geom_dict = json.loads(geometry.geojson)
+                    
+                    def remove_z_from_coords(coords):
             """Recursively remove Z coordinates"""
-            if isinstance(coords[0], (int, float)):
-                return coords[:2]
-            else:
-                return [remove_z_from_coords(coord) for coord in coords]
-        
-        if 'coordinates' in geom_dict:
-            geom_dict['coordinates'] = remove_z_from_coords(geom_dict['coordinates'])
-        
+                        if isinstance(coords[0], (int, float)):
+                            return coords[:2]
+                        else:
+                            return [remove_z_from_coords(coord) for coord in coords]
+                    
+                    if 'coordinates' in geom_dict:
+                        geom_dict['coordinates'] = remove_z_from_coords(geom_dict['coordinates'])
+                    
         return GEOSGeometry(json.dumps(geom_dict))
 
     def safe_float(self, value):
@@ -652,11 +652,11 @@ class Command(BaseCommand):
     def safe_int(self, value):
         """Safely convert value to int"""
         if value is None or value == '':
-            return None
-        try:
-            return int(value)
-        except (ValueError, TypeError):
-            return None
+                        return None
+                    try:
+                        return int(value)
+                    except (ValueError, TypeError):
+                        return None
                 
     def extract_feature_name(self, properties, source_name, index):
         """Extract a meaningful name for the feature"""

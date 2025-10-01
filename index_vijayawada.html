@@ -3,7 +3,7 @@
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="initial-scale=1,maximum-scale=1,user-scalable=no" />
-    <title>Kochi Master Plan Viewer</title>
+    <title>Vijayawada Master Plan Viewer</title>
     <link href="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.css" rel="stylesheet" />
     <script src="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.js"></script>
     <style>
@@ -70,13 +70,15 @@
 <body>
     <div id="map"></div>
     <div class="info">
-        <h3>🏙️ Kochi Master Plan</h3>
-        <p><strong>Dataset:</strong> Kochi Master Development Plan</p>
-        <p><strong>Zoom:</strong> 6-18</p>
+        <h3>🏙️ Vijayawada Master Plan</h3>
+        <p><strong>Dataset:</strong> Vijayawada Master Development Plan</p>
+        <p><strong>State:</strong> Andhra Pradesh</p>
+        <p><strong>Authority:</strong> MGTM</p>
+        <p><strong>Zoom:</strong> 4-18</p>
         <p><strong>Format:</strong> PNG (256x256)</p>
         <p><strong>Features:</strong></p>
         <ul class="feature-list">
-            <li>Kochi City Master Plan</li>
+            <li>Vijayawada City Master Plan</li>
             <li>Land Use Categories</li>
             <li>High Resolution Tiles</li>
             <li>Interactive Controls</li>
@@ -86,20 +88,20 @@
             <input type="range" id="opacity" min="0" max="1" step="0.1" value="0.8">
             <span id="opacity-value">80%</span>
         </div>
-        <small>Serve this folder via: python3 -m http.server 8001</small>
+        <small>Serve this folder via: python3 -m http.server 8008</small>
     </div>
     <div class="zoom-info" id="zoom-display">Zoom: 10</div>
     <div class="status" id="status">Loading...</div>
     <script>
         mapboxgl.accessToken = 'pk.eyJ1IjoiYXYxYWNyZSIsImEiOiJjbTJtZmdxN3owa2FzMmpyMjJ4OHV5MHhzIn0.FXpMd91JSER-r7LVpSZN-A';
         
-        // Kochi bounds
-        const kochiBounds = [76.2371320741556, 9.892724597896889, 76.33993364183216, 10.04961770396189];
+        // Vijayawada bounds
+        const vijayawadaBounds = [80.00153949187204, 15.994245491230926, 81.12201499300495, 17.04998345032643];
         
         const map = new mapboxgl.Map({
             container: 'map',
             style: 'mapbox://styles/mapbox/satellite-streets-v12',
-            center: [76.29, 9.97], // Kochi center
+            center: [80.5617772424385, 16.52211447077868], // Vijayawada center
             zoom: 10
         });
 
@@ -119,8 +121,8 @@
             const percentage = Math.round(opacity * 100);
             document.getElementById('opacity-value').textContent = percentage + '%';
             
-            if (map.getLayer('kochi-masterplan-tiles')) {
-                map.setPaintProperty('kochi-masterplan-tiles', 'raster-opacity', opacity);
+            if (map.getLayer('vijayawada-masterplan-tiles')) {
+                map.setPaintProperty('vijayawada-masterplan-tiles', 'raster-opacity', opacity);
             }
         }
 
@@ -129,30 +131,30 @@
             updateZoom();
             updateStatus('Map loaded');
             
-            // Add Kochi master plan raster source for local PNG tiles
+            // Add Vijayawada master plan raster source for local PNG tiles
             const cacheBuster = Date.now();
-            map.addSource('kochi-masterplan-tiles', {
+            map.addSource('vijayawada-masterplan-tiles', {
                 type: 'raster',
                 tiles: [`./{z}/{x}/{y}.png?v=${cacheBuster}`],
                 tileSize: 256,
-                minzoom: 6,
+                minzoom: 4,
                 maxzoom: 18,
-                bounds: kochiBounds
+                bounds: vijayawadaBounds
             });
 
             map.addLayer({
-                id: 'kochi-masterplan-tiles',
+                id: 'vijayawada-masterplan-tiles',
                 type: 'raster',
-                source: 'kochi-masterplan-tiles',
+                source: 'vijayawada-masterplan-tiles',
                 paint: { 
                     'raster-opacity': 0.8, 
                     'raster-resampling': 'nearest' 
                 }
             });
 
-            // Fit to Kochi bounds
-            map.fitBounds([kochiBounds.slice(0, 2), kochiBounds.slice(2, 4)]);
-            updateStatus('Loaded Kochi master plan tiles');
+            // Fit to Vijayawada bounds
+            map.fitBounds([vijayawadaBounds.slice(0, 2), vijayawadaBounds.slice(2, 4)]);
+            updateStatus('Loaded Vijayawada master plan tiles');
         });
 
         // Add event listener for opacity control

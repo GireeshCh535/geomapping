@@ -9,7 +9,7 @@ import sys
 import numpy as np
 from pathlib import Path
 import mercantile
-from PIL import Image
+from PIL import Image, ImageDraw
 import rasterio
 from rasterio.warp import calculate_default_transform, reproject, Resampling
 from rasterio.merge import merge
@@ -35,10 +35,10 @@ class ChennaiCombinedMasterplanTileGenerator:
     Optimized tile generator for Chennai Masterplan with clear rendering and fast processing
     """
     
-    def __init__(self, data_dir: str = "data/chennai/chennai_master_plan",
-                 output_dir: str = "chennai_combined_masterplan_tiles",
+    def __init__(self, data_dir: str = "data/tamil_nadu/chennai/chennai_master_plan",
+                 output_dir: str = "tiles/tamil-nadu/chennai/chennai_master_plan",
                  s3_bucket: str = "gis-tiles-1acre",
-                 s3_prefix: str = "chennai/masterplan",
+                 s3_prefix: str = "tamil-nadu/chennai/chennai_master_plan",
                  max_workers: int = 8):
         self.data_dir = Path(data_dir)
         self.output_dir = Path(output_dir)
@@ -115,7 +115,7 @@ class ChennaiCombinedMasterplanTileGenerator:
                 src_crs=datasets[0].crs,
                 dst_transform=transform,
                 dst_crs=dst_crs,
-                resampling=Resampling.cubic_spline,  # High quality resampling
+                resampling=Resampling.nearest,  # FIXED: Use nearest for sharp, clear tiles
                 num_threads=self.max_workers
             )
             
@@ -225,7 +225,8 @@ class ChennaiCombinedMasterplanTileGenerator:
             if region.size == 0:
                 return None
             
-            # Check if there's actual data (not just transparent/black pixels)
+            # Check if there's actual data (only check alpha channel for transparency)
+            # FIXED: Preserve ALL colors including black (0,0,0)
             has_data = False
             if region.shape[0] >= 4:  # Has alpha channel
                 # Check if any non-transparent pixels exist
@@ -233,16 +234,17 @@ class ChennaiCombinedMasterplanTileGenerator:
                 if alpha_channel.max() > 0:
                     has_data = True
             else:
-                # No alpha channel, check RGB values
-                if region[0].max() > 0 or region[1].max() > 0 or region[2].max() > 0:
-                    has_data = True
+                # No alpha channel, assume all data is valid
+                has_data = True
             
             if not has_data:
                 return None
             
             # Create RGBA image from the region
             rgba_data = np.moveaxis(region, 0, -1)  # Move channels to last dimension
-            img = Image.fromarray(rgba_data, 'RGBA')
+            # Ensure data is uint8 for PIL
+            rgba_data = rgba_data.astype(np.uint8)
+            img = Image.fromarray(rgba_data)
             
             # Calculate exact positioning for the tile
             # Get the exact bounds of the extracted region in geographic coordinates
@@ -266,13 +268,8 @@ class ChennaiCombinedMasterplanTileGenerator:
                 return None
             
             # Resize the image to fit the tile
-            # Use LANCZOS for high quality downsampling, BICUBIC for upsampling
-            if img.width > target_width or img.height > target_height:
-                resample = Image.LANCZOS
-            else:
-                resample = Image.BICUBIC
-            
-            img_resized = img.resize((target_width, target_height), resample)
+            # FIXED: Use NEAREST for sharp, clear tiles without blurring
+            img_resized = img.resize((target_width, target_height), Image.NEAREST)
             
             # Create the final 256x256 tile
             tile = Image.new('RGBA', (256, 256), (0, 0, 0, 0))
@@ -492,9 +489,9 @@ class ChennaiCombinedMasterplanTileGenerator:
 def main():
     """Main function with command line arguments"""
     parser = argparse.ArgumentParser(description='Optimized Chennai Combined Masterplan Tile Generator')
-    parser.add_argument('--min-zoom', type=int, default=8, 
+    parser.add_argument('--min-zoom', type=int, default=17, 
                        help='Minimum zoom level (default: 8)')
-    parser.add_argument('--max-zoom', type=int, default=16, 
+    parser.add_argument('--max-zoom', type=int, default=18, 
                        help='Maximum zoom level (default: 16)')
     parser.add_argument('--workers', type=int, default=8,
                        help='Number of parallel workers (default: 8)')
@@ -504,7 +501,7 @@ def main():
                        help='S3 bucket name')
     parser.add_argument('--s3-prefix', default='chennai/masterplan', 
                        help='S3 prefix')
-    parser.add_argument('--data-dir', default='data/chennai/chennai_master_plan', 
+    parser.add_argument('--data-dir', default='data/tamil_nadu/chennai/chennai_master_plan', 
                        help='Data directory')
     parser.add_argument('--output-dir', default='chennai_combined_masterplan_tiles', 
                        help='Output directory')

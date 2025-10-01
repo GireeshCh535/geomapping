@@ -15,6 +15,8 @@ from PIL import Image, ImageDraw
 import rasterio
 from rasterio.warp import calculate_default_transform, reproject, Resampling
 import logging
+from concurrent.futures import ThreadPoolExecutor, as_completed
+import multiprocessing as mp
 
 # Configure logging
 logging.basicConfig(
@@ -137,6 +139,10 @@ class VijayawadaMasterplanTileGenerator:
         
         total_tiles = 0
         
+        # OPTIMIZED: Use parallel processing for faster tile generation
+        max_workers = min(mp.cpu_count(), 8)  # Limit to 8 workers to avoid memory issues
+        logger.info(f"Using {max_workers} parallel workers for tile generation")
+        
         for zoom in range(min_zoom, max_zoom + 1):
             logger.info(f"Processing zoom level {zoom}")
             
@@ -147,18 +153,38 @@ class VijayawadaMasterplanTileGenerator:
             zoom_dir = self.output_dir / str(zoom)
             zoom_dir.mkdir(exist_ok=True)
             
-            tiles_in_zoom = 0
-            
+            # Collect all tile coordinates for this zoom level
+            tile_tasks = []
             for x in range(min_tile.x, max_tile.x + 1):
                 x_dir = zoom_dir / str(x)
                 x_dir.mkdir(exist_ok=True)
                 
                 for y in range(max_tile.y, min_tile.y + 1):
                     tile_path = x_dir / f"{y}.png"
-                    
-                    if self.generate_single_tile(wgs84_data_r, wgs84_data_g, wgs84_data_b, wgs84_data_a, wgs84_bounds, wgs84_transform, zoom, x, y, tile_path):
-                        total_tiles += 1
-                        tiles_in_zoom += 1
+                    tile_tasks.append((zoom, x, y, tile_path))
+            
+            # Process tiles in parallel
+            tiles_in_zoom = 0
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                # Submit all tile generation tasks
+                future_to_tile = {
+                    executor.submit(
+                        self.generate_single_tile, 
+                        wgs84_data_r, wgs84_data_g, wgs84_data_b, wgs84_data_a,
+                        wgs84_bounds, wgs84_transform, zoom, x, y, tile_path
+                    ): (zoom, x, y) 
+                    for zoom, x, y, tile_path in tile_tasks
+                }
+                
+                # Process completed tiles
+                for future in as_completed(future_to_tile):
+                    zoom, x, y = future_to_tile[future]
+                    try:
+                        if future.result():
+                            total_tiles += 1
+                            tiles_in_zoom += 1
+                    except Exception as e:
+                        logger.error(f"Error generating tile {zoom}/{x}/{y}: {e}")
             
             logger.info(f"Zoom {zoom} complete: {tiles_in_zoom} tiles generated")
         
@@ -194,9 +220,7 @@ class VijayawadaMasterplanTileGenerator:
             return False
     
     def render_data_to_tile(self, wgs84_data_r, wgs84_data_g, wgs84_data_b, wgs84_data_a, wgs84_bounds, wgs84_transform, tile_bounds, draw):
-        """Render WGS84 data to a tile"""
-        has_data = False
-        
+        """Render WGS84 data to a tile - OPTIMIZED for speed"""
         try:
             # Check if tile bounds intersect with data bounds
             if (tile_bounds.east < wgs84_bounds['west'] or 
@@ -208,35 +232,81 @@ class VijayawadaMasterplanTileGenerator:
             # Get data dimensions
             height, width = wgs84_data_r.shape
             
-            # Sample points in the tile (every pixel for high quality)
-            for tile_y in range(0, 256, 1):
-                for tile_x in range(0, 256, 1):
-                    # Convert tile pixel to WGS84 coordinates
-                    lon = tile_bounds.west + (tile_bounds.east - tile_bounds.west) * tile_x / 256
-                    lat = tile_bounds.north - (tile_bounds.north - tile_bounds.south) * tile_y / 256
-                    
-                    # Convert WGS84 coordinates to data pixel coordinates
-                    data_x, data_y = self.wgs84_to_data_pixel(lon, lat, wgs84_bounds, wgs84_transform, width, height)
-                    
-                    if 0 <= data_x < width and 0 <= data_y < height:
-                        r = int(wgs84_data_r[data_y, data_x])
-                        g = int(wgs84_data_g[data_y, data_x])
-                        b = int(wgs84_data_b[data_y, data_x])
-                        a = int(wgs84_data_a[data_y, data_x])
-                        
-                        # Only draw pixels that are not transparent and have some color
-                        if a > 0 and (r > 0 or g > 0 or b > 0):
-                            # Use the actual RGB values from the GeoTIFF
-                            rgb_color = (r, g, b)
-                            
-                            # Draw the pixel
-                            draw.point((tile_x, tile_y), fill=rgb_color)
-                            has_data = True
+            # OPTIMIZED: Vectorized coordinate generation
+            # Create coordinate grids for the entire tile at once
+            tile_size = 256
+            lon_coords = np.linspace(tile_bounds.west, tile_bounds.east, tile_size)
+            lat_coords = np.linspace(tile_bounds.north, tile_bounds.south, tile_size)
+            
+            # Create meshgrids for vectorized processing
+            lon_grid, lat_grid = np.meshgrid(lon_coords, lat_coords)
+            
+            # Flatten for batch processing
+            lon_flat = lon_grid.flatten()
+            lat_flat = lat_grid.flatten()
+            
+            # Convert all coordinates at once using vectorized operations
+            from rasterio.transform import rowcol
+            rows, cols = rowcol(wgs84_transform, lon_flat, lat_flat)
+            
+            # Reshape back to tile dimensions
+            rows = rows.reshape(tile_size, tile_size)
+            cols = cols.reshape(tile_size, tile_size)
+            
+            # Create mask for valid coordinates
+            valid_mask = (rows >= 0) & (rows < height) & (cols >= 0) & (cols < width)
+            
+            # Initialize output arrays
+            r_out = np.zeros((tile_size, tile_size), dtype=np.uint8)
+            g_out = np.zeros((tile_size, tile_size), dtype=np.uint8)
+            b_out = np.zeros((tile_size, tile_size), dtype=np.uint8)
+            a_out = np.zeros((tile_size, tile_size), dtype=np.uint8)
+            
+            # Vectorized data extraction - much faster than pixel-by-pixel
+            if np.any(valid_mask):
+                # Extract data for all valid pixels at once
+                valid_rows = rows[valid_mask]
+                valid_cols = cols[valid_mask]
+                
+                r_out[valid_mask] = wgs84_data_r[valid_rows, valid_cols]
+                g_out[valid_mask] = wgs84_data_g[valid_rows, valid_cols]
+                b_out[valid_mask] = wgs84_data_b[valid_rows, valid_cols]
+                a_out[valid_mask] = wgs84_data_a[valid_rows, valid_cols]
+            
+            # Create mask for pixels with actual content
+            # FIXED: Preserve ALL colors including black (0,0,0) - only check alpha
+            content_mask = (a_out > 0)
+            
+            if not np.any(content_mask):
+                return False
+            
+            # OPTIMIZED: Draw only pixels with content using vectorized approach
+            # Get coordinates of pixels with content
+            content_y, content_x = np.where(content_mask)
+            
+            # Draw pixels in batches for better performance
+            batch_size = 1000
+            for i in range(0, len(content_y), batch_size):
+                end_idx = min(i + batch_size, len(content_y))
+                batch_y = content_y[i:end_idx]
+                batch_x = content_x[i:end_idx]
+                
+                # Get colors for this batch
+                batch_r = r_out[batch_y, batch_x]
+                batch_g = g_out[batch_y, batch_x]
+                batch_b = b_out[batch_y, batch_x]
+                
+                # Draw pixels in this batch
+                for j in range(len(batch_y)):
+                    y, x = batch_y[j], batch_x[j]
+                    rgb_color = (int(batch_r[j]), int(batch_g[j]), int(batch_b[j]))
+                    draw.point((x, y), fill=rgb_color)
+            
+            return True
         
         except Exception as e:
             logger.error(f"Error rendering data to tile: {e}")
-        
-        return has_data
+            return False
     
     def wgs84_to_data_pixel(self, lon, lat, wgs84_bounds, wgs84_transform, width, height):
         """Convert WGS84 coordinates to data pixel coordinates"""

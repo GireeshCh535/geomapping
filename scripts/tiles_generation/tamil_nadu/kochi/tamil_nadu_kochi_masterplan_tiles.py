@@ -10,7 +10,7 @@ import sys
 import numpy as np
 from pathlib import Path
 import mercantile
-from PIL import Image, ImageFilter, ImageEnhance
+from PIL import Image, ImageDraw, ImageFilter, ImageEnhance
 import rasterio
 from rasterio.warp import reproject, Resampling, transform_bounds, calculate_default_transform
 from rasterio.windows import Window, from_bounds as window_from_bounds
@@ -63,7 +63,7 @@ class OptimizedKochiTileGenerator:
     High-performance tile generator for Kochi Masterplan optimized for large WGS84 GeoTIFFs
     """
     
-    def __init__(self, data_dir: str = "data/tamil_nadu/kochi/kochi_master_plan",
+    def __init__(self, data_dir: str = "data/kerela/kochi/kochi_master_plan",
                  output_dir: str = "kochi_masterplan_tiles",
                  num_workers: int = None,
                  cache_size: int = 1000,
@@ -646,42 +646,35 @@ class OptimizedKochiTileGenerator:
             return False
     
     def save_tile(self, tile_data, tile_path):
-        """Save tile with exact color preservation"""
+        """Save tile with exact color preservation - FIXED for seamless boundaries"""
         try:
+            # Convert to image (tile_data is in CHW format)
             img_array = np.transpose(tile_data, (1, 2, 0))
             
-            if np.sum(img_array[:, :, 3]) < 5:
+            # Check for content - be more lenient to include edge tiles
+            if np.sum(img_array[:, :, 3]) < 5:  # Very little alpha content
                 return False
             
-            alpha_channel = img_array[:, :, 3]
-            transparent_mask = alpha_channel == 0
+            # FIXED: Use the BMRDA approach - create completely transparent background
+            # and only draw pixels with actual content
+            img = Image.new('RGBA', (256, 256), (0, 0, 0, 0))
+            draw = ImageDraw.Draw(img)
             
-            img_array[transparent_mask, 0] = 0
-            img_array[transparent_mask, 1] = 0
-            img_array[transparent_mask, 2] = 0
+            # Process each pixel individually like BMRDA scripts
+            for y in range(256):
+                for x in range(256):
+                    r = int(img_array[y, x, 0])
+                    g = int(img_array[y, x, 1])
+                    b = int(img_array[y, x, 2])
+                    a = int(img_array[y, x, 3])
+                    
+                    # Only draw pixels that are not transparent
+                    # FIXED: Preserve ALL colors including black (0,0,0) - only check alpha
+                    if a > 0:
+                        rgb_color = (r, g, b)
+                        draw.point((x, y), fill=rgb_color)
             
-            img = Image.fromarray(img_array, mode='RGBA')
-            
-            # Apply subtle edge feathering
-            alpha_array = img_array[:, :, 3].astype(np.float32)
-            feather_pixels = 2
-            
-            for i in range(min(feather_pixels, alpha_array.shape[0])):
-                if i < alpha_array.shape[0]:
-                    alpha_array[i, :] *= (0.85 + 0.15 * (i + 1) / feather_pixels)
-                    if alpha_array.shape[0] - 1 - i >= 0:
-                        alpha_array[alpha_array.shape[0] - 1 - i, :] *= (0.85 + 0.15 * (i + 1) / feather_pixels)
-            
-            for j in range(min(feather_pixels, alpha_array.shape[1])):
-                if j < alpha_array.shape[1]:
-                    alpha_array[:, j] *= (0.85 + 0.15 * (j + 1) / feather_pixels)
-                    if alpha_array.shape[1] - 1 - j >= 0:
-                        alpha_array[:, alpha_array.shape[1] - 1 - j] *= (0.85 + 0.15 * (j + 1) / feather_pixels)
-            
-            alpha_array = np.clip(alpha_array, 0, 255)
-            img_array[:, :, 3] = alpha_array.astype(np.uint8)
-            
-            img = Image.fromarray(img_array, mode='RGBA')
+            # Save with optimized settings
             img.save(tile_path, 'PNG', optimize=True, compress_level=6)
             return True
             
@@ -884,7 +877,7 @@ def main():
         description='Optimized Kochi Masterplan tile generator with auto-repair'
     )
     parser.add_argument('--data-dir', 
-                       default='data/tamil_nadu/kochi/kochi_master_plan',
+                       default='data/kerela/kochi/kochi_master_plan',
                        help='Directory containing the GeoTIFF file')
     parser.add_argument('--output-dir', 
                        default='kochi_masterplan_tiles',

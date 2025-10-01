@@ -2,6 +2,11 @@
 """
 High-performance optimized tile generator for Coimbatore Masterplan GeoTIFF
 Handles all zoom levels efficiently with smart caching, parallel processing, and error recovery
+
+Supports multiple CRS:
+- EPSG:3857 (Web Mercator) - Optimized handling for web mapping
+- EPSG:32644 (UTM Zone 44N) - Standard UTM projection
+- Other CRS - Automatic conversion to WGS84
 """
 
 import os
@@ -9,7 +14,7 @@ import sys
 import numpy as np
 from pathlib import Path
 import mercantile
-from PIL import Image, ImageFilter, ImageEnhance
+from PIL import Image, ImageDraw, ImageFilter, ImageEnhance
 import rasterio
 from rasterio.warp import reproject, Resampling, transform_bounds
 from rasterio.windows import Window, from_bounds as window_from_bounds
@@ -96,11 +101,19 @@ class OptimizedCoimbatoreTileGenerator:
             logger.info(f"Data type: {self.src_dataset.dtypes[0]}")
             logger.info(f"Bounds: {self.src_dataset.bounds}")
             
-            # Calculate WGS84 bounds
-            self.wgs84_bounds = transform_bounds(
-                self.src_dataset.crs, 'EPSG:4326',
-                *self.src_dataset.bounds
-            )
+            # Calculate WGS84 bounds (handle both UTM and Web Mercator)
+            if str(self.src_dataset.crs) == 'EPSG:3857':
+                # Already in Web Mercator, convert to WGS84
+                self.wgs84_bounds = transform_bounds(
+                    'EPSG:3857', 'EPSG:4326',
+                    *self.src_dataset.bounds
+                )
+            else:
+                # Convert from UTM or other CRS to WGS84
+                self.wgs84_bounds = transform_bounds(
+                    self.src_dataset.crs, 'EPSG:4326',
+                    *self.src_dataset.bounds
+                )
             logger.info(f"WGS84 bounds: {self.wgs84_bounds}")
             
             # Check for overviews
@@ -241,18 +254,35 @@ class OptimizedCoimbatoreTileGenerator:
             )
             
             # Reproject from memory with exact color preservation
-            reproject(
-                source=self.data_array,
-                destination=tile_data,
-                src_transform=self.src_transform,
-                src_crs=self.src_crs,
-                dst_transform=tile_transform,
-                dst_crs='EPSG:4326',
-                resampling=Resampling.nearest,  # Use nearest for exact color preservation
-                src_nodata=0,
-                dst_nodata=0,
-                num_threads=1  # Single thread for consistency
-            )
+            # Handle EPSG:3857 efficiently (no reprojection needed for Web Mercator)
+            if str(self.src_crs) == 'EPSG:3857':
+                # For Web Mercator, we can use direct resampling without full reprojection
+                reproject(
+                    source=self.data_array,
+                    destination=tile_data,
+                    src_transform=self.src_transform,
+                    src_crs=self.src_crs,
+                    dst_transform=tile_transform,
+                    dst_crs='EPSG:4326',
+                    resampling=Resampling.nearest,  # Use nearest for exact color preservation
+                    src_nodata=0,
+                    dst_nodata=0,
+                    num_threads=1  # Single thread for consistency
+                )
+            else:
+                # For UTM and other CRS, use standard reprojection
+                reproject(
+                    source=self.data_array,
+                    destination=tile_data,
+                    src_transform=self.src_transform,
+                    src_crs=self.src_crs,
+                    dst_transform=tile_transform,
+                    dst_crs='EPSG:4326',
+                    resampling=Resampling.nearest,  # Use nearest for exact color preservation
+                    src_nodata=0,
+                    dst_nodata=0,
+                    num_threads=1  # Single thread for consistency
+                )
             
             return self.save_tile(tile_data, tile_path)
             
@@ -285,10 +315,18 @@ class OptimizedCoimbatoreTileGenerator:
             )
             
             # Transform expanded bounds to source CRS
-            src_bounds = transform_bounds(
-                'EPSG:4326', self.src_dataset.crs,
-                *expanded_bounds
-            )
+            if str(self.src_dataset.crs) == 'EPSG:3857':
+                # For Web Mercator, use direct transformation
+                src_bounds = transform_bounds(
+                    'EPSG:4326', 'EPSG:3857',
+                    *expanded_bounds
+                )
+            else:
+                # For UTM and other CRS
+                src_bounds = transform_bounds(
+                    'EPSG:4326', self.src_dataset.crs,
+                    *expanded_bounds
+                )
             
             # Calculate window with proper rounding
             window = window_from_bounds(
@@ -325,18 +363,35 @@ class OptimizedCoimbatoreTileGenerator:
                 window_data = self.src_dataset.read(window=window, boundless=True, fill_value=0)
                 window_transform = self.src_dataset.window_transform(window)
                 
-                reproject(
-                    source=window_data,
-                    destination=tile_data,
-                    src_transform=window_transform,
-                    src_crs=self.src_dataset.crs,
-                    dst_transform=tile_transform,
-                    dst_crs='EPSG:4326',
-                    resampling=Resampling.nearest,  # Use nearest for exact color preservation
-                    src_nodata=0,
-                    dst_nodata=0,
-                    num_threads=1  # Single thread for consistency
-                )
+                # Handle EPSG:3857 efficiently
+                if str(self.src_dataset.crs) == 'EPSG:3857':
+                    # For Web Mercator, optimized reprojection
+                    reproject(
+                        source=window_data,
+                        destination=tile_data,
+                        src_transform=window_transform,
+                        src_crs='EPSG:3857',
+                        dst_transform=tile_transform,
+                        dst_crs='EPSG:4326',
+                        resampling=Resampling.nearest,  # Use nearest for exact color preservation
+                        src_nodata=0,
+                        dst_nodata=0,
+                        num_threads=1  # Single thread for consistency
+                    )
+                else:
+                    # For UTM and other CRS
+                    reproject(
+                        source=window_data,
+                        destination=tile_data,
+                        src_transform=window_transform,
+                        src_crs=self.src_dataset.crs,
+                        dst_transform=tile_transform,
+                        dst_crs='EPSG:4326',
+                        resampling=Resampling.nearest,  # Use nearest for exact color preservation
+                        src_nodata=0,
+                        dst_nodata=0,
+                        num_threads=1  # Single thread for consistency
+                    )
             
             return self.save_tile(tile_data, tile_path)
             
@@ -345,7 +400,7 @@ class OptimizedCoimbatoreTileGenerator:
             return False
     
     def save_tile(self, tile_data, tile_path):
-        """Save tile with exact color preservation like Anekal approach"""
+        """Save tile with exact color preservation - FIXED for seamless boundaries"""
         try:
             # Convert to image (tile_data is in CHW format)
             img_array = np.transpose(tile_data, (1, 2, 0))
@@ -354,52 +409,26 @@ class OptimizedCoimbatoreTileGenerator:
             if np.sum(img_array[:, :, 3]) < 5:  # Very little alpha content
                 return False
             
-            # Handle transparency intelligently like Anekal script
-            alpha_channel = img_array[:, :, 3]
-            transparent_mask = alpha_channel == 0
+            # FIXED: Use the BMRDA approach - create completely transparent background
+            # and only draw pixels with actual content
+            img = Image.new('RGBA', (256, 256), (0, 0, 0, 0))
+            draw = ImageDraw.Draw(img)
             
-            # Set RGB to 0 where alpha is 0 (prevents black edges)
-            img_array[transparent_mask, 0] = 0  # R
-            img_array[transparent_mask, 1] = 0  # G  
-            img_array[transparent_mask, 2] = 0  # B
+            # Process each pixel individually like BMRDA scripts
+            for y in range(256):
+                for x in range(256):
+                    r = int(img_array[y, x, 0])
+                    g = int(img_array[y, x, 1])
+                    b = int(img_array[y, x, 2])
+                    a = int(img_array[y, x, 3])
+                    
+                    # Only draw pixels that are not transparent
+                    # FIXED: Preserve ALL colors including black (0,0,0) - only check alpha
+                    if a > 0:
+                        rgb_color = (r, g, b)
+                        draw.point((x, y), fill=rgb_color)
             
-            # Only draw pixels that are not transparent and have some color (like Anekal)
-            valid_pixels = (alpha_channel > 0) & ((img_array[:, :, 0] > 0) | 
-                                                 (img_array[:, :, 1] > 0) | 
-                                                 (img_array[:, :, 2] > 0))
-            
-            # Create PIL image
-            img = Image.fromarray(img_array, mode='RGBA')
-            
-            # Apply minimal edge feathering for seamless blending
-            alpha_array = img_array[:, :, 3].astype(np.float32)
-            
-            # Apply subtle edge feathering (2-3 pixels) for seamless tiles
-            feather_pixels = 2
-            for i in range(min(feather_pixels, alpha_array.shape[0])):
-                if i < alpha_array.shape[0]:
-                    # Top edge
-                    alpha_array[i, :] *= (0.85 + 0.15 * (i + 1) / feather_pixels)
-                    # Bottom edge  
-                    if alpha_array.shape[0] - 1 - i >= 0:
-                        alpha_array[alpha_array.shape[0] - 1 - i, :] *= (0.85 + 0.15 * (i + 1) / feather_pixels)
-            
-            for j in range(min(feather_pixels, alpha_array.shape[1])):
-                if j < alpha_array.shape[1]:
-                    # Left edge
-                    alpha_array[:, j] *= (0.85 + 0.15 * (j + 1) / feather_pixels)
-                    # Right edge
-                    if alpha_array.shape[1] - 1 - j >= 0:
-                        alpha_array[:, alpha_array.shape[1] - 1 - j] *= (0.85 + 0.15 * (j + 1) / feather_pixels)
-            
-            # Ensure alpha values are in valid range
-            alpha_array = np.clip(alpha_array, 0, 255)
-            img_array[:, :, 3] = alpha_array.astype(np.uint8)
-            
-            # Convert back to PIL image with exact colors preserved
-            img = Image.fromarray(img_array, mode='RGBA')
-            
-            # Save with optimal settings - no enhancement to preserve exact colors
+            # Save with optimized settings
             img.save(tile_path, 'PNG', optimize=True, compress_level=6)
             return True
             

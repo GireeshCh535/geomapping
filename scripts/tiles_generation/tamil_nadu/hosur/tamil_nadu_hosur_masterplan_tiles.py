@@ -9,7 +9,7 @@ import sys
 import numpy as np
 from pathlib import Path
 import mercantile
-from PIL import Image, ImageFilter, ImageEnhance
+from PIL import Image, ImageDraw, ImageFilter, ImageEnhance
 import rasterio
 from rasterio.warp import reproject, Resampling, transform_bounds
 from rasterio.windows import Window, from_bounds as window_from_bounds
@@ -394,7 +394,7 @@ class HighZoomTileGenerator:
             return False
     
     def save_tile(self, tile_data, tile_path):
-        """Save tile with exact color preservation like Anekal approach"""
+        """Save tile with exact color preservation - FIXED for seamless boundaries"""
         try:
             # Convert to image (tile_data is in CHW format)
             img_array = np.transpose(tile_data, (1, 2, 0))
@@ -403,52 +403,26 @@ class HighZoomTileGenerator:
             if np.sum(img_array[:, :, 3]) < 5:  # Very little alpha content
                 return False
             
-            # Handle transparency intelligently like Anekal script
-            alpha_channel = img_array[:, :, 3]
-            transparent_mask = alpha_channel == 0
+            # FIXED: Use the BMRDA approach - create completely transparent background
+            # and only draw pixels with actual content
+            img = Image.new('RGBA', (256, 256), (0, 0, 0, 0))
+            draw = ImageDraw.Draw(img)
             
-            # Set RGB to 0 where alpha is 0 (prevents black edges)
-            img_array[transparent_mask, 0] = 0  # R
-            img_array[transparent_mask, 1] = 0  # G  
-            img_array[transparent_mask, 2] = 0  # B
+            # Process each pixel individually like BMRDA scripts
+            for y in range(256):
+                for x in range(256):
+                    r = int(img_array[y, x, 0])
+                    g = int(img_array[y, x, 1])
+                    b = int(img_array[y, x, 2])
+                    a = int(img_array[y, x, 3])
+                    
+                    # Only draw pixels that are not transparent
+                    # FIXED: Preserve ALL colors including black (0,0,0) - only check alpha
+                    if a > 0:
+                        rgb_color = (r, g, b)
+                        draw.point((x, y), fill=rgb_color)
             
-            # Only draw pixels that are not transparent and have some color (like Anekal)
-            valid_pixels = (alpha_channel > 0) & ((img_array[:, :, 0] > 0) | 
-                                                 (img_array[:, :, 1] > 0) | 
-                                                 (img_array[:, :, 2] > 0))
-            
-            # Create PIL image
-            img = Image.fromarray(img_array, mode='RGBA')
-            
-            # Apply minimal edge feathering for seamless blending
-            alpha_array = img_array[:, :, 3].astype(np.float32)
-            
-            # Apply subtle edge feathering (2-3 pixels) for seamless tiles
-            feather_pixels = 2
-            for i in range(min(feather_pixels, alpha_array.shape[0])):
-                if i < alpha_array.shape[0]:
-                    # Top edge
-                    alpha_array[i, :] *= (0.85 + 0.15 * (i + 1) / feather_pixels)
-                    # Bottom edge  
-                    if alpha_array.shape[0] - 1 - i >= 0:
-                        alpha_array[alpha_array.shape[0] - 1 - i, :] *= (0.85 + 0.15 * (i + 1) / feather_pixels)
-            
-            for j in range(min(feather_pixels, alpha_array.shape[1])):
-                if j < alpha_array.shape[1]:
-                    # Left edge
-                    alpha_array[:, j] *= (0.85 + 0.15 * (j + 1) / feather_pixels)
-                    # Right edge
-                    if alpha_array.shape[1] - 1 - j >= 0:
-                        alpha_array[:, alpha_array.shape[1] - 1 - j] *= (0.85 + 0.15 * (j + 1) / feather_pixels)
-            
-            # Ensure alpha values are in valid range
-            alpha_array = np.clip(alpha_array, 0, 255)
-            img_array[:, :, 3] = alpha_array.astype(np.uint8)
-            
-            # Convert back to PIL image with exact colors preserved
-            img = Image.fromarray(img_array, mode='RGBA')
-            
-            # Save with optimal settings - no enhancement to preserve exact colors
+            # Save with optimized settings
             img.save(tile_path, 'PNG', optimize=True, compress_level=6)
             return True
             
