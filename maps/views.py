@@ -960,10 +960,11 @@ class CoordinateSearchTestView(APIView):
             # Use the existing config system from your codebase
             from .config import get_city_config
             
-            category_code = feature.derived_category
+            category_code = feature.zone_category
             
             # Get city-specific color from config
-            city_config = get_city_config(city_slug)
+            state_slug = feature.layer.city.state_ref.slug if feature.layer.city.state_ref else None
+            city_config = get_city_config(state_slug, city_slug) if state_slug else None
             if city_config and 'colors' in city_config:
                 color = city_config['colors'].get(category_code)
                 if color:
