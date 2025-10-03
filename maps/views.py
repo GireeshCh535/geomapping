@@ -1145,7 +1145,8 @@ class CoordinateSearchTestView(APIView):
                             'data': data_string
                         }
                     
-                    elif layer.slug in ['bengaluru_anekal_masterplan', 'bengaluru_chikkaballapura_masterplan', 'bengaluru_hosakote_masterplan', 'bengaluru_nelamangala_masterplan']:
+                    elif layer.slug in ['bengaluru_anekal_masterplan', 'bengaluru_chikkaballapura_masterplan', 'bengaluru_hosakote_masterplan', 'bengaluru_nelamangala_masterplan', 
+                    'coimbatore_master_plan', 'hosur_master_plan', 'kochi_master_plan', 'cuttack-masterplan', 'vgtm-masterplan', 'kakinada-masterplan', 'chennai_master_plan']:
                         # Return just the layer name as plain string
                         return {
                             'data': layer.slug,
@@ -1340,6 +1341,15 @@ class CoordinateSearchTestView(APIView):
             # Special handling for BMRDA boundary layers
             if layer.slug in ['bengaluru_anekal_masterplan', 'bengaluru_chikkaballapura_masterplan', 'bengaluru_hosakote_masterplan', 'bengaluru_nelamangala_masterplan'] and containing_features:
                 # Return just the layer name as plain string
+                return {
+                    'data': layer.slug,
+                    'features': [],
+                    'nearby_features': []
+                }
+            
+            # Special handling for Tamil Nadu and Kerala master plan layers
+            if layer.slug in ['coimbatore_master_plan', 'hosur_master_plan', 'kochi_master_plan'] and containing_features:
+                # Return just the layer slug as plain string
                 return {
                     'data': layer.slug,
                     'features': [],
