@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """
-Dedicated script to generate high-quality PNG tiles from Anekal Masterplan RGBA GeoTIFF
+Dedicated script to generate high-quality PNG tiles from Cuttack Master Plan RGBA GeoTIFF
 Extracts actual colors from the GeoTIFF for accurate tile generation
+Based on the anekal_rgba_tiles.py template
 """
 
 import os
@@ -22,18 +23,18 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-class AnekalRGBATileGenerator:
+class CuttackMasterplanTileGenerator:
     """
-    Generate high-quality PNG tiles from Anekal Masterplan RGBA GeoTIFF
+    Generate high-quality PNG tiles from Cuttack Master Plan RGBA GeoTIFF
     """
     
-    def __init__(self, data_dir: str = "data/karnataka/BMRDA/Anekal Masterplan",
-                 output_dir: str = "anekal_masterplan_tiles"):
+    def __init__(self, data_dir: str = "data/odisha/cuttack/cuttack_master_plan",
+                 output_dir: str = "cuttack_masterplan_tiles"):
         self.data_dir = Path(data_dir)
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(exist_ok=True)
         
-        logger.info("Anekal RGBA Tile Generator initialized")
+        logger.info("Cuttack Master Plan Tile Generator initialized")
     
     def reproject_geotiff_to_wgs84(self, geotiff_path):
         """Reproject RGBA GeoTIFF to WGS84 and return the transformed data and bounds"""
@@ -57,6 +58,7 @@ class AnekalRGBATileGenerator:
             destination_a = np.zeros((height, width), dtype=src.dtypes[0])
             
             # Reproject each band
+            logger.info("Reprojecting Red band...")
             reproject(
                 source=src.read(1),  # Red band
                 destination=destination_r,
@@ -67,6 +69,7 @@ class AnekalRGBATileGenerator:
                 resampling=Resampling.nearest
             )
             
+            logger.info("Reprojecting Green band...")
             reproject(
                 source=src.read(2),  # Green band
                 destination=destination_g,
@@ -77,6 +80,7 @@ class AnekalRGBATileGenerator:
                 resampling=Resampling.nearest
             )
             
+            logger.info("Reprojecting Blue band...")
             reproject(
                 source=src.read(3),  # Blue band
                 destination=destination_b,
@@ -87,6 +91,7 @@ class AnekalRGBATileGenerator:
                 resampling=Resampling.nearest
             )
             
+            logger.info("Reprojecting Alpha band...")
             reproject(
                 source=src.read(4),  # Alpha band
                 destination=destination_a,
@@ -110,19 +115,21 @@ class AnekalRGBATileGenerator:
             
             return destination_r, destination_g, destination_b, destination_a, wgs84_bounds, transform
     
-    def generate_tiles(self, min_zoom=8, max_zoom=16):
-        """Generate PNG tiles for Anekal Masterplan"""
+    def generate_tiles(self, min_zoom=4, max_zoom=18):
+        """Generate PNG tiles for Cuttack Master Plan"""
         # Find the GeoTIFF file
-        geotiff_files = list(self.data_dir.glob("*.tif"))
-        if not geotiff_files:
-            logger.error(f"No GeoTIFF files found in {self.data_dir}")
-            return
+        geotiff_path = self.data_dir / "Cuttack_Clipped.tif"
         
-        geotiff_path = geotiff_files[0]
+        if not geotiff_path.exists():
+            logger.error(f"GeoTIFF file not found: {geotiff_path}")
+            return 0
+        
         logger.info(f"Processing GeoTIFF: {geotiff_path}")
         
         # Reproject GeoTIFF to WGS84
+        logger.info("Starting reprojection to WGS84...")
         wgs84_data_r, wgs84_data_g, wgs84_data_b, wgs84_data_a, wgs84_bounds, wgs84_transform = self.reproject_geotiff_to_wgs84(geotiff_path)
+        logger.info("Reprojection complete!")
         
         # Calculate tile bounds
         min_tile = mercantile.tile(wgs84_bounds['west'], wgs84_bounds['south'], min_zoom)
@@ -140,6 +147,8 @@ class AnekalRGBATileGenerator:
             zoom_dir = self.output_dir / str(zoom)
             zoom_dir.mkdir(exist_ok=True)
             
+            tiles_in_zoom = 0
+            
             for x in range(min_tile.x, max_tile.x + 1):
                 x_dir = zoom_dir / str(x)
                 x_dir.mkdir(exist_ok=True)
@@ -149,12 +158,11 @@ class AnekalRGBATileGenerator:
                     
                     if self.generate_single_tile(wgs84_data_r, wgs84_data_g, wgs84_data_b, wgs84_data_a, wgs84_bounds, wgs84_transform, zoom, x, y, tile_path):
                         total_tiles += 1
-                    
-                    # Log progress every 100 tiles
-                    if total_tiles % 100 == 0:
-                        logger.info(f"Generated {total_tiles} tiles so far...")
+                        tiles_in_zoom += 1
+            
+            logger.info(f"Zoom {zoom} complete: {tiles_in_zoom} tiles generated")
         
-        logger.info(f"Generated {total_tiles} PNG tiles for Anekal Masterplan")
+        logger.info(f"✅ Generated {total_tiles} PNG tiles for Cuttack Master Plan")
         
         # Create supporting files
         self.create_supporting_files(wgs84_bounds, min_zoom, max_zoom)
@@ -172,11 +180,14 @@ class AnekalRGBATileGenerator:
             draw = ImageDraw.Draw(img)
             
             # Render the WGS84 data to this tile
-            self.render_data_to_tile(wgs84_data_r, wgs84_data_g, wgs84_data_b, wgs84_data_a, wgs84_bounds, wgs84_transform, tile_bounds, draw)
+            has_data = self.render_data_to_tile(wgs84_data_r, wgs84_data_g, wgs84_data_b, wgs84_data_a, wgs84_bounds, wgs84_transform, tile_bounds, draw)
             
-            # Save the tile
-            img.save(tile_path, 'PNG')
-            return True
+            # Only save if tile has data
+            if has_data:
+                img.save(tile_path, 'PNG', optimize=True)
+                return True
+            
+            return False
             
         except Exception as e:
             logger.error(f"Error generating tile {zoom}/{x}/{y}: {e}")
@@ -184,13 +195,15 @@ class AnekalRGBATileGenerator:
     
     def render_data_to_tile(self, wgs84_data_r, wgs84_data_g, wgs84_data_b, wgs84_data_a, wgs84_bounds, wgs84_transform, tile_bounds, draw):
         """Render WGS84 data to a tile"""
+        has_data = False
+        
         try:
             # Check if tile bounds intersect with data bounds
             if (tile_bounds.east < wgs84_bounds['west'] or 
                 tile_bounds.west > wgs84_bounds['east'] or 
                 tile_bounds.south > wgs84_bounds['north'] or 
                 tile_bounds.north < wgs84_bounds['south']):
-                return
+                return False
             
             # Get data dimensions
             height, width = wgs84_data_r.shape
@@ -219,9 +232,12 @@ class AnekalRGBATileGenerator:
                             
                             # Draw the pixel
                             draw.point((tile_x, tile_y), fill=rgb_color)
+                            has_data = True
         
         except Exception as e:
             logger.error(f"Error rendering data to tile: {e}")
+        
+        return has_data
     
     def wgs84_to_data_pixel(self, lon, lat, wgs84_bounds, wgs84_transform, width, height):
         """Convert WGS84 coordinates to data pixel coordinates"""
@@ -235,50 +251,45 @@ class AnekalRGBATileGenerator:
         """Create supporting files for the tile set"""
         logger.info("Creating supporting files...")
         
-        # Create Mapbox style JSON
-        style_json = {
-            "version": 8,
-            "name": "Karnataka BMRDA - Anekal Masterplan",
-            "sources": {
-                "anekal-masterplan": {
-                    "type": "raster",
-                    "tiles": [
-                        "https://d17yosovmfjm4.cloudfront.net/karnataka/bmrda/anekal_masterplan/{z}/{x}/{y}.png"
-                    ],
-                    "tileSize": 256
-                }
+        # Create metadata JSON
+        import json
+        
+        metadata = {
+            "name": "Odisha - Cuttack Master Plan",
+            "description": "Master plan tiles for Cuttack, Odisha",
+            "state": "Odisha",
+            "city": "Cuttack",
+            "authority": "Cuttack Development Authority",
+            "bounds": {
+                "west": bounds['west'],
+                "south": bounds['south'],
+                "east": bounds['east'],
+                "north": bounds['north']
             },
-            "layers": [
-                {
-                    "id": "anekal-masterplan-layer",
-                    "type": "raster",
-                    "source": "anekal-masterplan",
-                    "paint": {
-                        "raster-opacity": 0.8
-                    }
-                }
-            ]
+            "center": [
+                (bounds['west'] + bounds['east']) / 2,
+                (bounds['south'] + bounds['north']) / 2
+            ],
+            "zoom": {
+                "min": min_zoom,
+                "max": max_zoom
+            }
         }
         
-        with open(self.output_dir / "style.json", "w") as f:
-            import json
-            json.dump(style_json, f, indent=2)
+        with open(self.output_dir / "metadata.json", "w") as f:
+            json.dump(metadata, f, indent=2)
         
         # Create TileJSON
         tilejson = {
             "tilejson": "2.2.0",
-            "name": "Karnataka BMRDA - Anekal Masterplan",
-            "description": "Master plan tiles for Karnataka BMRDA - Anekal",
+            "name": "Odisha - Cuttack Master Plan",
+            "description": "Master plan tiles for Cuttack, Odisha",
             "version": "1.0.0",
-            "attribution": "BMRDA",
-            "template": "",
-            "legend": "",
+            "attribution": "Cuttack Development Authority, Government of Odisha",
             "scheme": "xyz",
             "tiles": [
-                "https://d17yosovmfjm4.cloudfront.net/karnataka/bmrda/anekal_masterplan/{z}/{x}/{y}.png"
+                "./{z}/{x}/{y}.png"
             ],
-            "grids": [],
-            "data": [],
             "minzoom": min_zoom,
             "maxzoom": max_zoom,
             "bounds": [
@@ -295,74 +306,205 @@ class AnekalRGBATileGenerator:
         }
         
         with open(self.output_dir / "tilejson.json", "w") as f:
-            import json
             json.dump(tilejson, f, indent=2)
         
-        # Create HTML viewer
-        html_content = f"""
-<!DOCTYPE html>
+        # Create HTML viewer with Mapbox styling
+        center_lon = (bounds['west'] + bounds['east']) / 2
+        center_lat = (bounds['south'] + bounds['north']) / 2
+        
+        html_content = f"""<!DOCTYPE html>
 <html>
 <head>
-    <title>Karnataka BMRDA - Anekal Masterplan</title>
-    <script src='https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.js'></script>
-    <link href='https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.css' rel='stylesheet' />
+    <meta charset="utf-8" />
+    <meta name="viewport" content="initial-scale=1,maximum-scale=1,user-scalable=no" />
+    <title>Cuttack Master Plan Viewer</title>
+    <link href="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.css" rel="stylesheet" />
+    <script src="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.js"></script>
     <style>
         body {{ margin: 0; padding: 0; }}
         #map {{ position: absolute; top: 0; bottom: 0; width: 100%; }}
+        .info {{
+            position: fixed;
+            top: 10px;
+            right: 10px;
+            background: white;
+            padding: 15px;
+            border-radius: 5px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+            z-index: 1;
+            font-family: Arial, sans-serif;
+            min-width: 280px;
+        }}
+        .info h3 {{ margin-top: 0; }}
+        .feature-list {{
+            margin: 10px 0;
+            padding-left: 15px;
+        }}
+        .feature-list li {{
+            margin: 3px 0;
+            font-size: 14px;
+        }}
+        .zoom-info {{
+            position: fixed;
+            bottom: 10px;
+            left: 10px;
+            background: rgba(0,0,0,0.8);
+            color: white;
+            padding: 8px 12px;
+            border-radius: 4px;
+            z-index: 1;
+            font-family: monospace;
+        }}
+        .status {{
+            position: fixed;
+            bottom: 10px;
+            right: 10px;
+            background: rgba(0,0,0,0.8);
+            color: white;
+            padding: 8px 12px;
+            border-radius: 4px;
+            z-index: 1;
+            font-family: Arial, sans-serif;
+            font-size: 12px;
+        }}
+        .opacity-control {{
+            margin: 10px 0;
+        }}
+        .opacity-control label {{
+            display: block;
+            margin: 5px 0;
+            font-size: 14px;
+        }}
+        .opacity-control input[type="range"] {{
+            width: 100%;
+            margin: 5px 0;
+        }}
     </style>
 </head>
 <body>
-    <div id='map'></div>
+    <div id="map"></div>
+    <div class="info">
+        <h3>🏙️ Cuttack Master Plan</h3>
+        <p><strong>Dataset:</strong> Cuttack Master Development Plan</p>
+        <p><strong>Authority:</strong> Cuttack Development Authority, Odisha</p>
+        <p><strong>Zoom:</strong> {min_zoom}-{max_zoom}</p>
+        <p><strong>Format:</strong> PNG (256x256)</p>
+        <p><strong>Features:</strong></p>
+        <ul class="feature-list">
+            <li>Cuttack City Master Plan</li>
+            <li>Land Use Categories</li>
+            <li>High Resolution Tiles</li>
+            <li>Interactive Controls</li>
+        </ul>
+        <div class="opacity-control">
+            <label for="opacity">Layer Opacity:</label>
+            <input type="range" id="opacity" min="0" max="1" step="0.1" value="0.8">
+            <span id="opacity-value">80%</span>
+        </div>
+        <small>Serve this folder via: python3 -m http.server 8004</small>
+    </div>
+    <div class="zoom-info" id="zoom-display">Zoom: 10</div>
+    <div class="status" id="status">Loading...</div>
     <script>
-        mapboxgl.accessToken = 'pk.eyJ1IjoiZXhhbXBsZSIsImEiOiJjbGV4YW1wbGUifQ.example';
-        var map = new mapboxgl.Map({{
+        mapboxgl.accessToken = 'pk.eyJ1IjoiYXYxYWNyZSIsImEiOiJjbTJtZmdxN3owa2FzMmpyMjJ4OHV5MHhzIn0.FXpMd91JSER-r7LVpSZN-A';
+        
+        // Cuttack bounds
+        const cuttackBounds = [{bounds['west']}, {bounds['south']}, {bounds['east']}, {bounds['north']}];
+        
+        const map = new mapboxgl.Map({{
             container: 'map',
-            style: {{
-                "version": 8,
-                "sources": {{
-                    "anekal-masterplan": {{
-                        "type": "raster",
-                        "tiles": [
-                            "https://d17yosovmfjm4.cloudfront.net/karnataka/bmrda/anekal_masterplan/{{z}}/{{x}}/{{y}}.png"
-                        ],
-                        "tileSize": 256
-                    }}
-                }},
-                "layers": [
-                    {{
-                        "id": "anekal-masterplan-layer",
-                        "type": "raster",
-                        "source": "anekal-masterplan",
-                        "paint": {{
-                            "raster-opacity": 0.8
-                        }}
-                    }}
-                ]
-            }},
-            center: [{(bounds['west'] + bounds['east']) / 2}, {(bounds['south'] + bounds['north']) / 2}],
+            style: 'mapbox://styles/mapbox/satellite-streets-v12',
+            center: [{center_lon:.6f}, {center_lat:.6f}], // Cuttack center
             zoom: 10
+        }});
+
+        map.addControl(new mapboxgl.NavigationControl(), 'top-left');
+        map.addControl(new mapboxgl.ScaleControl());
+
+        function updateZoom() {{
+            document.getElementById('zoom-display').textContent = 'Zoom: ' + map.getZoom().toFixed(2);
+        }}
+
+        function updateStatus(message) {{
+            document.getElementById('status').textContent = message;
+        }}
+
+        function updateOpacity(value) {{
+            const opacity = parseFloat(value);
+            const percentage = Math.round(opacity * 100);
+            document.getElementById('opacity-value').textContent = percentage + '%';
+            
+            if (map.getLayer('cuttack-masterplan-tiles')) {{
+                map.setPaintProperty('cuttack-masterplan-tiles', 'raster-opacity', opacity);
+            }}
+        }}
+
+        map.on('zoomend', updateZoom);
+        map.on('load', () => {{
+            updateZoom();
+            updateStatus('Map loaded');
+            
+            // Add Cuttack master plan raster source for local PNG tiles
+            const cacheBuster = Date.now();
+            map.addSource('cuttack-masterplan-tiles', {{
+                type: 'raster',
+                tiles: [`./${{z}}/${{x}}/${{y}}.png?v=${{cacheBuster}}`],
+                tileSize: 256,
+                minzoom: {min_zoom},
+                maxzoom: {max_zoom},
+                bounds: cuttackBounds
+            }});
+
+            map.addLayer({{
+                id: 'cuttack-masterplan-tiles',
+                type: 'raster',
+                source: 'cuttack-masterplan-tiles',
+                paint: {{ 
+                    'raster-opacity': 0.8, 
+                    'raster-resampling': 'nearest' 
+                }}
+            }});
+
+            // Fit to Cuttack bounds
+            map.fitBounds([cuttackBounds.slice(0, 2), cuttackBounds.slice(2, 4)]);
+            updateStatus('Loaded Cuttack master plan tiles');
+        }});
+
+        // Add event listener for opacity control
+        document.getElementById('opacity').addEventListener('input', (e) => {{
+            updateOpacity(e.target.value);
         }});
     </script>
 </body>
-</html>
-"""
+</html>"""
         
         with open(self.output_dir / "viewer.html", "w") as f:
             f.write(html_content)
         
-        logger.info("Created supporting files: style.json, tilejson.json, viewer.html")
+        logger.info("✅ Created supporting files: metadata.json, tilejson.json, viewer.html")
 
 def main():
     """Main function"""
-    logger.info("Starting Anekal RGBA Masterplan tile generation")
+    logger.info("=" * 80)
+    logger.info("Starting Cuttack Master Plan tile generation")
+    logger.info("=" * 80)
     
     # Initialize generator
-    generator = AnekalRGBATileGenerator()
+    generator = CuttackMasterplanTileGenerator()
     
-    # Generate tiles with higher zoom levels for better quality
-    generator.generate_tiles(min_zoom=17, max_zoom=18)
+    # Generate tiles - adjust zoom levels based on needs
+    # Higher zoom levels = more detailed tiles but more storage
+    total = generator.generate_tiles(min_zoom=4, max_zoom=18)
     
-    logger.info("Anekal RGBA Masterplan tile generation completed!")
+    logger.info("=" * 80)
+    logger.info(f"✅ Cuttack Master Plan tile generation completed!")
+    logger.info(f"✅ Total tiles generated: {total}")
+    logger.info("=" * 80)
+    logger.info("\nTo view the tiles:")
+    logger.info("  1. cd cuttack_masterplan_tiles")
+    logger.info("  2. python3 -m http.server 8004")
+    logger.info("  3. Open http://localhost:8004/viewer.html")
 
 if __name__ == "__main__":
     main()
+

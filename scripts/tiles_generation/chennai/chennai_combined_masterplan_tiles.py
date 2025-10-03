@@ -36,9 +36,9 @@ class ChennaiCombinedMasterplanTileGenerator:
     """
     
     def __init__(self, data_dir: str = "data/tamil_nadu/chennai/chennai_master_plan",
-                 output_dir: str = "tiles/tamil-nadu/chennai/chennai_master_plan",
+                 output_dir: str = "chennai_combined_masterplan_tiles",
                  s3_bucket: str = "gis-tiles-1acre",
-                 s3_prefix: str = "tamil-nadu/chennai/chennai_master_plan",
+                 s3_prefix: str = "chennai/masterplan",
                  max_workers: int = 8):
         self.data_dir = Path(data_dir)
         self.output_dir = Path(output_dir)
@@ -84,6 +84,10 @@ class ChennaiCombinedMasterplanTileGenerator:
                 method='max',  # Use max value for overlapping pixels
                 resampling=Resampling.nearest  # Preserve exact pixel values
             )
+            
+            logger.info(f"Merged mosaic shape: {mosaic.shape}")
+            logger.info(f"Merged mosaic dtype: {mosaic.dtype}")
+            logger.info(f"Merged mosaic memory usage: {mosaic.nbytes / 1024 / 1024:.1f} MB")
             
             # Get merged bounds
             merged_bounds = datasets[0].bounds
@@ -193,90 +197,56 @@ class ChennaiCombinedMasterplanTileGenerator:
             return False
     
     def extract_tile_from_data(self, tile_bounds):
-        """Extract tile from reprojected data with high quality resampling"""
+        """Extract tile from reprojected data with PIXEL-PERFECT sampling - NO BLUR"""
         try:
-            # Calculate pixel coordinates in source data
-            inv_transform = ~self.wgs84_transform
+            # Create blank 256x256 tile
+            tile = Image.new('RGBA', (256, 256), (0, 0, 0, 0))
+            draw = ImageDraw.Draw(tile)
             
-            # Get corners of tile in pixel coordinates
-            ul_col, ul_row = inv_transform * (tile_bounds.west, tile_bounds.north)
-            lr_col, lr_row = inv_transform * (tile_bounds.east, tile_bounds.south)
+            # Get data dimensions
+            num_bands, height, width = self.wgs84_data.shape
             
-            # Convert to integers with proper bounds checking
-            min_col = int(np.floor(min(ul_col, lr_col)))
-            max_col = int(np.ceil(max(ul_col, lr_col)))
-            min_row = int(np.floor(min(ul_row, lr_row)))
-            max_row = int(np.ceil(max(ul_row, lr_row)))
-            
-            # Ensure we're within data bounds
-            min_col = max(0, min_col)
-            max_col = min(self.wgs84_data.shape[2], max_col)
-            min_row = max(0, min_row)
-            max_row = min(self.wgs84_data.shape[1], max_row)
-            
-            # Check if we have any data in this region
-            if min_col >= max_col or min_row >= max_row:
-                return None
-            
-            # Extract the region
-            region = self.wgs84_data[:, min_row:max_row, min_col:max_col]
-            
-            # Check if region has any non-transparent pixels
-            if region.size == 0:
-                return None
-            
-            # Check if there's actual data (only check alpha channel for transparency)
-            # FIXED: Preserve ALL colors including black (0,0,0)
-            has_data = False
-            if region.shape[0] >= 4:  # Has alpha channel
-                # Check if any non-transparent pixels exist
-                alpha_channel = region[3]
-                if alpha_channel.max() > 0:
-                    has_data = True
-            else:
-                # No alpha channel, assume all data is valid
-                has_data = True
-            
-            if not has_data:
-                return None
-            
-            # Create RGBA image from the region
-            rgba_data = np.moveaxis(region, 0, -1)  # Move channels to last dimension
-            # Ensure data is uint8 for PIL
-            rgba_data = rgba_data.astype(np.uint8)
-            img = Image.fromarray(rgba_data)
-            
-            # Calculate exact positioning for the tile
-            # Get the exact bounds of the extracted region in geographic coordinates
-            region_west, region_north = self.wgs84_transform * (min_col, min_row)
-            region_east, region_south = self.wgs84_transform * (max_col, max_row)
-            
-            # Calculate where this region fits in the 256x256 tile
+            # Calculate tile pixel to geographic coordinate mapping
             tile_width = tile_bounds.east - tile_bounds.west
             tile_height = tile_bounds.north - tile_bounds.south
             
-            # Calculate pixel positions in the output tile
-            left_px = max(0, int(256 * (region_west - tile_bounds.west) / tile_width))
-            right_px = min(256, int(256 * (region_east - tile_bounds.west) / tile_width))
-            top_px = max(0, int(256 * (tile_bounds.north - region_north) / tile_height))
-            bottom_px = min(256, int(256 * (tile_bounds.north - region_south) / tile_height))
+            has_content = False
             
-            target_width = right_px - left_px
-            target_height = bottom_px - top_px
+            # PIXEL-PERFECT: Sample each tile pixel directly from source data
+            # This is the ONLY way to get exact GeoTIFF quality without blur
+            for tile_y in range(256):
+                for tile_x in range(256):
+                    # Convert tile pixel to WGS84 coordinates
+                    lon = tile_bounds.west + (tile_x + 0.5) * tile_width / 256
+                    lat = tile_bounds.north - (tile_y + 0.5) * tile_height / 256
+                    
+                    # Convert WGS84 to data pixel coordinates
+                    from rasterio.transform import rowcol
+                    row, col = rowcol(self.wgs84_transform, lon, lat)
+                    
+                    # Check if within bounds
+                    if 0 <= row < height and 0 <= col < width:
+                        # Extract RGBA values directly - NO interpolation, NO blur
+                        if num_bands >= 4:
+                            r = int(self.wgs84_data[0, row, col])
+                            g = int(self.wgs84_data[1, row, col])
+                            b = int(self.wgs84_data[2, row, col])
+                            a = int(self.wgs84_data[3, row, col])
+                        elif num_bands == 3:
+                            r = int(self.wgs84_data[0, row, col])
+                            g = int(self.wgs84_data[1, row, col])
+                            b = int(self.wgs84_data[2, row, col])
+                            a = 255
+                        else:
+                            continue
+                        
+                        # Draw pixel only if not transparent
+                        # FIXED: Preserve ALL colors including black (0,0,0)
+                        if a > 0:
+                            draw.point((tile_x, tile_y), fill=(r, g, b, a))
+                            has_content = True
             
-            if target_width <= 0 or target_height <= 0:
-                return None
-            
-            # Resize the image to fit the tile
-            # FIXED: Use NEAREST for sharp, clear tiles without blurring
-            img_resized = img.resize((target_width, target_height), Image.NEAREST)
-            
-            # Create the final 256x256 tile
-            tile = Image.new('RGBA', (256, 256), (0, 0, 0, 0))
-            tile.paste(img_resized, (left_px, top_px))
-            
-            # Final check - make sure the tile has actual content
-            if tile.getbbox() is None:
+            if not has_content:
                 return None
             
             return tile
@@ -287,7 +257,7 @@ class ChennaiCombinedMasterplanTileGenerator:
             logger.error(traceback.format_exc())
             return None
     
-    def generate_tiles(self, min_zoom=8, max_zoom=16):
+    def generate_tiles(self, min_zoom=4, max_zoom=16):
         """Generate tiles with parallel processing for speed"""
         logger.info("Preparing combined dataset...")
         
@@ -298,12 +268,19 @@ class ChennaiCombinedMasterplanTileGenerator:
         logger.info("Starting tile generation...")
         logger.info(f"Data bounds: {self.wgs84_bounds}")
         
+        # Warn about high zoom levels
+        if max_zoom > 16:
+            estimated_tiles = 4 ** (max_zoom - 4)  # Rough estimate
+            logger.warning(f"⚠️  High zoom level {max_zoom} will generate approximately {estimated_tiles:,} tiles!")
+            logger.warning("⚠️  This may take a very long time and use significant disk space.")
+            logger.warning("⚠️  Consider using --max-zoom 16 or lower for initial testing.")
+        
         total_tiles = 0
         
         for zoom in range(min_zoom, max_zoom + 1):
             logger.info(f"Processing zoom level {zoom}")
             
-            # Calculate tile range for this zoom level - FIX THE CALCULATION
+            # Calculate tile range for this zoom level - IMPROVED CALCULATION
             # Get tiles for all four corners to ensure complete coverage
             west_south_tile = mercantile.tile(self.wgs84_bounds['west'], self.wgs84_bounds['south'], zoom)
             east_north_tile = mercantile.tile(self.wgs84_bounds['east'], self.wgs84_bounds['north'], zoom)
@@ -315,6 +292,12 @@ class ChennaiCombinedMasterplanTileGenerator:
             max_x = max(west_south_tile.x, east_north_tile.x, west_north_tile.x, east_south_tile.x)
             min_y = min(west_south_tile.y, east_north_tile.y, west_north_tile.y, east_south_tile.y)
             max_y = max(west_south_tile.y, east_north_tile.y, west_north_tile.y, east_south_tile.y)
+            
+            # Add safety margin for edge cases
+            min_x = max(0, min_x - 1)
+            max_x = min_x + (max_x - min_x) + 1
+            min_y = max(0, min_y - 1)
+            max_y = min_y + (max_y - min_y) + 1
             
             logger.info(f"Tile range for zoom {zoom}: x={min_x}-{max_x}, y={min_y}-{max_y}")
             
@@ -489,9 +472,9 @@ class ChennaiCombinedMasterplanTileGenerator:
 def main():
     """Main function with command line arguments"""
     parser = argparse.ArgumentParser(description='Optimized Chennai Combined Masterplan Tile Generator')
-    parser.add_argument('--min-zoom', type=int, default=17, 
-                       help='Minimum zoom level (default: 8)')
-    parser.add_argument('--max-zoom', type=int, default=18, 
+    parser.add_argument('--min-zoom', type=int, default=4, 
+                       help='Minimum zoom level (default: 4)')
+    parser.add_argument('--max-zoom', type=int, default=16, 
                        help='Maximum zoom level (default: 16)')
     parser.add_argument('--workers', type=int, default=8,
                        help='Number of parallel workers (default: 8)')
