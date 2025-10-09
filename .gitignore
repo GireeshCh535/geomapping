@@ -87,10 +87,10 @@ logs/
 *.log
 /data/
 
-/static/
+# /static/
 data.zip
 /media/
-/staticfiles/
+# /staticfiles/
 /test_tiles/
 /tiles_output/
 /mapbox_png_tiles/
@@ -148,3 +148,5 @@ data.zip
 /lucknow_masterplan_tiles
 /patna_masterplan_tiles
 /geo_mapping_db.sql
+/tirupati_masterplan_tiles
+/mandideep_masterplan_tiles
