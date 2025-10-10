@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-Django management command to insert Dadra and Nagar Haveli master plan data
-Creates ONE layer (dadra_and_nagar_haveli_masterplan) with all masterplan files as features
-Following the hierarchy: State (Dadra and Nagar Haveli) -> City (Dadra and Nagar Haveli) -> DataLayer -> GeoFeatures from all files
+Django management command to insert Daman and Diu master plan data
+Creates ONE layer (daman_and_diu_masterplan) with all masterplan files as features
+Following the hierarchy: State (Daman and Diu) -> City (Daman and Diu) -> DataLayer -> GeoFeatures from all files
 """
 
 from django.core.management.base import BaseCommand, CommandError
@@ -21,24 +21,24 @@ from maps.models import (
 
 
 class Command(BaseCommand):
-    help = 'Insert Dadra and Nagar Haveli master plan data into the database'
+    help = 'Insert Daman and Diu master plan data into the database'
 
     def add_arguments(self, parser):
         parser.add_argument(
             '--delete-existing',
             action='store_true',
-            help='Delete existing Dadra and Nagar Haveli masterplan data before inserting new data',
+            help='Delete existing Daman and Diu masterplan data before inserting new data',
         )
         parser.add_argument(
             '--data-dir',
             type=str,
-            default='data/dadra-nagar-haveli-daman-diu/dadra-nagar-haveli-daman-diu/dadra_and_nagar_haveli_masterplan/',
+            default='data/dadra-nagar-haveli-daman-diu/dadra-nagar-haveli-daman-diu/daman_and_diu_masterplan/',
             help='Directory containing the master plan data files',
         )
 
     def handle(self, *args, **options):
         self.stdout.write(
-            self.style.SUCCESS('🚀 Starting Dadra and Nagar Haveli Master Plan Data Insertion')
+            self.style.SUCCESS('🚀 Starting Daman and Diu Master Plan Data Insertion')
         )
         
         self.data_dir = Path(options['data_dir'])
@@ -54,7 +54,7 @@ class Command(BaseCommand):
                 
                 # Delete existing data if requested
                 if options['delete_existing']:
-                    self.delete_existing_dadra_and_nagar_haveli_masterplan_data()
+                    self.delete_existing_daman_and_diu_masterplan_data()
                 
                 # Create ONE master plan layer and process all files into it
                 self.create_and_populate_master_plan_layer()
@@ -69,7 +69,7 @@ class Command(BaseCommand):
                 self.print_summary()
                 
                 self.stdout.write(
-                    self.style.SUCCESS('✅ Dadra and Nagar Haveli Master Plan Data Insertion Completed Successfully!')
+                    self.style.SUCCESS('✅ Daman and Diu Master Plan Data Insertion Completed Successfully!')
                 )
                 
         except Exception as e:
@@ -79,17 +79,17 @@ class Command(BaseCommand):
             raise CommandError(f'Data insertion failed: {str(e)}')
 
     def setup_state_and_city(self):
-        """Setup Dadra and Nagar Haveli state and city"""
-        self.stdout.write('Setting up Dadra and Nagar Haveli state and city...')
+        """Setup Daman and Diu state and city"""
+        self.stdout.write('Setting up Daman and Diu state and city...')
         
-        # Create or get Dadra and Nagar Haveli state
+        # Create or get Daman and Diu state
         self.state, created = State.objects.get_or_create(
-            code='DN',
+            code='DD',
             defaults={
-                'name': 'Dadra and Nagar Haveli',
-                'slug': 'dadra-nagar-haveli',
-                'center_lat': 20.1809,
-                'center_lng': 73.0169,
+                'name': 'Daman and Diu',
+                'slug': 'daman-and-diu',
+                'center_lat': 20.4163,
+                'center_lng': 72.8626,
                 'default_zoom': 7,
                 'is_active': True
             }
@@ -100,15 +100,15 @@ class Command(BaseCommand):
         else:
             self.stdout.write(f'  ✅ Found existing state: {self.state.name}')
         
-        # Create or get Dadra and Nagar Haveli city
+        # Create or get Daman and Diu city
         self.city, created = City.objects.get_or_create(
-            slug='dadra-nagar-haveli',
+            slug='daman-and-diu',
             defaults={
-                'name': 'Dadra and Nagar Haveli',
-                'state': 'Dadra and Nagar Haveli',
+                'name': 'Daman and Diu',
+                'state': 'Daman and Diu',
                 'state_ref': self.state,
-                'center_lat': 20.1809,
-                'center_lng': 73.0169,
+                'center_lat': 20.4163,
+                'center_lng': 72.8626,
                 'min_zoom': 8,
                 'max_zoom': 18,
                 'is_active': True
@@ -126,7 +126,7 @@ class Command(BaseCommand):
             self.stdout.write(f'  ✅ Found existing city: {self.city.name}')
 
     def setup_layer_categories(self):
-        """Setup layer categories for Dadra and Nagar Haveli masterplan"""
+        """Setup layer categories for Daman and Diu masterplan"""
         self.stdout.write('Setting up layer categories...')
         
         categories = [
@@ -160,9 +160,9 @@ class Command(BaseCommand):
             else:
                 self.stdout.write(f'  ✅ Found existing category: {name}')
 
-    def delete_existing_dadra_and_nagar_haveli_masterplan_data(self):
-        """Delete existing Dadra and Nagar Haveli masterplan data"""
-        self.stdout.write('Deleting existing Dadra and Nagar Haveli masterplan data...')
+    def delete_existing_daman_and_diu_masterplan_data(self):
+        """Delete existing Daman and Diu masterplan data"""
+        self.stdout.write('Deleting existing Daman and Diu masterplan data...')
         
         # Delete the master plan layer and all its features
         deleted_count = 0
@@ -171,21 +171,21 @@ class Command(BaseCommand):
         try:
             layer = DataLayer.objects.get(
                 city=self.city,
-                slug='dadra_and_nagar_haveli_masterplan'
+                slug='daman_and_diu_masterplan'
             )
             feature_count = layer.geofeature_set.count()
             layer.delete()
             deleted_count = 1
             self.stdout.write(f'  ✅ Deleted master plan layer with {feature_count} features')
         except DataLayer.DoesNotExist:
-            self.stdout.write('  ℹ️ No existing Dadra and Nagar Haveli masterplan layer found')
+            self.stdout.write('  ℹ️ No existing Daman and Diu masterplan layer found')
         
         # Also delete any layer groups
-        LayerGroup.objects.filter(city=self.city, slug='dadra_and_nagar_haveli_masterplan').delete()
+        LayerGroup.objects.filter(city=self.city, slug='daman_and_diu_masterplan').delete()
 
     def create_and_populate_master_plan_layer(self):
         """Create ONE master plan layer and populate it with features from all files"""
-        self.stdout.write('\nCreating and populating Dadra and Nagar Haveli master plan layer...')
+        self.stdout.write('\nCreating and populating Daman and Diu master plan layer...')
         
         # Get all GeoJSON and JSON files in the directory
         geojson_files = list(self.data_dir.glob('*.geojson'))
@@ -206,10 +206,10 @@ class Command(BaseCommand):
             # Create empty layer structure for consistency
             layer_group, created = LayerGroup.objects.get_or_create(
                 city=self.city,
-                slug='dadra_and_nagar_haveli_masterplan',
+                slug='daman_and_diu_masterplan',
                 defaults={
-                    'name': 'Dadra and Nagar Haveli Master Plan',
-                    'description': 'Dadra and Nagar Haveli Development Authority master plan data',
+                    'name': 'Daman and Diu Master Plan',
+                    'description': 'Daman and Diu Development Authority master plan data',
                     'category': self.categories['PLANNING'],
                     'directory_path': str(self.data_dir),
                     'default_color': '#FFE4B5',
@@ -224,10 +224,10 @@ class Command(BaseCommand):
             
             self.master_plan_layer, created = DataLayer.objects.get_or_create(
                 city=self.city,
-                slug='dadra_and_nagar_haveli_masterplan',
+                slug='daman_and_diu_masterplan',
                 defaults={
-                    'name': 'Dadra and Nagar Haveli Master Plan',
-                    'description': 'Comprehensive Dadra and Nagar Haveli master plan including all boundaries and land use zones',
+                    'name': 'Daman and Diu Master Plan',
+                    'description': 'Comprehensive Daman and Diu master plan including all boundaries and land use zones',
                     'category': self.categories['PLANNING'],
                     'layer_group': layer_group,
                     'file_format': 'GEOJSON',
@@ -240,7 +240,7 @@ class Command(BaseCommand):
                     'is_processed': True,
                     'feature_count': 0,
                     'is_true': True,
-                    'data_source': 'Dadra and Nagar Haveli Development Authority',
+                    'data_source': 'Daman and Diu Development Authority',
                 }
             )
             
@@ -260,10 +260,10 @@ class Command(BaseCommand):
         # Create a layer group for organization
         layer_group, created = LayerGroup.objects.get_or_create(
             city=self.city,
-            slug='dadra_and_nagar_haveli_masterplan',
+            slug='daman_and_diu_masterplan',
             defaults={
-                'name': 'Dadra and Nagar Haveli Master Plan',
-                'description': 'Dadra and Nagar Haveli Development Authority master plan data',
+                'name': 'Daman and Diu Master Plan',
+                'description': 'Daman and Diu Development Authority master plan data',
                 'category': self.categories['PLANNING'],
                 'directory_path': str(self.data_dir),
                 'default_color': '#FFE4B5',
@@ -282,10 +282,10 @@ class Command(BaseCommand):
         # Create or update THE SINGLE master plan layer
         self.master_plan_layer, created = DataLayer.objects.get_or_create(
             city=self.city,
-            slug='dadra_and_nagar_haveli_masterplan',
+            slug='daman_and_diu_masterplan',
             defaults={
-                'name': 'Dadra and Nagar Haveli Master Plan',
-                'description': 'Comprehensive Dadra and Nagar Haveli master plan including all boundaries and land use zones',
+                'name': 'Daman and Diu Master Plan',
+                'description': 'Comprehensive Daman and Diu master plan including all boundaries and land use zones',
                 'category': self.categories['PLANNING'],
                 'layer_group': layer_group,
                 'file_format': 'GEOJSON',
@@ -298,7 +298,7 @@ class Command(BaseCommand):
                 'is_processed': False,
                 'feature_count': 0,
                 'is_true': True,  # Make visible by default
-                'data_source': 'Dadra and Nagar Haveli Development Authority',
+                'data_source': 'Daman and Diu Development Authority',
             }
         )
         
@@ -543,7 +543,7 @@ class Command(BaseCommand):
         return None
 
     def create_city_layer_styles(self):
-        """Create city-specific layer styles for Dadra and Nagar Haveli"""
+        """Create city-specific layer styles for Daman and Diu"""
         self.stdout.write('\nCreating city-specific layer styles...')
         
         style_configs = {
@@ -621,7 +621,7 @@ class Command(BaseCommand):
                     self.stdout.write(f'  ✅ Updated style for {category_code}')
 
     def create_zone_mappings(self):
-        """Create zone mappings for Dadra and Nagar Haveli"""
+        """Create zone mappings for Daman and Diu"""
         self.stdout.write('\nCreating zone mappings...')
         
         # Check if master_plan_layer exists and has features
