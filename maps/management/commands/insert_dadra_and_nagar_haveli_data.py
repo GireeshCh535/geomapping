@@ -79,9 +79,9 @@ class Command(BaseCommand):
             raise CommandError(f'Data insertion failed: {str(e)}')
 
     def setup_state_and_city(self):
-        """Setup Dadra and Nagar Haveli and Daman and Diu state and city"""
-        self.stdout.write('Setting up Dadra and Nagar Haveli and Daman and Diu state and city...')
-        
+        """Setup Dadra and Nagar Haveli and Daman and Diu state and Dadra and Nagar Haveli city"""
+        self.stdout.write('Setting up Dadra and Nagar Haveli and Daman and Diu state and Dadra and Nagar Haveli city...')
+
         # Create or get combined state
         self.state, created = State.objects.get_or_create(
             code='DN',
@@ -99,16 +99,16 @@ class Command(BaseCommand):
             self.stdout.write(f'  ✅ Created state: {self.state.name}')
         else:
             self.stdout.write(f'  ✅ Found existing state: {self.state.name}')
-        
-        # Create or get combined city
+
+        # Create or get Dadra and Nagar Haveli city (specific city, not combined)
         self.city, created = City.objects.get_or_create(
-            slug='dadra-nagar-haveli-daman-diu',
+            slug='dadra-and-nagar-haveli',
             defaults={
-                'name': 'Dadra and Nagar Haveli and Daman and Diu',
+                'name': 'Dadra and Nagar Haveli',
                 'state': 'Dadra and Nagar Haveli and Daman and Diu',
                 'state_ref': self.state,
-                'center_lat': 20.2986,  # Average of both territories
-                'center_lng': 72.9398,  # Average of both territories
+                'center_lat': 20.1809,  # Dadra and Nagar Haveli specific coordinates
+                'center_lng': 73.0169,  # Dadra and Nagar Haveli specific coordinates
                 'min_zoom': 8,
                 'max_zoom': 18,
                 'is_active': True

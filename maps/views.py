@@ -1146,9 +1146,10 @@ class CoordinateSearchTestView(APIView):
                             'data': data_string
                         }
                     
-                    elif layer.slug in ['bengaluru_anekal_masterplan', 'bengaluru_chikkaballapura_masterplan', 'bengaluru_hosakote_masterplan', 'bengaluru_nelamangala_masterplan', 
-                    'coimbatore_master_plan', 'hosur_master_plan', 'kochi_master_plan', 'cuttack_masterplan', 'vgtm_masterplan', 'kakinada_masterplan', 'chennai_master_plan',
-                    'ajmer_masterplan', 'pithampur_masterplan', 'bhopal_masterplan']:
+                    elif layer.slug in ['bengaluru_anekal_masterplan', 'bengaluru_chikkaballapura_masterplan', 'bengaluru_hosakote_masterplan', 'bengaluru_nelamangala_masterplan',
+            'coimbatore_master_plan', 'hosur_master_plan', 'kochi_master_plan', 'chennai_master_plan',
+            'tirupati_masterplan', 'cuttack_masterplan', 'vgtm_masterplan', 'kakinada_masterplan',
+            'mandideep_masterplan', 'ajmer_masterplan', 'pithampur_masterplan', 'bhopal_masterplan']:
                         # Return just the layer name as plain string
                         return {
                             'data': layer.slug,
@@ -1342,7 +1343,9 @@ class CoordinateSearchTestView(APIView):
             
             # Special handling for BMRDA boundary layers
             if layer.slug in ['bengaluru_anekal_masterplan', 'bengaluru_chikkaballapura_masterplan', 'bengaluru_hosakote_masterplan', 'bengaluru_nelamangala_masterplan',
-            'coimbatore_master_plan', 'hosur_master_plan', 'kochi_master_plan', 'cuttack_masterplan', 'vgtm_masterplan', 'kakinada_masterplan', 'chennai_master_plan','ajmer_masterplan', 'pithampur_masterplan', 'bhopal_masterplan'] and containing_features:
+            'coimbatore_master_plan', 'hosur_master_plan', 'kochi_master_plan', 'chennai_master_plan',
+            'tirupati_masterplan', 'cuttack_masterplan', 'vgtm_masterplan', 'kakinada_masterplan',
+            'mandideep_masterplan', 'ajmer_masterplan', 'pithampur_masterplan', 'bhopal_masterplan'] and containing_features:
                 # Return just the layer name as plain string
                 return {
                     'data': layer.slug,
