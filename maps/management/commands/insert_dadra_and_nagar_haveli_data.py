@@ -79,17 +79,17 @@ class Command(BaseCommand):
             raise CommandError(f'Data insertion failed: {str(e)}')
 
     def setup_state_and_city(self):
-        """Setup Dadra and Nagar Haveli state and city"""
-        self.stdout.write('Setting up Dadra and Nagar Haveli state and city...')
+        """Setup Dadra and Nagar Haveli and Daman and Diu state and city"""
+        self.stdout.write('Setting up Dadra and Nagar Haveli and Daman and Diu state and city...')
         
-        # Create or get Dadra and Nagar Haveli state
+        # Create or get combined state
         self.state, created = State.objects.get_or_create(
             code='DN',
             defaults={
-                'name': 'Dadra and Nagar Haveli',
-                'slug': 'dadra-nagar-haveli',
-                'center_lat': 20.1809,
-                'center_lng': 73.0169,
+                'name': 'Dadra and Nagar Haveli and Daman and Diu',
+                'slug': 'dadra-nagar-haveli-daman-diu',
+                'center_lat': 20.2986,  # Average of both territories
+                'center_lng': 72.9398,  # Average of both territories
                 'default_zoom': 7,
                 'is_active': True
             }
@@ -100,15 +100,15 @@ class Command(BaseCommand):
         else:
             self.stdout.write(f'  ✅ Found existing state: {self.state.name}')
         
-        # Create or get Dadra and Nagar Haveli city
+        # Create or get combined city
         self.city, created = City.objects.get_or_create(
-            slug='dadra-nagar-haveli',
+            slug='dadra-nagar-haveli-daman-diu',
             defaults={
-                'name': 'Dadra and Nagar Haveli',
-                'state': 'Dadra and Nagar Haveli',
+                'name': 'Dadra and Nagar Haveli and Daman and Diu',
+                'state': 'Dadra and Nagar Haveli and Daman and Diu',
                 'state_ref': self.state,
-                'center_lat': 20.1809,
-                'center_lng': 73.0169,
+                'center_lat': 20.2986,  # Average of both territories
+                'center_lng': 72.9398,  # Average of both territories
                 'min_zoom': 8,
                 'max_zoom': 18,
                 'is_active': True
