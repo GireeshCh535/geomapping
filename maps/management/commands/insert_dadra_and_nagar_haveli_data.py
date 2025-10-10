@@ -82,12 +82,12 @@ class Command(BaseCommand):
         """Setup Dadra and Nagar Haveli and Daman and Diu state and Dadra and Nagar Haveli city"""
         self.stdout.write('Setting up Dadra and Nagar Haveli and Daman and Diu state and Dadra and Nagar Haveli city...')
 
-        # Create or get combined state
+        # Create or get the unified state (get_or_create ensures only one state exists)
         self.state, created = State.objects.get_or_create(
-            code='DN',
+            slug='dadra-nagar-haveli-daman-diu',  # Use slug as unique identifier
             defaults={
+                'code': 'DN',
                 'name': 'Dadra and Nagar Haveli and Daman and Diu',
-                'slug': 'dadra-nagar-haveli-daman-diu',
                 'center_lat': 20.2986,  # Average of both territories
                 'center_lng': 72.9398,  # Average of both territories
                 'default_zoom': 7,
