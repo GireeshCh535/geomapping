@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Multi-threaded script to generate high-quality PNG tiles from Vadodara Masterplan RGBA GeoTIFF
+Multi-threaded script to generate high-quality PNG tiles from Dadra and Nagar Haveli Masterplan RGBA GeoTIFF
 Keeps pixel-by-pixel rendering for maximum quality but adds multi-threading and data caching
 """
 
@@ -25,14 +25,14 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-class ThreadedVadodaraRGBATileGenerator:
+class ThreadedDadraAndNagarHaveliRGBATileGenerator:
     """
-    Generate high-quality PNG tiles from Vadodara Masterplan RGBA GeoTIFF with multi-threading
+    Generate high-quality PNG tiles from Dadra and Nagar Haveli Masterplan RGBA GeoTIFF with multi-threading
     Maintains pixel-by-pixel rendering for maximum quality
     """
     
-    def __init__(self, data_dir: str = "data/gujarat/vadodara/vadodara_masterplan",
-                output_dir: str = "vadodara_masterplan_tiles",
+    def __init__(self, data_dir: str = "data/dadra-nagar-haveli-daman-diu/dadra-nagar-haveli-daman-diu/dadra_and_nagar_haveli_masterplan",
+                output_dir: str = "dadra_and_nagar_haveli_masterplan_tiles",
                 max_workers: int = None):
         self.data_dir = Path(data_dir)
         self.output_dir = Path(output_dir)
@@ -49,7 +49,7 @@ class ThreadedVadodaraRGBATileGenerator:
         self.wgs84_bounds = None
         self.wgs84_transform = None
         
-        logger.info(f"Threaded Vadodara RGBA Tile Generator initialized with {self.max_workers} workers")
+        logger.info(f"Threaded Dadra and Nagar Haveli RGBA Tile Generator initialized with {self.max_workers} workers")
     
     def load_data(self):
         """Load and cache the reprojected data once"""
@@ -198,7 +198,7 @@ class ThreadedVadodaraRGBATileGenerator:
         return tiles_generated
     
     def generate_tiles(self, min_zoom=8, max_zoom=16):
-        """Generate PNG tiles for Vadodara Masterplan with multi-threading"""
+        """Generate PNG tiles for Dadra and Nagar Haveli Masterplan with multi-threading"""
         start_time = time.time()
         
         # Load data once and cache it
@@ -226,7 +226,7 @@ class ThreadedVadodaraRGBATileGenerator:
         end_time = time.time()
         duration = end_time - start_time
         
-        logger.info(f"Generated {total_tiles} PNG tiles for Vadodara Masterplan in {duration:.2f} seconds")
+        logger.info(f"Generated {total_tiles} PNG tiles for Dadra and Nagar Haveli Masterplan in {duration:.2f} seconds")
         logger.info(f"Average speed: {total_tiles/duration:.2f} tiles/second")
         
         # Create supporting files
@@ -311,21 +311,21 @@ class ThreadedVadodaraRGBATileGenerator:
         # Create Mapbox style JSON
         style_json = {
             "version": 8,
-            "name": "Gujarat - Vadodara Masterplan (Threaded)",
+            "name": "Dadra and Nagar Haveli Masterplan (Threaded)",
             "sources": {
-                "vadodara-masterplan": {
+                "dadra-nagar-haveli-masterplan": {
                     "type": "raster",
                     "tiles": [
-                        "https://d17yosovmfjm4.cloudfront.net/gujarat/vadodara_masterplan/{z}/{x}/{y}.png"
+                        "https://d17yosovmfjm4.cloudfront.net/dadra-nagar-haveli-daman-diu/dadra_and_nagar_haveli_masterplan/{z}/{x}/{y}.png"
                     ],
                     "tileSize": 256
                 }
             },
             "layers": [
                 {
-                    "id": "vadodara-masterplan-layer",
+                    "id": "dadra-nagar-haveli-masterplan-layer",
                     "type": "raster",
-                    "source": "vadodara-masterplan",
+                    "source": "dadra-nagar-haveli-masterplan",
                     "paint": {
                         "raster-opacity": 0.8
                     }
@@ -340,15 +340,15 @@ class ThreadedVadodaraRGBATileGenerator:
         # Create TileJSON
         tilejson = {
             "tilejson": "2.2.0",
-            "name": "Gujarat - Vadodara Masterplan (Threaded)",
-            "description": "Master plan tiles for Gujarat - Vadodara (Multi-threaded with pixel-perfect quality)",
+            "name": "Dadra and Nagar Haveli Masterplan (Threaded)",
+            "description": "Master plan tiles for Dadra and Nagar Haveli (Multi-threaded with pixel-perfect quality)",
             "version": "1.0.0",
-            "attribution": "Vadodara Urban Development Authority",
+            "attribution": "Dadra and Nagar Haveli Development Authority",
             "template": "",
             "legend": "",
             "scheme": "xyz",
             "tiles": [
-                "https://d17yosovmfjm4.cloudfront.net/gujarat/vadodara_masterplan/{z}/{x}/{y}.png"
+                "https://d17yosovmfjm4.cloudfront.net/dadra-nagar-haveli-daman-diu/dadra_and_nagar_haveli_masterplan/{z}/{x}/{y}.png"
             ],
             "grids": [],
             "data": [],
@@ -376,7 +376,7 @@ class ThreadedVadodaraRGBATileGenerator:
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Gujarat - Vadodara Masterplan (Threaded)</title>
+    <title>Dadra and Nagar Haveli Masterplan (Threaded)</title>
     <script src='https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.js'></script>
     <link href='https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.css' rel='stylesheet' />
     <style>
@@ -393,19 +393,19 @@ class ThreadedVadodaraRGBATileGenerator:
             style: {{
                 "version": 8,
                 "sources": {{
-                    "vadodara-masterplan": {{
+                    "dadra-nagar-haveli-masterplan": {{
                         "type": "raster",
                         "tiles": [
-                            "https://d17yosovmfjm4.cloudfront.net/gujarat/vadodara_masterplan/{{z}}/{{x}}/{{y}}.png"
+                            "https://d17yosovmfjm4.cloudfront.net/dadra-nagar-haveli-daman-diu/dadra_and_nagar_haveli_masterplan/{{z}}/{{x}}/{{y}}.png"
                         ],
                         "tileSize": 256
                     }}
                 }},
                 "layers": [
                     {{
-                        "id": "vadodara-masterplan-layer",
+                        "id": "dadra-nagar-haveli-masterplan-layer",
                         "type": "raster",
-                        "source": "vadodara-masterplan",
+                        "source": "dadra-nagar-haveli-masterplan",
                         "paint": {{
                             "raster-opacity": 0.8
                         }}
@@ -427,15 +427,16 @@ class ThreadedVadodaraRGBATileGenerator:
 
 def main():
     """Main function"""
-    logger.info("Starting Threaded Vadodara RGBA Masterplan tile generation")
+    logger.info("Starting Threaded Dadra and Nagar Haveli RGBA Masterplan tile generation")
     
     # Initialize generator with configurable workers
-    generator = ThreadedVadodaraRGBATileGenerator(max_workers=8)
+    generator = ThreadedDadraAndNagarHaveliRGBATileGenerator(max_workers=8)
     
     # Generate tiles with higher zoom levels for better quality
-    generator.generate_tiles(min_zoom=5, max_zoom=18)
+    generator.generate_tiles(min_zoom=17, max_zoom=18)
     
-    logger.info("Threaded Vadodara RGBA Masterplan tile generation completed!")
+    logger.info("Threaded Dadra and Nagar Haveli RGBA Masterplan tile generation completed!")
 
 if __name__ == "__main__":
     main()
+
