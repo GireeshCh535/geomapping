@@ -32,8 +32,8 @@ class ThreadedDadraAndNagarHaveliRGBATileGenerator:
     """
     
     def __init__(self, data_dir: str = "data/dadra-nagar-haveli-daman-diu/dadra-nagar-haveli-daman-diu/dadra_and_nagar_haveli_masterplan",
-                 output_dir: str = "dadra_and_nagar_haveli_masterplan_tiles",
-                 max_workers: int = None):
+                output_dir: str = "dadra_and_nagar_haveli_masterplan_tiles",
+                max_workers: int = None):
         self.data_dir = Path(data_dir)
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(exist_ok=True)
