@@ -31,7 +31,7 @@ class ThreadedKozhikodeRGBATileGenerator:
     Maintains pixel-by-pixel rendering for maximum quality
     """
     
-    def __init__(self, data_dir: str = "data/kerela/kozhikode/kozhikode_masterplan",
+    def __init__(self, data_dir: str = "data/kerela/kozhikode/kozhikode_master",
                 output_dir: str = "kozhikode_masterplan_tiles",
                 max_workers: int = None):
         self.data_dir = Path(data_dir)
