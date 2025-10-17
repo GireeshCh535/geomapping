@@ -433,7 +433,7 @@ def main():
     generator = ThreadedAhmedabadRGBATileGenerator(max_workers=8)
     
     # Generate tiles with higher zoom levels for better quality
-    generator.generate_tiles(min_zoom=5, max_zoom=18)
+    generator.generate_tiles(min_zoom=16, max_zoom=18)
     
     logger.info("Threaded Ahmedabad RGBA Masterplan tile generation completed!")
 
