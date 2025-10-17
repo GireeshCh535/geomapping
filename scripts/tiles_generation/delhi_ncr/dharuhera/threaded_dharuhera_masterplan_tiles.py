@@ -32,8 +32,8 @@ class ThreadedDharuheraRGBATileGenerator:
     """
     
     def __init__(self, data_dir: str = "data/delhi_ncr/dharuhera/dharuhera_masterplan",
-                 output_dir: str = "dharuhera_masterplan_tiles",
-                 max_workers: int = None):
+                output_dir: str = "dharuhera_masterplan_tiles",
+                max_workers: int = None):
         self.data_dir = Path(data_dir)
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(exist_ok=True)
