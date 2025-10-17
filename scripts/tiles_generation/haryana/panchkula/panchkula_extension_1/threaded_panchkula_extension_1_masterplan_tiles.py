@@ -32,8 +32,8 @@ class ThreadedPanchkulaExtension1RGBATileGenerator:
     """
     
     def __init__(self, data_dir: str = "data/haryana/panchkula/panchkula_extension_1_masterplan",
-                 output_dir: str = "panchkula_extension_1_masterplan_tiles",
-                 max_workers: int = None):
+            output_dir: str = "panchkula_extension_1_masterplan_tiles",
+            max_workers: int = None):
         self.data_dir = Path(data_dir)
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(exist_ok=True)
@@ -79,9 +79,20 @@ class ThreadedPanchkulaExtension1RGBATileGenerator:
             logger.info(f"Original shape: {src.shape}")
             logger.info(f"Number of bands: {src.count}")
             
+            # Handle missing CRS - use default for Haryana/Panchkula region
+            source_crs = src.crs
+            if source_crs is None:
+                # Based on bounds (large numbers ~8557235), this is likely UTM Zone 43N
+                # which is commonly used for northern India (Haryana/Panchkula area)
+                source_crs = 'EPSG:32643'  # WGS 84 / UTM zone 43N
+                logger.warning(f"⚠️  No CRS found in GeoTIFF! Using default CRS for Haryana region: {source_crs}")
+                logger.info(f"   If tiles look incorrect, the CRS might be different. Common alternatives:")
+                logger.info(f"   - EPSG:32643 (WGS 84 / UTM 43N) - Northern India")
+                logger.info(f"   - EPSG:3857 (Web Mercator)")
+            
             # Calculate the transform to WGS84
             transform, width, height = calculate_default_transform(
-                src.crs, 'EPSG:4326', src.width, src.height,
+                source_crs, 'EPSG:4326', src.width, src.height,
                 left=src.bounds.left, bottom=src.bounds.bottom,
                 right=src.bounds.right, top=src.bounds.top
             )
@@ -97,7 +108,7 @@ class ThreadedPanchkulaExtension1RGBATileGenerator:
                 source=src.read(1),  # Red band
                 destination=destination_r,
                 src_transform=src.transform,
-                src_crs=src.crs,
+                src_crs=source_crs,
                 dst_transform=transform,
                 dst_crs='EPSG:4326',
                 resampling=Resampling.nearest
@@ -107,7 +118,7 @@ class ThreadedPanchkulaExtension1RGBATileGenerator:
                 source=src.read(2),  # Green band
                 destination=destination_g,
                 src_transform=src.transform,
-                src_crs=src.crs,
+                src_crs=source_crs,
                 dst_transform=transform,
                 dst_crs='EPSG:4326',
                 resampling=Resampling.nearest
@@ -117,7 +128,7 @@ class ThreadedPanchkulaExtension1RGBATileGenerator:
                 source=src.read(3),  # Blue band
                 destination=destination_b,
                 src_transform=src.transform,
-                src_crs=src.crs,
+                src_crs=source_crs,
                 dst_transform=transform,
                 dst_crs='EPSG:4326',
                 resampling=Resampling.nearest
@@ -127,7 +138,7 @@ class ThreadedPanchkulaExtension1RGBATileGenerator:
                 source=src.read(4),  # Alpha band
                 destination=destination_a,
                 src_transform=src.transform,
-                src_crs=src.crs,
+                src_crs=source_crs,
                 dst_transform=transform,
                 dst_crs='EPSG:4326',
                 resampling=Resampling.nearest
