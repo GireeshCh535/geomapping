@@ -1152,7 +1152,7 @@ class CoordinateSearchTestView(APIView):
             'mandideep_masterplan', 'ajmer_masterplan', 'pithampur_masterplan', 'bhopal_masterplan',
             'varanasi_masterplan', 'ahmedabad_masterplan', 'vadodara_masterplan', 'gift_city_masterplan',
             'mohali_sas_nagar_masterplan', 'daman_and_diu_masterplan', 'patna_masterplan', 'ayodhya_masterplan',
-            'lucknow_masterplan', 'srinagar_masterplan', 'guwahati_masterplan']:
+            'lucknow_masterplan', 'srinagar_masterplan', 'guwahati_masterplan','dadra_and_nagar_haveli_masterplan']:
                         # Return just the layer name as plain string
                         return {
                             'data': layer.slug,
@@ -1351,7 +1351,7 @@ class CoordinateSearchTestView(APIView):
             'mandideep_masterplan', 'ajmer_masterplan', 'pithampur_masterplan', 'bhopal_masterplan',
             'varanasi_masterplan', 'ahmedabad_masterplan', 'vadodara_masterplan', 'gift_city_masterplan',
             'mohali_sas_nagar_masterplan', 'daman_and_diu_masterplan', 'patna_masterplan', 'ayodhya_masterplan',
-            'lucknow_masterplan', 'srinagar_masterplan', 'guwahati_masterplan'] and containing_features:
+            'lucknow_masterplan', 'srinagar_masterplan', 'guwahati_masterplan','dadra_and_nagar_haveli_masterplan'] and containing_features:
                 # Return just the layer name as plain string
                 return {
                     'data': layer.slug,
