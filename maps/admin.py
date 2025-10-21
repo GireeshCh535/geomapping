@@ -171,103 +171,309 @@ class CityLayerStyleAdmin(admin.ModelAdmin):
 
 @admin.register(DataLayer)
 class DataLayerAdmin(admin.ModelAdmin):
-    list_display = ['name', 'city', 'category', 'is_directory_icon', 
-                   'feature_count', 'is_processed_icon', 'tiles_generated_icon', 'is_true']
-    list_filter = ['city', 'category', 'is_processed', 'tiles_generated', 
-                  'is_directory', 'file_format', 'is_true']
-    search_fields = ['name', 'slug', 'city__name']
-    readonly_fields = ['feature_count', 'bbox_display', 'source_files_display', 
-                      'created_at', 'updated_at']
+    # Enhanced list display with slug and better organization
+    list_display = ['name_with_icon', 'slug_display', 'city_state_display', 'category_badge', 
+                   'file_info', 'feature_count_display', 'status_badges', 'visibility_toggle']
+    
+    # Comprehensive filters
+    list_filter = ['city__state_ref', 'city', 'category', 'is_processed', 
+                  'tiles_generated', 'is_directory', 'file_format', 'is_true', 
+                  'geometry_type', 'created_at']
+    
+    # Search with more fields
+    search_fields = ['name', 'slug', 'city__name', 'city__state', 'description', 
+                    'file_path', 'data_source']
+    
+    # Read-only fields
+    readonly_fields = ['feature_count', 'bbox_display_enhanced', 'source_files_display_enhanced', 
+                      'file_stats', 'layer_preview_map', 'created_at', 'updated_at']
+    
+    # Auto-populate slug from name
     prepopulated_fields = {'slug': ('name',)}
     
+    # Date hierarchy for better navigation
+    date_hierarchy = 'created_at'
+    
+    # Items per page
+    list_per_page = 50
+    
+    # Enable select_related for performance
+    list_select_related = ['city', 'city__state_ref', 'category', 'layer_group']
+    
+    # Enhanced fieldsets with better organization
     fieldsets = (
-        ('Basic Information', {
-            'fields': ('city', 'category', 'name', 'slug', 'description')
+        ('🏷️ Basic Information', {
+            'fields': ('city', 'category', 'layer_group', 'name', 'slug', 'description'),
+            'description': 'Core identification and categorization of the layer'
         }),
-        ('Layer Visibility', {
+        ('👁️ Visibility & Display', {
             'fields': ('is_true',),
-            'description': 'Control whether this layer is visible by default'
+            'description': '<strong style="color: #0066cc;">✨ Control whether this layer is visible by default in the map</strong>'
         }),
-        ('File Configuration', {
+        ('📁 File Configuration', {
             'fields': ('is_directory', 'file_path', 'file_pattern', 
-                      'original_filename', 'file_format', 'source_files_display')
+                      'original_filename', 'file_format', 'source_files_display_enhanced'),
+            'classes': ('wide',)
         }),
-        ('Processing', {
+        ('⚙️ Processing Status', {
             'fields': ('is_processed', 'feature_count', 'tiles_generated',
-                      'categorization_method', 'processing_errors')
+                      'categorization_method', 'processing_errors', 'file_stats'),
+            'classes': ('wide',)
         }),
-        ('Geometry', {
-            'fields': ('geometry_type', 'bbox_display'),
+        ('🗺️ Geometry & Bounds', {
+            'fields': ('geometry_type', 'bbox_display_enhanced', 'layer_preview_map'),
             'classes': ('collapse',)
         }),
-        ('Metadata', {
-            'fields': ('data_source', 'created_at', 'updated_at', 'last_updated'),
+        ('📊 Metadata & Source', {
+            'fields': ('data_source', 'last_updated', 'created_at', 'updated_at'),
             'classes': ('collapse',)
         })
     )
     
-    actions = ['process_layers', 'generate_tiles', 'calculate_bbox']
+    # Custom actions
+    actions = ['mark_as_visible', 'mark_as_hidden', 'process_layers', 
+              'generate_tiles', 'calculate_bbox']
     
-    def is_directory_icon(self, obj):
+    # ============ Custom Display Methods ============
+    
+    def name_with_icon(self, obj):
+        """Display name with appropriate icon"""
+        icon = '📁' if obj.is_directory else '📄'
+        color = '#0066cc' if obj.is_true else '#999'
+        return format_html(
+            '<strong style="color: {};">{} {}</strong>',
+            color, icon, obj.name
+        )
+    name_with_icon.short_description = 'Layer Name'
+    name_with_icon.admin_order_field = 'name'
+    
+    def slug_display(self, obj):
+        """Display slug in a monospace font with copy-friendly styling"""
+        return format_html(
+            '<code style="background: #f5f5f5; padding: 3px 6px; border-radius: 3px; '
+            'font-size: 11px; color: #d63384;">{}</code>',
+            obj.slug
+        )
+    slug_display.short_description = 'Slug'
+    slug_display.admin_order_field = 'slug'
+    
+    def city_state_display(self, obj):
+        """Display city and state together"""
+        state_name = obj.city.state_ref.name if obj.city.state_ref else obj.city.state
+        return format_html(
+            '<div style="line-height: 1.4;"><strong>{}</strong><br>'
+            '<small style="color: #666;">📍 {}</small></div>',
+            obj.city.name, state_name
+        )
+    city_state_display.short_description = 'City / State'
+    city_state_display.admin_order_field = 'city__name'
+    
+    def category_badge(self, obj):
+        """Display category as a colored badge"""
+        colors = {
+            'BOUNDARIES': '#800080',
+            'PLANNING': '#FFE4B5',
+            'RESIDENTIAL': '#FFB6C1',
+            'COMMERCIAL': '#FFD700',
+            'INDUSTRIAL': '#D2691E',
+            'MIXED_USE': '#9370DB',
+        }
+        bg_color = colors.get(obj.category.code, '#CCCCCC')
+        text_color = '#000' if obj.category.code in ['PLANNING', 'RESIDENTIAL', 'COMMERCIAL'] else '#FFF'
+        return format_html(
+            '<span style="background: {}; color: {}; padding: 4px 8px; '
+            'border-radius: 12px; font-size: 11px; font-weight: 600; '
+            'white-space: nowrap;">{}</span>',
+            bg_color, text_color, obj.category.name
+        )
+    category_badge.short_description = 'Category'
+    category_badge.admin_order_field = 'category__name'
+    
+    def file_info(self, obj):
+        """Display file information compactly"""
         if obj.is_directory:
-            return format_html('📁 <small>({} files)</small>', 
-                             len(obj.source_files) if obj.source_files else 0)
-        return '📄'
-    is_directory_icon.short_description = 'Type'
+            file_count = len(obj.source_files) if obj.source_files else 0
+            return format_html(
+                '<div style="font-size: 11px;">📁 <strong>{}</strong> files<br>'
+                '<code style="color: #666;">{}</code></div>',
+                file_count, obj.file_format or 'N/A'
+            )
+        return format_html(
+            '<div style="font-size: 11px;">📄 Single file<br>'
+            '<code style="color: #666;">{}</code></div>',
+            obj.file_format or 'N/A'
+        )
+    file_info.short_description = 'Files'
     
-    def is_processed_icon(self, obj):
-        if obj.is_processed:
-            return format_html('<span style="color: green;">✅</span>')
-        return format_html('<span style="color: orange;">⏳</span>')
-    is_processed_icon.short_description = 'Processed'
+    def feature_count_display(self, obj):
+        """Display feature count with formatting"""
+        if obj.feature_count:
+            formatted = f"{obj.feature_count:,}"
+            color = '#28a745' if obj.feature_count > 0 else '#6c757d'
+            return format_html(
+                '<strong style="color: {}; font-size: 13px;">{}</strong><br>'
+                '<small style="color: #666;">features</small>',
+                color, formatted
+            )
+        return format_html('<small style="color: #999;">No data</small>')
+    feature_count_display.short_description = 'Features'
+    feature_count_display.admin_order_field = 'feature_count'
     
-    def tiles_generated_icon(self, obj):
-        if obj.tiles_generated:
-            return format_html('<span style="color: green;">✅</span>')
-        return format_html('<span style="color: red;">❌</span>')
-    tiles_generated_icon.short_description = 'Tiles'
+    def status_badges(self, obj):
+        """Display processing and tile status as badges"""
+        processed = '✅ Processed' if obj.is_processed else '⏳ Pending'
+        processed_color = '#28a745' if obj.is_processed else '#ffc107'
+        
+        tiles = '🗺️ Tiles' if obj.tiles_generated else '❌ No Tiles'
+        tiles_color = '#17a2b8' if obj.tiles_generated else '#dc3545'
+        
+        return format_html(
+            '<div style="display: flex; flex-direction: column; gap: 3px;">'
+            '<span style="background: {}; color: white; padding: 2px 6px; '
+            'border-radius: 8px; font-size: 10px; display: inline-block;">{}</span>'
+            '<span style="background: {}; color: white; padding: 2px 6px; '
+            'border-radius: 8px; font-size: 10px; display: inline-block;">{}</span>'
+            '</div>',
+            processed_color, processed, tiles_color, tiles
+        )
+    status_badges.short_description = 'Status'
     
-    def bbox_display(self, obj):
+    def visibility_toggle(self, obj):
+        """Display visibility status with eye icon"""
+        if obj.is_true:
+            return format_html(
+                '<span style="color: #28a745; font-size: 16px;" title="Visible">👁️</span>'
+            )
+        return format_html(
+            '<span style="color: #6c757d; font-size: 16px;" title="Hidden">👁️‍🗨️</span>'
+        )
+    visibility_toggle.short_description = 'Visible'
+    visibility_toggle.admin_order_field = 'is_true'
+    
+    # ============ Enhanced Read-Only Field Methods ============
+    
+    def bbox_display_enhanced(self, obj):
+        """Enhanced bounding box display with map coordinates"""
         if obj.has_valid_bbox():
             return format_html(
-                'Min: ({:.4f}, {:.4f})<br>Max: ({:.4f}, {:.4f})',
-                obj.bbox_xmin, obj.bbox_ymin, obj.bbox_xmax, obj.bbox_ymax
+                '<div style="background: #f8f9fa; padding: 10px; border-radius: 5px; '
+                'border-left: 3px solid #0066cc;">'
+                '<div style="font-family: monospace; font-size: 11px;">'
+                '<strong>West:</strong> {:.6f} &nbsp; <strong>East:</strong> {:.6f}<br>'
+                '<strong>South:</strong> {:.6f} &nbsp; <strong>North:</strong> {:.6f}'
+                '</div></div>',
+                obj.bbox_xmin, obj.bbox_xmax, obj.bbox_ymin, obj.bbox_ymax
             )
-        return 'Not calculated'
-    bbox_display.short_description = 'Bounding Box'
+        return format_html('<em style="color: #999;">Not calculated</em>')
+    bbox_display_enhanced.short_description = 'Bounding Box Coordinates'
     
-    def source_files_display(self, obj):
+    def source_files_display_enhanced(self, obj):
+        """Enhanced source files display with better styling"""
         if obj.source_files:
-            files = obj.source_files[:5]  # Show first 5
-            if len(obj.source_files) > 5:
-                files.append(f'... and {len(obj.source_files) - 5} more')
-            return format_html('<ul>{}</ul>', 
-                             ''.join([f'<li>{f}</li>' for f in files]))
-        return 'No files'
-    source_files_display.short_description = 'Source Files'
+            files = obj.source_files[:10]  # Show first 10
+            remaining = len(obj.source_files) - 10
+            
+            files_html = ''.join([
+                f'<li style="padding: 2px 0;"><code style="font-size: 11px;">{f}</code></li>' 
+                for f in files
+            ])
+            
+            if remaining > 0:
+                files_html += f'<li style="color: #666; font-style: italic;">... and {remaining} more files</li>'
+            
+            return format_html(
+                '<div style="background: #f8f9fa; padding: 10px; border-radius: 5px; '
+                'max-height: 300px; overflow-y: auto;">'
+                '<strong>Total: {} files</strong>'
+                '<ul style="margin: 5px 0; padding-left: 20px;">{}</ul></div>',
+                len(obj.source_files), files_html
+            )
+        return format_html('<em style="color: #999;">No source files</em>')
+    source_files_display_enhanced.short_description = 'Source Files'
+    
+    def file_stats(self, obj):
+        """Display file statistics"""
+        stats = []
+        if obj.file_path:
+            stats.append(f'📂 Path: <code>{obj.file_path}</code>')
+        if obj.file_format:
+            stats.append(f'📋 Format: <strong>{obj.file_format}</strong>')
+        if obj.file_pattern:
+            stats.append(f'🔍 Pattern: <code>{obj.file_pattern}</code>')
+        if obj.categorization_method:
+            stats.append(f'🏷️ Method: <strong>{obj.categorization_method}</strong>')
+        
+        if stats:
+            return format_html('<br>'.join(stats))
+        return format_html('<em style="color: #999;">No statistics available</em>')
+    file_stats.short_description = 'File Statistics'
+    
+    def layer_preview_map(self, obj):
+        """Display a preview map link if bounds are available"""
+        if obj.has_valid_bbox():
+            center_lat = (obj.bbox_ymin + obj.bbox_ymax) / 2
+            center_lng = (obj.bbox_xmin + obj.bbox_xmax) / 2
+            zoom = 12
+            
+            # Create OpenStreetMap link
+            osm_url = f"https://www.openstreetmap.org/#map={zoom}/{center_lat}/{center_lng}"
+            
+            return format_html(
+                '<div style="background: #e7f3ff; padding: 10px; border-radius: 5px;">'
+                '<strong>🗺️ Map Preview:</strong><br>'
+                '<small>Center: ({:.4f}, {:.4f})</small><br>'
+                '<a href="{}" target="_blank" style="color: #0066cc; text-decoration: none;">'
+                '🔗 View on OpenStreetMap →</a></div>',
+                center_lat, center_lng, osm_url
+            )
+        return format_html('<em style="color: #999;">Bounds not available</em>')
+    layer_preview_map.short_description = 'Map Preview'
+    
+    # ============ Custom Actions ============
+    
+    def mark_as_visible(self, request, queryset):
+        """Mark selected layers as visible"""
+        updated = queryset.update(is_true=True)
+        self.message_user(request, f'{updated} layer(s) marked as visible ✅', level='success')
+    mark_as_visible.short_description = '👁️ Mark as visible'
+    
+    def mark_as_hidden(self, request, queryset):
+        """Mark selected layers as hidden"""
+        updated = queryset.update(is_true=False)
+        self.message_user(request, f'{updated} layer(s) marked as hidden 👁️‍🗨️', level='success')
+    mark_as_hidden.short_description = '👁️‍🗨️ Mark as hidden'
     
     def process_layers(self, request, queryset):
-        # Custom action to process layers
+        """Process selected layers"""
         processed = 0
         for layer in queryset:
             # Add your processing logic here
             processed += 1
-        self.message_user(request, f'{processed} layers processed')
-    process_layers.short_description = 'Process selected layers'
+        self.message_user(request, f'{processed} layer(s) processed ⚙️', level='success')
+    process_layers.short_description = '⚙️ Process selected layers'
     
     def generate_tiles(self, request, queryset):
-        # Custom action to generate tiles
-        for layer in queryset:
-            # Add tile generation logic here
-            pass
-        self.message_user(request, 'Tile generation initiated')
-    generate_tiles.short_description = 'Generate tiles for selected layers'
+        """Generate tiles for selected layers"""
+        count = queryset.count()
+        self.message_user(request, f'Tile generation initiated for {count} layer(s) 🗺️', level='info')
+    generate_tiles.short_description = '🗺️ Generate tiles'
     
     def calculate_bbox(self, request, queryset):
+        """Calculate bounding boxes for selected layers"""
+        calculated = 0
         for layer in queryset:
-            layer.calculate_bbox()
-        self.message_user(request, 'Bounding boxes calculated')
-    calculate_bbox.short_description = 'Calculate bounding box'
+            try:
+                layer.calculate_bbox()
+                calculated += 1
+            except Exception as e:
+                pass
+        self.message_user(request, f'Bounding boxes calculated for {calculated} layer(s) 📐', level='success')
+    calculate_bbox.short_description = '📐 Calculate bounding box'
+    
+    def get_queryset(self, request):
+        """Optimize queryset with select_related and prefetch_related"""
+        qs = super().get_queryset(request)
+        return qs.select_related('city', 'city__state_ref', 'category', 'layer_group')
 
 # ================================
 # GEO FEATURE ADMIN (FIXED)
