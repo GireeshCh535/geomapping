@@ -3329,6 +3329,7 @@ class LayerBoundsZoomAPIView(APIView):
     def _calculate_combined_bounds(self, layers):
         """Calculate combined bounds from all features in the specified layers"""
         from django.contrib.gis.db.models import Extent
+        from django.contrib.gis.geos import GEOSGeometry, Polygon
         
         # Get all features from all layers
         features = GeoFeature.objects.filter(
@@ -3345,13 +3346,34 @@ class LayerBoundsZoomAPIView(APIView):
         if not extent:
             return None
         
-        # extent is (xmin, ymin, xmax, ymax) in the geometry's SRID
-        # For 4326 (WGS84), this is (lng_min, lat_min, lng_max, lat_max)
+        # extent is (xmin, ymin, xmax, ymax)
+        xmin, ymin, xmax, ymax = extent
+        
+        # Check if coordinates are in Web Mercator (EPSG:3857) instead of WGS84 (EPSG:4326)
+        # Web Mercator coordinates are in meters and much larger than degree values
+        # If longitude > 180 or < -180, it's likely Web Mercator
+        if abs(xmin) > 180 or abs(xmax) > 180 or abs(ymin) > 90 or abs(ymax) > 90:
+            # Coordinates appear to be in Web Mercator (EPSG:3857)
+            # Create a polygon from the extent and transform it to WGS84
+            bbox = Polygon.from_bbox((xmin, ymin, xmax, ymax))
+            bbox.srid = 3857  # Set as Web Mercator
+            bbox.transform(4326)  # Transform to WGS84
+            
+            # Get the new extent in WGS84
+            extent_wgs84 = bbox.extent
+            return {
+                'west': extent_wgs84[0],   # xmin (longitude)
+                'south': extent_wgs84[1],  # ymin (latitude)
+                'east': extent_wgs84[2],   # xmax (longitude)
+                'north': extent_wgs84[3]   # ymax (latitude)
+            }
+        
+        # Coordinates are already in WGS84
         return {
-            'west': extent[0],   # xmin (longitude)
-            'south': extent[1],  # ymin (latitude)
-            'east': extent[2],   # xmax (longitude)
-            'north': extent[3]   # ymax (latitude)
+            'west': xmin,   # xmin (longitude)
+            'south': ymin,  # ymin (latitude)
+            'east': xmax,   # xmax (longitude)
+            'north': ymax   # ymax (latitude)
         }
     
     def _calculate_optimal_zoom(self, bounds):
