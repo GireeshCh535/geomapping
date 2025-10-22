@@ -316,6 +316,10 @@ class ThreadedPanchkulaExtension1RGBATileGenerator:
         """Create supporting files for the tile set"""
         logger.info("Creating supporting files...")
         
+        # Log the bounds for verification
+        logger.info(f"📍 Tile bounds (WGS84): West={bounds['west']:.6f}, South={bounds['south']:.6f}, East={bounds['east']:.6f}, North={bounds['north']:.6f}")
+        logger.info(f"📍 Center: Lng={((bounds['west'] + bounds['east']) / 2):.6f}, Lat={((bounds['south'] + bounds['north']) / 2):.6f}")
+        
         # Create Mapbox style JSON
         style_json = {
             "version": 8,
@@ -379,9 +383,11 @@ class ThreadedPanchkulaExtension1RGBATileGenerator:
             import json
             json.dump(tilejson, f, indent=2)
         
-        # Create HTML viewer
-        html_content = f"""
-<!DOCTYPE html>
+        # Create HTML viewer with correct bounds
+        center_lng = (bounds['west'] + bounds['east']) / 2
+        center_lat = (bounds['south'] + bounds['north']) / 2
+        
+        html_content = f"""<!DOCTYPE html>
 <html>
 <head>
     <title>Haryana - Panchkula Extension 1 Masterplan (Threaded)</title>
@@ -398,30 +404,38 @@ class ThreadedPanchkulaExtension1RGBATileGenerator:
         mapboxgl.accessToken = 'pk.eyJ1IjoiZXhhbXBsZSIsImEiOiJjbGV4YW1wbGUifQ.example';
         var map = new mapboxgl.Map({{
             container: 'map',
-            style: {{
-                "version": 8,
-                "sources": {{
-                    "panchkula-extension-1-masterplan": {{
-                        "type": "raster",
-                        "tiles": [
-                            "https://d17yosovmfjm4.cloudfront.net/haryana/panchkula_extension_1_masterplan/{{z}}/{{x}}/{{y}}.png"
-                        ],
-                        "tileSize": 256
-                    }}
-                }},
-                "layers": [
-                    {{
-                        "id": "panchkula-extension-1-masterplan-layer",
-                        "type": "raster",
-                        "source": "panchkula-extension-1-masterplan",
-                        "paint": {{
-                            "raster-opacity": 0.8
-                        }}
-                    }}
-                ]
-            }},
-            center: [{(bounds['west'] + bounds['east']) / 2}, {(bounds['south'] + bounds['north']) / 2}],
-            zoom: 10
+            style: 'mapbox://styles/mapbox/satellite-streets-v12',
+            center: [{center_lng:.6f}, {center_lat:.6f}],
+            zoom: 14
+        }});
+        
+        map.addControl(new mapboxgl.NavigationControl());
+        map.addControl(new mapboxgl.ScaleControl());
+        
+        map.on('load', function() {{
+            map.addSource('panchkula-extension-1', {{
+                'type': 'raster',
+                'tiles': ['./{{z}}/{{x}}/{{y}}.png'],
+                'tileSize': 256,
+                'minzoom': {min_zoom},
+                'maxzoom': {max_zoom},
+                'bounds': [{bounds['west']:.8f}, {bounds['south']:.8f}, {bounds['east']:.8f}, {bounds['north']:.8f}]
+            }});
+            
+            map.addLayer({{
+                'id': 'panchkula-extension-1-layer',
+                'type': 'raster',
+                'source': 'panchkula-extension-1',
+                'paint': {{
+                    'raster-opacity': 0.8
+                }}
+            }});
+            
+            // Fit to bounds
+            map.fitBounds([
+                [{bounds['west']:.8f}, {bounds['south']:.8f}],
+                [{bounds['east']:.8f}, {bounds['north']:.8f}]
+            ], {{ padding: 40 }});
         }});
     </script>
 </body>
@@ -432,6 +446,7 @@ class ThreadedPanchkulaExtension1RGBATileGenerator:
             f.write(html_content)
         
         logger.info("Created supporting files: style.json, tilejson.json, viewer.html")
+        logger.info(f"✅ Viewer will center at: ({center_lng:.6f}, {center_lat:.6f})")
 
 def main():
     """Main function"""
