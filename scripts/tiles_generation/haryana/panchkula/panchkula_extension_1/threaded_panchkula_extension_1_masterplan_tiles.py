@@ -82,13 +82,10 @@ class ThreadedPanchkulaExtension1RGBATileGenerator:
             # Handle missing CRS - use default for Haryana/Panchkula region
             source_crs = src.crs
             if source_crs is None:
-                # Based on bounds (large numbers ~8557235), this is likely UTM Zone 43N
-                # which is commonly used for northern India (Haryana/Panchkula area)
-                source_crs = 'EPSG:32643'  # WGS 84 / UTM zone 43N
-                logger.warning(f"⚠️  No CRS found in GeoTIFF! Using default CRS for Haryana region: {source_crs}")
-                logger.info(f"   If tiles look incorrect, the CRS might be different. Common alternatives:")
-                logger.info(f"   - EPSG:32643 (WGS 84 / UTM 43N) - Northern India")
-                logger.info(f"   - EPSG:3857 (Web Mercator)")
+                # Based on bounds (large numbers ~8557235), this is Web Mercator (EPSG:3857)
+                source_crs = 'EPSG:3857'  # Web Mercator - commonly used for web maps
+                logger.warning(f"⚠️  No CRS found in GeoTIFF! Using Web Mercator (EPSG:3857) based on bounds")
+                logger.info(f"   Bounds suggest Web Mercator projection")
             
             # Calculate the transform to WGS84
             transform, width, height = calculate_default_transform(
