@@ -29,32 +29,33 @@ class AmaravatiPerfectTileGenerator:
     def get_perfect_color_map(self):
         """Exact color mapping for all Amaravati zones with special handling for patterns"""
         return {
-            # Burial Ground - Dotted pattern with E39E00 dots on FFFFFF
+            # Burial Ground - Solid color at low zoom, dotted at high zoom
             'Burial Ground': {
                 'type': 'dotted',
                 'base': '#FFFFFF',
                 'dot': '#E39E00',
+                'solid_lowzoom': '#E39E00',  # Use solid color at low zoom
                 'outline': None
             },
             
-            # Commercial Zones
+            # Commercial Zones - Brighter blues for visibility
             'C1 -Mixed use zone': {'fill': '#73B2FF', 'outline': None},
-            'C2- General commercial zone': {'fill': '#00C5FF', 'outline': '#665b5b'},
+            'C2- General commercial zone': {'fill': '#00C5FF', 'outline': None},  # Remove outline for seamless
             'C3-Neighbourhood centre zone': {'fill': '#00C5FF', 'outline': None},
             'C4-Town centre zone': {'fill': '#00A9E6', 'outline': None},
             'C5-Regional centre zone': {'fill': '#0070FF', 'outline': None},
             'C6-Central business district zone': {'fill': '#005CE6', 'outline': None},
             'Commercial Vacant': {'fill': '#C5E2FF', 'outline': None},
             
-            # Industrial Zones
+            # Industrial Zones - Brighter purples
             'I1-Business park zone': {'fill': '#FFBEE8', 'outline': None},
             'I2-Logistics zone': {'fill': '#FF73DF', 'outline': None},
             'I3-Non polluting industry zone': {'fill': '#A900E6', 'outline': None},
             
             # Not Available
-            'Not Available': {'fill': '#b6b6b6', 'outline': '#000000'},
+            'Not Available': {'fill': '#b6b6b6', 'outline': None},  # Remove outline for seamless
             
-            # Parks/Recreation
+            # Parks/Recreation - Brighter greens for visibility
             'P1-Passive zone': {'fill': '#267300', 'outline': None},
             'P2-Active zone': {'fill': '#38A800', 'outline': None},
             'P3-Protected zone': {'fill': '#BEE8FF', 'outline': None},
@@ -64,11 +65,12 @@ class AmaravatiPerfectTileGenerator:
             'PGN-G': {'fill': '#4C7300', 'outline': None},
             'PGN-V': {'fill': '#897044', 'outline': None},
             
-            # Residential Zones
+            # Residential Zones - Solid color at low zoom, hatched at high zoom
             'R1-Village planning zone': {
                 'type': 'hatched',
                 'base': '#FFFFFF',
                 'hatch': '#000000',
+                'solid_lowzoom': '#EEEEEE',  # Use light gray at low zoom
                 'outline': None
             },
             'R3-Medium to high density zone': {'fill': '#F5CA7A', 'outline': None},
@@ -102,11 +104,11 @@ class AmaravatiPerfectTileGenerator:
             
             # Smart City Utilities
             'SU1-Reserve Zone': {'fill': '#E1E1E1', 'outline': None},
-            'SU2 - Road Network': {'fill': '#FFFFFF', 'outline': '#665b5b'},
+            'SU2 - Road Network': {'fill': '#FFFFFF', 'outline': None},  # Remove outline for seamless
             
             # Utilities
             'U1-Reserve zone': {'fill': '#CCCCCC', 'outline': None},
-            'U2- Road Reserve Zone': {'fill': '#FFFFFF', 'outline': '#665b5b'},
+            'U2- Road Reserve Zone': {'fill': '#FFFFFF', 'outline': None},  # Remove outline for seamless
         }
     
     def hex_to_rgb(self, hex_color):
@@ -269,14 +271,16 @@ class AmaravatiPerfectTileGenerator:
         scale = 2
         img_size = self.tile_size * scale
         
+        # Determine if this is a low zoom level (simplify patterns)
+        is_low_zoom = z < 14
+        
         # Create high-resolution image
         img = Image.new('RGBA', (img_size, img_size), (0, 0, 0, 0))
         draw = ImageDraw.Draw(img)
         
         # Get tile bounds in lat/lon
         tile_bounds = mercantile.bounds(tile)
-        tile_bbox = box(tile_bounds.west, tile_bounds.south, 
-                       tile_bounds.east, tile_bounds.north)
+        tile_bbox = box(tile_bounds.west, tile_bounds.south, tile_bounds.east, tile_bounds.north)
         
         # Query spatial index for features that might intersect this tile
         intersecting_ids = list(self.spatial_index.intersection(tile_bbox.bounds))
@@ -307,6 +311,10 @@ class AmaravatiPerfectTileGenerator:
             
             color_info = color_map[zone]
             
+            # At low zoom levels, buffer small geometries to ensure visibility
+            if is_low_zoom and geom.area < 0.00001:  # Very small features
+                geom = geom.buffer(0.00005)  # Small buffer in degrees
+            
             # Convert geometry coordinates to pixel coordinates
             if geom.geom_type == 'Polygon':
                 polygons = [geom]
@@ -318,7 +326,8 @@ class AmaravatiPerfectTileGenerator:
             for polygon in polygons:
                 # Convert exterior coordinates to pixels
                 pixel_coords = []
-                for lon, lat in polygon.exterior.coords:
+                for coord in polygon.exterior.coords:
+                    lon, lat = coord[0], coord[1]  # Handle 2D or 3D coordinates
                     # Convert lat/lon to pixel coordinates
                     px = (lon - tile_bounds.west) / (tile_bounds.east - tile_bounds.west) * img_size
                     py = (tile_bounds.north - lat) / (tile_bounds.north - tile_bounds.south) * img_size
@@ -329,28 +338,33 @@ class AmaravatiPerfectTileGenerator:
                 
                 # Handle special patterns
                 if color_info.get('type') == 'dotted':
-                    # Dotted pattern (Burial Ground)
-                    base_rgb = self.hex_to_rgb(color_info['base'])
-                    dot_rgb = self.hex_to_rgb(color_info['dot'])
-                    self.draw_dotted_pattern(draw, pixel_coords, base_rgb, dot_rgb, scale)
+                    if is_low_zoom and 'solid_lowzoom' in color_info:
+                        # Use solid color at low zoom for visibility
+                        fill_color = self.hex_to_rgb(color_info['solid_lowzoom'])
+                        draw.polygon(pixel_coords, fill=fill_color, outline=None)
+                    else:
+                        # Dotted pattern (Burial Ground) at high zoom
+                        base_rgb = self.hex_to_rgb(color_info['base'])
+                        dot_rgb = self.hex_to_rgb(color_info['dot'])
+                        self.draw_dotted_pattern(draw, pixel_coords, base_rgb, dot_rgb, scale)
                 
                 elif color_info.get('type') == 'hatched':
-                    # Hatched pattern (R1)
-                    base_rgb = self.hex_to_rgb(color_info['base'])
-                    hatch_rgb = self.hex_to_rgb(color_info['hatch'])
-                    self.draw_hatch_pattern_clipped(draw, pixel_coords, base_rgb, hatch_rgb, scale)
+                    if is_low_zoom and 'solid_lowzoom' in color_info:
+                        # Use solid color at low zoom for visibility
+                        fill_color = self.hex_to_rgb(color_info['solid_lowzoom'])
+                        draw.polygon(pixel_coords, fill=fill_color, outline=None)
+                    else:
+                        # Hatched pattern (R1) at high zoom
+                        base_rgb = self.hex_to_rgb(color_info['base'])
+                        hatch_rgb = self.hex_to_rgb(color_info['hatch'])
+                        self.draw_hatch_pattern_clipped(draw, pixel_coords, base_rgb, hatch_rgb, scale)
                 
                 else:
                     # Solid fill
                     fill_color = self.hex_to_rgb(color_info['fill'])
-                    outline_color = self.hex_to_rgb(color_info['outline']) if color_info.get('outline') else None
                     
                     # Draw polygon with NO outline to ensure seamless boundaries
                     draw.polygon(pixel_coords, fill=fill_color, outline=None)
-                    
-                    # Only draw outline if explicitly specified AND it's different from fill
-                    if outline_color and outline_color != fill_color:
-                        draw.polygon(pixel_coords, outline=outline_color, width=scale)
         
         # Downsample for anti-aliasing
         img = img.resize((self.tile_size, self.tile_size), Image.LANCZOS)

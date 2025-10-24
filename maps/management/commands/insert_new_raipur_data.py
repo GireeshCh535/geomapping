@@ -382,6 +382,22 @@ class Command(BaseCommand):
             self.stdout.write(f'  ⚠️ No features found in {file_path.name}')
             return 0, None
         
+        # Check for CRS in the GeoJSON
+        source_srid = 4326  # Default to WGS84
+        crs_info = data.get('crs')
+        if crs_info:
+            crs_properties = crs_info.get('properties', {})
+            crs_name = crs_properties.get('name', '')
+            # Check if it's EPSG:3857 (Web Mercator)
+            if '3857' in crs_name:
+                source_srid = 3857
+                self.stdout.write(f'  📍 Detected CRS: EPSG:3857 (Web Mercator) - will transform to EPSG:4326')
+            elif '4326' in crs_name:
+                source_srid = 4326
+                self.stdout.write(f'  📍 Detected CRS: EPSG:4326 (WGS84)')
+            else:
+                self.stdout.write(f'  ⚠️ Unknown CRS: {crs_name}, assuming EPSG:4326')
+        
         # Determine category based on filename
         category = self.determine_category_from_filename(file_path.stem)
         
@@ -399,6 +415,11 @@ class Command(BaseCommand):
                 
                 # Convert to GEOSGeometry
                 geometry = GEOSGeometry(json.dumps(geometry_data))
+                
+                # Set the correct source SRID and transform to WGS84 if needed
+                if source_srid != 4326:
+                    geometry.srid = source_srid
+                    geometry.transform(4326)
                 
                 # Handle 3D geometries by converting to 2D
                 if geometry.hasz:
