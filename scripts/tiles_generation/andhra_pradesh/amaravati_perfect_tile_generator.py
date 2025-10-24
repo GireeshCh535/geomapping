@@ -118,14 +118,28 @@ class AmaravatiPerfectTileGenerator:
     
     def load_geojson_files(self):
         """Load all GeoJSON files and build spatial index"""
-        print("Loading GeoJSON files and building spatial index...")
+        import time
+        
+        print("\n" + "="*80)
+        print("LOADING GEOJSON DATA")
+        print("="*80)
         
         geojson_files = sorted(self.data_dir.glob('*.geojson'))
+        total_files = len(geojson_files)
         total_features = 0
+        invalid_features = 0
         
-        for geojson_file in geojson_files:
+        print(f"Found {total_files} GeoJSON files to load\n")
+        
+        load_start = time.time()
+        
+        for idx, geojson_file in enumerate(geojson_files, 1):
             zone_name = geojson_file.stem
-            print(f"  Loading: {zone_name}...")
+            file_size = geojson_file.stat().st_size / 1024 / 1024  # MB
+            
+            print(f"[{idx:2d}/{total_files}] Loading: {zone_name:<50} ({file_size:6.2f} MB)", end=" ", flush=True)
+            
+            zone_start = time.time()
             
             try:
                 with open(geojson_file, 'r', encoding='utf-8') as f:
@@ -133,6 +147,7 @@ class AmaravatiPerfectTileGenerator:
                 
                 features = data.get('features', [])
                 self.features_by_zone[zone_name] = []
+                zone_invalid = 0
                 
                 for feature in features:
                     try:
@@ -156,18 +171,33 @@ class AmaravatiPerfectTileGenerator:
                         self.feature_id_counter += 1
                         
                     except Exception as e:
-                        print(f"    Warning: Skipping invalid feature in {zone_name}: {e}")
+                        zone_invalid += 1
+                        invalid_features += 1
                         continue
                 
-                total_features += len(self.features_by_zone[zone_name])
-                print(f"    Loaded {len(self.features_by_zone[zone_name])} features")
+                zone_elapsed = time.time() - zone_start
+                loaded_count = len(self.features_by_zone[zone_name])
+                total_features += loaded_count
+                
+                print(f"✓ {loaded_count:>6,} features ({zone_elapsed:.1f}s)")
+                
+                if zone_invalid > 0:
+                    print(f"        └─ Skipped {zone_invalid} invalid features")
                 
             except Exception as e:
-                print(f"    Error loading {zone_name}: {e}")
+                print(f"✗ Error: {e}")
                 continue
         
-        print(f"\nTotal features loaded: {total_features:,}")
-        print(f"Spatial index built with {self.feature_id_counter:,} entries")
+        load_elapsed = time.time() - load_start
+        
+        print(f"\n{'='*80}")
+        print(f"DATA LOADING COMPLETE")
+        print(f"{'='*80}")
+        print(f"Total features loaded: {total_features:,}")
+        print(f"Invalid features skipped: {invalid_features}")
+        print(f"Spatial index entries: {self.feature_id_counter:,}")
+        print(f"Time taken: {load_elapsed:.1f}s ({load_elapsed/60:.1f} min)")
+        print(f"{'='*80}\n")
     
     def get_bounds(self):
         """Calculate geographic bounds of all data"""
@@ -274,6 +304,17 @@ class AmaravatiPerfectTileGenerator:
         # Determine if this is a low zoom level (simplify patterns)
         is_low_zoom = z < 14
         
+        # Calculate buffer size based on zoom level for better visibility
+        # More aggressive buffering at lower zooms
+        if z < 10:
+            buffer_factor = 0.0005  # Large buffer for zoom 8-9
+        elif z < 12:
+            buffer_factor = 0.0002  # Medium buffer for zoom 10-11
+        elif z < 14:
+            buffer_factor = 0.0001  # Small buffer for zoom 12-13
+        else:
+            buffer_factor = 0.00002  # Minimal buffer for zoom 14+
+        
         # Create high-resolution image
         img = Image.new('RGBA', (img_size, img_size), (0, 0, 0, 0))
         draw = ImageDraw.Draw(img)
@@ -311,9 +352,14 @@ class AmaravatiPerfectTileGenerator:
             
             color_info = color_map[zone]
             
-            # At low zoom levels, buffer small geometries to ensure visibility
-            if is_low_zoom and geom.area < 0.00001:  # Very small features
-                geom = geom.buffer(0.00005)  # Small buffer in degrees
+            # Apply zoom-appropriate buffering to ALL features for visibility
+            # This ensures features are visible at lower zoom levels
+            if z < 14:
+                # Buffer all features at lower zoom levels
+                try:
+                    geom = geom.buffer(buffer_factor)
+                except:
+                    pass  # If buffering fails, use original geometry
             
             # Convert geometry coordinates to pixel coordinates
             if geom.geom_type == 'Polygon':
@@ -335,6 +381,32 @@ class AmaravatiPerfectTileGenerator:
                 
                 if len(pixel_coords) < 3:
                     continue
+                
+                # At lower zoom levels, ensure minimum pixel size for visibility
+                # If polygon is too small, draw a circle/point instead
+                if z < 12:
+                    xs = [p[0] for p in pixel_coords]
+                    ys = [p[1] for p in pixel_coords]
+                    width = max(xs) - min(xs)
+                    height = max(ys) - min(ys)
+                    
+                    # If feature is smaller than 3x3 pixels, draw a small filled circle
+                    if width < 3 * scale or height < 3 * scale:
+                        center_x = sum(xs) / len(xs)
+                        center_y = sum(ys) / len(ys)
+                        radius = 2 * scale  # Small visible circle
+                        
+                        # Get the fill color
+                        if color_info.get('type') in ['dotted', 'hatched']:
+                            fill_rgb = self.hex_to_rgb(color_info.get('solid_lowzoom', color_info.get('base', '#FFFFFF')))
+                        else:
+                            fill_rgb = self.hex_to_rgb(color_info['fill'])
+                        
+                        # Draw a small circle to represent this feature
+                        draw.ellipse([center_x - radius, center_y - radius, 
+                                     center_x + radius, center_y + radius], 
+                                    fill=fill_rgb)
+                        continue
                 
                 # Handle special patterns
                 if color_info.get('type') == 'dotted':
@@ -373,16 +445,22 @@ class AmaravatiPerfectTileGenerator:
     
     def generate_tiles(self, min_zoom=0, max_zoom=18):
         """Generate tiles for specified zoom levels"""
-        print(f"\nGenerating tiles (zoom {min_zoom}-{max_zoom})...")
+        import time
+        
+        print(f"\n{'='*80}")
+        print(f"TILE GENERATION STARTED")
+        print(f"{'='*80}")
+        print(f"Zoom range: {min_zoom} to {max_zoom}")
         
         # Get data bounds
         bounds = self.get_bounds()
-        print(f"Data bounds: {bounds}")
+        print(f"Data bounds: [{bounds[1]:.4f}, {bounds[0]:.4f}] to [{bounds[3]:.4f}, {bounds[2]:.4f}]")
         
         total_tiles = 0
+        overall_start = time.time()
         
         for zoom in range(min_zoom, max_zoom + 1):
-            print(f"\n  Zoom level {zoom}:")
+            zoom_start = time.time()
             
             # Get tiles that cover the bounds
             tiles = list(mercantile.tiles(
@@ -390,10 +468,20 @@ class AmaravatiPerfectTileGenerator:
                 zooms=[zoom]
             ))
             
+            total_tiles_for_zoom = len(tiles)
+            
+            print(f"\n{'─'*80}")
+            print(f"🔍 ZOOM {zoom:2d} | Total tiles to process: {total_tiles_for_zoom:,}")
+            print(f"{'─'*80}")
+            
             zoom_dir = self.output_dir / str(zoom)
             tiles_rendered = 0
+            tiles_skipped = 0
             
-            for tile in tiles:
+            # Progress tracking
+            last_progress = 0
+            
+            for idx, tile in enumerate(tiles, 1):
                 img = self.render_tile(tile)
                 
                 if img is not None:
@@ -404,11 +492,38 @@ class AmaravatiPerfectTileGenerator:
                     tile_path = tile_dir / f"{tile.y}.png"
                     img.save(tile_path, 'PNG', optimize=True)
                     tiles_rendered += 1
+                else:
+                    tiles_skipped += 1
+                
+                # Show progress every 10% or every 100 tiles (whichever is smaller)
+                progress_interval = min(100, max(1, total_tiles_for_zoom // 10))
+                if idx % progress_interval == 0 or idx == total_tiles_for_zoom:
+                    progress = (idx / total_tiles_for_zoom) * 100
+                    elapsed = time.time() - zoom_start
+                    tiles_per_sec = idx / elapsed if elapsed > 0 else 0
+                    eta = (total_tiles_for_zoom - idx) / tiles_per_sec if tiles_per_sec > 0 else 0
+                    
+                    print(f"  [{progress:5.1f}%] Processed: {idx:,}/{total_tiles_for_zoom:,} | "
+                          f"Rendered: {tiles_rendered:,} | Skipped: {tiles_skipped:,} | "
+                          f"Speed: {tiles_per_sec:.1f} tiles/s | ETA: {eta:.0f}s")
             
-            print(f"    Generated {tiles_rendered} tiles")
+            zoom_elapsed = time.time() - zoom_start
+            print(f"\n  ✓ Zoom {zoom} complete:")
+            print(f"    • Tiles rendered: {tiles_rendered:,}")
+            print(f"    • Tiles skipped (empty): {tiles_skipped:,}")
+            print(f"    • Time taken: {zoom_elapsed:.1f}s ({zoom_elapsed/60:.1f} min)")
+            print(f"    • Average speed: {tiles_rendered/zoom_elapsed:.1f} tiles/s")
+            
             total_tiles += tiles_rendered
         
-        print(f"\n✓ Total tiles generated: {total_tiles:,}")
+        overall_elapsed = time.time() - overall_start
+        print(f"\n{'='*80}")
+        print(f"✓ TILE GENERATION COMPLETE!")
+        print(f"{'='*80}")
+        print(f"Total tiles generated: {total_tiles:,}")
+        print(f"Total time: {overall_elapsed:.1f}s ({overall_elapsed/60:.1f} min / {overall_elapsed/3600:.1f} hrs)")
+        print(f"Average speed: {total_tiles/overall_elapsed:.1f} tiles/s")
+        print(f"{'='*80}\n")
     
     def generate_html_viewer(self, mapbox_token=None):
         """Generate simple HTML viewer"""

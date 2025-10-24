@@ -126,6 +126,9 @@ class CityLayerStyleAdmin(admin.ModelAdmin):
     list_filter = ['city', 'category', 'fill_pattern', 'is_visible']
     search_fields = ['city__name', 'category__name']
     
+    # Use raw_id_fields for faster ID-based selection instead of slow dropdowns
+    raw_id_fields = ['city', 'category']
+    
     fieldsets = (
         ('Location', {
             'fields': ('city', 'category')
