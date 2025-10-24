@@ -443,7 +443,7 @@ class AmaravatiPerfectTileGenerator:
         
         return img
     
-    def generate_tiles(self, min_zoom=0, max_zoom=18):
+    def generate_tiles(self, min_zoom=5, max_zoom=18):
         """Generate tiles for specified zoom levels"""
         import time
         
@@ -526,7 +526,7 @@ class AmaravatiPerfectTileGenerator:
         print(f"{'='*80}\n")
     
     def generate_html_viewer(self, mapbox_token=None):
-        """Generate simple HTML viewer"""
+        """Generate simple HTML viewer (same style as Warangal)"""
         bounds = self.get_bounds()
         center_lon = (bounds[0] + bounds[2]) / 2
         center_lat = (bounds[1] + bounds[3]) / 2
@@ -546,22 +546,24 @@ class AmaravatiPerfectTileGenerator:
   <div id="map"></div>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script>
-    const map = L.map('map').setView([{center_lat}, {center_lon}], 12);
+    // Create map centered on Amaravati
+    const map = L.map('map').setView([{center_lat:.6f}, {center_lon:.6f}], 12);
     
     // Add satellite base layer
     L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{{z}}/{{y}}/{{x}}', {{
-      attribution: '© Esri, Maxar, GeoEye, Earthstar Geographics',
+      attribution: '© Esri, Maxar, GeoEye, Earthstar Geographics, CNES/Airbus DS, USDA, USGS, AeroGRID, IGN, and the GIS User Community',
       maxZoom: 19
     }}).addTo(map);
     
-    // Add Amaravati tiles
-    L.tileLayer('./{{z}}/{{x}}/{{y}}.png', {{
+    // Add your Amaravati tiles
+    const amaravatiTiles = L.tileLayer('./{{z}}/{{x}}/{{y}}.png', {{
       minZoom: 0,
       maxZoom: 18,
       opacity: 0.8
     }}).addTo(map);
     
-    map.fitBounds([[{bounds[1]}, {bounds[0]}], [{bounds[3]}, {bounds[2]}]]);
+    // Fit to Amaravati area but don't restrict movement
+    map.fitBounds([[{bounds[1]:.6f}, {bounds[0]:.6f}], [{bounds[3]:.6f}, {bounds[2]:.6f}]]);
   </script>
 </body>
 </html>"""
@@ -571,6 +573,10 @@ class AmaravatiPerfectTileGenerator:
             f.write(html_content)
         
         print(f"\n✓ HTML viewer created: {html_path}")
+        print(f"  To view:")
+        print(f"    cd {self.output_dir}")
+        print(f"    python3 -m http.server 8007")
+        print(f"    Open: http://localhost:8007/")
 
 
 def main():
@@ -589,7 +595,7 @@ def main():
     generator.load_geojson_files()
     
     # Generate tiles
-    generator.generate_tiles(min_zoom=0, max_zoom=18)
+    generator.generate_tiles(min_zoom=5, max_zoom=18)
     
     # Create HTML viewer
     generator.generate_html_viewer()

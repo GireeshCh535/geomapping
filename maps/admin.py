@@ -1,5 +1,5 @@
 # maps/admin.py
-# Complete admin configuration that matches the model structure
+# Developer-friendly admin configuration with prominent IDs, technical details, and easy copy-paste
 
 from django.contrib import admin
 from django.contrib.gis import admin as gis_admin
@@ -16,22 +16,112 @@ from .models import (
 )
 
 # ================================
+# HELPER FUNCTIONS
+# ================================
+
+def copyable_id(obj_id, label="ID"):
+    """Display ID in a copy-friendly format"""
+    return format_html(
+        '<code style="background: #2c3e50; color: #2ecc71; padding: 4px 8px; '
+        'border-radius: 3px; font-weight: bold; font-size: 12px; '
+        'cursor: pointer; user-select: all;" title="Click to select, Ctrl+C to copy">{}: {}</code>',
+        label, obj_id
+    )
+
+def copyable_text(text, label=""):
+    """Display text in a copy-friendly format"""
+    return format_html(
+        '<code style="background: #f5f5f5; padding: 3px 6px; border-radius: 3px; '
+        'font-size: 11px; color: #333; cursor: pointer; user-select: all;" '
+        'title="Click to select">{}{}</code>',
+        f"{label}: " if label else "", text
+    )
+
+def api_link(endpoint, label="API"):
+    """Display API endpoint link"""
+    return format_html(
+        '<a href="{}" target="_blank" style="background: #3498db; color: white; '
+        'padding: 3px 8px; border-radius: 3px; text-decoration: none; '
+        'font-size: 10px; font-weight: bold;">🔗 {}</a>',
+        endpoint, label
+    )
+
+# ================================
 # STATE ADMIN
 # ================================
 
 @admin.register(State)
 class StateAdmin(admin.ModelAdmin):
-    list_display = ['name', 'code', 'slug', 'get_cities_count', 'is_active', 'created_at']
+    list_display = ['id_display', 'name', 'code_display', 'slug_display', 
+                    'get_cities_count', 'is_active', 'created_at']
     list_filter = ['is_active', 'created_at']
-    search_fields = ['name', 'code', 'slug']
+    search_fields = ['id', 'name', 'code', 'slug']  # Added ID search
     prepopulated_fields = {'slug': ('name',)}
     ordering = ['name']
+    readonly_fields = ['id_display', 'created_at', 'get_technical_info']
+    
+    fieldsets = (
+        ('🔑 IDs & Identification', {
+            'fields': ('id_display', 'name', 'slug', 'code')
+        }),
+        ('📍 Map Configuration', {
+            'fields': ('center_lat', 'center_lng', 'default_zoom')
+        }),
+        ('⚙️ Technical Info', {
+            'fields': ('get_technical_info',),
+            'classes': ('collapse',)
+        }),
+        ('✅ Status', {
+            'fields': ('is_active', 'created_at')
+        })
+    )
+    
+    def id_display(self, obj):
+        if obj.pk:
+            return copyable_id(obj.pk, "State ID")
+        return "-"
+    id_display.short_description = 'ID'
+    
+    def code_display(self, obj):
+        return copyable_text(obj.code, "Code")
+    code_display.short_description = 'Code'
+    code_display.admin_order_field = 'code'
+    
+    def slug_display(self, obj):
+        return copyable_text(obj.slug, "Slug")
+    slug_display.short_description = 'Slug'
+    slug_display.admin_order_field = 'slug'
     
     def get_cities_count(self, obj):
         count = obj.get_cities_count()
         url = f"/admin/maps/city/?state_ref__id__exact={obj.id}"
-        return format_html('<a href="{}">{} cities</a>', url, count)
+        return format_html('<a href="{}" style="font-weight: bold; color: #2ecc71;">{} cities</a>', url, count)
     get_cities_count.short_description = 'Cities'
+    
+    def get_technical_info(self, obj):
+        if not obj.pk:
+            return "-"
+        
+        cities = obj.cities.all()
+        layers_count = obj.get_layers_count()
+        
+        info = f"""
+        <div style="background: #2c3e50; color: #ecf0f1; padding: 15px; border-radius: 5px; font-family: 'Courier New', monospace;">
+            <div style="color: #3498db; font-weight: bold; margin-bottom: 10px;">📊 DATABASE INFO</div>
+            <div style="line-height: 1.8;">
+                <span style="color: #2ecc71;">state_id:</span> {obj.pk}<br>
+                <span style="color: #2ecc71;">slug:</span> "{obj.slug}"<br>
+                <span style="color: #2ecc71;">code:</span> "{obj.code}"<br>
+                <span style="color: #2ecc71;">cities_count:</span> {cities.count()}<br>
+                <span style="color: #2ecc71;">total_layers:</span> {layers_count}<br>
+            </div>
+            <div style="margin-top: 10px; color: #95a5a6; font-size: 11px;">
+                💡 Use these values in API calls and database queries
+            </div>
+        </div>
+        """
+        return format_html(info)
+    get_technical_info.short_description = 'Technical Information'
 
 # ================================
 # CITY ADMIN
@@ -39,45 +129,119 @@ class StateAdmin(admin.ModelAdmin):
 
 @admin.register(City)
 class CityAdmin(admin.ModelAdmin):
-    list_display = ['name', 'slug', 'get_state_display', 'get_layers_count', 
-                   'get_features_count', 'is_active', 'created_at']
+    list_display = ['id_display', 'name', 'slug_display', 'get_state_with_id', 
+                    'get_layers_count', 'get_features_count', 'is_active']
     list_filter = ['state_ref', 'is_active', 'created_at']
-    search_fields = ['name', 'slug', 'state']
+    search_fields = ['id', 'name', 'slug', 'state']  # Added ID search
     prepopulated_fields = {'slug': ('name',)}
-    readonly_fields = ['get_layers_count', 'get_processed_layers_count', 'get_features_count', 'created_at']
+    readonly_fields = ['id_display', 'get_state_with_id', 'get_layers_count', 
+                      'get_processed_layers_count', 'get_features_count', 
+                      'created_at', 'get_technical_info', 'get_api_endpoints']
     
     fieldsets = (
-        ('Basic Information', {
-            'fields': ('name', 'slug', 'state', 'state_ref')
+        ('🔑 IDs & Identification', {
+            'fields': ('id_display', 'name', 'slug', 'state', 'state_ref')
         }),
-        ('Map Configuration', {
+        ('📍 Map Configuration', {
             'fields': ('center_lat', 'center_lng', 'min_zoom', 'max_zoom')
         }),
-        ('Statistics', {
+        ('📊 Statistics', {
             'fields': ('get_layers_count', 'get_processed_layers_count', 'get_features_count'),
             'classes': ('collapse',)
         }),
-        ('Status', {
+        ('🔗 API Endpoints', {
+            'fields': ('get_api_endpoints',),
+            'classes': ('collapse',)
+        }),
+        ('⚙️ Technical Info', {
+            'fields': ('get_technical_info',),
+            'classes': ('collapse',)
+        }),
+        ('✅ Status', {
             'fields': ('is_active', 'created_at')
         })
     )
     
-    def get_state_display(self, obj):
-        return obj.get_state_name()
-    get_state_display.short_description = 'State'
+    def id_display(self, obj):
+        if obj.pk:
+            return copyable_id(obj.pk, "City ID")
+        return "-"
+    id_display.short_description = 'ID'
+    
+    def slug_display(self, obj):
+        return copyable_text(obj.slug, "Slug")
+    slug_display.short_description = 'Slug'
+    slug_display.admin_order_field = 'slug'
+    
+    def get_state_with_id(self, obj):
+        if obj.state_ref:
+            state_id = copyable_text(obj.state_ref.pk, "ID")
+            state_link = format_html('<a href="/admin/maps/state/{}/change/" style="color: #3498db;">{}</a>', 
+                                    obj.state_ref.pk, obj.state_ref.name)
+            return format_html('{} {}', state_link, state_id)
+        return obj.state
+    get_state_with_id.short_description = 'State'
     
     def get_layers_count(self, obj):
         count = obj.get_layers_count()
         url = f"/admin/maps/datalayer/?city__id__exact={obj.id}"
-        return format_html('<a href="{}">{} layers</a>', url, count)
-    get_layers_count.short_description = 'Total Layers'
+        return format_html('<a href="{}" style="font-weight: bold; color: #2ecc71;">{} layers</a>', url, count)
+    get_layers_count.short_description = 'Layers'
     
     def get_features_count(self, obj):
-        """FIXED: Format number with commas safely"""
         count = obj.get_features_count()
         formatted_count = f"{count:,}"
-        return format_html('{} features', formatted_count)
-    get_features_count.short_description = 'Total Features'
+        return format_html('<span style="font-weight: bold; color: #e74c3c;">{}</span> features', formatted_count)
+    get_features_count.short_description = 'Features'
+    
+    def get_api_endpoints(self, obj):
+        if not obj.pk:
+            return "-"
+        
+        # Use format_html with proper escaping for literal braces
+        return format_html(
+            '<div style="background: #ecf0f1; padding: 15px; border-radius: 5px;">'
+            '<div style="font-weight: bold; margin-bottom: 10px; color: #2c3e50;">🔗 API Endpoints</div>'
+            '<div style="font-family: monospace; font-size: 12px; line-height: 2;">'
+            '<div>🔍 <code>/api/cities/{}/search-coords-test/?lat=LAT&amp;lng=LNG</code></div>'
+            '<div>🗺️ <code>/api/tiles/raster/{}/{{z}}/{{x}}/{{y}}.png</code></div>'
+            '<div>📊 <code>/api/layers?city={}</code></div>'
+            '</div></div>',
+            obj.slug, obj.slug, obj.slug
+        )
+    get_api_endpoints.short_description = 'API Endpoints'
+    
+    def get_technical_info(self, obj):
+        if not obj.pk:
+            return "-"
+        
+        layers_count = obj.get_layers_count()
+        processed_count = obj.get_processed_layers_count()
+        features_count = obj.get_features_count()
+        
+        info = f"""
+        <div style="background: #2c3e50; color: #ecf0f1; padding: 15px; border-radius: 5px; font-family: 'Courier New', monospace;">
+            <div style="color: #3498db; font-weight: bold; margin-bottom: 10px;">📊 DATABASE INFO</div>
+            <div style="line-height: 1.8;">
+                <span style="color: #2ecc71;">city_id:</span> {obj.pk}<br>
+                <span style="color: #2ecc71;">slug:</span> "{obj.slug}"<br>
+                <span style="color: #2ecc71;">state_id:</span> {obj.state_ref.pk if obj.state_ref else 'null'}<br>
+                <span style="color: #2ecc71;">center:</span> [{obj.center_lat}, {obj.center_lng}]<br>
+                <span style="color: #2ecc71;">zoom_range:</span> [{obj.min_zoom}, {obj.max_zoom}]<br>
+                <span style="color: #2ecc71;">total_layers:</span> {layers_count}<br>
+                <span style="color: #2ecc71;">processed_layers:</span> {processed_count}<br>
+                <span style="color: #2ecc71;">total_features:</span> {features_count:,}<br>
+            </div>
+            <div style="margin-top: 10px; padding-top: 10px; border-top: 1px solid #34495e;">
+                <div style="color: #e67e22; font-weight: bold; margin-bottom: 5px;">SQL Query:</div>
+                <code style="color: #95a5a6; font-size: 11px;">
+                    SELECT * FROM cities WHERE id = {obj.pk};
+                </code>
+            </div>
+        </div>
+        """
+        return format_html(info)
+    get_technical_info.short_description = 'Technical Information'
 
 # ================================
 # LAYER CATEGORY ADMIN
@@ -85,23 +249,35 @@ class CityAdmin(admin.ModelAdmin):
 
 @admin.register(LayerCategory)
 class LayerCategoryAdmin(admin.ModelAdmin):
-    list_display = ['name', 'code', 'default_color_preview', 'get_layers_count', 
-                   'display_order', 'is_active']
+    list_display = ['id_display', 'name', 'code_display', 'default_color_preview', 
+                   'get_layers_count', 'display_order', 'is_active']
     list_filter = ['is_active', 'code']
-    search_fields = ['name', 'code']
+    search_fields = ['id', 'name', 'code']  # Added ID search
     ordering = ['display_order', 'name']
+    readonly_fields = ['id_display']
     
     fieldsets = (
-        ('Basic Information', {
-            'fields': ('code', 'name', 'description')
+        ('🔑 IDs & Basic Information', {
+            'fields': ('id_display', 'code', 'name', 'description')
         }),
-        ('Default Styling', {
+        ('🎨 Default Styling', {
             'fields': ('default_color', 'default_stroke', 'default_opacity')
         }),
-        ('Display Settings', {
+        ('⚙️ Display Settings', {
             'fields': ('display_order', 'is_active')
         })
     )
+    
+    def id_display(self, obj):
+        if obj.pk:
+            return copyable_id(obj.pk, "Category ID")
+        return "-"
+    id_display.short_description = 'ID'
+    
+    def code_display(self, obj):
+        return copyable_text(obj.code, "Code")
+    code_display.short_description = 'Code'
+    code_display.admin_order_field = 'code'
     
     def default_color_preview(self, obj):
         return format_html(
@@ -112,8 +288,10 @@ class LayerCategoryAdmin(admin.ModelAdmin):
     default_color_preview.short_description = 'Default Color'
     
     def get_layers_count(self, obj):
-        return obj.get_layers_count()
-    get_layers_count.short_description = 'Layers Using This'
+        count = obj.get_layers_count()
+        url = f"/admin/maps/datalayer/?category__id__exact={obj.id}"
+        return format_html('<a href="{}" style="font-weight: bold; color: #2ecc71;">{} layers</a>', url, count)
+    get_layers_count.short_description = 'Layers'
 
 # ================================
 # CITY LAYER STYLE ADMIN
@@ -121,30 +299,121 @@ class LayerCategoryAdmin(admin.ModelAdmin):
 
 @admin.register(CityLayerStyle)
 class CityLayerStyleAdmin(admin.ModelAdmin):
-    list_display = ['city', 'category', 'fill_pattern', 'color_preview', 
-                   'pattern_preview', 'is_visible']
+    list_display = ['id_display', 'get_city_with_id', 'get_category_with_id', 
+                    'fill_pattern', 'color_preview', 'pattern_preview', 'is_visible']
     list_filter = ['city', 'category', 'fill_pattern', 'is_visible']
-    search_fields = ['city__name', 'category__name']
+    search_fields = ['id', 'city__id', 'city__name', 'category__id', 'category__name']  # Added ID search
     
     # Use raw_id_fields for faster ID-based selection instead of slow dropdowns
     raw_id_fields = ['city', 'category']
     
+    readonly_fields = ['id_display', 'get_technical_info', 'get_quick_reference']
+    
     fieldsets = (
-        ('Location', {
-            'fields': ('city', 'category')
+        ('🔑 IDs & Configuration', {
+            'fields': ('id_display', 'city', 'category'),
+            'description': '<strong style="color: #e67e22;">💡 TIP: Enter City ID and Category ID directly, or click 🔍 to search</strong>'
         }),
-        ('Basic Colors', {
+        ('🎨 Basic Colors', {
             'fields': ('fill_color', 'stroke_color', 'opacity', 'stroke_width')
         }),
-        ('Pattern Configuration', {
+        ('🖼️ Pattern Configuration', {
             'fields': ('fill_pattern', 'pattern_color', 'secondary_fill_color',
                       'pattern_spacing', 'pattern_angle', 'pattern_size'),
             'classes': ('collapse',)
         }),
-        ('Visibility', {
+        ('👁️ Visibility', {
             'fields': ('is_visible', 'min_zoom', 'max_zoom')
+        }),
+        ('📋 Quick Reference', {
+            'fields': ('get_quick_reference',),
+            'classes': ('collapse',)
+        }),
+        ('⚙️ Technical Info', {
+            'fields': ('get_technical_info',),
+            'classes': ('collapse',)
         })
     )
+    
+    def id_display(self, obj):
+        if obj.pk:
+            return copyable_id(obj.pk, "Style ID")
+        return "-"
+    id_display.short_description = 'ID'
+    
+    def get_city_with_id(self, obj):
+        city_id = copyable_text(obj.city.pk, "ID")
+        city_link = format_html('<a href="/admin/maps/city/{}/change/" style="color: #3498db;">{}</a>', 
+                                obj.city.pk, obj.city.name)
+        return format_html('{} {}', city_link, city_id)
+    get_city_with_id.short_description = 'City'
+    get_city_with_id.admin_order_field = 'city__name'
+    
+    def get_category_with_id(self, obj):
+        cat_id = copyable_text(obj.category.pk, "ID")
+        cat_link = format_html('<a href="/admin/maps/layercategory/{}/change/" style="color: #9b59b6;">{}</a>', 
+                              obj.category.pk, obj.category.name)
+        return format_html('{} {}', cat_link, cat_id)
+    get_category_with_id.short_description = 'Category'
+    get_category_with_id.admin_order_field = 'category__name'
+    
+    def get_quick_reference(self, obj):
+        if not obj.pk:
+            return "-"
+        
+        # Get common City and Category IDs for quick copy-paste
+        cities = City.objects.filter(is_active=True).order_by('name')[:10]
+        categories = LayerCategory.objects.filter(is_active=True).order_by('name')[:10]
+        
+        cities_list = '<br>'.join([f'<span style="color: #2ecc71;">{c.pk}</span>: {c.name}' for c in cities])
+        categories_list = '<br>'.join([f'<span style="color: #e74c3c;">{cat.pk}</span>: {cat.name}' for cat in categories])
+        
+        info = f"""
+        <div style="background: #ecf0f1; padding: 15px; border-radius: 5px;">
+            <div style="font-weight: bold; margin-bottom: 10px; color: #2c3e50;">📋 Quick ID Reference (Top 10)</div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; font-family: monospace; font-size: 11px;">
+                <div>
+                    <div style="font-weight: bold; color: #2c3e50; margin-bottom: 5px;">🏙️ Cities:</div>
+                    {cities_list}
+                </div>
+                <div>
+                    <div style="font-weight: bold; color: #2c3e50; margin-bottom: 5px;">📁 Categories:</div>
+                    {categories_list}
+                </div>
+            </div>
+        </div>
+        """
+        return format_html(info)
+    get_quick_reference.short_description = 'Quick ID Reference'
+    
+    def get_technical_info(self, obj):
+        if not obj.pk:
+            return "-"
+        
+        pattern_config = obj.get_pattern_config()
+        
+        info = f"""
+        <div style="background: #2c3e50; color: #ecf0f1; padding: 15px; border-radius: 5px; font-family: 'Courier New', monospace;">
+            <div style="color: #3498db; font-weight: bold; margin-bottom: 10px;">📊 DATABASE INFO</div>
+            <div style="line-height: 1.8;">
+                <span style="color: #2ecc71;">style_id:</span> {obj.pk}<br>
+                <span style="color: #2ecc71;">city_id:</span> {obj.city.pk}<br>
+                <span style="color: #2ecc71;">category_id:</span> {obj.category.pk}<br>
+                <span style="color: #2ecc71;">fill_color:</span> "{obj.fill_color}"<br>
+                <span style="color: #2ecc71;">stroke_color:</span> "{obj.stroke_color}"<br>
+                <span style="color: #2ecc71;">fill_pattern:</span> "{obj.fill_pattern}"<br>
+            </div>
+            <div style="margin-top: 10px; padding-top: 10px; border-top: 1px solid #34495e;">
+                <div style="color: #e67e22; font-weight: bold; margin-bottom: 5px;">SQL Query:</div>
+                <code style="color: #95a5a6; font-size: 11px;">
+                    SELECT * FROM city_layer_styles<br>
+                    WHERE city_id = {obj.city.pk} AND category_id = {obj.category.pk};
+                </code>
+            </div>
+        </div>
+        """
+        return format_html(info)
+    get_technical_info.short_description = 'Technical Information'
     
     def color_preview(self, obj):
         return format_html(
@@ -174,22 +443,23 @@ class CityLayerStyleAdmin(admin.ModelAdmin):
 
 @admin.register(DataLayer)
 class DataLayerAdmin(admin.ModelAdmin):
-    # Enhanced list display with slug and better organization
-    list_display = ['name_with_icon', 'slug_display', 'city_state_display', 'category_badge', 
-                   'file_info', 'feature_count_display', 'status_badges', 'visibility_toggle']
+    # Enhanced list display with IDs prominently shown
+    list_display = ['id_display', 'name_with_icon', 'slug_display', 'city_state_with_ids', 
+                   'category_badge', 'feature_count_display', 'status_badges', 'visibility_toggle']
     
     # Comprehensive filters
     list_filter = ['city__state_ref', 'city', 'category', 'is_processed', 
                   'tiles_generated', 'is_directory', 'file_format', 'is_true', 
                   'geometry_type', 'created_at']
     
-    # Search with more fields
-    search_fields = ['name', 'slug', 'city__name', 'city__state', 'description', 
-                    'file_path', 'data_source']
+    # Search with ID fields
+    search_fields = ['id', 'name', 'slug', 'city__id', 'city__name', 'city__state', 
+                    'category__id', 'description', 'file_path', 'data_source']
     
     # Read-only fields
-    readonly_fields = ['feature_count', 'bbox_display_enhanced', 'source_files_display_enhanced', 
-                      'file_stats', 'layer_preview_map', 'created_at', 'updated_at']
+    readonly_fields = ['id_display', 'feature_count', 'bbox_display_enhanced', 
+                      'source_files_display_enhanced', 'file_stats', 'layer_preview_map', 
+                      'created_at', 'updated_at', 'get_technical_info', 'get_api_endpoints']
     
     # Auto-populate slug from name
     prepopulated_fields = {'slug': ('name',)}
@@ -203,11 +473,14 @@ class DataLayerAdmin(admin.ModelAdmin):
     # Enable select_related for performance
     list_select_related = ['city', 'city__state_ref', 'category', 'layer_group']
     
+    # Use raw_id_fields for foreign keys
+    raw_id_fields = ['city', 'category', 'layer_group']
+    
     # Enhanced fieldsets with better organization
     fieldsets = (
-        ('🏷️ Basic Information', {
-            'fields': ('city', 'category', 'layer_group', 'name', 'slug', 'description'),
-            'description': 'Core identification and categorization of the layer'
+        ('🔑 IDs & Basic Information', {
+            'fields': ('id_display', 'city', 'category', 'layer_group', 'name', 'slug', 'description'),
+            'description': '<strong style="color: #e67e22;">💡 TIP: Use raw_id_fields - Enter IDs directly or click 🔍</strong>'
         }),
         ('👁️ Visibility & Display', {
             'fields': ('is_true',),
@@ -227,6 +500,14 @@ class DataLayerAdmin(admin.ModelAdmin):
             'fields': ('geometry_type', 'bbox_display_enhanced', 'layer_preview_map'),
             'classes': ('collapse',)
         }),
+        ('🔗 API Endpoints', {
+            'fields': ('get_api_endpoints',),
+            'classes': ('collapse',)
+        }),
+        ('⚙️ Technical Info', {
+            'fields': ('get_technical_info',),
+            'classes': ('collapse',)
+        }),
         ('📊 Metadata & Source', {
             'fields': ('data_source', 'last_updated', 'created_at', 'updated_at'),
             'classes': ('collapse',)
@@ -238,6 +519,13 @@ class DataLayerAdmin(admin.ModelAdmin):
               'generate_tiles', 'calculate_bbox']
     
     # ============ Custom Display Methods ============
+    
+    def id_display(self, obj):
+        """Display ID in copy-friendly format"""
+        if obj.pk:
+            return copyable_id(obj.pk, "Layer ID")
+        return "-"
+    id_display.short_description = 'ID'
     
     def name_with_icon(self, obj):
         """Display name with appropriate icon"""
@@ -252,24 +540,26 @@ class DataLayerAdmin(admin.ModelAdmin):
     
     def slug_display(self, obj):
         """Display slug in a monospace font with copy-friendly styling"""
-        return format_html(
-            '<code style="background: #f5f5f5; padding: 3px 6px; border-radius: 3px; '
-            'font-size: 11px; color: #d63384;">{}</code>',
-            obj.slug
-        )
+        return copyable_text(obj.slug, "Slug")
     slug_display.short_description = 'Slug'
     slug_display.admin_order_field = 'slug'
     
-    def city_state_display(self, obj):
-        """Display city and state together"""
+    def city_state_with_ids(self, obj):
+        """Display city and state with IDs"""
         state_name = obj.city.state_ref.name if obj.city.state_ref else obj.city.state
+        city_id = copyable_text(obj.city.pk, "CID")
+        state_id = copyable_text(obj.city.state_ref.pk, "SID") if obj.city.state_ref else ""
+        
+        city_link = format_html('<a href="/admin/maps/city/{}/change/" style="color: #3498db;">{}</a>', 
+                               obj.city.pk, obj.city.name)
+        
         return format_html(
-            '<div style="line-height: 1.4;"><strong>{}</strong><br>'
-            '<small style="color: #666;">📍 {}</small></div>',
-            obj.city.name, state_name
+            '<div style="line-height: 1.6;">{} {}<br>'
+            '<small style="color: #666;">📍 {} {}</small></div>',
+            city_link, city_id, state_name, state_id
         )
-    city_state_display.short_description = 'City / State'
-    city_state_display.admin_order_field = 'city__name'
+    city_state_with_ids.short_description = 'City / State'
+    city_state_with_ids.admin_order_field = 'city__name'
     
     def category_badge(self, obj):
         """Display category as a colored badge"""
@@ -432,6 +722,69 @@ class DataLayerAdmin(admin.ModelAdmin):
         return format_html('<em style="color: #999;">Bounds not available</em>')
     layer_preview_map.short_description = 'Map Preview'
     
+    def get_api_endpoints(self, obj):
+        """Display relevant API endpoints for this layer"""
+        if not obj.pk:
+            return "-"
+        
+        # Use format_html with proper escaping for literal braces
+        return format_html(
+            '<div style="background: #ecf0f1; padding: 15px; border-radius: 5px;">'
+            '<div style="font-weight: bold; margin-bottom: 10px; color: #2c3e50;">🔗 API Endpoints for {}</div>'
+            '<div style="font-family: monospace; font-size: 11px; line-height: 2;">'
+            '<div>🔍 <code>/api/cities/{}/search-coords-test/?lat=LAT&amp;lng=LNG</code></div>'
+            '<div>🗺️ <code>/api/tiles/raster/{}/{{z}}/{{x}}/{{y}}.png</code></div>'
+            '<div>📊 <code>/api/layers?city={}&amp;slug={}</code></div>'
+            '</div></div>',
+            obj.slug, obj.slug, obj.city.slug, obj.city.slug, obj.slug
+        )
+    get_api_endpoints.short_description = 'API Endpoints'
+    
+    def get_technical_info(self, obj):
+        """Display technical database information"""
+        if not obj.pk:
+            return "-"
+        
+        bbox_str = f"[{obj.bbox_xmin:.4f}, {obj.bbox_ymin:.4f}, {obj.bbox_xmax:.4f}, {obj.bbox_ymax:.4f}]" if obj.has_valid_bbox() else "null"
+        
+        info = f"""
+        <div style="background: #2c3e50; color: #ecf0f1; padding: 15px; border-radius: 5px; font-family: 'Courier New', monospace;">
+            <div style="color: #3498db; font-weight: bold; margin-bottom: 10px;">📊 DATABASE INFO</div>
+            <div style="line-height: 1.8; font-size: 12px;">
+                <span style="color: #2ecc71;">layer_id:</span> {obj.pk}<br>
+                <span style="color: #2ecc71;">slug:</span> "{obj.slug}"<br>
+                <span style="color: #2ecc71;">city_id:</span> {obj.city.pk}<br>
+                <span style="color: #2ecc71;">category_id:</span> {obj.category.pk}<br>
+                <span style="color: #2ecc71;">is_directory:</span> {str(obj.is_directory).lower()}<br>
+                <span style="color: #2ecc71;">is_processed:</span> {str(obj.is_processed).lower()}<br>
+                <span style="color: #2ecc71;">tiles_generated:</span> {str(obj.tiles_generated).lower()}<br>
+                <span style="color: #2ecc71;">is_visible:</span> {str(obj.is_true).lower()}<br>
+                <span style="color: #2ecc71;">feature_count:</span> {obj.feature_count:,}<br>
+                <span style="color: #2ecc71;">geometry_type:</span> "{obj.geometry_type or 'null'}"<br>
+                <span style="color: #2ecc71;">bbox:</span> {bbox_str}<br>
+            </div>
+            <div style="margin-top: 10px; padding-top: 10px; border-top: 1px solid #34495e;">
+                <div style="color: #e67e22; font-weight: bold; margin-bottom: 5px;">SQL Queries:</div>
+                <code style="color: #95a5a6; font-size: 10px;">
+                    -- Get layer details<br>
+                    SELECT * FROM data_layers WHERE id = {obj.pk};<br><br>
+                    
+                    -- Get features for this layer<br>
+                    SELECT COUNT(*) FROM geo_features WHERE layer_id = {obj.pk};<br><br>
+                    
+                    -- Get layer with relationships<br>
+                    SELECT l.*, c.name as city_name, cat.name as category_name<br>
+                    FROM data_layers l<br>
+                    JOIN cities c ON l.city_id = c.id<br>
+                    JOIN layer_categories cat ON l.category_id = cat.id<br>
+                    WHERE l.id = {obj.pk};
+                </code>
+            </div>
+        </div>
+        """
+        return format_html(info)
+    get_technical_info.short_description = 'Technical Information'
+    
     # ============ Custom Actions ============
     
     def mark_as_visible(self, request, queryset):
@@ -493,72 +846,108 @@ class GeoFeatureAdmin(gis_admin.GISModelAdmin):
         },
     }
     
-    list_display = ['id', 'layer', 'source_layer_name', 'get_zone_name', 
-                   'get_city', 'is_valid_icon', 'created_at']
+    list_display = ['id_display', 'get_layer_with_id', 'source_layer_name', 'get_zone_name', 
+                   'get_city_with_id', 'is_valid_icon', 'geometry_info']
     
     list_filter = ['layer__city', 'layer__category', 'layer', 
                   'source_layer_name', 'is_valid', 'created_at']
     
-    search_fields = ['id', 'name', 'source_layer_name', 'zone_category', 
-                     'plu_primary_code', 'plu_secondary_1', 'symbology']
+    search_fields = ['id', 'layer__id', 'layer__slug', 'name', 'source_layer_name', 
+                    'zone_category', 'plu_primary_code', 'plu_secondary_1', 'symbology']
     
-    readonly_fields = ['created_at', 'updated_at', 'properties_display', 
-                      'get_zone_name', 'get_city']
+    readonly_fields = ['id_display', 'created_at', 'updated_at', 'properties_display', 
+                      'get_zone_name', 'get_city', 'get_technical_info', 'geometry_details']
+    
+    raw_id_fields = ['layer']
     
     fieldsets = (
-        ('Layer Information', {
-            'fields': ('layer', 'source_layer_name', 'get_city')
+        ('🔑 IDs & Layer Information', {
+            'fields': ('id_display', 'layer', 'source_layer_name', 'get_city'),
+            'description': '<strong style="color: #e67e22;">💡 TIP: Enter Layer ID directly or click 🔍 to search</strong>'
         }),
-        ('Geometry', {
-            'fields': ('geometry',)
+        ('🗺️ Geometry', {
+            'fields': ('geometry', 'geometry_details')
         }),
-        ('Basic Information', {
+        ('📝 Basic Information', {
             'fields': ('name', 'description')
         }),
-        ('Zone/Category Information', {
+        ('🏷️ Zone/Category Information', {
             'fields': ('zone_category', 'zone_subcategory', 'get_zone_name'),
             'classes': ('collapse',)
         }),
-        ('Bengaluru PLU Fields', {
+        ('📊 City-Specific Fields', {
+            'description': 'Fields vary by city - only relevant fields will have data',
+            'fields': (),
+            'classes': ('collapse',)
+        }),
+        ('🌳 Bengaluru PLU Fields', {
             'fields': ('plu_primary_code', 'plu_secondary_1', 'plu_secondary_2',
                       'plu_proposed_use', 'plu_development_code', 'plu_authority'),
             'classes': ('collapse',)
         }),
-        ('Warangal Fields', {
+        ('🏛️ Warangal Fields', {
             'fields': ('kuda', 'ex_pr'),
             'classes': ('collapse',)
         }),
-        ('Amaravati Fields', {
+        ('🏙️ Amaravati Fields', {
             'fields': ('plot_category', 'symbology', 'township', 'sector', 
                       'colony', 'block'),
             'classes': ('collapse',)
         }),
-        ('Visakhapatnam Fields', {
+        ('⛰️ Visakhapatnam Fields', {
             'fields': ('mandal', 'district', 'village', 'rule_id'),
             'classes': ('collapse',)
         }),
-        ('Numeric Fields', {
+        ('📐 Numeric Fields', {
             'fields': ('area', 'shape_length', 'shape_area', 'objectid', 'fid'),
             'classes': ('collapse',)
         }),
-        ('Original Properties', {
+        ('🗃️ Original Properties (JSON)', {
             'fields': ('properties_display',),
             'classes': ('collapse',)
         }),
-        ('Validation', {
+        ('⚙️ Technical Info', {
+            'fields': ('get_technical_info',),
+            'classes': ('collapse',)
+        }),
+        ('✅ Validation', {
             'fields': ('is_valid', 'validation_errors'),
             'classes': ('collapse',)
         }),
-        ('Timestamps', {
+        ('🕒 Timestamps', {
             'fields': ('created_at', 'updated_at'),
             'classes': ('collapse',)
         })
     )
     
+    def id_display(self, obj):
+        """Display feature ID in copy-friendly format"""
+        if obj.pk:
+            return copyable_id(obj.pk, "Feature ID")
+        return "-"
+    id_display.short_description = 'ID'
+    
+    def get_layer_with_id(self, obj):
+        """Display layer with ID"""
+        layer_id = copyable_text(obj.layer.pk, "LID")
+        layer_link = format_html('<a href="/admin/maps/datalayer/{}/change/" style="color: #9b59b6;">{}</a>', 
+                                obj.layer.pk, obj.layer.name[:30])
+        return format_html('{} {}', layer_link, layer_id)
+    get_layer_with_id.short_description = 'Layer'
+    get_layer_with_id.admin_order_field = 'layer__name'
+    
     def get_city(self, obj):
         return obj.layer.city.name
     get_city.short_description = 'City'
     get_city.admin_order_field = 'layer__city__name'
+    
+    def get_city_with_id(self, obj):
+        """Display city with ID"""
+        city_id = copyable_text(obj.layer.city.pk, "CID")
+        city_name = obj.layer.city.name
+        return format_html('{} {}', city_name, city_id)
+    get_city_with_id.short_description = 'City'
+    get_city_with_id.admin_order_field = 'layer__city__name'
     
     def get_zone_name(self, obj):
         """Display the zone name based on city logic"""
@@ -568,21 +957,108 @@ class GeoFeatureAdmin(gis_admin.GISModelAdmin):
         return '-'
     get_zone_name.short_description = 'Zone/Category'
     
+    def geometry_info(self, obj):
+        """Display geometry type and SRID"""
+        if obj.geometry:
+            geom_type = obj.geometry.geom_type
+            srid = obj.geometry.srid
+            return format_html(
+                '<span style="background: #3498db; color: white; padding: 2px 6px; '
+                'border-radius: 3px; font-size: 10px;">{}</span> '
+                '<span style="background: #e67e22; color: white; padding: 2px 6px; '
+                'border-radius: 3px; font-size: 10px;">SRID:{}</span>',
+                geom_type, srid
+            )
+        return "-"
+    geometry_info.short_description = 'Geometry Info'
+    
+    def geometry_details(self, obj):
+        """Display detailed geometry information"""
+        if not obj.geometry:
+            return format_html('<em style="color: #999;">No geometry</em>')
+        
+        geom = obj.geometry
+        centroid = geom.centroid
+        
+        info = f"""
+        <div style="background: #ecf0f1; padding: 15px; border-radius: 5px; font-family: monospace;">
+            <div style="font-weight: bold; margin-bottom: 10px; color: #2c3e50;">🗺️ Geometry Details</div>
+            <div style="font-size: 11px; line-height: 1.8;">
+                <span style="color: #2ecc71;">type:</span> {geom.geom_type}<br>
+                <span style="color: #2ecc71;">srid:</span> {geom.srid}<br>
+                <span style="color: #2ecc71;">dims:</span> {geom.dims}<br>
+                <span style="color: #2ecc71;">num_geom:</span> {geom.num_geom if hasattr(geom, 'num_geom') else 1}<br>
+                <span style="color: #2ecc71;">centroid:</span> [{centroid.y:.6f}, {centroid.x:.6f}]<br>
+                <span style="color: #2ecc71;">extent:</span> {geom.extent}<br>
+            </div>
+        </div>
+        """
+        return format_html(info)
+    geometry_details.short_description = 'Geometry Technical Details'
+    
     def is_valid_icon(self, obj):
         if obj.is_valid:
-            return format_html('<span style="color: green;">✅</span>')
-        return format_html('<span style="color: red;" title="{}">❌</span>', 
-                          obj.validation_errors[:100])
+            return format_html('<span style="color: green; font-size: 16px;">✅</span>')
+        return format_html('<span style="color: red; font-size: 16px;" title="{}">❌</span>', 
+                          obj.validation_errors[:100] if obj.validation_errors else "Invalid")
     is_valid_icon.short_description = 'Valid'
     
     def properties_display(self, obj):
         """Display properties as formatted JSON"""
         if obj.properties:
             json_str = json.dumps(obj.properties, indent=2)
-            return format_html('<pre style="max-height: 300px; overflow-y: auto;">{}</pre>', 
-                             json_str)
-        return 'No properties'
+            return format_html(
+                '<div style="background: #2c3e50; color: #2ecc71; padding: 10px; '
+                'border-radius: 5px;"><pre style="margin: 0; max-height: 400px; '
+                'overflow-y: auto; font-size: 11px;">{}</pre></div>', 
+                json_str
+            )
+        return format_html('<em style="color: #999;">No properties</em>')
     properties_display.short_description = 'Original Properties (JSON)'
+    
+    def get_technical_info(self, obj):
+        """Display technical database information"""
+        if not obj.pk:
+            return "-"
+        
+        info = f"""
+        <div style="background: #2c3e50; color: #ecf0f1; padding: 15px; border-radius: 5px; font-family: 'Courier New', monospace;">
+            <div style="color: #3498db; font-weight: bold; margin-bottom: 10px;">📊 DATABASE INFO</div>
+            <div style="line-height: 1.8; font-size: 12px;">
+                <span style="color: #2ecc71;">feature_id:</span> {obj.pk}<br>
+                <span style="color: #2ecc71;">layer_id:</span> {obj.layer.pk}<br>
+                <span style="color: #2ecc71;">layer_slug:</span> "{obj.layer.slug}"<br>
+                <span style="color: #2ecc71;">city_id:</span> {obj.layer.city.pk}<br>
+                <span style="color: #2ecc71;">source_layer:</span> "{obj.source_layer_name or 'N/A'}"<br>
+                <span style="color: #2ecc71;">zone_category:</span> "{obj.zone_category or 'N/A'}"<br>
+                <span style="color: #2ecc71;">geometry_type:</span> "{obj.geometry.geom_type if obj.geometry else 'N/A'}"<br>
+                <span style="color: #2ecc71;">srid:</span> {obj.geometry.srid if obj.geometry else 'N/A'}<br>
+                <span style="color: #2ecc71;">area:</span> {obj.area or 'null'}<br>
+            </div>
+            <div style="margin-top: 10px; padding-top: 10px; border-top: 1px solid #34495e;">
+                <div style="color: #e67e22; font-weight: bold; margin-bottom: 5px;">SQL Queries:</div>
+                <code style="color: #95a5a6; font-size: 10px;">
+                    -- Get feature<br>
+                    SELECT * FROM geo_features WHERE id = {obj.pk};<br><br>
+                    
+                    -- Get feature with layer<br>
+                    SELECT f.*, l.slug as layer_slug, c.name as city_name<br>
+                    FROM geo_features f<br>
+                    JOIN data_layers l ON f.layer_id = l.id<br>
+                    JOIN cities c ON l.city_id = c.id<br>
+                    WHERE f.id = {obj.pk};<br><br>
+                    
+                    -- Check geometry validity<br>
+                    SELECT ST_IsValid(geometry) as is_valid,<br>
+                           ST_GeometryType(geometry) as geom_type,<br>
+                           ST_SRID(geometry) as srid<br>
+                    FROM geo_features WHERE id = {obj.pk};
+                </code>
+            </div>
+        </div>
+        """
+        return format_html(info)
+    get_technical_info.short_description = 'Technical Information'
     
     def get_queryset(self, request):
         """Optimize queryset with select_related"""
