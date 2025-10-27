@@ -304,17 +304,16 @@ class AmaravatiPerfectTileGenerator:
         # Determine if this is a low zoom level (simplify patterns)
         is_low_zoom = z < 14
         
-        # Simple aggressive buffering for zoom 8-15 to ensure ALL features visible
+        # Calculate buffer size based on zoom level for better visibility
+        # More aggressive buffering at lower zooms
         if z < 10:
-            buffer_factor = 0.001   # Very large for zoom 8-9
+            buffer_factor = 0.0005  # Large buffer for zoom 8-9
         elif z < 12:
-            buffer_factor = 0.0005  # Large for zoom 10-11
+            buffer_factor = 0.0002  # Medium buffer for zoom 10-11
         elif z < 14:
-            buffer_factor = 0.0003  # Medium for zoom 12-13
-        elif z < 16:
-            buffer_factor = 0.0001  # Small for zoom 14-15
+            buffer_factor = 0.0001  # Small buffer for zoom 12-13
         else:
-            buffer_factor = 0.00001  # Minimal for zoom 16+
+            buffer_factor = 0.00002  # Minimal buffer for zoom 14+
         
         # Create high-resolution image
         img = Image.new('RGBA', (img_size, img_size), (0, 0, 0, 0))
@@ -353,8 +352,10 @@ class AmaravatiPerfectTileGenerator:
             
             color_info = color_map[zone]
             
-            # Simple: Buffer ALL features at zoom 8-15 for complete visibility
-            if z < 16:
+            # Apply zoom-appropriate buffering to ALL features for visibility
+            # This ensures features are visible at lower zoom levels
+            if z < 14:
+                # Buffer all features at lower zoom levels
                 try:
                     geom = geom.buffer(buffer_factor)
                 except:
@@ -381,7 +382,33 @@ class AmaravatiPerfectTileGenerator:
                 if len(pixel_coords) < 3:
                     continue
                 
-                # Handle special patterns (simple solid colors for zoom < 14)
+                # At lower zoom levels, ensure minimum pixel size for visibility
+                # If polygon is too small, draw a circle/point instead
+                if z < 12:
+                    xs = [p[0] for p in pixel_coords]
+                    ys = [p[1] for p in pixel_coords]
+                    width = max(xs) - min(xs)
+                    height = max(ys) - min(ys)
+                    
+                    # If feature is smaller than 3x3 pixels, draw a small filled circle
+                    if width < 3 * scale or height < 3 * scale:
+                        center_x = sum(xs) / len(xs)
+                        center_y = sum(ys) / len(ys)
+                        radius = 2 * scale  # Small visible circle
+                        
+                        # Get the fill color
+                        if color_info.get('type') in ['dotted', 'hatched']:
+                            fill_rgb = self.hex_to_rgb(color_info.get('solid_lowzoom', color_info.get('base', '#FFFFFF')))
+                        else:
+                            fill_rgb = self.hex_to_rgb(color_info['fill'])
+                        
+                        # Draw a small circle to represent this feature
+                        draw.ellipse([center_x - radius, center_y - radius, 
+                                     center_x + radius, center_y + radius], 
+                                    fill=fill_rgb)
+                        continue
+                
+                # Handle special patterns
                 if color_info.get('type') == 'dotted':
                     if is_low_zoom and 'solid_lowzoom' in color_info:
                         # Use solid color at low zoom for visibility
