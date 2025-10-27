@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="initial-scale=1,maximum-scale=1,user-scalable=no" />
+  <title>Amaravati Master Plan</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <style>
+    body, html, #map { margin: 0; padding: 0; height: 100%; width: 100%; }
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script>
+    // Create map centered on Amaravati
+    const map = L.map('map').setView([16.501769, 80.505594], 12);
+    
+    // Add satellite base layer
+    L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+      attribution: '© Esri, Maxar, GeoEye, Earthstar Geographics, CNES/Airbus DS, USDA, USGS, AeroGRID, IGN, and the GIS User Community',
+      maxZoom: 19
+    }).addTo(map);
+    
+    // Add your Amaravati tiles
+    const amaravatiTiles = L.tileLayer('./{z}/{x}/{y}.png', {
+      minZoom: 0,
+      maxZoom: 18,
+      opacity: 0.8
+    }).addTo(map);
+    
+    // Fit to Amaravati area but don't restrict movement
+    map.fitBounds([[16.413905, 80.407374], [16.589634, 80.603814]]);
+  </script>
+</body>
+</html>
