@@ -1,0 +1,2554 @@
+Analyzing GeoJSON files in: /Users/rohitboni/Downloads/All_files/project/1acre/geomapping_full/geomapping/data/andhra_pradesh/visakhapatnam/master_plan
+================================================================================
+
+Found 31 GeoJSON files:
+
+ 1. Agricultural_Use_Zone.geojson
+ 2. Blue_Zone_Water_Bodies.geojson
+ 3. Brown_Zone_Hills.geojson
+ 4. Commercial_Use_Zone.geojson
+ 5. Existing_Crematorium_Burial_Ground_Graveyard.geojson
+ 6. Existing_Educational_Facilities.geojson
+ 7. Existing_Government_Semi_Government_Facilities.geojson
+ 8. Existing_Health_Facilities.geojson
+ 9. Existing_Industrial_Area.geojson
+10. Existing_Public_Utilities.geojson
+11. Existing_Recreational_Playgrounds_Parks_Layout_OpenSpace.geojson
+12. Existing_Religious_Facilities.geojson
+13. Existing_Road_Railway_Line_Area.geojson
+14. Existing_Transportation_Facility.geojson
+15. Green_Zone_Forest.geojson
+16. Kambalakonda_Eco_Sensitive_Zone_NAOB_Buffer_Zoological_Park.geojson
+17. Kambalakonda_WildLife_Sanctuary_Biodiversity_Area.geojson
+18. Mixed_Use_Zone_1.geojson
+19. Mixed_Use_Zone_2_BAIA.geojson
+20. Mixed_Use_Zone_3_BAIA.geojson
+21. Mixed_Use_Zone_4_BAIA.geojson
+22. Proposed_Industrial_Use_Zone.geojson
+23. Proposed_PSP_Use_Zone.geojson
+24. Proposed_Public_Utilities_Use_Zone.geojson
+25. Proposed_Recreational_Use_Zone.geojson
+26. Proposed_Road_Network.geojson
+27. Proposed_Transportation_Facility_Use_Zone.geojson
+28. Residential_Use_Zone.geojson
+29. Sea_River_Accreted_Land.geojson
+30. Special_Area_Use_Zone.geojson
+31. Water_Body_Buffer.geojson
+
+================================================================================
+Analyzing: Agricultural_Use_Zone.geojson
+================================================================================
+File Size: 124.24 MB
+Loading GeoJSON data...
+
+Basic Information:
+  Type: FeatureCollection
+  Name: Agricultural_Use_Zone
+  CRS: N/A
+
+Feature Count: 19,039
+
+Analyzing all 19,039 features...
+  Processed 1,000 features...
+  Processed 2,000 features...
+  Processed 3,000 features...
+  Processed 4,000 features...
+  Processed 5,000 features...
+  Processed 6,000 features...
+  Processed 7,000 features...
+  Processed 8,000 features...
+  Processed 9,000 features...
+  Processed 10,000 features...
+  Processed 11,000 features...
+  Processed 12,000 features...
+  Processed 13,000 features...
+  Processed 14,000 features...
+  Processed 15,000 features...
+  Processed 16,000 features...
+  Processed 17,000 features...
+  Processed 18,000 features...
+  Processed 19,000 features...
+
+Geometry Types:
+  MultiPolygon: 3,634 (19.1%)
+  Polygon: 15,405 (80.9%)
+
+Total Coordinate Points: 3,128,095
+Average Points per Feature: 164.3
+
+Properties/Attributes (9 unique):
+  - Category
+  - DISTRICT
+  - FID
+  - MANDAL
+  - Override
+  - RuleID
+  - Shape_Area
+  - Shape_Length
+  - Village
+
+Bounding Box:
+  Min Longitude: 82.520255
+  Max Longitude: 83.709369
+  Min Latitude: 17.282659
+  Max Latitude: 18.406365
+  Width: 1.189114 degrees (131.99 km approx)
+  Height: 1.123705 degrees (124.73 km approx)
+  Center: [83.114812, 17.844512]
+
+Tile Ranges for Different Zoom Levels:
+  Zoom 10: X=[  746-  750], Y=[  458-  462] → 5×5 = 25 tiles
+  Zoom 12: X=[ 2986- 3000], Y=[ 1834- 1848] → 15×15 = 225 tiles
+  Zoom 14: X=[11947-12001], Y=[ 7339- 7393] → 55×55 = 3,025 tiles
+  Zoom 16: X=[47790-48006], Y=[29358-29572] → 217×215 = 46,655 tiles
+  Zoom 18: X=[191161-192027], Y=[117432-118291] → 867×860 = 745,620 tiles
+
+Sample Feature Properties (first feature):
+  FID: 1
+  MANDAL: 
+  DISTRICT: 
+  Village: 
+  Category: Agricultural Use Zone
+  Shape_Length: 1.3123953752453477
+  Shape_Area: 0.0027891451912461993
+  RuleID: 2
+  Override: None
+
+================================================================================
+Analyzing: Blue_Zone_Water_Bodies.geojson
+================================================================================
+File Size: 72.18 MB
+Loading GeoJSON data...
+
+Basic Information:
+  Type: FeatureCollection
+  Name: Blue_Zone_Water_Bodies
+  CRS: N/A
+
+Feature Count: 31,725
+
+Analyzing all 31,725 features...
+  Processed 1,000 features...
+  Processed 2,000 features...
+  Processed 3,000 features...
+  Processed 4,000 features...
+  Processed 5,000 features...
+  Processed 6,000 features...
+  Processed 7,000 features...
+  Processed 8,000 features...
+  Processed 9,000 features...
+  Processed 10,000 features...
+  Processed 11,000 features...
+  Processed 12,000 features...
+  Processed 13,000 features...
+  Processed 14,000 features...
+  Processed 15,000 features...
+  Processed 16,000 features...
+  Processed 17,000 features...
+  Processed 18,000 features...
+  Processed 19,000 features...
+  Processed 20,000 features...
+  Processed 21,000 features...
+  Processed 22,000 features...
+  Processed 23,000 features...
+  Processed 24,000 features...
+  Processed 25,000 features...
+  Processed 26,000 features...
+  Processed 27,000 features...
+  Processed 28,000 features...
+  Processed 29,000 features...
+  Processed 30,000 features...
+  Processed 31,000 features...
+
+Geometry Types:
+  MultiPolygon: 1,251 (3.9%)
+  Polygon: 30,474 (96.1%)
+
+Total Coordinate Points: 1,656,607
+Average Points per Feature: 52.2
+
+Properties/Attributes (9 unique):
+  - Category
+  - DISTRICT
+  - FID
+  - MANDAL
+  - Override
+  - RuleID
+  - Shape_Area
+  - Shape_Length
+  - Village
+
+Bounding Box:
+  Min Longitude: 82.529412
+  Max Longitude: 83.704932
+  Min Latitude: 17.283643
+  Max Latitude: 18.403510
+  Width: 1.175520 degrees (130.48 km approx)
+  Height: 1.119867 degrees (124.31 km approx)
+  Center: [83.117172, 17.843576]
+
+Tile Ranges for Different Zoom Levels:
+  Zoom 10: X=[  746-  750], Y=[  458-  462] → 5×5 = 25 tiles
+  Zoom 12: X=[ 2987- 3000], Y=[ 1834- 1848] → 14×15 = 210 tiles
+  Zoom 14: X=[11948-12001], Y=[ 7339- 7393] → 54×55 = 2,970 tiles
+  Zoom 16: X=[47792-48006], Y=[29358-29572] → 215×215 = 46,225 tiles
+  Zoom 18: X=[191168-192024], Y=[117434-118291] → 857×858 = 735,306 tiles
+
+Sample Feature Properties (first feature):
+  FID: 1
+  MANDAL: 
+  DISTRICT: 
+  Village: 
+  Category: Blue Zone (Water Bodies)
+  Shape_Length: 1231.1301454614756
+  Shape_Area: 16205.381835070193
+  RuleID: 2
+  Override: None
+
+================================================================================
+Analyzing: Brown_Zone_Hills.geojson
+================================================================================
+File Size: 15.27 MB
+Loading GeoJSON data...
+
+Basic Information:
+  Type: FeatureCollection
+  Name: Brown_Zone_Hills
+  CRS: N/A
+
+Feature Count: 4,508
+
+Analyzing all 4,508 features...
+  Processed 1,000 features...
+  Processed 2,000 features...
+  Processed 3,000 features...
+  Processed 4,000 features...
+
+Geometry Types:
+  MultiPolygon: 277 (6.1%)
+  Polygon: 4,231 (93.9%)
+
+Total Coordinate Points: 368,411
+Average Points per Feature: 81.7
+
+Properties/Attributes (9 unique):
+  - Category
+  - DISTRICT
+  - FID
+  - MANDAL
+  - Override
+  - RuleID
+  - Shape_Area
+  - Shape_Length
+  - Village
+
+Bounding Box:
+  Min Longitude: 82.517449
+  Max Longitude: 83.686504
+  Min Latitude: 17.295743
+  Max Latitude: 18.393686
+  Width: 1.169056 degrees (129.77 km approx)
+  Height: 1.097942 degrees (121.87 km approx)
+  Center: [83.101977, 17.844715]
+
+Tile Ranges for Different Zoom Levels:
+  Zoom 10: X=[  746-  750], Y=[  458-  462] → 5×5 = 25 tiles
+  Zoom 12: X=[ 2986- 3000], Y=[ 1835- 1848] → 15×14 = 210 tiles
+  Zoom 14: X=[11947-12000], Y=[ 7340- 7392] → 54×53 = 2,862 tiles
+  Zoom 16: X=[47789-48002], Y=[29360-29570] → 214×211 = 45,154 tiles
+  Zoom 18: X=[191159-192010], Y=[117441-118281] → 852×841 = 716,532 tiles
+
+Sample Feature Properties (first feature):
+  FID: 1
+  MANDAL: 
+  DISTRICT: 
+  Village: 
+  Category: Brown Zone (Hills)
+  Shape_Length: 3501.9071894636977
+  Shape_Area: 228052.3033464462
+  RuleID: 2
+  Override: None
+
+================================================================================
+Analyzing: Commercial_Use_Zone.geojson
+================================================================================
+File Size: 5.22 MB
+Loading GeoJSON data...
+
+Basic Information:
+  Type: FeatureCollection
+  Name: Commercial_Use_Zone
+  CRS: N/A
+
+Feature Count: 6,468
+
+Analyzing all 6,468 features...
+  Processed 1,000 features...
+  Processed 2,000 features...
+  Processed 3,000 features...
+  Processed 4,000 features...
+  Processed 5,000 features...
+  Processed 6,000 features...
+
+Geometry Types:
+  MultiPolygon: 160 (2.5%)
+  Polygon: 6,308 (97.5%)
+
+Total Coordinate Points: 87,980
+Average Points per Feature: 13.6
+
+Properties/Attributes (9 unique):
+  - Category
+  - DISTRICT
+  - FID
+  - MANDAL
+  - Override
+  - RuleID
+  - Shape_Area
+  - Shape_Length
+  - Village
+
+Bounding Box:
+  Min Longitude: 82.540086
+  Max Longitude: 83.672417
+  Min Latitude: 17.303355
+  Max Latitude: 18.390748
+  Width: 1.132331 degrees (125.69 km approx)
+  Height: 1.087393 degrees (120.70 km approx)
+  Center: [83.106251, 17.847051]
+
+Tile Ranges for Different Zoom Levels:
+  Zoom 10: X=[  746-  750], Y=[  458-  462] → 5×5 = 25 tiles
+  Zoom 12: X=[ 2987- 3000], Y=[ 1835- 1848] → 14×14 = 196 tiles
+  Zoom 14: X=[11948-12000], Y=[ 7340- 7392] → 53×53 = 2,809 tiles
+  Zoom 16: X=[47793-48000], Y=[29361-29569] → 208×209 = 43,472 tiles
+  Zoom 18: X=[191175-192000], Y=[117444-118276] → 826×833 = 688,058 tiles
+
+Sample Feature Properties (first feature):
+  FID: 1
+  MANDAL: 
+  DISTRICT: 
+  Village: 
+  Category: Commercial Use Zone
+  Shape_Length: 135.85817069986896
+  Shape_Area: 753.2088643107386
+  RuleID: 2
+  Override: None
+
+================================================================================
+Analyzing: Existing_Crematorium_Burial_Ground_Graveyard.geojson
+================================================================================
+File Size: 1.03 MB
+Loading GeoJSON data...
+
+Basic Information:
+  Type: FeatureCollection
+  Name: Existing_Crematorium_Burial_Ground_Graveyard
+  CRS: N/A
+
+Feature Count: 1,131
+
+Analyzing all 1,131 features...
+  Processed 1,000 features...
+
+Geometry Types:
+  MultiPolygon: 15 (1.3%)
+  Polygon: 1,116 (98.7%)
+
+Total Coordinate Points: 17,880
+Average Points per Feature: 15.8
+
+Properties/Attributes (9 unique):
+  - Category
+  - DISTRICT
+  - FID
+  - MANDAL
+  - Override
+  - RuleID
+  - Shape_Area
+  - Shape_Length
+  - Village
+
+Bounding Box:
+  Min Longitude: 82.536275
+  Max Longitude: 83.675512
+  Min Latitude: 17.298450
+  Max Latitude: 18.388952
+  Width: 1.139237 degrees (126.46 km approx)
+  Height: 1.090502 degrees (121.05 km approx)
+  Center: [83.105894, 17.843701]
+
+Tile Ranges for Different Zoom Levels:
+  Zoom 10: X=[  746-  750], Y=[  458-  462] → 5×5 = 25 tiles
+  Zoom 12: X=[ 2987- 3000], Y=[ 1835- 1848] → 14×14 = 196 tiles
+  Zoom 14: X=[11948-12000], Y=[ 7340- 7392] → 53×53 = 2,809 tiles
+  Zoom 16: X=[47793-48000], Y=[29361-29569] → 208×209 = 43,472 tiles
+  Zoom 18: X=[191173-192002], Y=[117445-118279] → 830×835 = 693,050 tiles
+
+Sample Feature Properties (first feature):
+  FID: 1
+  MANDAL: Anakapalli
+  DISTRICT: Visakhapatnam
+  Village: Anakapalli Town
+  Category: Existing Crematorium / Burial Ground / Graveyard
+  Shape_Length: 532.8957621159906
+  Shape_Area: 6223.375742085732
+  RuleID: 2
+  Override: None
+
+================================================================================
+Analyzing: Existing_Educational_Facilities.geojson
+================================================================================
+File Size: 4.51 MB
+Loading GeoJSON data...
+
+Basic Information:
+  Type: FeatureCollection
+  Name: Existing_Educational_Facilities
+  CRS: N/A
+
+Feature Count: 3,797
+
+Analyzing all 3,797 features...
+  Processed 1,000 features...
+  Processed 2,000 features...
+  Processed 3,000 features...
+
+Geometry Types:
+  MultiPolygon: 95 (2.5%)
+  Polygon: 3,702 (97.5%)
+
+Total Coordinate Points: 88,664
+Average Points per Feature: 23.4
+
+Properties/Attributes (9 unique):
+  - Category
+  - DISTRICT
+  - FID
+  - MANDAL
+  - Override
+  - RuleID
+  - Shape_Area
+  - Shape_Length
+  - Village
+
+Bounding Box:
+  Min Longitude: 82.536320
+  Max Longitude: 83.695937
+  Min Latitude: 17.289238
+  Max Latitude: 18.390661
+  Width: 1.159617 degrees (128.72 km approx)
+  Height: 1.101423 degrees (122.26 km approx)
+  Center: [83.116129, 17.839949]
+
+Tile Ranges for Different Zoom Levels:
+  Zoom 10: X=[  746-  750], Y=[  458-  462] → 5×5 = 25 tiles
+  Zoom 12: X=[ 2987- 3000], Y=[ 1835- 1848] → 14×14 = 196 tiles
+  Zoom 14: X=[11948-12001], Y=[ 7340- 7392] → 54×53 = 2,862 tiles
+  Zoom 16: X=[47793-48004], Y=[29361-29571] → 212×211 = 44,732 tiles
+  Zoom 18: X=[191173-192017], Y=[117444-118286] → 845×843 = 712,335 tiles
+
+Sample Feature Properties (first feature):
+  FID: 1
+  MANDAL: Anakapalli
+  DISTRICT: Visakhapatnam
+  Village: A.K. Palem
+  Category: Existing Educational Facilities
+  Shape_Length: 74.53973118848722
+  Shape_Area: 294.21266637417784
+  RuleID: 2
+  Override: None
+
+================================================================================
+Analyzing: Existing_Government_Semi_Government_Facilities.geojson
+================================================================================
+File Size: 3.24 MB
+Loading GeoJSON data...
+
+Basic Information:
+  Type: FeatureCollection
+  Name: Existing_Government_Semi_Government_Facilities
+  CRS: N/A
+
+Feature Count: 3,191
+
+Analyzing all 3,191 features...
+  Processed 1,000 features...
+  Processed 2,000 features...
+  Processed 3,000 features...
+
+Geometry Types:
+  MultiPolygon: 91 (2.9%)
+  Polygon: 3,100 (97.1%)
+
+Total Coordinate Points: 58,674
+Average Points per Feature: 18.4
+
+Properties/Attributes (9 unique):
+  - Category
+  - DISTRICT
+  - FID
+  - MANDAL
+  - Override
+  - RuleID
+  - Shape_Area
+  - Shape_Length
+  - Village
+
+Bounding Box:
+  Min Longitude: 82.544736
+  Max Longitude: 83.685680
+  Min Latitude: 17.296333
+  Max Latitude: 18.391402
+  Width: 1.140943 degrees (126.64 km approx)
+  Height: 1.095069 degrees (121.55 km approx)
+  Center: [83.115208, 17.843868]
+
+Tile Ranges for Different Zoom Levels:
+  Zoom 10: X=[  746-  750], Y=[  458-  462] → 5×5 = 25 tiles
+  Zoom 12: X=[ 2987- 3000], Y=[ 1835- 1848] → 14×14 = 196 tiles
+  Zoom 14: X=[11948-12000], Y=[ 7340- 7392] → 53×53 = 2,809 tiles
+  Zoom 16: X=[47794-48002], Y=[29360-29570] → 209×211 = 44,099 tiles
+  Zoom 18: X=[191179-192010], Y=[117443-118281] → 832×839 = 698,048 tiles
+
+Sample Feature Properties (first feature):
+  FID: 1
+  MANDAL: Anakapalli
+  DISTRICT: Visakhapatnam
+  Village: A.K. Palem
+  Category: Existing Government & Semi Government Facilities
+  Shape_Length: 61.01061350173206
+  Shape_Area: 236.98668953288984
+  RuleID: 2
+  Override: None
+
+================================================================================
+Analyzing: Existing_Health_Facilities.geojson
+================================================================================
+File Size: 0.72 MB
+Loading GeoJSON data...
+
+Basic Information:
+  Type: FeatureCollection
+  Name: Existing_Health_Facilities
+  CRS: N/A
+
+Feature Count: 539
+
+Analyzing all 539 features...
+
+Geometry Types:
+  MultiPolygon: 14 (2.6%)
+  Polygon: 525 (97.4%)
+
+Total Coordinate Points: 14,788
+Average Points per Feature: 27.4
+
+Properties/Attributes (9 unique):
+  - Category
+  - DISTRICT
+  - FID
+  - MANDAL
+  - Override
+  - RuleID
+  - Shape_Area
+  - Shape_Length
+  - Village
+
+Bounding Box:
+  Min Longitude: 82.550139
+  Max Longitude: 83.649830
+  Min Latitude: 17.322980
+  Max Latitude: 18.376538
+  Width: 1.099691 degrees (122.07 km approx)
+  Height: 1.053558 degrees (116.94 km approx)
+  Center: [83.099984, 17.849759]
+
+Tile Ranges for Different Zoom Levels:
+  Zoom 10: X=[  746-  749], Y=[  458-  461] → 4×4 = 16 tiles
+  Zoom 12: X=[ 2987- 2999], Y=[ 1835- 1847] → 13×13 = 169 tiles
+  Zoom 14: X=[11948-11998], Y=[ 7340- 7391] → 51×52 = 2,652 tiles
+  Zoom 16: X=[47795-47995], Y=[29363-29565] → 201×203 = 40,803 tiles
+  Zoom 18: X=[191183-191983], Y=[117455-118261] → 801×807 = 646,407 tiles
+
+Sample Feature Properties (first feature):
+  FID: 1
+  MANDAL: Anakapalli
+  DISTRICT: Visakhapatnam
+  Village: Anakapalli Town
+  Category: Existing Health Facilities
+  Shape_Length: 79.23572168952758
+  Shape_Area: 408.2873544910598
+  RuleID: 2
+  Override: None
+
+================================================================================
+Analyzing: Existing_Industrial_Area.geojson
+================================================================================
+File Size: 10.01 MB
+Loading GeoJSON data...
+
+Basic Information:
+  Type: FeatureCollection
+  Name: Existing_Industrial_Area
+  CRS: N/A
+
+Feature Count: 9,514
+
+Analyzing all 9,514 features...
+  Processed 1,000 features...
+  Processed 2,000 features...
+  Processed 3,000 features...
+  Processed 4,000 features...
+  Processed 5,000 features...
+  Processed 6,000 features...
+  Processed 7,000 features...
+  Processed 8,000 features...
+  Processed 9,000 features...
+
+Geometry Types:
+  MultiPolygon: 328 (3.4%)
+  Polygon: 9,186 (96.6%)
+
+Total Coordinate Points: 190,564
+Average Points per Feature: 20.0
+
+Properties/Attributes (9 unique):
+  - Category
+  - DISTRICT
+  - FID
+  - MANDAL
+  - Override
+  - RuleID
+  - Shape_Area
+  - Shape_Length
+  - Village
+
+Bounding Box:
+  Min Longitude: 82.538486
+  Max Longitude: 83.655870
+  Min Latitude: 17.317604
+  Max Latitude: 18.384823
+  Width: 1.117383 degrees (124.03 km approx)
+  Height: 1.067219 degrees (118.46 km approx)
+  Center: [83.097178, 17.851214]
+
+Tile Ranges for Different Zoom Levels:
+  Zoom 10: X=[  746-  749], Y=[  458-  461] → 4×4 = 16 tiles
+  Zoom 12: X=[ 2987- 2999], Y=[ 1835- 1847] → 13×13 = 169 tiles
+  Zoom 14: X=[11948-11999], Y=[ 7340- 7391] → 52×52 = 2,704 tiles
+  Zoom 16: X=[47793-47997], Y=[29362-29566] → 205×205 = 42,025 tiles
+  Zoom 18: X=[191174-191988], Y=[117448-118265] → 815×818 = 666,670 tiles
+
+Sample Feature Properties (first feature):
+  FID: 1
+  MANDAL: Anakapalli
+  DISTRICT: Visakhapatnam
+  Village: A.K. Palem
+  Category: Existing Industrial Area
+  Shape_Length: 93.62335812772088
+  Shape_Area: 138.7281913427656
+  RuleID: 2
+  Override: None
+
+================================================================================
+Analyzing: Existing_Public_Utilities.geojson
+================================================================================
+File Size: 2.21 MB
+Loading GeoJSON data...
+
+Basic Information:
+  Type: FeatureCollection
+  Name: Existing_Public_Utilities
+  CRS: N/A
+
+Feature Count: 2,626
+
+Analyzing all 2,626 features...
+  Processed 1,000 features...
+  Processed 2,000 features...
+
+Geometry Types:
+  MultiPolygon: 56 (2.1%)
+  Polygon: 2,570 (97.9%)
+
+Total Coordinate Points: 37,972
+Average Points per Feature: 14.5
+
+Properties/Attributes (9 unique):
+  - Category
+  - DISTRICT
+  - FID
+  - MANDAL
+  - Override
+  - RuleID
+  - Shape_Area
+  - Shape_Length
+  - Village
+
+Bounding Box:
+  Min Longitude: 82.547723
+  Max Longitude: 83.693676
+  Min Latitude: 17.311666
+  Max Latitude: 18.390363
+  Width: 1.145953 degrees (127.20 km approx)
+  Height: 1.078697 degrees (119.74 km approx)
+  Center: [83.120699, 17.851015]
+
+Tile Ranges for Different Zoom Levels:
+  Zoom 10: X=[  746-  750], Y=[  458-  461] → 5×4 = 20 tiles
+  Zoom 12: X=[ 2987- 3000], Y=[ 1835- 1847] → 14×13 = 182 tiles
+  Zoom 14: X=[11948-12000], Y=[ 7340- 7391] → 53×52 = 2,756 tiles
+  Zoom 16: X=[47795-48003], Y=[29361-29567] → 209×207 = 43,263 tiles
+  Zoom 18: X=[191181-192015], Y=[117444-118269] → 835×826 = 689,710 tiles
+
+Sample Feature Properties (first feature):
+  FID: 1
+  MANDAL: Anakapalli
+  DISTRICT: Visakhapatnam
+  Village: A.K. Palem
+  Category: Existing Public Utilities
+  Shape_Length: 15.612536308794398
+  Shape_Area: 19.226516194561693
+  RuleID: 2
+  Override: None
+
+================================================================================
+Analyzing: Existing_Recreational_Playgrounds_Parks_Layout_OpenSpace.geojson
+================================================================================
+File Size: 7.99 MB
+Loading GeoJSON data...
+
+Basic Information:
+  Type: FeatureCollection
+  Name: Existing_Recreational_Playgrounds_Parks_Layout_OpenSpace
+  CRS: N/A
+
+Feature Count: 7,619
+
+Analyzing all 7,619 features...
+  Processed 1,000 features...
+  Processed 2,000 features...
+  Processed 3,000 features...
+  Processed 4,000 features...
+  Processed 5,000 features...
+  Processed 6,000 features...
+  Processed 7,000 features...
+
+Geometry Types:
+  MultiPolygon: 819 (10.7%)
+  Polygon: 6,800 (89.3%)
+
+Total Coordinate Points: 143,899
+Average Points per Feature: 18.9
+
+Properties/Attributes (9 unique):
+  - Category
+  - DISTRICT
+  - FID
+  - MANDAL
+  - Override
+  - RuleID
+  - Shape_Area
+  - Shape_Length
+  - Village
+
+Bounding Box:
+  Min Longitude: 82.558493
+  Max Longitude: 83.644564
+  Min Latitude: 17.359209
+  Max Latitude: 18.325797
+  Width: 1.086071 degrees (120.55 km approx)
+  Height: 0.966588 degrees (107.29 km approx)
+  Center: [83.101529, 17.842503]
+
+Tile Ranges for Different Zoom Levels:
+  Zoom 10: X=[  746-  749], Y=[  458-  461] → 4×4 = 16 tiles
+  Zoom 12: X=[ 2987- 2999], Y=[ 1835- 1847] → 13×13 = 169 tiles
+  Zoom 14: X=[11949-11998], Y=[ 7343- 7389] → 50×47 = 2,350 tiles
+  Zoom 16: X=[47797-47995], Y=[29373-29558] → 199×186 = 37,014 tiles
+  Zoom 18: X=[191189-191980], Y=[117494-118233] → 792×740 = 586,080 tiles
+
+Sample Feature Properties (first feature):
+  FID: 1
+  MANDAL: 
+  DISTRICT: 
+  Village: 
+  Category: Existing Recreational, Play grounds, Parks & Layout Open Space
+  Shape_Length: 78.31517945164373
+  Shape_Area: 165.22747316540915
+  RuleID: 2
+  Override: None
+
+================================================================================
+Analyzing: Existing_Religious_Facilities.geojson
+================================================================================
+File Size: 3.45 MB
+Loading GeoJSON data...
+
+Basic Information:
+  Type: FeatureCollection
+  Name: Existing_Religious_Facilities
+  CRS: N/A
+
+Feature Count: 4,676
+
+Analyzing all 4,676 features...
+  Processed 1,000 features...
+  Processed 2,000 features...
+  Processed 3,000 features...
+  Processed 4,000 features...
+
+Geometry Types:
+  MultiPolygon: 43 (0.9%)
+  Polygon: 4,633 (99.1%)
+
+Total Coordinate Points: 54,276
+Average Points per Feature: 11.6
+
+Properties/Attributes (9 unique):
+  - Category
+  - DISTRICT
+  - FID
+  - MANDAL
+  - Override
+  - RuleID
+  - Shape_Area
+  - Shape_Length
+  - Village
+
+Bounding Box:
+  Min Longitude: 82.536006
+  Max Longitude: 83.695943
+  Min Latitude: 17.289398
+  Max Latitude: 18.392469
+  Width: 1.159937 degrees (128.75 km approx)
+  Height: 1.103070 degrees (122.44 km approx)
+  Center: [83.115975, 17.840933]
+
+Tile Ranges for Different Zoom Levels:
+  Zoom 10: X=[  746-  750], Y=[  458-  462] → 5×5 = 25 tiles
+  Zoom 12: X=[ 2987- 3000], Y=[ 1835- 1848] → 14×14 = 196 tiles
+  Zoom 14: X=[11948-12001], Y=[ 7340- 7392] → 54×53 = 2,862 tiles
+  Zoom 16: X=[47793-48004], Y=[29360-29571] → 212×212 = 44,944 tiles
+  Zoom 18: X=[191172-192017], Y=[117442-118286] → 846×845 = 714,870 tiles
+
+Sample Feature Properties (first feature):
+  FID: 1
+  MANDAL: Anakapalli
+  DISTRICT: Visakhapatnam
+  Village: A.K. Palem
+  Category: Existing Religious Facilities
+  Shape_Length: 56.88209165446703
+  Shape_Area: 191.44244691382607
+  RuleID: 2
+  Override: None
+
+================================================================================
+Analyzing: Existing_Road_Railway_Line_Area.geojson
+================================================================================
+File Size: 300.24 MB
+Loading GeoJSON data...
+
+Basic Information:
+  Type: FeatureCollection
+  Name: Existing_Road_Railway_Line_Area
+  CRS: N/A
+
+Feature Count: 27,222
+
+Analyzing all 27,222 features...
+  Processed 1,000 features...
+  Processed 2,000 features...
+  Processed 3,000 features...
+  Processed 4,000 features...
+  Processed 5,000 features...
+  Processed 6,000 features...
+  Processed 7,000 features...
+  Processed 8,000 features...
+  Processed 9,000 features...
+  Processed 10,000 features...
+  Processed 11,000 features...
+  Processed 12,000 features...
+  Processed 13,000 features...
+  Processed 14,000 features...
+  Processed 15,000 features...
+  Processed 16,000 features...
+  Processed 17,000 features...
+  Processed 18,000 features...
+  Processed 19,000 features...
+  Processed 20,000 features...
+  Processed 21,000 features...
+  Processed 22,000 features...
+  Processed 23,000 features...
+  Processed 24,000 features...
+  Processed 25,000 features...
+  Processed 26,000 features...
+  Processed 27,000 features...
+
+Geometry Types:
+  MultiPolygon: 7,261 (26.7%)
+  Polygon: 19,961 (73.3%)
+
+Total Coordinate Points: 7,688,993
+Average Points per Feature: 282.5
+
+Properties/Attributes (9 unique):
+  - Category
+  - DISTRICT
+  - FID
+  - MANDAL
+  - Override
+  - RuleID
+  - Shape_Area
+  - Shape_Length
+  - Village
+
+Bounding Box:
+  Min Longitude: 82.521398
+  Max Longitude: 83.898639
+  Min Latitude: 17.286239
+  Max Latitude: 18.406368
+  Width: 1.377241 degrees (152.87 km approx)
+  Height: 1.120129 degrees (124.33 km approx)
+  Center: [83.210018, 17.846304]
+
+Tile Ranges for Different Zoom Levels:
+  Zoom 10: X=[  746-  750], Y=[  458-  462] → 5×5 = 25 tiles
+  Zoom 12: X=[ 2986- 3002], Y=[ 1834- 1848] → 17×15 = 255 tiles
+  Zoom 14: X=[11947-12010], Y=[ 7339- 7393] → 64×55 = 3,520 tiles
+  Zoom 16: X=[47790-48041], Y=[29358-29572] → 252×215 = 54,180 tiles
+  Zoom 18: X=[191162-192165], Y=[117432-118289] → 1004×858 = 861,432 tiles
+
+Sample Feature Properties (first feature):
+  FID: 1
+  MANDAL: 
+  DISTRICT: 
+  Village: 
+  Category: Existing Road & Railway Line Area
+  Shape_Length: 1376.4187431574953
+  Shape_Area: 1372.333812136931
+  RuleID: 2
+  Override: None
+
+================================================================================
+Analyzing: Existing_Transportation_Facility.geojson
+================================================================================
+File Size: 0.82 MB
+Loading GeoJSON data...
+
+Basic Information:
+  Type: FeatureCollection
+  Name: Existing_Transportation_Facility
+  CRS: N/A
+
+Feature Count: 353
+
+Analyzing all 353 features...
+
+Geometry Types:
+  MultiPolygon: 32 (9.1%)
+  Polygon: 321 (90.9%)
+
+Total Coordinate Points: 18,921
+Average Points per Feature: 53.6
+
+Properties/Attributes (9 unique):
+  - Category
+  - DISTRICT
+  - FID
+  - MANDAL
+  - Override
+  - RuleID
+  - Shape_Area
+  - Shape_Length
+  - Village
+
+Bounding Box:
+  Min Longitude: 83.176142
+  Max Longitude: 83.564153
+  Min Latitude: 17.685057
+  Max Latitude: 18.314589
+  Width: 0.388011 degrees (43.07 km approx)
+  Height: 0.629533 degrees (69.88 km approx)
+  Center: [83.370147, 17.999823]
+
+Tile Ranges for Different Zoom Levels:
+  Zoom 10: X=[  748-  749], Y=[  458-  460] → 2×3 = 6 tiles
+  Zoom 12: X=[ 2994- 2998], Y=[ 1835- 1843] → 5×9 = 45 tiles
+  Zoom 14: X=[11977-11995], Y=[ 7343- 7374] → 19×32 = 608 tiles
+  Zoom 16: X=[47909-47980], Y=[29375-29496] → 72×122 = 8,784 tiles
+  Zoom 18: X=[191639-191921], Y=[117502-117984] → 283×483 = 136,689 tiles
+
+Sample Feature Properties (first feature):
+  FID: 1
+  MANDAL: Gajuwaka
+  DISTRICT: Visakhapatnam
+  Village: Fakeertakya
+  Category: Existing Transportation Facility
+  Shape_Length: 46.21911376565027
+  Shape_Area: 77.47349624828652
+  RuleID: 2
+  Override: None
+
+================================================================================
+Analyzing: Green_Zone_Forest.geojson
+================================================================================
+File Size: 2.32 MB
+Loading GeoJSON data...
+
+Basic Information:
+  Type: FeatureCollection
+  Name: Green_Zone_Forest
+  CRS: N/A
+
+Feature Count: 761
+
+Analyzing all 761 features...
+
+Geometry Types:
+  MultiPolygon: 59 (7.8%)
+  Polygon: 702 (92.2%)
+
+Total Coordinate Points: 55,452
+Average Points per Feature: 72.9
+
+Properties/Attributes (9 unique):
+  - Category
+  - DISTRICT
+  - FID
+  - MANDAL
+  - Override
+  - RuleID
+  - Shape_Area
+  - Shape_Length
+  - Village
+
+Bounding Box:
+  Min Longitude: 82.549660
+  Max Longitude: 83.622232
+  Min Latitude: 17.339877
+  Max Latitude: 18.203276
+  Width: 1.072572 degrees (119.06 km approx)
+  Height: 0.863399 degrees (95.84 km approx)
+  Center: [83.085946, 17.771577]
+
+Tile Ranges for Different Zoom Levels:
+  Zoom 10: X=[  746-  749], Y=[  459-  461] → 4×3 = 12 tiles
+  Zoom 12: X=[ 2987- 2999], Y=[ 1837- 1847] → 13×11 = 143 tiles
+  Zoom 14: X=[11948-11997], Y=[ 7349- 7390] → 50×42 = 2,100 tiles
+  Zoom 16: X=[47795-47990], Y=[29396-29562] → 196×167 = 32,732 tiles
+  Zoom 18: X=[191182-191963], Y=[117587-118248] → 782×662 = 517,684 tiles
+
+Sample Feature Properties (first feature):
+  FID: 1
+  MANDAL: Anakapalli
+  DISTRICT: Visakhapatnam
+  Village: Kondupalem
+  Category: Green Zone (Forest)
+  Shape_Length: 6013.793323403546
+  Shape_Area: 825911.4472529801
+  RuleID: 2
+  Override: None
+
+================================================================================
+Analyzing: Kambalakonda_Eco_Sensitive_Zone_NAOB_Buffer_Zoological_Park.geojson
+================================================================================
+File Size: 1.28 MB
+Loading GeoJSON data...
+
+Basic Information:
+  Type: FeatureCollection
+  Name: Kambalakonda_Eco_Sensitive_Zone_NAOB_Buffer_Zoological_Park
+  CRS: N/A
+
+Feature Count: 184
+
+Analyzing all 184 features...
+
+Geometry Types:
+  MultiPolygon: 34 (18.5%)
+  Polygon: 150 (81.5%)
+
+Total Coordinate Points: 32,091
+Average Points per Feature: 174.4
+
+Properties/Attributes (9 unique):
+  - Category
+  - DISTRICT
+  - FID
+  - MANDAL
+  - Override
+  - RuleID
+  - Shape_Area
+  - Shape_Length
+  - Village
+
+Bounding Box:
+  Min Longitude: 82.830811
+  Max Longitude: 83.366162
+  Min Latitude: 17.409487
+  Max Latitude: 17.887509
+  Width: 0.535351 degrees (59.42 km approx)
+  Height: 0.478022 degrees (53.06 km approx)
+  Center: [83.098487, 17.648498]
+
+Tile Ranges for Different Zoom Levels:
+  Zoom 10: X=[  747-  749], Y=[  460-  461] → 3×2 = 6 tiles
+  Zoom 12: X=[ 2990- 2996], Y=[ 1841- 1846] → 7×6 = 42 tiles
+  Zoom 14: X=[11961-11986], Y=[ 7364- 7387] → 26×24 = 624 tiles
+  Zoom 16: X=[47846-47944], Y=[29457-29548] → 99×92 = 9,108 tiles
+  Zoom 18: X=[191387-191777], Y=[117829-118195] → 391×367 = 143,497 tiles
+
+Sample Feature Properties (first feature):
+  FID: 1
+  MANDAL: 
+  DISTRICT: 
+  Village: 
+  Category: Kambalakonda Eco Sensitive Zone/ NAOB Buffer, Zoological Park
+  Shape_Length: 412.90954412400805
+  Shape_Area: 9309.736664720944
+  RuleID: 2
+  Override: None
+
+================================================================================
+Analyzing: Kambalakonda_WildLife_Sanctuary_Biodiversity_Area.geojson
+================================================================================
+File Size: 0.47 MB
+Loading GeoJSON data...
+
+Basic Information:
+  Type: FeatureCollection
+  Name: Kambalakonda_WildLife_Sanctuary_Biodiversity_Area
+  CRS: N/A
+
+Feature Count: 49
+
+Analyzing all 49 features...
+
+Geometry Types:
+  MultiPolygon: 12 (24.5%)
+  Polygon: 37 (75.5%)
+
+Total Coordinate Points: 12,033
+Average Points per Feature: 245.6
+
+Properties/Attributes (9 unique):
+  - Category
+  - DISTRICT
+  - FID
+  - MANDAL
+  - Override
+  - RuleID
+  - Shape_Area
+  - Shape_Length
+  - Village
+
+Bounding Box:
+  Min Longitude: 83.252601
+  Max Longitude: 83.439287
+  Min Latitude: 17.764852
+  Max Latitude: 17.889937
+  Width: 0.186686 degrees (20.72 km approx)
+  Height: 0.125085 degrees (13.88 km approx)
+  Center: [83.345944, 17.827394]
+
+Tile Ranges for Different Zoom Levels:
+  Zoom 10: X=[  748-  749], Y=[  460-  460] → 2×1 = 2 tiles
+  Zoom 12: X=[ 2995- 2997], Y=[ 1841- 1842] → 3×2 = 6 tiles
+  Zoom 14: X=[11980-11989], Y=[ 7364- 7370] → 10×7 = 70 tiles
+  Zoom 16: X=[47923-47957], Y=[29456-29480] → 35×25 = 875 tiles
+  Zoom 18: X=[191694-191830], Y=[117827-117923] → 137×97 = 13,289 tiles
+
+Sample Feature Properties (first feature):
+  FID: 1
+  MANDAL: Visakhapatnam Rural
+  DISTRICT: Visakhapatnam
+  Village: Adivivaram
+  Category: Kambalakonda WildLife Sanctuary & Biodiversity Area
+  Shape_Length: 7635.783515946994
+  Shape_Area: 2588106.7716072868
+  RuleID: 2
+  Override: None
+
+================================================================================
+Analyzing: Mixed_Use_Zone_1.geojson
+================================================================================
+File Size: 71.56 MB
+Loading GeoJSON data...
+
+Basic Information:
+  Type: FeatureCollection
+  Name: Mixed_Use_Zone_1
+  CRS: N/A
+
+Feature Count: 53,840
+
+Analyzing all 53,840 features...
+  Processed 1,000 features...
+  Processed 2,000 features...
+  Processed 3,000 features...
+  Processed 4,000 features...
+  Processed 5,000 features...
+  Processed 6,000 features...
+  Processed 7,000 features...
+  Processed 8,000 features...
+  Processed 9,000 features...
+  Processed 10,000 features...
+  Processed 11,000 features...
+  Processed 12,000 features...
+  Processed 13,000 features...
+  Processed 14,000 features...
+  Processed 15,000 features...
+  Processed 16,000 features...
+  Processed 17,000 features...
+  Processed 18,000 features...
+  Processed 19,000 features...
+  Processed 20,000 features...
+  Processed 21,000 features...
+  Processed 22,000 features...
+  Processed 23,000 features...
+  Processed 24,000 features...
+  Processed 25,000 features...
+  Processed 26,000 features...
+  Processed 27,000 features...
+  Processed 28,000 features...
+  Processed 29,000 features...
+  Processed 30,000 features...
+  Processed 31,000 features...
+  Processed 32,000 features...
+  Processed 33,000 features...
+  Processed 34,000 features...
+  Processed 35,000 features...
+  Processed 36,000 features...
+  Processed 37,000 features...
+  Processed 38,000 features...
+  Processed 39,000 features...
+  Processed 40,000 features...
+  Processed 41,000 features...
+  Processed 42,000 features...
+  Processed 43,000 features...
+  Processed 44,000 features...
+  Processed 45,000 features...
+  Processed 46,000 features...
+  Processed 47,000 features...
+  Processed 48,000 features...
+  Processed 49,000 features...
+  Processed 50,000 features...
+  Processed 51,000 features...
+  Processed 52,000 features...
+  Processed 53,000 features...
+
+Geometry Types:
+  MultiPolygon: 4,765 (8.9%)
+  Polygon: 49,075 (91.1%)
+
+Total Coordinate Points: 1,469,796
+Average Points per Feature: 27.3
+
+Properties/Attributes (9 unique):
+  - Category
+  - DISTRICT
+  - FID
+  - MANDAL
+  - Override
+  - RuleID
+  - Shape_Area
+  - Shape_Length
+  - Village
+
+Bounding Box:
+  Min Longitude: 82.535724
+  Max Longitude: 83.672347
+  Min Latitude: 17.288461
+  Max Latitude: 18.372542
+  Width: 1.136622 degrees (126.17 km approx)
+  Height: 1.084081 degrees (120.33 km approx)
+  Center: [83.104036, 17.830502]
+
+Tile Ranges for Different Zoom Levels:
+  Zoom 10: X=[  746-  750], Y=[  458-  462] → 5×5 = 25 tiles
+  Zoom 12: X=[ 2987- 3000], Y=[ 1835- 1848] → 14×14 = 196 tiles
+  Zoom 14: X=[11948-12000], Y=[ 7341- 7392] → 53×52 = 2,756 tiles
+  Zoom 16: X=[47793-48000], Y=[29364-29571] → 208×208 = 43,264 tiles
+  Zoom 18: X=[191172-192000], Y=[117458-118287] → 829×830 = 688,070 tiles
+
+Sample Feature Properties (first feature):
+  FID: 1
+  MANDAL: 
+  DISTRICT: 
+  Village: 
+  Category: Mixed Use Zone - 1
+  Shape_Length: 124.07789752109983
+  Shape_Area: 918.4543339044758
+  RuleID: 2
+  Override: None
+
+================================================================================
+Analyzing: Mixed_Use_Zone_2_BAIA.geojson
+================================================================================
+File Size: 46.86 MB
+Loading GeoJSON data...
+
+Basic Information:
+  Type: FeatureCollection
+  Name: Mixed_Use_Zone_2_BAIA
+  CRS: N/A
+
+Feature Count: 57,235
+
+Analyzing all 57,235 features...
+  Processed 1,000 features...
+  Processed 2,000 features...
+  Processed 3,000 features...
+  Processed 4,000 features...
+  Processed 5,000 features...
+  Processed 6,000 features...
+  Processed 7,000 features...
+  Processed 8,000 features...
+  Processed 9,000 features...
+  Processed 10,000 features...
+  Processed 11,000 features...
+  Processed 12,000 features...
+  Processed 13,000 features...
+  Processed 14,000 features...
+  Processed 15,000 features...
+  Processed 16,000 features...
+  Processed 17,000 features...
+  Processed 18,000 features...
+  Processed 19,000 features...
+  Processed 20,000 features...
+  Processed 21,000 features...
+  Processed 22,000 features...
+  Processed 23,000 features...
+  Processed 24,000 features...
+  Processed 25,000 features...
+  Processed 26,000 features...
+  Processed 27,000 features...
+  Processed 28,000 features...
+  Processed 29,000 features...
+  Processed 30,000 features...
+  Processed 31,000 features...
+  Processed 32,000 features...
+  Processed 33,000 features...
+  Processed 34,000 features...
+  Processed 35,000 features...
+  Processed 36,000 features...
+  Processed 37,000 features...
+  Processed 38,000 features...
+  Processed 39,000 features...
+  Processed 40,000 features...
+  Processed 41,000 features...
+  Processed 42,000 features...
+  Processed 43,000 features...
+  Processed 44,000 features...
+  Processed 45,000 features...
+  Processed 46,000 features...
+  Processed 47,000 features...
+  Processed 48,000 features...
+  Processed 49,000 features...
+  Processed 50,000 features...
+  Processed 51,000 features...
+  Processed 52,000 features...
+  Processed 53,000 features...
+  Processed 54,000 features...
+  Processed 55,000 features...
+  Processed 56,000 features...
+  Processed 57,000 features...
+
+Geometry Types:
+  MultiPolygon: 1,913 (3.3%)
+  Polygon: 55,322 (96.7%)
+
+Total Coordinate Points: 780,070
+Average Points per Feature: 13.6
+
+Properties/Attributes (9 unique):
+  - Category
+  - DISTRICT
+  - FID
+  - MANDAL
+  - Override
+  - RuleID
+  - Shape_Area
+  - Shape_Length
+  - Village
+
+Bounding Box:
+  Min Longitude: 83.264097
+  Max Longitude: 83.559723
+  Min Latitude: 17.747446
+  Max Latitude: 18.055532
+  Width: 0.295625 degrees (32.81 km approx)
+  Height: 0.308086 degrees (34.20 km approx)
+  Center: [83.411910, 17.901489]
+
+Tile Ranges for Different Zoom Levels:
+  Zoom 10: X=[  748-  749], Y=[  459-  460] → 2×2 = 4 tiles
+  Zoom 12: X=[ 2995- 2998], Y=[ 1839- 1842] → 4×4 = 16 tiles
+  Zoom 14: X=[11981-11994], Y=[ 7356- 7371] → 14×16 = 224 tiles
+  Zoom 16: X=[47925-47979], Y=[29425-29484] → 55×60 = 3,300 tiles
+  Zoom 18: X=[191703-191918], Y=[117701-117936] → 216×236 = 50,976 tiles
+
+Sample Feature Properties (first feature):
+  FID: 1
+  MANDAL: 
+  DISTRICT: 
+  Village: 
+  Category: Mixed Use Zone - 2 (BAIA)
+  Shape_Length: 799.9255240221527
+  Shape_Area: 12147.41547373933
+  RuleID: 2
+  Override: None
+
+================================================================================
+Analyzing: Mixed_Use_Zone_3_BAIA.geojson
+================================================================================
+File Size: 21.71 MB
+Loading GeoJSON data...
+
+Basic Information:
+  Type: FeatureCollection
+  Name: Mixed_Use_Zone_3_BAIA
+  CRS: N/A
+
+Feature Count: 26,064
+
+Analyzing all 26,064 features...
+  Processed 1,000 features...
+  Processed 2,000 features...
+  Processed 3,000 features...
+  Processed 4,000 features...
+  Processed 5,000 features...
+  Processed 6,000 features...
+  Processed 7,000 features...
+  Processed 8,000 features...
+  Processed 9,000 features...
+  Processed 10,000 features...
+  Processed 11,000 features...
+  Processed 12,000 features...
+  Processed 13,000 features...
+  Processed 14,000 features...
+  Processed 15,000 features...
+  Processed 16,000 features...
+  Processed 17,000 features...
+  Processed 18,000 features...
+  Processed 19,000 features...
+  Processed 20,000 features...
+  Processed 21,000 features...
+  Processed 22,000 features...
+  Processed 23,000 features...
+  Processed 24,000 features...
+  Processed 25,000 features...
+  Processed 26,000 features...
+
+Geometry Types:
+  MultiPolygon: 753 (2.9%)
+  Polygon: 25,311 (97.1%)
+
+Total Coordinate Points: 369,411
+Average Points per Feature: 14.2
+
+Properties/Attributes (9 unique):
+  - Category
+  - DISTRICT
+  - FID
+  - MANDAL
+  - Override
+  - RuleID
+  - Shape_Area
+  - Shape_Length
+  - Village
+
+Bounding Box:
+  Min Longitude: 83.290506
+  Max Longitude: 83.559822
+  Min Latitude: 17.745000
+  Max Latitude: 18.061131
+  Width: 0.269316 degrees (29.89 km approx)
+  Height: 0.316131 degrees (35.09 km approx)
+  Center: [83.425164, 17.903066]
+
+Tile Ranges for Different Zoom Levels:
+  Zoom 10: X=[  748-  749], Y=[  459-  460] → 2×2 = 4 tiles
+  Zoom 12: X=[ 2995- 2998], Y=[ 1839- 1842] → 4×4 = 16 tiles
+  Zoom 14: X=[11982-11994], Y=[ 7356- 7371] → 13×16 = 208 tiles
+  Zoom 16: X=[47930-47979], Y=[29424-29484] → 50×61 = 3,050 tiles
+  Zoom 18: X=[191722-191918], Y=[117696-117938] → 197×243 = 47,871 tiles
+
+Sample Feature Properties (first feature):
+  FID: 1
+  MANDAL: 
+  DISTRICT: 
+  Village: 
+  Category: Mixed Use Zone - 3 (BAIA)
+  Shape_Length: 28.17948344187285
+  Shape_Area: 28.048858133168668
+  RuleID: 2
+  Override: None
+
+================================================================================
+Analyzing: Mixed_Use_Zone_4_BAIA.geojson
+================================================================================
+File Size: 0.42 MB
+Loading GeoJSON data...
+
+Basic Information:
+  Type: FeatureCollection
+  Name: Mixed_Use_Zone_4_BAIA
+  CRS: N/A
+
+Feature Count: 127
+
+Analyzing all 127 features...
+
+Geometry Types:
+  MultiPolygon: 19 (15.0%)
+  Polygon: 108 (85.0%)
+
+Total Coordinate Points: 9,998
+Average Points per Feature: 78.7
+
+Properties/Attributes (9 unique):
+  - Category
+  - DISTRICT
+  - FID
+  - MANDAL
+  - Override
+  - RuleID
+  - Shape_Area
+  - Shape_Length
+  - Village
+
+Bounding Box:
+  Min Longitude: 83.364039
+  Max Longitude: 83.547619
+  Min Latitude: 17.876014
+  Max Latitude: 18.014232
+  Width: 0.183579 degrees (20.38 km approx)
+  Height: 0.138218 degrees (15.34 km approx)
+  Center: [83.455829, 17.945123]
+
+Tile Ranges for Different Zoom Levels:
+  Zoom 10: X=[  749-  749], Y=[  459-  460] → 1×2 = 2 tiles
+  Zoom 12: X=[ 2996- 2998], Y=[ 1839- 1841] → 3×3 = 9 tiles
+  Zoom 14: X=[11985-11994], Y=[ 7358- 7364] → 10×7 = 70 tiles
+  Zoom 16: X=[47943-47977], Y=[29433-29459] → 35×27 = 945 tiles
+  Zoom 18: X=[191775-191909], Y=[117732-117838] → 135×107 = 14,445 tiles
+
+Sample Feature Properties (first feature):
+  FID: 1
+  MANDAL: Anandapuram
+  DISTRICT: Visakhapatnam
+  Village: Vellanki
+  Category: Mixed Use Zone - 4 (BAIA)
+  Shape_Length: 128.3057020657213
+  Shape_Area: 893.448299996089
+  RuleID: 2
+  Override: None
+
+================================================================================
+Analyzing: Proposed_Industrial_Use_Zone.geojson
+================================================================================
+File Size: 0.16 MB
+Loading GeoJSON data...
+
+Basic Information:
+  Type: FeatureCollection
+  Name: Proposed_Industrial_Use_Zone
+  CRS: N/A
+
+Feature Count: 29
+
+Analyzing all 29 features...
+
+Geometry Types:
+  MultiPolygon: 3 (10.3%)
+  Polygon: 26 (89.7%)
+
+Total Coordinate Points: 3,999
+Average Points per Feature: 137.9
+
+Properties/Attributes (9 unique):
+  - Category
+  - DISTRICT
+  - FID
+  - MANDAL
+  - Override
+  - RuleID
+  - Shape_Area
+  - Shape_Length
+  - Village
+
+Bounding Box:
+  Min Longitude: 82.829071
+  Max Longitude: 83.652688
+  Min Latitude: 17.410412
+  Max Latitude: 18.289326
+  Width: 0.823617 degrees (91.42 km approx)
+  Height: 0.878914 degrees (97.56 km approx)
+  Center: [83.240880, 17.849869]
+
+Tile Ranges for Different Zoom Levels:
+  Zoom 10: X=[  747-  749], Y=[  459-  461] → 3×3 = 9 tiles
+  Zoom 12: X=[ 2990- 2999], Y=[ 1836- 1846] → 10×11 = 110 tiles
+  Zoom 14: X=[11961-11999], Y=[ 7345- 7387] → 39×43 = 1,677 tiles
+  Zoom 16: X=[47846-47996], Y=[29380-29548] → 151×169 = 25,519 tiles
+  Zoom 18: X=[191386-191986], Y=[117522-118194] → 601×673 = 404,473 tiles
+
+Sample Feature Properties (first feature):
+  FID: 1
+  MANDAL: 
+  DISTRICT: 
+  Village: 
+  Category: Proposed Industrial Use Zone
+  Shape_Length: 371.162942662293
+  Shape_Area: 40.36076110093904
+  RuleID: 2
+  Override: None
+
+================================================================================
+Analyzing: Proposed_PSP_Use_Zone.geojson
+================================================================================
+File Size: 0.35 MB
+Loading GeoJSON data...
+
+Basic Information:
+  Type: FeatureCollection
+  Name: Proposed_PSP_Use_Zone
+  CRS: N/A
+
+Feature Count: 100
+
+Analyzing all 100 features...
+
+Geometry Types:
+  MultiPolygon: 22 (22.0%)
+  Polygon: 78 (78.0%)
+
+Total Coordinate Points: 8,381
+Average Points per Feature: 83.8
+
+Properties/Attributes (9 unique):
+  - Category
+  - DISTRICT
+  - FID
+  - MANDAL
+  - Override
+  - RuleID
+  - Shape_Area
+  - Shape_Length
+  - Village
+
+Bounding Box:
+  Min Longitude: 82.918582
+  Max Longitude: 83.683723
+  Min Latitude: 17.681563
+  Max Latitude: 18.380105
+  Width: 0.765141 degrees (84.93 km approx)
+  Height: 0.698543 degrees (77.54 km approx)
+  Center: [83.301153, 18.030834]
+
+Tile Ranges for Different Zoom Levels:
+  Zoom 10: X=[  747-  750], Y=[  458-  460] → 4×3 = 12 tiles
+  Zoom 12: X=[ 2991- 3000], Y=[ 1835- 1843] → 10×9 = 90 tiles
+  Zoom 14: X=[11965-12000], Y=[ 7340- 7374] → 36×35 = 1,260 tiles
+  Zoom 16: X=[47862-48002], Y=[29363-29496] → 141×134 = 18,894 tiles
+  Zoom 18: X=[191451-192008], Y=[117452-117987] → 558×536 = 299,088 tiles
+
+Sample Feature Properties (first feature):
+  FID: 1
+  MANDAL: Anakapalli
+  DISTRICT: Visakhapatnam
+  Village: Jagannadhapuram
+  Category: Proposed PSP Use Zone
+  Shape_Length: 1810.4900015401186
+  Shape_Area: 72688.1357108716
+  RuleID: 2
+  Override: None
+
+================================================================================
+Analyzing: Proposed_Public_Utilities_Use_Zone.geojson
+================================================================================
+File Size: 0.09 MB
+Loading GeoJSON data...
+
+Basic Information:
+  Type: FeatureCollection
+  Name: Proposed_Public_Utilities_Use_Zone
+  CRS: N/A
+
+Feature Count: 62
+
+Analyzing all 62 features...
+
+Geometry Types:
+  MultiPolygon: 7 (11.3%)
+  Polygon: 55 (88.7%)
+
+Total Coordinate Points: 1,959
+Average Points per Feature: 31.6
+
+Properties/Attributes (9 unique):
+  - Category
+  - DISTRICT
+  - FID
+  - MANDAL
+  - Override
+  - RuleID
+  - Shape_Area
+  - Shape_Length
+  - Village
+
+Bounding Box:
+  Min Longitude: 82.614314
+  Max Longitude: 83.667961
+  Min Latitude: 17.403135
+  Max Latitude: 18.316437
+  Width: 1.053647 degrees (116.95 km approx)
+  Height: 0.913301 degrees (101.38 km approx)
+  Center: [83.141137, 17.859786]
+
+Tile Ranges for Different Zoom Levels:
+  Zoom 10: X=[  746-  749], Y=[  458-  461] → 4×4 = 16 tiles
+  Zoom 12: X=[ 2987- 2999], Y=[ 1835- 1846] → 13×12 = 156 tiles
+  Zoom 14: X=[11951-11999], Y=[ 7343- 7387] → 49×45 = 2,205 tiles
+  Zoom 16: X=[47807-47999], Y=[29375-29549] → 193×175 = 33,775 tiles
+  Zoom 18: X=[191229-191997], Y=[117501-118199] → 769×699 = 537,531 tiles
+
+Sample Feature Properties (first feature):
+  FID: 1
+  MANDAL: Anakapalli
+  DISTRICT: Visakhapatnam
+  Village: Jagannadhapuram
+  Category: Proposed Public Utilities Use Zone
+  Shape_Length: 722.5326209158754
+  Shape_Area: 18458.70406718309
+  RuleID: 2
+  Override: None
+
+================================================================================
+Analyzing: Proposed_Recreational_Use_Zone.geojson
+================================================================================
+File Size: 1.25 MB
+Loading GeoJSON data...
+
+Basic Information:
+  Type: FeatureCollection
+  Name: Proposed_Recreational_Use_Zone
+  CRS: N/A
+
+Feature Count: 380
+
+Analyzing all 380 features...
+
+Geometry Types:
+  MultiPolygon: 39 (10.3%)
+  Polygon: 341 (89.7%)
+
+Total Coordinate Points: 29,985
+Average Points per Feature: 78.9
+
+Properties/Attributes (9 unique):
+  - Category
+  - DISTRICT
+  - FID
+  - MANDAL
+  - Override
+  - RuleID
+  - Shape_Area
+  - Shape_Length
+  - Village
+
+Bounding Box:
+  Min Longitude: 82.653915
+  Max Longitude: 83.688969
+  Min Latitude: 17.412877
+  Max Latitude: 18.395602
+  Width: 1.035055 degrees (114.89 km approx)
+  Height: 0.982725 degrees (109.08 km approx)
+  Center: [83.171442, 17.904239]
+
+Tile Ranges for Different Zoom Levels:
+  Zoom 10: X=[  747-  750], Y=[  458-  461] → 4×4 = 16 tiles
+  Zoom 12: X=[ 2988- 3000], Y=[ 1835- 1846] → 13×12 = 156 tiles
+  Zoom 14: X=[11953-12000], Y=[ 7340- 7387] → 48×48 = 2,304 tiles
+  Zoom 16: X=[47814-48003], Y=[29360-29548] → 190×189 = 35,910 tiles
+  Zoom 18: X=[191258-192012], Y=[117440-118192] → 755×753 = 568,515 tiles
+
+Sample Feature Properties (first feature):
+  FID: 1
+  MANDAL: 
+  DISTRICT: 
+  Village: 
+  Category: Proposed Recreational Use Zone
+  Shape_Length: 365.33993917515926
+  Shape_Area: 770.9983997257436
+  RuleID: 2
+  Override: None
+
+================================================================================
+Analyzing: Proposed_Road_Network.geojson
+================================================================================
+File Size: 37.87 MB
+Loading GeoJSON data...
+
+Basic Information:
+  Type: FeatureCollection
+  Name: Proposed_Road_Network
+  CRS: N/A
+
+Feature Count: 2,739
+
+Analyzing all 2,739 features...
+  Processed 1,000 features...
+  Processed 2,000 features...
+
+Geometry Types:
+  MultiPolygon: 718 (26.2%)
+  Polygon: 2,021 (73.8%)
+
+Total Coordinate Points: 977,198
+Average Points per Feature: 356.8
+
+Properties/Attributes (9 unique):
+  - Category
+  - DISTRICT
+  - FID
+  - MANDAL
+  - Override
+  - RuleID
+  - Shape_Area
+  - Shape_Length
+  - Village
+
+Bounding Box:
+  Min Longitude: 82.493902
+  Max Longitude: 83.697111
+  Min Latitude: 17.268942
+  Max Latitude: 18.394776
+  Width: 1.203209 degrees (133.56 km approx)
+  Height: 1.125834 degrees (124.97 km approx)
+  Center: [83.095506, 17.831859]
+
+Tile Ranges for Different Zoom Levels:
+  Zoom 10: X=[  746-  750], Y=[  458-  462] → 5×5 = 25 tiles
+  Zoom 12: X=[ 2986- 3000], Y=[ 1835- 1848] → 15×14 = 210 tiles
+  Zoom 14: X=[11946-12001], Y=[ 7340- 7393] → 56×54 = 3,024 tiles
+  Zoom 16: X=[47785-48004], Y=[29360-29575] → 220×216 = 47,520 tiles
+  Zoom 18: X=[191142-192018], Y=[117441-118302] → 877×862 = 755,974 tiles
+
+Sample Feature Properties (first feature):
+  FID: 1
+  MANDAL: 
+  DISTRICT: 
+  Village: 
+  Category: Proposed Road Network
+  Shape_Length: 69329.15670858904
+  Shape_Area: 613185.8851630541
+  RuleID: 2
+  Override: None
+
+================================================================================
+Analyzing: Proposed_Transportation_Facility_Use_Zone.geojson
+================================================================================
+File Size: 0.04 MB
+Loading GeoJSON data...
+
+Basic Information:
+  Type: FeatureCollection
+  Name: Proposed_Transportation_Facility_Use_Zone
+  CRS: N/A
+
+Feature Count: 13
+
+Analyzing all 13 features...
+
+Geometry Types:
+  MultiPolygon: 4 (30.8%)
+  Polygon: 9 (69.2%)
+
+Total Coordinate Points: 1,051
+Average Points per Feature: 80.8
+
+Properties/Attributes (9 unique):
+  - Category
+  - DISTRICT
+  - FID
+  - MANDAL
+  - Override
+  - RuleID
+  - Shape_Area
+  - Shape_Length
+  - Village
+
+Bounding Box:
+  Min Longitude: 83.336882
+  Max Longitude: 83.547405
+  Min Latitude: 17.963736
+  Max Latitude: 18.333455
+  Width: 0.210523 degrees (23.37 km approx)
+  Height: 0.369720 degrees (41.04 km approx)
+  Center: [83.442144, 18.148596]
+
+Tile Ranges for Different Zoom Levels:
+  Zoom 10: X=[  749-  749], Y=[  458-  460] → 1×3 = 3 tiles
+  Zoom 12: X=[ 2996- 2998], Y=[ 1835- 1840] → 3×6 = 18 tiles
+  Zoom 14: X=[11984-11994], Y=[ 7343- 7360] → 11×18 = 198 tiles
+  Zoom 16: X=[47939-47977], Y=[29372-29442] → 39×71 = 2,769 tiles
+  Zoom 18: X=[191756-191909], Y=[117488-117771] → 154×284 = 43,736 tiles
+
+Sample Feature Properties (first feature):
+  FID: 1
+  MANDAL: Bhoghapuram
+  DISTRICT: Vizianagaram
+  Village: Kavulavada
+  Category: Proposed Transportation Facility Use Zone
+  Shape_Length: 64.2480122177114
+  Shape_Area: 207.42881130514505
+  RuleID: 2
+  Override: None
+
+================================================================================
+Analyzing: Residential_Use_Zone.geojson
+================================================================================
+File Size: 237.28 MB
+Loading GeoJSON data...
+
+Basic Information:
+  Type: FeatureCollection
+  Name: Residential_Use_Zone
+  CRS: N/A
+
+Feature Count: 223,924
+
+Analyzing all 223,924 features...
+  Processed 1,000 features...
+  Processed 2,000 features...
+  Processed 3,000 features...
+  Processed 4,000 features...
+  Processed 5,000 features...
+  Processed 6,000 features...
+  Processed 7,000 features...
+  Processed 8,000 features...
+  Processed 9,000 features...
+  Processed 10,000 features...
+  Processed 11,000 features...
+  Processed 12,000 features...
+  Processed 13,000 features...
+  Processed 14,000 features...
+  Processed 15,000 features...
+  Processed 16,000 features...
+  Processed 17,000 features...
+  Processed 18,000 features...
+  Processed 19,000 features...
+  Processed 20,000 features...
+  Processed 21,000 features...
+  Processed 22,000 features...
+  Processed 23,000 features...
+  Processed 24,000 features...
+  Processed 25,000 features...
+  Processed 26,000 features...
+  Processed 27,000 features...
+  Processed 28,000 features...
+  Processed 29,000 features...
+  Processed 30,000 features...
+  Processed 31,000 features...
+  Processed 32,000 features...
+  Processed 33,000 features...
+  Processed 34,000 features...
+  Processed 35,000 features...
+  Processed 36,000 features...
+  Processed 37,000 features...
+  Processed 38,000 features...
+  Processed 39,000 features...
+  Processed 40,000 features...
+  Processed 41,000 features...
+  Processed 42,000 features...
+  Processed 43,000 features...
+  Processed 44,000 features...
+  Processed 45,000 features...
+  Processed 46,000 features...
+  Processed 47,000 features...
+  Processed 48,000 features...
+  Processed 49,000 features...
+  Processed 50,000 features...
+  Processed 51,000 features...
+  Processed 52,000 features...
+  Processed 53,000 features...
+  Processed 54,000 features...
+  Processed 55,000 features...
+  Processed 56,000 features...
+  Processed 57,000 features...
+  Processed 58,000 features...
+  Processed 59,000 features...
+  Processed 60,000 features...
+  Processed 61,000 features...
+  Processed 62,000 features...
+  Processed 63,000 features...
+  Processed 64,000 features...
+  Processed 65,000 features...
+  Processed 66,000 features...
+  Processed 67,000 features...
+  Processed 68,000 features...
+  Processed 69,000 features...
+  Processed 70,000 features...
+  Processed 71,000 features...
+  Processed 72,000 features...
+  Processed 73,000 features...
+  Processed 74,000 features...
+  Processed 75,000 features...
+  Processed 76,000 features...
+  Processed 77,000 features...
+  Processed 78,000 features...
+  Processed 79,000 features...
+  Processed 80,000 features...
+  Processed 81,000 features...
+  Processed 82,000 features...
+  Processed 83,000 features...
+  Processed 84,000 features...
+  Processed 85,000 features...
+  Processed 86,000 features...
+  Processed 87,000 features...
+  Processed 88,000 features...
+  Processed 89,000 features...
+  Processed 90,000 features...
+  Processed 91,000 features...
+  Processed 92,000 features...
+  Processed 93,000 features...
+  Processed 94,000 features...
+  Processed 95,000 features...
+  Processed 96,000 features...
+  Processed 97,000 features...
+  Processed 98,000 features...
+  Processed 99,000 features...
+  Processed 100,000 features...
+  Processed 101,000 features...
+  Processed 102,000 features...
+  Processed 103,000 features...
+  Processed 104,000 features...
+  Processed 105,000 features...
+  Processed 106,000 features...
+  Processed 107,000 features...
+  Processed 108,000 features...
+  Processed 109,000 features...
+  Processed 110,000 features...
+  Processed 111,000 features...
+  Processed 112,000 features...
+  Processed 113,000 features...
+  Processed 114,000 features...
+  Processed 115,000 features...
+  Processed 116,000 features...
+  Processed 117,000 features...
+  Processed 118,000 features...
+  Processed 119,000 features...
+  Processed 120,000 features...
+  Processed 121,000 features...
+  Processed 122,000 features...
+  Processed 123,000 features...
+  Processed 124,000 features...
+  Processed 125,000 features...
+  Processed 126,000 features...
+  Processed 127,000 features...
+  Processed 128,000 features...
+  Processed 129,000 features...
+  Processed 130,000 features...
+  Processed 131,000 features...
+  Processed 132,000 features...
+  Processed 133,000 features...
+  Processed 134,000 features...
+  Processed 135,000 features...
+  Processed 136,000 features...
+  Processed 137,000 features...
+  Processed 138,000 features...
+  Processed 139,000 features...
+  Processed 140,000 features...
+  Processed 141,000 features...
+  Processed 142,000 features...
+  Processed 143,000 features...
+  Processed 144,000 features...
+  Processed 145,000 features...
+  Processed 146,000 features...
+  Processed 147,000 features...
+  Processed 148,000 features...
+  Processed 149,000 features...
+  Processed 150,000 features...
+  Processed 151,000 features...
+  Processed 152,000 features...
+  Processed 153,000 features...
+  Processed 154,000 features...
+  Processed 155,000 features...
+  Processed 156,000 features...
+  Processed 157,000 features...
+  Processed 158,000 features...
+  Processed 159,000 features...
+  Processed 160,000 features...
+  Processed 161,000 features...
+  Processed 162,000 features...
+  Processed 163,000 features...
+  Processed 164,000 features...
+  Processed 165,000 features...
+  Processed 166,000 features...
+  Processed 167,000 features...
+  Processed 168,000 features...
+  Processed 169,000 features...
+  Processed 170,000 features...
+  Processed 171,000 features...
+  Processed 172,000 features...
+  Processed 173,000 features...
+  Processed 174,000 features...
+  Processed 175,000 features...
+  Processed 176,000 features...
+  Processed 177,000 features...
+  Processed 178,000 features...
+  Processed 179,000 features...
+  Processed 180,000 features...
+  Processed 181,000 features...
+  Processed 182,000 features...
+  Processed 183,000 features...
+  Processed 184,000 features...
+  Processed 185,000 features...
+  Processed 186,000 features...
+  Processed 187,000 features...
+  Processed 188,000 features...
+  Processed 189,000 features...
+  Processed 190,000 features...
+  Processed 191,000 features...
+  Processed 192,000 features...
+  Processed 193,000 features...
+  Processed 194,000 features...
+  Processed 195,000 features...
+  Processed 196,000 features...
+  Processed 197,000 features...
+  Processed 198,000 features...
+  Processed 199,000 features...
+  Processed 200,000 features...
+  Processed 201,000 features...
+  Processed 202,000 features...
+  Processed 203,000 features...
+  Processed 204,000 features...
+  Processed 205,000 features...
+  Processed 206,000 features...
+  Processed 207,000 features...
+  Processed 208,000 features...
+  Processed 209,000 features...
+  Processed 210,000 features...
+  Processed 211,000 features...
+  Processed 212,000 features...
+  Processed 213,000 features...
+  Processed 214,000 features...
+  Processed 215,000 features...
+  Processed 216,000 features...
+  Processed 217,000 features...
+  Processed 218,000 features...
+  Processed 219,000 features...
+  Processed 220,000 features...
+  Processed 221,000 features...
+  Processed 222,000 features...
+  Processed 223,000 features...
+
+Geometry Types:
+  MultiPolygon: 9,153 (4.1%)
+  Polygon: 214,771 (95.9%)
+
+Total Coordinate Points: 4,529,171
+Average Points per Feature: 20.2
+
+Properties/Attributes (9 unique):
+  - Category
+  - DISTRICT
+  - FID
+  - MANDAL
+  - Override
+  - RuleID
+  - Shape_Area
+  - Shape_Length
+  - Village
+
+Bounding Box:
+  Min Longitude: 82.534182
+  Max Longitude: 83.703654
+  Min Latitude: 17.287652
+  Max Latitude: 18.404583
+  Width: 1.169472 degrees (129.81 km approx)
+  Height: 1.116931 degrees (123.98 km approx)
+  Center: [83.118918, 17.846118]
+
+Tile Ranges for Different Zoom Levels:
+  Zoom 10: X=[  746-  750], Y=[  458-  462] → 5×5 = 25 tiles
+  Zoom 12: X=[ 2987- 3000], Y=[ 1834- 1848] → 14×15 = 210 tiles
+  Zoom 14: X=[11948-12001], Y=[ 7339- 7393] → 54×55 = 2,970 tiles
+  Zoom 16: X=[47792-48005], Y=[29358-29572] → 214×215 = 46,010 tiles
+  Zoom 18: X=[191171-192023], Y=[117433-118288] → 853×856 = 730,168 tiles
+
+Sample Feature Properties (first feature):
+  FID: 1
+  MANDAL: 
+  DISTRICT: 
+  Village: 
+  Category: Residential Use Zone
+  Shape_Length: 16.639176558019063
+  Shape_Area: 0.03143548943108505
+  RuleID: 2
+  Override: None
+
+================================================================================
+Analyzing: Sea_River_Accreted_Land.geojson
+================================================================================
+File Size: 0.04 MB
+Loading GeoJSON data...
+
+Basic Information:
+  Type: FeatureCollection
+  Name: Sea_River_Accreted_Land
+  CRS: N/A
+
+Feature Count: 18
+
+Analyzing all 18 features...
+
+Geometry Types:
+  Polygon: 18 (100.0%)
+
+Total Coordinate Points: 907
+Average Points per Feature: 50.4
+
+Properties/Attributes (9 unique):
+  - Category
+  - DISTRICT
+  - FID
+  - MANDAL
+  - Override
+  - RuleID
+  - Shape_Area
+  - Shape_Length
+  - Village
+
+Bounding Box:
+  Min Longitude: 83.261235
+  Max Longitude: 83.454522
+  Min Latitude: 17.651511
+  Max Latitude: 17.887464
+  Width: 0.193287 degrees (21.45 km approx)
+  Height: 0.235953 degrees (26.19 km approx)
+  Center: [83.357879, 17.769488]
+
+Tile Ranges for Different Zoom Levels:
+  Zoom 10: X=[  748-  749], Y=[  460-  460] → 2×1 = 2 tiles
+  Zoom 12: X=[ 2995- 2997], Y=[ 1841- 1843] → 3×3 = 9 tiles
+  Zoom 14: X=[11981-11990], Y=[ 7364- 7375] → 10×12 = 120 tiles
+  Zoom 16: X=[47925-47960], Y=[29457-29502] → 36×46 = 1,656 tiles
+  Zoom 18: X=[191700-191841], Y=[117829-118010] → 142×182 = 25,844 tiles
+
+Sample Feature Properties (first feature):
+  FID: 1
+  MANDAL: 
+  DISTRICT: 
+  Village: 
+  Category: Sea / River Accreted Land
+  Shape_Length: 406.8676898848343
+  Shape_Area: 1740.9826060399266
+  RuleID: 2
+  Override: None
+
+================================================================================
+Analyzing: Special_Area_Use_Zone.geojson
+================================================================================
+File Size: 2.62 MB
+Loading GeoJSON data...
+
+Basic Information:
+  Type: FeatureCollection
+  Name: Special_Area_Use_Zone
+  CRS: N/A
+
+Feature Count: 560
+
+Analyzing all 560 features...
+
+Geometry Types:
+  MultiPolygon: 43 (7.7%)
+  Polygon: 517 (92.3%)
+
+Total Coordinate Points: 64,748
+Average Points per Feature: 115.6
+
+Properties/Attributes (9 unique):
+  - Category
+  - DISTRICT
+  - FID
+  - MANDAL
+  - Override
+  - RuleID
+  - Shape_Area
+  - Shape_Length
+  - Village
+
+Bounding Box:
+  Min Longitude: 82.835222
+  Max Longitude: 83.428866
+  Min Latitude: 17.412306
+  Max Latitude: 17.877746
+  Width: 0.593644 degrees (65.89 km approx)
+  Height: 0.465440 degrees (51.66 km approx)
+  Center: [83.132044, 17.645026]
+
+Tile Ranges for Different Zoom Levels:
+  Zoom 10: X=[  747-  749], Y=[  460-  461] → 3×2 = 6 tiles
+  Zoom 12: X=[ 2990- 2997], Y=[ 1841- 1846] → 8×6 = 48 tiles
+  Zoom 14: X=[11961-11988], Y=[ 7364- 7387] → 28×24 = 672 tiles
+  Zoom 16: X=[47847-47955], Y=[29459-29548] → 109×90 = 9,810 tiles
+  Zoom 18: X=[191390-191823], Y=[117837-118192] → 434×356 = 154,504 tiles
+
+Sample Feature Properties (first feature):
+  FID: 1
+  MANDAL: 
+  DISTRICT: 
+  Village: 
+  Category: Special Area Use Zone
+  Shape_Length: 77.07568977770556
+  Shape_Area: 46.75896355822723
+  RuleID: 2
+  Override: None
+
+================================================================================
+Analyzing: Water_Body_Buffer.geojson
+================================================================================
+File Size: 102.22 MB
+Loading GeoJSON data...
+
+Basic Information:
+  Type: FeatureCollection
+  Name: Water_Body_Buffer
+  CRS: N/A
+
+Feature Count: 23,264
+
+Analyzing all 23,264 features...
+  Processed 1,000 features...
+  Processed 2,000 features...
+  Processed 3,000 features...
+  Processed 4,000 features...
+  Processed 5,000 features...
+  Processed 6,000 features...
+  Processed 7,000 features...
+  Processed 8,000 features...
+  Processed 9,000 features...
+  Processed 10,000 features...
+  Processed 11,000 features...
+  Processed 12,000 features...
+  Processed 13,000 features...
+  Processed 14,000 features...
+  Processed 15,000 features...
+  Processed 16,000 features...
+  Processed 17,000 features...
+  Processed 18,000 features...
+  Processed 19,000 features...
+  Processed 20,000 features...
+  Processed 21,000 features...
+  Processed 22,000 features...
+  Processed 23,000 features...
+
+Geometry Types:
+  MultiPolygon: 7,493 (32.2%)
+  Polygon: 15,771 (67.8%)
+
+Total Coordinate Points: 2,515,685
+Average Points per Feature: 108.1
+
+Properties/Attributes (9 unique):
+  - Category
+  - DISTRICT
+  - FID
+  - MANDAL
+  - Override
+  - RuleID
+  - Shape_Area
+  - Shape_Length
+  - Village
+
+Bounding Box:
+  Min Longitude: 82.529269
+  Max Longitude: 83.705017
+  Min Latitude: 17.278168
+  Max Latitude: 18.403591
+  Width: 1.175748 degrees (130.51 km approx)
+  Height: 1.125423 degrees (124.92 km approx)
+  Center: [83.117143, 17.840880]
+
+Tile Ranges for Different Zoom Levels:
+  Zoom 10: X=[  746-  750], Y=[  458-  462] → 5×5 = 25 tiles
+  Zoom 12: X=[ 2986- 3000], Y=[ 1834- 1848] → 15×15 = 225 tiles
+  Zoom 14: X=[11947-12001], Y=[ 7339- 7393] → 55×55 = 3,025 tiles
+  Zoom 16: X=[47791-48006], Y=[29358-29573] → 216×216 = 46,656 tiles
+  Zoom 18: X=[191167-192024], Y=[117434-118295] → 858×862 = 739,596 tiles
+
+Sample Feature Properties (first feature):
+  FID: 1
+  MANDAL: 
+  DISTRICT: 
+  Village: 
+  Category: Water Body Buffer
+  Shape_Length: 168.841333864375
+  Shape_Area: 674.6486181136576
+  RuleID: 2
+  Override: None
+
+
+################################################################################
+################################################################################
+               VISAKHAPATNAM MASTER PLAN - COMPREHENSIVE SUMMARY                
+################################################################################
+################################################################################
+
+Total Files Analyzed: 31
+Total File Size: 1077.69 MB
+Total Features: 511,757
+Average Features per File: 16,508
+
+Overall Coverage Area:
+  Min Longitude: 82.493902
+  Max Longitude: 83.898639
+  Min Latitude: 17.268942
+  Max Latitude: 18.406368
+  Center: [83.196270, 17.837655]
+  Area: 1.4047° × 1.1374° (~155.9km × 126.3km)
+
+Files by Size (Top 15):
+   1. Existing_Road_Railway_Line_Area.geojson                      -   300.24 MB -   27,222 features
+   2. Residential_Use_Zone.geojson                                 -   237.28 MB -  223,924 features
+   3. Agricultural_Use_Zone.geojson                                -   124.24 MB -   19,039 features
+   4. Water_Body_Buffer.geojson                                    -   102.22 MB -   23,264 features
+   5. Blue_Zone_Water_Bodies.geojson                               -    72.18 MB -   31,725 features
+   6. Mixed_Use_Zone_1.geojson                                     -    71.56 MB -   53,840 features
+   7. Mixed_Use_Zone_2_BAIA.geojson                                -    46.86 MB -   57,235 features
+   8. Proposed_Road_Network.geojson                                -    37.87 MB -    2,739 features
+   9. Mixed_Use_Zone_3_BAIA.geojson                                -    21.71 MB -   26,064 features
+  10. Brown_Zone_Hills.geojson                                     -    15.27 MB -    4,508 features
+  11. Existing_Industrial_Area.geojson                             -    10.01 MB -    9,514 features
+  12. Existing_Recreational_Playgrounds_Parks_Layout_OpenSpace.geojson -     7.99 MB -    7,619 features
+  13. Commercial_Use_Zone.geojson                                  -     5.22 MB -    6,468 features
+  14. Existing_Educational_Facilities.geojson                      -     4.51 MB -    3,797 features
+  15. Existing_Religious_Facilities.geojson                        -     3.45 MB -    4,676 features
+
+Files by Feature Count (Top 15):
+   1. Residential_Use_Zone.geojson                                 -  223,924 features
+   2. Mixed_Use_Zone_2_BAIA.geojson                                -   57,235 features
+   3. Mixed_Use_Zone_1.geojson                                     -   53,840 features
+   4. Blue_Zone_Water_Bodies.geojson                               -   31,725 features
+   5. Existing_Road_Railway_Line_Area.geojson                      -   27,222 features
+   6. Mixed_Use_Zone_3_BAIA.geojson                                -   26,064 features
+   7. Water_Body_Buffer.geojson                                    -   23,264 features
+   8. Agricultural_Use_Zone.geojson                                -   19,039 features
+   9. Existing_Industrial_Area.geojson                             -    9,514 features
+  10. Existing_Recreational_Playgrounds_Parks_Layout_OpenSpace.geojson -    7,619 features
+  11. Commercial_Use_Zone.geojson                                  -    6,468 features
+  12. Existing_Religious_Facilities.geojson                        -    4,676 features
+  13. Brown_Zone_Hills.geojson                                     -    4,508 features
+  14. Existing_Educational_Facilities.geojson                      -    3,797 features
+  15. Existing_Government_Semi_Government_Facilities.geojson       -    3,191 features
+
+Geometry Types Across All Files:
+  Polygon: 472,644 (92.4%)
+  MultiPolygon: 39,113 (7.6%)
+
+================================================================================
+LAYER CATEGORIES
+================================================================================
+
+Existing Facilities (10 layers):
+  - Existing_Crematorium_Burial_Ground_Graveyard
+  - Existing_Educational_Facilities
+  - Existing_Government_Semi_Government_Facilities
+  - Existing_Health_Facilities
+  - Existing_Industrial_Area
+  - Existing_Public_Utilities
+  - Existing_Recreational_Playgrounds_Parks_Layout_OpenSpace
+  - Existing_Religious_Facilities
+  - Existing_Road_Railway_Line_Area
+  - Existing_Transportation_Facility
+
+Proposed Development (6 layers):
+  - Proposed_Industrial_Use_Zone
+  - Proposed_PSP_Use_Zone
+  - Proposed_Public_Utilities_Use_Zone
+  - Proposed_Recreational_Use_Zone
+  - Proposed_Road_Network
+  - Proposed_Transportation_Facility_Use_Zone
+
+Environmental/Protected (6 layers):
+  - Blue_Zone_Water_Bodies
+  - Brown_Zone_Hills
+  - Green_Zone_Forest
+  - Kambalakonda_Eco_Sensitive_Zone_NAOB_Buffer_Zoological_Park
+  - Kambalakonda_WildLife_Sanctuary_Biodiversity_Area
+  - Water_Body_Buffer
+
+Use Zones (8 layers):
+  - Agricultural_Use_Zone
+  - Commercial_Use_Zone
+  - Mixed_Use_Zone_1
+  - Mixed_Use_Zone_2_BAIA
+  - Mixed_Use_Zone_3_BAIA
+  - Mixed_Use_Zone_4_BAIA
+  - Residential_Use_Zone
+  - Special_Area_Use_Zone
+
+Infrastructure (1 layers):
+  - Sea_River_Accreted_Land
+
+
+================================================================================
+TILE GENERATION RECOMMENDATIONS
+================================================================================
+
+1. BOUNDING BOX:
+   BBOX = [82.493902, 17.268942, 83.898639, 18.406368]
+
+2. CENTER COORDINATES:
+   CENTER = [83.196270, 17.837655]
+
+3. RECOMMENDED ZOOM LEVELS:
+   - Overview: Zoom 10-12 (city-wide view)
+   - Standard: Zoom 13-15 (neighborhood detail)
+   - Detailed: Zoom 16-18 (plot/parcel level)
+
+4. ESTIMATED TILE COUNTS:
+   Zoom 10: ~25 tiles
+   Zoom 12: ~255 tiles
+   Zoom 14: ~3,575 tiles
+   Zoom 16: ~56,026 tiles
+   Zoom 18: ~891,904 tiles
+
+5. LAYER ORGANIZATION:
+   Total Layers: 31
+   Existing facilities: 10
+   Proposed development: 6
+   Environmental: 6
+   Use zones: 8
+
+6. DATA CHARACTERISTICS:
+   - Total Features: 511,757
+   - Average Complexity: 47.7 coords/feature
+
+7. COMPLEXITY NOTES:
+   High-complexity layers (8 files):
+     - Proposed_Road_Network.geojson: 357 pts/feature
+     - Existing_Road_Railway_Line_Area.geojson: 282 pts/feature
+     - Kambalakonda_WildLife_Sanctuary_Biodiversity_Area.geojson: 246 pts/feature
+     - Kambalakonda_Eco_Sensitive_Zone_NAOB_Buffer_Zoological_Park.geojson: 174 pts/feature
+     - Agricultural_Use_Zone.geojson: 164 pts/feature
+     - Proposed_Industrial_Use_Zone.geojson: 138 pts/feature
+     - Special_Area_Use_Zone.geojson: 116 pts/feature
+     - Water_Body_Buffer.geojson: 108 pts/feature
+
+8. COASTAL CITY CONSIDERATIONS:
+   - Sea/River boundaries may have complex coastlines
+   - Eco-sensitive zones require careful rendering
+   - Wildlife sanctuary needs special attention
+   - Port and coastal infrastructure present
+
+================================================================================
+Analysis Complete!
+================================================================================
+
