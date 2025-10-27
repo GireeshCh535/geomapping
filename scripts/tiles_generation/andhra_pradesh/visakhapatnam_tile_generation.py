@@ -488,15 +488,58 @@ class VisakhapatnamTileGenerator:
 
 
 def main():
-    data_dir = Path('/Users/rohitboni/Downloads/All_files/project/1acre/geomapping_full/geomapping/data/andhra_pradesh/visakhapatnam/master_plan')
+    import sys
+    
+    # Try multiple possible paths
+    possible_paths = [
+        Path('/Users/rohitboni/Downloads/All_files/project/1acre/geomapping_full/geomapping/data/andhra_pradesh/visakhapatnam/master_plan'),
+        Path('/home/gamyam/1acre/geomapping/data/andhra_pradesh/visakhapatnam/master_plan'),
+        Path('./data/andhra_pradesh/visakhapatnam/master_plan'),
+        Path('../../../data/andhra_pradesh/visakhapatnam/master_plan')
+    ]
+    
+    # Find the correct path
+    data_dir = None
+    for path in possible_paths:
+        if path.exists():
+            data_dir = path
+            break
+    
+    # If still not found, ask user
+    if data_dir is None:
+        print("="*80)
+        print("ERROR: Could not find GeoJSON data directory")
+        print("="*80)
+        print("\nTried the following paths:")
+        for path in possible_paths:
+            print(f"  - {path}")
+        print("\nPlease provide the correct path to the master_plan directory:")
+        user_path = input("> ").strip()
+        data_dir = Path(user_path)
+        
+        if not data_dir.exists():
+            print(f"\n✗ Error: Directory does not exist: {data_dir}")
+            sys.exit(1)
+    
     output_dir = Path('./tiles/visakhapatnam')
     
     print("="*80)
     print("VISAKHAPATNAM MASTER PLAN - TILE GENERATOR")
     print("="*80)
+    print(f"\nData directory: {data_dir}")
+    print(f"Output directory: {output_dir}")
     
     generator = VisakhapatnamTileGenerator(data_dir, output_dir)
     generator.load_geojson_files()
+    
+    # Check if any files were loaded
+    if generator.feature_id_counter == 0:
+        print("\n✗ Error: No features loaded. Please check:")
+        print(f"  1. Directory exists: {data_dir}")
+        print(f"  2. Directory contains .geojson files")
+        print(f"  3. Files are readable")
+        sys.exit(1)
+    
     generator.generate_tiles(min_zoom=7, max_zoom=18)
     generator.generate_html_viewer()
     
