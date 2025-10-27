@@ -336,84 +336,100 @@ class Command(BaseCommand):
         
         features_added = 0
         skipped_none_geometry = 0
+        errors_count = 0
         
         for feature_data in features:
             try:
-                # Extract geometry
-                geometry_data = feature_data.get('geometry')
-                if geometry_data is None:
-                    skipped_none_geometry += 1
-                    continue
-                
-                # Handle 3D coordinates by converting to 2D
-                if geometry_data.get('type') in ['LineString', 'MultiLineString', 'Polygon', 'MultiPolygon']:
-                    # Convert 3D coordinates to 2D by removing Z values
-                    if geometry_data.get('type') == 'LineString':
-                        geometry_data['coordinates'] = [[coord[0], coord[1]] for coord in geometry_data['coordinates']]
-                    elif geometry_data.get('type') == 'MultiLineString':
-                        geometry_data['coordinates'] = [[[coord[0], coord[1]] for coord in line] for line in geometry_data['coordinates']]
-                    elif geometry_data.get('type') == 'Polygon':
-                        geometry_data['coordinates'] = [[[coord[0], coord[1]] for coord in ring] for ring in geometry_data['coordinates']]
-                    elif geometry_data.get('type') == 'MultiPolygon':
-                        geometry_data['coordinates'] = [[[[coord[0], coord[1]] for coord in ring] for ring in poly] for poly in geometry_data['coordinates']]
-                
-                # Create geometry
-                geometry = GEOSGeometry(json.dumps(geometry_data))
-                geometry.srid = 4326
-                
-                # Extract attributes
-                attributes = feature_data.get('properties', {})
-                if attributes is None:
-                    attributes = {}
-                
-                # Clean properties to ensure JSON serialization
-                cleaned_properties = {}
-                for key, value in attributes.items():
-                    if value is None:
-                        cleaned_properties[key] = None
-                    elif isinstance(value, (str, int, float, bool)):
-                        cleaned_properties[key] = value
-                    elif isinstance(value, (list, dict)):
-                        try:
-                            json.dumps(value)  # Test if it's JSON serializable
+                # Use savepoint for each feature to prevent one bad feature from breaking all
+                with transaction.atomic():
+                    # Extract geometry
+                    geometry_data = feature_data.get('geometry')
+                    if geometry_data is None:
+                        skipped_none_geometry += 1
+                        continue
+                    
+                    # Handle 3D coordinates by converting to 2D
+                    if geometry_data.get('type') in ['LineString', 'MultiLineString', 'Polygon', 'MultiPolygon']:
+                        # Convert 3D coordinates to 2D by removing Z values
+                        if geometry_data.get('type') == 'LineString':
+                            geometry_data['coordinates'] = [[coord[0], coord[1]] for coord in geometry_data['coordinates']]
+                        elif geometry_data.get('type') == 'MultiLineString':
+                            geometry_data['coordinates'] = [[[coord[0], coord[1]] for coord in line] for line in geometry_data['coordinates']]
+                        elif geometry_data.get('type') == 'Polygon':
+                            geometry_data['coordinates'] = [[[coord[0], coord[1]] for coord in ring] for ring in geometry_data['coordinates']]
+                        elif geometry_data.get('type') == 'MultiPolygon':
+                            geometry_data['coordinates'] = [[[[coord[0], coord[1]] for coord in ring] for ring in poly] for poly in geometry_data['coordinates']]
+                    
+                    # Create geometry
+                    geometry = GEOSGeometry(json.dumps(geometry_data))
+                    geometry.srid = 4326
+                    
+                    # Extract attributes
+                    attributes = feature_data.get('properties', {})
+                    if attributes is None:
+                        attributes = {}
+                    
+                    # Clean properties to ensure JSON serialization
+                    cleaned_properties = {}
+                    for key, value in attributes.items():
+                        if value is None:
+                            cleaned_properties[key] = None
+                        elif isinstance(value, (str, int, float, bool)):
                             cleaned_properties[key] = value
-                        except (TypeError, ValueError):
+                        elif isinstance(value, (list, dict)):
+                            try:
+                                json.dumps(value)  # Test if it's JSON serializable
+                                cleaned_properties[key] = value
+                            except (TypeError, ValueError):
+                                cleaned_properties[key] = str(value)
+                        else:
                             cleaned_properties[key] = str(value)
-                    else:
-                        cleaned_properties[key] = str(value)
-                
-                # Create GeoFeature
-                geo_feature = GeoFeature.objects.create(
-                    layer=self.masterplan_layer,
-                    geometry=geometry,
-                    source_layer_name=geojson_file.stem,
-                    zone_category=category.name,
-                    zone_subcategory=geojson_file.stem,
                     
-                    # Warangal-specific fields
-                    kuda=attributes.get('KUDA', ''),
-                    ex_pr=attributes.get('Ex_PR', ''),
+                    # Handle None values for required fields
+                    kuda_value = attributes.get('KUDA')
+                    if kuda_value is None or (isinstance(kuda_value, str) and kuda_value.strip() == ''):
+                        kuda_value = ''
                     
-                    # Common fields
-                    area=attributes.get('Area') or attributes.get('Shape_Area'),
-                    shape_length=attributes.get('Shape_Length'),
-                    shape_area=attributes.get('Shape_Area'),
-                    objectid=attributes.get('OBJECTID'),
-                    fid=attributes.get('fid'),
+                    ex_pr_value = attributes.get('Ex_PR')
+                    if ex_pr_value is None or (isinstance(ex_pr_value, str) and ex_pr_value.strip() == ''):
+                        ex_pr_value = ''
                     
-                    # Store all original properties
-                    properties=cleaned_properties,
-                    is_valid=True
-                )
-                
-                features_added += 1
+                    # Create GeoFeature
+                    geo_feature = GeoFeature.objects.create(
+                        layer=self.masterplan_layer,
+                        geometry=geometry,
+                        source_layer_name=geojson_file.stem,
+                        zone_category=category.name,
+                        zone_subcategory=geojson_file.stem,
+                        
+                        # Warangal-specific fields (handle None values)
+                        kuda=kuda_value,
+                        ex_pr=ex_pr_value,
+                        
+                        # Common fields
+                        area=attributes.get('Area') or attributes.get('Shape_Area'),
+                        shape_length=attributes.get('Shape_Length'),
+                        shape_area=attributes.get('Shape_Area'),
+                        objectid=attributes.get('OBJECTID'),
+                        fid=attributes.get('fid'),
+                        
+                        # Store all original properties
+                        properties=cleaned_properties,
+                        is_valid=True
+                    )
+                    
+                    features_added += 1
                 
             except Exception as e:
+                errors_count += 1
                 self.stdout.write(f'    ⚠️  Error processing feature in {geojson_file.name}: {str(e)}')
                 continue
         
         if skipped_none_geometry > 0:
             self.stdout.write(f'    ⚠️ Skipped {skipped_none_geometry} features with None geometry')
+        
+        if errors_count > 0:
+            self.stdout.write(f'    ⚠️ Errors encountered: {errors_count} features failed to import')
         
         return features_added
 

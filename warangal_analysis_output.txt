@@ -1,0 +1,1799 @@
+Analyzing GeoJSON files in: /Users/rohitboni/Downloads/All_files/project/1acre/geomapping_full/geomapping/data/Telangana/warangal/master_plan
+================================================================================
+
+Found 22 GeoJSON files:
+
+ 1. Agriculture.geojson
+ 2. AirStrip.geojson
+ 3. Commercial.geojson
+ 4. Forest.geojson
+ 5. Growth Corridor 2.geojson
+ 6. Growth Corridor.geojson
+ 7. Heritage.geojson
+ 8. Hill Buffer.geojson
+ 9. Hillocks.geojson
+10. Industrial.geojson
+11. Mixed Use.geojson
+12. Public Utilities.geojson
+13. Public and Semi-Public.geojson
+14. Railway Land.geojson
+15. Recreational.geojson
+16. Residential.geojson
+17. ResidentialExpansion.geojson
+18. Road Buffer.geojson
+19. Transportation.geojson
+20. Water Bodies Buffer.geojson
+21. Water Bodies.geojson
+22. Zoological Park.geojson
+
+File Size: 16.18 MB
+Loading GeoJSON data...
+
+Basic Information:
+  Type: FeatureCollection
+  Name: Agriculture
+  CRS: urn:ogc:def:crs:OGC:1.3:CRS84
+
+Feature Count: 6,123
+
+Analyzing all 6,123 features...
+  Processed 1,000 features...
+  Processed 2,000 features...
+  Processed 3,000 features...
+  Processed 4,000 features...
+  Processed 5,000 features...
+  Processed 6,000 features...
+
+Geometry Types:
+  MultiPolygon: 6,123 (100.0%)
+
+Total Coordinate Points: 312,061
+Average Points per Feature: 51.0
+
+Properties/Attributes (22 unique):
+  - Area
+  - Area_1
+  - Category
+  - Check_
+  - ELU
+  - Ex_PR
+  - F60MT
+  - KUDA
+  - Layout
+  - MXU
+  - NEW_OLD
+  - Name
+  - OBJECTID
+  - PLU
+  - PLU_Catego
+  - PLU_NAME
+  - Pipe_Line
+  - Shape__Area
+  - Shape__Length
+  - Streems
+  ... and 2 more
+
+Bounding Box:
+  Min Longitude: 79.208354
+  Max Longitude: 79.791665
+  Min Latitude: 17.773909
+  Max Latitude: 18.204369
+  Width: 0.583310 degrees (64.75 km approx)
+  Height: 0.430460 degrees (47.78 km approx)
+  Center: [79.500010, 17.989139]
+
+Tile Ranges for Different Zoom Levels:
+  Zoom 10: X=[  737-  738], Y=[  459-  460] → 2×2 = 4 tiles
+  Zoom 11: X=[ 1474- 1477], Y=[  918-  921] → 4×4 = 16 tiles
+  Zoom 12: X=[ 2949- 2955], Y=[ 1837- 1842] → 7×6 = 42 tiles
+  Zoom 13: X=[ 5898- 5911], Y=[ 3674- 3684] → 14×11 = 154 tiles
+  Zoom 14: X=[11796-11823], Y=[ 7349- 7369] → 28×21 = 588 tiles
+  Zoom 15: X=[23593-23646], Y=[14698-14739] → 54×42 = 2,268 tiles
+  Zoom 16: X=[47187-47293], Y=[29396-29479] → 107×84 = 8,988 tiles
+  Zoom 17: X=[94374-94587], Y=[58793-58958] → 214×166 = 35,524 tiles
+  Zoom 18: X=[188749-189174], Y=[117587-117916] → 426×330 = 140,580 tiles
+
+Sample Feature Properties (first feature):
+  fid: 11251
+  OBJECTID: 11251
+  KUDA:  
+  Area: 1.18397598334e-07
+  PLU: Agriculture
+  ELU:  
+  PLU_Catego:  
+  Ex_PR:  
+  Name:  
+  Category:  
+
+File Size: 0.00 MB
+Loading GeoJSON data...
+
+Basic Information:
+  Type: FeatureCollection
+  Name: AirStrip
+  CRS: urn:ogc:def:crs:OGC:1.3:CRS84
+
+Feature Count: 1
+
+Analyzing all 1 features...
+
+Geometry Types:
+  MultiPolygon: 1 (100.0%)
+
+Total Coordinate Points: 99
+Average Points per Feature: 99.0
+
+Properties/Attributes (22 unique):
+  - Area
+  - Area_1
+  - Category
+  - Check_
+  - ELU
+  - Ex_PR
+  - F60MT
+  - KUDA
+  - Layout
+  - MXU
+  - NEW_OLD
+  - Name
+  - OBJECTID
+  - PLU
+  - PLU_Catego
+  - PLU_NAME
+  - Pipe_Line
+  - Shape__Area
+  - Shape__Length
+  - Streems
+  ... and 2 more
+
+Bounding Box:
+  Min Longitude: 79.596784
+  Max Longitude: 79.617428
+  Min Latitude: 17.900552
+  Max Latitude: 17.932255
+  Width: 0.020644 degrees (2.29 km approx)
+  Height: 0.031702 degrees (3.52 km approx)
+  Center: [79.607106, 17.916403]
+
+Tile Ranges for Different Zoom Levels:
+  Zoom 10: X=[  738-  738], Y=[  460-  460] → 1×1 = 1 tiles
+  Zoom 11: X=[ 1476- 1476], Y=[  920-  920] → 1×1 = 1 tiles
+  Zoom 12: X=[ 2953- 2953], Y=[ 1840- 1840] → 1×1 = 1 tiles
+  Zoom 13: X=[ 5907- 5907], Y=[ 3681- 3681] → 1×1 = 1 tiles
+  Zoom 14: X=[11814-11815], Y=[ 7362- 7363] → 2×2 = 4 tiles
+  Zoom 15: X=[23629-23630], Y=[14724-14727] → 2×4 = 8 tiles
+  Zoom 16: X=[47258-47261], Y=[29448-29454] → 4×7 = 28 tiles
+  Zoom 17: X=[94516-94523], Y=[58897-58909] → 8×13 = 104 tiles
+  Zoom 18: X=[189032-189047], Y=[117795-117819] → 16×25 = 400 tiles
+
+Sample Feature Properties (first feature):
+  fid: 18706
+  OBJECTID: 11739
+  KUDA: KUDA
+  Area: 2.77562794905
+  PLU: Air Strip
+  ELU:  
+  PLU_Catego:  
+  Ex_PR: EX
+  Name: Air Port
+  Category:  
+
+File Size: 0.69 MB
+Loading GeoJSON data...
+
+Basic Information:
+  Type: FeatureCollection
+  Name: Commercial
+  CRS: urn:ogc:def:crs:OGC:1.3:CRS84
+
+Feature Count: 662
+
+Analyzing all 662 features...
+
+Geometry Types:
+  MultiPolygon: 662 (100.0%)
+
+Total Coordinate Points: 8,093
+Average Points per Feature: 12.2
+
+Properties/Attributes (22 unique):
+  - Area
+  - Area_1
+  - Category
+  - Check_
+  - ELU
+  - Ex_PR
+  - F60MT
+  - KUDA
+  - Layout
+  - MXU
+  - NEW_OLD
+  - Name
+  - OBJECTID
+  - PLU
+  - PLU_Catego
+  - PLU_NAME
+  - Pipe_Line
+  - Shape__Area
+  - Shape__Length
+  - Streems
+  ... and 2 more
+
+Bounding Box:
+  Min Longitude: 79.303741
+  Max Longitude: 79.764874
+  Min Latitude: 17.830353
+  Max Latitude: 18.140954
+  Width: 0.461133 degrees (51.19 km approx)
+  Height: 0.310601 degrees (34.48 km approx)
+  Center: [79.534307, 17.985654]
+
+Tile Ranges for Different Zoom Levels:
+  Zoom 10: X=[  737-  738], Y=[  459-  460] → 2×2 = 4 tiles
+  Zoom 11: X=[ 1475- 1477], Y=[  919-  920] → 3×2 = 6 tiles
+  Zoom 12: X=[ 2950- 2955], Y=[ 1838- 1841] → 6×4 = 24 tiles
+  Zoom 13: X=[ 5900- 5911], Y=[ 3676- 3683] → 12×8 = 96 tiles
+  Zoom 14: X=[11801-11822], Y=[ 7352- 7367] → 22×16 = 352 tiles
+  Zoom 15: X=[23602-23644], Y=[14704-14734] → 43×31 = 1,333 tiles
+  Zoom 16: X=[47204-47288], Y=[29408-29468] → 85×61 = 5,185 tiles
+  Zoom 17: X=[94409-94577], Y=[58817-58936] → 169×120 = 20,280 tiles
+  Zoom 18: X=[188819-189155], Y=[117635-117873] → 337×239 = 80,543 tiles
+
+Sample Feature Properties (first feature):
+  fid: 37
+  OBJECTID: 37
+  KUDA: KUDA
+  Area: 0.0283769688363
+  PLU: Commercial
+  ELU:  
+  PLU_Catego:  
+  Ex_PR: PR
+  Name: BPCL
+  Category:  
+
+File Size: 0.06 MB
+Loading GeoJSON data...
+
+Basic Information:
+  Type: FeatureCollection
+  Name: Forest
+  CRS: urn:ogc:def:crs:OGC:1.3:CRS84
+
+Feature Count: 7
+
+Analyzing all 7 features...
+
+Geometry Types:
+  MultiPolygon: 7 (100.0%)
+
+Total Coordinate Points: 1,235
+Average Points per Feature: 176.4
+
+Properties/Attributes (22 unique):
+  - Area
+  - Area_1
+  - Category
+  - Check_
+  - ELU
+  - Ex_PR
+  - F60MT
+  - KUDA
+  - Layout
+  - MXU
+  - NEW_OLD
+  - Name
+  - OBJECTID
+  - PLU
+  - PLU_Catego
+  - PLU_NAME
+  - Pipe_Line
+  - Shape__Area
+  - Shape__Length
+  - Streems
+  ... and 2 more
+
+Bounding Box:
+  Min Longitude: 79.232446
+  Max Longitude: 79.407287
+  Min Latitude: 17.835767
+  Max Latitude: 18.063282
+  Width: 0.174842 degrees (19.41 km approx)
+  Height: 0.227515 degrees (25.25 km approx)
+  Center: [79.319867, 17.949524]
+
+Tile Ranges for Different Zoom Levels:
+  Zoom 10: X=[  737-  737], Y=[  459-  460] → 1×2 = 2 tiles
+  Zoom 11: X=[ 1474- 1475], Y=[  919-  920] → 2×2 = 4 tiles
+  Zoom 12: X=[ 2949- 2951], Y=[ 1838- 1841] → 3×4 = 12 tiles
+  Zoom 13: X=[ 5898- 5902], Y=[ 3677- 3683] → 5×7 = 35 tiles
+  Zoom 14: X=[11797-11805], Y=[ 7355- 7366] → 9×12 = 108 tiles
+  Zoom 15: X=[23595-23611], Y=[14711-14733] → 17×23 = 391 tiles
+  Zoom 16: X=[47191-47223], Y=[29423-29467] → 33×45 = 1,485 tiles
+  Zoom 17: X=[94383-94447], Y=[58847-58934] → 65×88 = 5,720 tiles
+  Zoom 18: X=[188767-188894], Y=[117695-117869] → 128×175 = 22,400 tiles
+
+Sample Feature Properties (first feature):
+  fid: 29878
+  OBJECTID: 29878
+  KUDA: KUDA
+  Area: 9.99466390987
+  PLU: Forest
+  ELU:  
+  PLU_Catego:  
+  Ex_PR:  
+  Name:  
+  Category:  
+
+File Size: 0.34 MB
+Loading GeoJSON data...
+
+Basic Information:
+  Type: FeatureCollection
+  Name: Growth Corridor 2
+  CRS: urn:ogc:def:crs:OGC:1.3:CRS84
+
+Feature Count: 71
+
+Analyzing all 71 features...
+
+Geometry Types:
+  MultiPolygon: 71 (100.0%)
+
+Total Coordinate Points: 7,231
+Average Points per Feature: 101.8
+
+Properties/Attributes (22 unique):
+  - Area
+  - Area_1
+  - Category
+  - Check_
+  - ELU
+  - Ex_PR
+  - F60MT
+  - KUDA
+  - Layout
+  - MXU
+  - NEW_OLD
+  - Name
+  - OBJECTID
+  - PLU
+  - PLU_Catego
+  - PLU_NAME
+  - Pipe_Line
+  - Shape__Area
+  - Shape__Length
+  - Streems
+  ... and 2 more
+
+Bounding Box:
+  Min Longitude: 79.468034
+  Max Longitude: 79.643133
+  Min Latitude: 17.972390
+  Max Latitude: 18.033369
+  Width: 0.175099 degrees (19.44 km approx)
+  Height: 0.060979 degrees (6.77 km approx)
+  Center: [79.555583, 18.002880]
+
+Tile Ranges for Different Zoom Levels:
+  Zoom 10: X=[  738-  738], Y=[  459-  460] → 1×2 = 2 tiles
+  Zoom 11: X=[ 1476- 1477], Y=[  919-  920] → 2×2 = 4 tiles
+  Zoom 12: X=[ 2952- 2954], Y=[ 1839- 1840] → 3×2 = 6 tiles
+  Zoom 13: X=[ 5904- 5908], Y=[ 3678- 3680] → 5×3 = 15 tiles
+  Zoom 14: X=[11808-11816], Y=[ 7357- 7360] → 9×4 = 36 tiles
+  Zoom 15: X=[23617-23633], Y=[14714-14720] → 17×7 = 119 tiles
+  Zoom 16: X=[47234-47266], Y=[29429-29441] → 33×13 = 429 tiles
+  Zoom 17: X=[94469-94533], Y=[58859-58882] → 65×24 = 1,560 tiles
+  Zoom 18: X=[188938-189066], Y=[117718-117764] → 129×47 = 6,063 tiles
+
+Sample Feature Properties (first feature):
+  fid: 253
+  OBJECTID: 253
+  KUDA: KUDA
+  Area: 0.161483260043
+  PLU: Growth Corridor 2
+  ELU:  
+  PLU_Catego:  
+  Ex_PR:  
+  Name: 5
+  Category:  
+
+File Size: 8.86 MB
+Loading GeoJSON data...
+
+Basic Information:
+  Type: FeatureCollection
+  Name: Growth Corridor
+  CRS: urn:ogc:def:crs:OGC:1.3:CRS84
+
+Feature Count: 2,867
+
+Analyzing all 2,867 features...
+  Processed 1,000 features...
+  Processed 2,000 features...
+
+Geometry Types:
+  MultiPolygon: 2,867 (100.0%)
+
+Total Coordinate Points: 175,896
+Average Points per Feature: 61.4
+
+Properties/Attributes (22 unique):
+  - Area
+  - Area_1
+  - Category
+  - Check_
+  - ELU
+  - Ex_PR
+  - F60MT
+  - KUDA
+  - Layout
+  - MXU
+  - NEW_OLD
+  - Name
+  - OBJECTID
+  - PLU
+  - PLU_Catego
+  - PLU_NAME
+  - Pipe_Line
+  - Shape__Area
+  - Shape__Length
+  - Streems
+  ... and 2 more
+
+Bounding Box:
+  Min Longitude: 79.314125
+  Max Longitude: 79.788662
+  Min Latitude: 17.799819
+  Max Latitude: 18.169490
+  Width: 0.474537 degrees (52.67 km approx)
+  Height: 0.369671 degrees (41.03 km approx)
+  Center: [79.551394, 17.984654]
+
+Tile Ranges for Different Zoom Levels:
+  Zoom 10: X=[  737-  738], Y=[  459-  460] → 2×2 = 4 tiles
+  Zoom 11: X=[ 1475- 1477], Y=[  918-  921] → 3×4 = 12 tiles
+  Zoom 12: X=[ 2950- 2955], Y=[ 1837- 1842] → 6×6 = 36 tiles
+  Zoom 13: X=[ 5900- 5911], Y=[ 3675- 3684] → 12×10 = 120 tiles
+  Zoom 14: X=[11801-11823], Y=[ 7350- 7368] → 23×19 = 437 tiles
+  Zoom 15: X=[23603-23646], Y=[14701-14737] → 44×37 = 1,628 tiles
+  Zoom 16: X=[47206-47293], Y=[29403-29474] → 88×72 = 6,336 tiles
+  Zoom 17: X=[94413-94586], Y=[58806-58948] → 174×143 = 24,882 tiles
+  Zoom 18: X=[188826-189172], Y=[117613-117896] → 347×284 = 98,548 tiles
+
+Sample Feature Properties (first feature):
+  fid: 1
+  OBJECTID: 1
+  KUDA: KUDA
+  Area: 0.0421825649927
+  PLU: Growth Corridor
+  ELU:  
+  PLU_Catego:  
+  Ex_PR:  
+  Name:  
+  Category:  
+
+File Size: 0.55 MB
+Loading GeoJSON data...
+
+Basic Information:
+  Type: FeatureCollection
+  Name: Heritage
+  CRS: urn:ogc:def:crs:OGC:1.3:CRS84
+
+Feature Count: 234
+
+Analyzing all 234 features...
+
+Geometry Types:
+  MultiPolygon: 234 (100.0%)
+
+Total Coordinate Points: 10,098
+Average Points per Feature: 43.2
+
+Properties/Attributes (22 unique):
+  - Area
+  - Area_1
+  - Category
+  - Check_
+  - ELU
+  - Ex_PR
+  - F60MT
+  - KUDA
+  - Layout
+  - MXU
+  - NEW_OLD
+  - Name
+  - OBJECTID
+  - PLU
+  - PLU_Catego
+  - PLU_NAME
+  - Pipe_Line
+  - Shape__Area
+  - Shape__Length
+  - Streems
+  ... and 2 more
+
+Bounding Box:
+  Min Longitude: 79.288195
+  Max Longitude: 79.629997
+  Min Latitude: 17.865436
+  Max Latitude: 18.032284
+  Width: 0.341802 degrees (37.94 km approx)
+  Height: 0.166849 degrees (18.52 km approx)
+  Center: [79.459096, 17.948860]
+
+Tile Ranges for Different Zoom Levels:
+  Zoom 10: X=[  737-  738], Y=[  459-  460] → 2×2 = 4 tiles
+  Zoom 11: X=[ 1475- 1477], Y=[  919-  920] → 3×2 = 6 tiles
+  Zoom 12: X=[ 2950- 2954], Y=[ 1839- 1841] → 5×3 = 15 tiles
+  Zoom 13: X=[ 5900- 5908], Y=[ 3678- 3682] → 9×5 = 45 tiles
+  Zoom 14: X=[11800-11816], Y=[ 7357- 7365] → 17×9 = 153 tiles
+  Zoom 15: X=[23600-23632], Y=[14714-14730] → 33×17 = 561 tiles
+  Zoom 16: X=[47201-47264], Y=[29429-29461] → 64×33 = 2,112 tiles
+  Zoom 17: X=[94403-94528], Y=[58859-58923] → 126×65 = 8,190 tiles
+  Zoom 18: X=[188807-189056], Y=[117718-117846] → 250×129 = 32,250 tiles
+
+Sample Feature Properties (first feature):
+  fid: 373
+  OBJECTID: 373
+  KUDA: KUDA
+  Area: 0.0047581046786
+  PLU: Heritage
+  ELU:  
+  PLU_Catego:  
+  Ex_PR:  
+  Name:  
+  Category:  
+
+File Size: 3.40 MB
+Loading GeoJSON data...
+
+Basic Information:
+  Type: FeatureCollection
+  Name: Hill Buffer
+  CRS: urn:ogc:def:crs:OGC:1.3:CRS84
+
+Feature Count: 498
+
+Analyzing all 498 features...
+
+Geometry Types:
+  MultiPolygon: 498 (100.0%)
+
+Total Coordinate Points: 75,289
+Average Points per Feature: 151.2
+
+Properties/Attributes (22 unique):
+  - Area
+  - Area_1
+  - Category
+  - Check_
+  - ELU
+  - Ex_PR
+  - F60MT
+  - KUDA
+  - Layout
+  - MXU
+  - NEW_OLD
+  - Name
+  - OBJECTID
+  - PLU
+  - PLU_Catego
+  - PLU_NAME
+  - Pipe_Line
+  - Shape__Area
+  - Shape__Length
+  - Streems
+  ... and 2 more
+
+Bounding Box:
+  Min Longitude: 79.220406
+  Max Longitude: 79.788952
+  Min Latitude: 17.777723
+  Max Latitude: 18.150227
+  Width: 0.568547 degrees (63.11 km approx)
+  Height: 0.372504 degrees (41.35 km approx)
+  Center: [79.504679, 17.963975]
+
+Tile Ranges for Different Zoom Levels:
+  Zoom 10: X=[  737-  738], Y=[  459-  460] → 2×2 = 4 tiles
+  Zoom 11: X=[ 1474- 1477], Y=[  918-  921] → 4×4 = 16 tiles
+  Zoom 12: X=[ 2949- 2955], Y=[ 1837- 1842] → 7×6 = 42 tiles
+  Zoom 13: X=[ 5898- 5911], Y=[ 3675- 3684] → 14×10 = 140 tiles
+  Zoom 14: X=[11797-11823], Y=[ 7351- 7369] → 27×19 = 513 tiles
+  Zoom 15: X=[23594-23646], Y=[14703-14739] → 53×37 = 1,961 tiles
+  Zoom 16: X=[47189-47293], Y=[29407-29478] → 105×72 = 7,560 tiles
+  Zoom 17: X=[94379-94586], Y=[58814-58956] → 208×143 = 29,744 tiles
+  Zoom 18: X=[188758-189172], Y=[117628-117913] → 415×286 = 118,690 tiles
+
+Sample Feature Properties (first feature):
+  fid: 12447
+  OBJECTID: 12447
+  KUDA: KUDA
+  Area: 0.000106155221982
+  PLU: Hill Buffer
+  ELU:  
+  PLU_Catego: Mixed Use Buffer
+  Ex_PR:  
+  Name: 4
+  Category:  
+
+File Size: 2.31 MB
+Loading GeoJSON data...
+
+Basic Information:
+  Type: FeatureCollection
+  Name: Hillocks
+  CRS: urn:ogc:def:crs:OGC:1.3:CRS84
+
+Feature Count: 785
+
+Analyzing all 785 features...
+
+Geometry Types:
+  MultiPolygon: 785 (100.0%)
+
+Total Coordinate Points: 45,036
+Average Points per Feature: 57.4
+
+Properties/Attributes (22 unique):
+  - Area
+  - Area_1
+  - Category
+  - Check_
+  - ELU
+  - Ex_PR
+  - F60MT
+  - KUDA
+  - Layout
+  - MXU
+  - NEW_OLD
+  - Name
+  - OBJECTID
+  - PLU
+  - PLU_Catego
+  - PLU_NAME
+  - Pipe_Line
+  - Shape__Area
+  - Shape__Length
+  - Streems
+  ... and 2 more
+
+Bounding Box:
+  Min Longitude: 79.220689
+  Max Longitude: 79.788669
+  Min Latitude: 17.777587
+  Max Latitude: 18.169370
+  Width: 0.567980 degrees (63.05 km approx)
+  Height: 0.391783 degrees (43.49 km approx)
+  Center: [79.504679, 17.973478]
+
+Tile Ranges for Different Zoom Levels:
+  Zoom 10: X=[  737-  738], Y=[  459-  460] → 2×2 = 4 tiles
+  Zoom 11: X=[ 1474- 1477], Y=[  918-  921] → 4×4 = 16 tiles
+  Zoom 12: X=[ 2949- 2955], Y=[ 1837- 1842] → 7×6 = 42 tiles
+  Zoom 13: X=[ 5898- 5911], Y=[ 3675- 3684] → 14×10 = 140 tiles
+  Zoom 14: X=[11797-11823], Y=[ 7350- 7369] → 27×20 = 540 tiles
+  Zoom 15: X=[23594-23646], Y=[14701-14739] → 53×39 = 2,067 tiles
+  Zoom 16: X=[47189-47293], Y=[29403-29478] → 105×76 = 7,980 tiles
+  Zoom 17: X=[94379-94586], Y=[58806-58956] → 208×151 = 31,408 tiles
+  Zoom 18: X=[188758-189172], Y=[117613-117913] → 415×301 = 124,915 tiles
+
+Sample Feature Properties (first feature):
+  fid: 9827
+  OBJECTID: 9827
+  KUDA:  
+  Area: 0.0214412781666
+  PLU: Hillocks
+  ELU:  
+  PLU_Catego:  
+  Ex_PR: EX
+  Name:  
+  Category: Hills/Quarry/Mining
+
+File Size: 1.10 MB
+Loading GeoJSON data...
+
+Basic Information:
+  Type: FeatureCollection
+  Name: Industrial
+  CRS: urn:ogc:def:crs:OGC:1.3:CRS84
+
+Feature Count: 514
+
+Analyzing all 514 features...
+
+Geometry Types:
+  MultiPolygon: 514 (100.0%)
+
+Total Coordinate Points: 19,910
+Average Points per Feature: 38.7
+
+Properties/Attributes (22 unique):
+  - Area
+  - Area_1
+  - Category
+  - Check_
+  - ELU
+  - Ex_PR
+  - F60MT
+  - KUDA
+  - Layout
+  - MXU
+  - NEW_OLD
+  - Name
+  - OBJECTID
+  - PLU
+  - PLU_Catego
+  - PLU_NAME
+  - Pipe_Line
+  - Shape__Area
+  - Shape__Length
+  - Streems
+  ... and 2 more
+
+Bounding Box:
+  Min Longitude: 79.294764
+  Max Longitude: 79.762901
+  Min Latitude: 17.798388
+  Max Latitude: 18.185127
+  Width: 0.468138 degrees (51.96 km approx)
+  Height: 0.386739 degrees (42.93 km approx)
+  Center: [79.528832, 17.991758]
+
+Tile Ranges for Different Zoom Levels:
+  Zoom 10: X=[  737-  738], Y=[  459-  460] → 2×2 = 4 tiles
+  Zoom 11: X=[ 1475- 1477], Y=[  918-  921] → 3×4 = 12 tiles
+  Zoom 12: X=[ 2950- 2955], Y=[ 1837- 1842] → 6×6 = 36 tiles
+  Zoom 13: X=[ 5900- 5911], Y=[ 3675- 3684] → 12×10 = 120 tiles
+  Zoom 14: X=[11800-11822], Y=[ 7350- 7368] → 23×19 = 437 tiles
+  Zoom 15: X=[23601-23644], Y=[14700-14737] → 44×38 = 1,672 tiles
+  Zoom 16: X=[47203-47288], Y=[29400-29474] → 86×75 = 6,450 tiles
+  Zoom 17: X=[94406-94576], Y=[58800-58948] → 171×149 = 25,479 tiles
+  Zoom 18: X=[188812-189153], Y=[117601-117897] → 342×297 = 101,574 tiles
+
+Sample Feature Properties (first feature):
+  fid: 116
+  OBJECTID: 116
+  KUDA: KUDA
+  Area: 0.206987263719
+  PLU: Industrial
+  ELU:  
+  PLU_Catego:  
+  Ex_PR:  
+  Name:  
+  Category:  
+
+File Size: 14.37 MB
+Loading GeoJSON data...
+
+Basic Information:
+  Type: FeatureCollection
+  Name: Mixed Use
+  CRS: urn:ogc:def:crs:OGC:1.3:CRS84
+
+Feature Count: 6,077
+
+Analyzing all 6,077 features...
+  Processed 1,000 features...
+  Processed 2,000 features...
+  Processed 3,000 features...
+  Processed 4,000 features...
+  Processed 5,000 features...
+  Processed 6,000 features...
+
+Geometry Types:
+  MultiPolygon: 6,077 (100.0%)
+
+Total Coordinate Points: 268,673
+Average Points per Feature: 44.2
+
+Properties/Attributes (22 unique):
+  - Area
+  - Area_1
+  - Category
+  - Check_
+  - ELU
+  - Ex_PR
+  - F60MT
+  - KUDA
+  - Layout
+  - MXU
+  - NEW_OLD
+  - Name
+  - OBJECTID
+  - PLU
+  - PLU_Catego
+  - PLU_NAME
+  - Pipe_Line
+  - Shape__Area
+  - Shape__Length
+  - Streems
+  ... and 2 more
+
+Bounding Box:
+  Min Longitude: 79.209600
+  Max Longitude: 79.765100
+  Min Latitude: 17.796145
+  Max Latitude: 18.189834
+  Width: 0.555500 degrees (61.66 km approx)
+  Height: 0.393689 degrees (43.70 km approx)
+  Center: [79.487350, 17.992990]
+
+Tile Ranges for Different Zoom Levels:
+  Zoom 10: X=[  737-  738], Y=[  459-  460] → 2×2 = 4 tiles
+  Zoom 11: X=[ 1474- 1477], Y=[  918-  921] → 4×4 = 16 tiles
+  Zoom 12: X=[ 2949- 2955], Y=[ 1837- 1842] → 7×6 = 42 tiles
+  Zoom 13: X=[ 5898- 5911], Y=[ 3674- 3684] → 14×11 = 154 tiles
+  Zoom 14: X=[11796-11822], Y=[ 7349- 7368] → 27×20 = 540 tiles
+  Zoom 15: X=[23593-23644], Y=[14699-14737] → 52×39 = 2,028 tiles
+  Zoom 16: X=[47187-47288], Y=[29399-29474] → 102×76 = 7,752 tiles
+  Zoom 17: X=[94375-94577], Y=[58799-58949] → 203×151 = 30,653 tiles
+  Zoom 18: X=[188750-189155], Y=[117598-117899] → 406×302 = 122,612 tiles
+
+Sample Feature Properties (first feature):
+  fid: 35
+  OBJECTID: 35
+  KUDA: KUDA
+  Area: 0.0630671761363
+  PLU: Mixed Use
+  ELU:  
+  PLU_Catego:  
+  Ex_PR:  
+  Name:  
+  Category:  
+
+File Size: 0.27 MB
+Loading GeoJSON data...
+
+Basic Information:
+  Type: FeatureCollection
+  Name: Public Utilities
+  CRS: urn:ogc:def:crs:OGC:1.3:CRS84
+
+Feature Count: 237
+
+Analyzing all 237 features...
+
+Geometry Types:
+  MultiPolygon: 237 (100.0%)
+
+Total Coordinate Points: 3,312
+Average Points per Feature: 14.0
+
+Properties/Attributes (22 unique):
+  - Area
+  - Area_1
+  - Category
+  - Check_
+  - ELU
+  - Ex_PR
+  - F60MT
+  - KUDA
+  - Layout
+  - MXU
+  - NEW_OLD
+  - Name
+  - OBJECTID
+  - PLU
+  - PLU_Catego
+  - PLU_NAME
+  - Pipe_Line
+  - Shape__Area
+  - Shape__Length
+  - Streems
+  ... and 2 more
+
+Bounding Box:
+  Min Longitude: 79.256544
+  Max Longitude: 79.780598
+  Min Latitude: 17.811972
+  Max Latitude: 18.176214
+  Width: 0.524054 degrees (58.17 km approx)
+  Height: 0.364241 degrees (40.43 km approx)
+  Center: [79.518571, 17.994093]
+
+Tile Ranges for Different Zoom Levels:
+  Zoom 10: X=[  737-  738], Y=[  459-  460] → 2×2 = 4 tiles
+  Zoom 11: X=[ 1474- 1477], Y=[  918-  920] → 4×3 = 12 tiles
+  Zoom 12: X=[ 2949- 2955], Y=[ 1837- 1841] → 7×5 = 35 tiles
+  Zoom 13: X=[ 5899- 5911], Y=[ 3675- 3683] → 13×9 = 117 tiles
+  Zoom 14: X=[11799-11822], Y=[ 7350- 7367] → 24×18 = 432 tiles
+  Zoom 15: X=[23598-23645], Y=[14701-14735] → 48×35 = 1,680 tiles
+  Zoom 16: X=[47196-47291], Y=[29402-29471] → 96×70 = 6,720 tiles
+  Zoom 17: X=[94392-94583], Y=[58804-58943] → 192×140 = 26,880 tiles
+  Zoom 18: X=[188784-189166], Y=[117608-117887] → 383×280 = 107,240 tiles
+
+Sample Feature Properties (first feature):
+  fid: 230
+  OBJECTID: 230
+  KUDA: KUDA
+  Area: 0.0289123968509
+  PLU: Public Utilities
+  ELU:  
+  PLU_Catego:  
+  Ex_PR: EX
+  Name: WTP
+  Category:  
+
+File Size: 3.04 MB
+Loading GeoJSON data...
+
+Basic Information:
+  Type: FeatureCollection
+  Name: Public and Semi-Public
+  CRS: urn:ogc:def:crs:OGC:1.3:CRS84
+
+Feature Count: 1,760
+
+Analyzing all 1,760 features...
+  Processed 1,000 features...
+
+Geometry Types:
+  MultiPolygon: 1,760 (100.0%)
+
+Total Coordinate Points: 49,610
+Average Points per Feature: 28.2
+
+Properties/Attributes (22 unique):
+  - Area
+  - Area_1
+  - Category
+  - Check_
+  - ELU
+  - Ex_PR
+  - F60MT
+  - KUDA
+  - Layout
+  - MXU
+  - NEW_OLD
+  - Name
+  - OBJECTID
+  - PLU
+  - PLU_Catego
+  - PLU_NAME
+  - Pipe_Line
+  - Shape__Area
+  - Shape__Length
+  - Streems
+  ... and 2 more
+
+Bounding Box:
+  Min Longitude: 79.219800
+  Max Longitude: 79.776440
+  Min Latitude: 17.795870
+  Max Latitude: 18.183675
+  Width: 0.556640 degrees (61.79 km approx)
+  Height: 0.387805 degrees (43.05 km approx)
+  Center: [79.498120, 17.989773]
+
+Tile Ranges for Different Zoom Levels:
+  Zoom 10: X=[  737-  738], Y=[  459-  460] → 2×2 = 4 tiles
+  Zoom 11: X=[ 1474- 1477], Y=[  918-  921] → 4×4 = 16 tiles
+  Zoom 12: X=[ 2949- 2955], Y=[ 1837- 1842] → 7×6 = 42 tiles
+  Zoom 13: X=[ 5898- 5911], Y=[ 3675- 3684] → 14×10 = 140 tiles
+  Zoom 14: X=[11797-11822], Y=[ 7350- 7368] → 26×19 = 494 tiles
+  Zoom 15: X=[23594-23645], Y=[14700-14737] → 52×38 = 1,976 tiles
+  Zoom 16: X=[47189-47290], Y=[29400-29474] → 102×75 = 7,650 tiles
+  Zoom 17: X=[94379-94581], Y=[58801-58949] → 203×149 = 30,247 tiles
+  Zoom 18: X=[188758-189163], Y=[117603-117899] → 406×297 = 120,582 tiles
+
+Sample Feature Properties (first feature):
+  fid: 59
+  OBJECTID: 59
+  KUDA: KUDA
+  Area: 0.753626329825
+  PLU: Public & Semi-Public
+  ELU:  
+  PLU_Catego:  
+  Ex_PR: PR
+  Name:  
+  Category:  
+
+File Size: 1.12 MB
+Loading GeoJSON data...
+
+Basic Information:
+  Type: FeatureCollection
+  Name: Railway Land
+  CRS: urn:ogc:def:crs:OGC:1.3:CRS84
+
+Feature Count: 229
+
+Analyzing all 229 features...
+
+Geometry Types:
+  MultiPolygon: 229 (100.0%)
+
+Total Coordinate Points: 23,895
+Average Points per Feature: 104.3
+
+Properties/Attributes (22 unique):
+  - Area
+  - Area_1
+  - Category
+  - Check_
+  - ELU
+  - Ex_PR
+  - F60MT
+  - KUDA
+  - Layout
+  - MXU
+  - NEW_OLD
+  - Name
+  - OBJECTID
+  - PLU
+  - PLU_Catego
+  - PLU_NAME
+  - Pipe_Line
+  - Shape__Area
+  - Shape__Length
+  - Streems
+  ... and 2 more
+
+Bounding Box:
+  Min Longitude: 79.325884
+  Max Longitude: 79.758639
+  Min Latitude: 17.800450
+  Max Latitude: 18.201745
+  Width: 0.432754 degrees (48.04 km approx)
+  Height: 0.401295 degrees (44.54 km approx)
+  Center: [79.542261, 18.001098]
+
+Tile Ranges for Different Zoom Levels:
+  Zoom 10: X=[  737-  738], Y=[  459-  460] → 2×2 = 4 tiles
+  Zoom 11: X=[ 1475- 1477], Y=[  918-  921] → 3×4 = 12 tiles
+  Zoom 12: X=[ 2950- 2955], Y=[ 1837- 1842] → 6×6 = 36 tiles
+  Zoom 13: X=[ 5901- 5910], Y=[ 3674- 3684] → 10×11 = 110 tiles
+  Zoom 14: X=[11802-11821], Y=[ 7349- 7368] → 20×20 = 400 tiles
+  Zoom 15: X=[23604-23643], Y=[14698-14737] → 40×40 = 1,600 tiles
+  Zoom 16: X=[47208-47287], Y=[29397-29474] → 80×78 = 6,240 tiles
+  Zoom 17: X=[94417-94575], Y=[58794-58948] → 159×155 = 24,645 tiles
+  Zoom 18: X=[188835-189150], Y=[117589-117896] → 316×308 = 97,328 tiles
+
+Sample Feature Properties (first feature):
+  fid: 11656
+  OBJECTID: 11656
+  KUDA:  
+  Area: 0.00167264516745
+  PLU: Railway Land
+  ELU:  
+  PLU_Catego:  
+  Ex_PR: EX
+  Name:  
+  Category: Transportation
+
+File Size: 2.91 MB
+Loading GeoJSON data...
+
+Basic Information:
+  Type: FeatureCollection
+  Name: Recreational
+  CRS: urn:ogc:def:crs:OGC:1.3:CRS84
+
+Feature Count: 1,018
+
+Analyzing all 1,018 features...
+  Processed 1,000 features...
+
+Geometry Types:
+  MultiPolygon: 1,018 (100.0%)
+
+Total Coordinate Points: 56,864
+Average Points per Feature: 55.9
+
+Properties/Attributes (22 unique):
+  - Area
+  - Area_1
+  - Category
+  - Check_
+  - ELU
+  - Ex_PR
+  - F60MT
+  - KUDA
+  - Layout
+  - MXU
+  - NEW_OLD
+  - Name
+  - OBJECTID
+  - PLU
+  - PLU_Catego
+  - PLU_NAME
+  - Pipe_Line
+  - Shape__Area
+  - Shape__Length
+  - Streems
+  ... and 2 more
+
+Bounding Box:
+  Min Longitude: 79.340817
+  Max Longitude: 79.710918
+  Min Latitude: 17.824561
+  Max Latitude: 18.159559
+  Width: 0.370101 degrees (41.08 km approx)
+  Height: 0.334997 degrees (37.18 km approx)
+  Center: [79.525867, 17.992060]
+
+Tile Ranges for Different Zoom Levels:
+  Zoom 10: X=[  737-  738], Y=[  459-  460] → 2×2 = 4 tiles
+  Zoom 11: X=[ 1475- 1477], Y=[  918-  920] → 3×3 = 9 tiles
+  Zoom 12: X=[ 2950- 2954], Y=[ 1837- 1841] → 5×5 = 25 tiles
+  Zoom 13: X=[ 5901- 5909], Y=[ 3675- 3683] → 9×9 = 81 tiles
+  Zoom 14: X=[11802-11819], Y=[ 7351- 7367] → 18×17 = 306 tiles
+  Zoom 15: X=[23605-23639], Y=[14702-14734] → 35×33 = 1,155 tiles
+  Zoom 16: X=[47211-47278], Y=[29405-29469] → 68×65 = 4,420 tiles
+  Zoom 17: X=[94423-94557], Y=[58810-58938] → 135×129 = 17,415 tiles
+  Zoom 18: X=[188846-189115], Y=[117621-117877] → 270×257 = 69,390 tiles
+
+Sample Feature Properties (first feature):
+  fid: 70
+  OBJECTID: 70
+  KUDA: KUDA
+  Area: 0.839182728751
+  PLU: Recreational
+  ELU:  
+  PLU_Catego:  
+  Ex_PR:  
+  Name:  
+  Category:  
+
+File Size: 36.77 MB
+Loading GeoJSON data...
+
+Basic Information:
+  Type: FeatureCollection
+  Name: Residential
+  CRS: urn:ogc:def:crs:OGC:1.3:CRS84
+
+Feature Count: 12,551
+
+Analyzing all 12,551 features...
+  Processed 1,000 features...
+  Processed 2,000 features...
+  Processed 3,000 features...
+  Processed 4,000 features...
+  Processed 5,000 features...
+  Processed 6,000 features...
+  Processed 7,000 features...
+  Processed 8,000 features...
+  Processed 9,000 features...
+  Processed 10,000 features...
+  Processed 11,000 features...
+  Processed 12,000 features...
+
+Geometry Types:
+  MultiPolygon: 12,551 (100.0%)
+
+Total Coordinate Points: 721,078
+Average Points per Feature: 57.5
+
+Properties/Attributes (22 unique):
+  - Area
+  - Area_1
+  - Category
+  - Check_
+  - ELU
+  - Ex_PR
+  - F60MT
+  - KUDA
+  - Layout
+  - MXU
+  - NEW_OLD
+  - Name
+  - OBJECTID
+  - PLU
+  - PLU_Catego
+  - PLU_NAME
+  - Pipe_Line
+  - Shape__Area
+  - Shape__Length
+  - Streems
+  ... and 2 more
+
+Bounding Box:
+  Min Longitude: 79.212766
+  Max Longitude: 79.782808
+  Min Latitude: 17.781436
+  Max Latitude: 18.192687
+  Width: 0.570042 degrees (63.27 km approx)
+  Height: 0.411251 degrees (45.65 km approx)
+  Center: [79.497787, 17.987061]
+
+Tile Ranges for Different Zoom Levels:
+  Zoom 10: X=[  737-  738], Y=[  459-  460] → 2×2 = 4 tiles
+  Zoom 11: X=[ 1474- 1477], Y=[  918-  921] → 4×4 = 16 tiles
+  Zoom 12: X=[ 2949- 2955], Y=[ 1837- 1842] → 7×6 = 42 tiles
+  Zoom 13: X=[ 5898- 5911], Y=[ 3674- 3684] → 14×11 = 154 tiles
+  Zoom 14: X=[11797-11823], Y=[ 7349- 7369] → 27×21 = 567 tiles
+  Zoom 15: X=[23594-23646], Y=[14699-14738] → 53×40 = 2,120 tiles
+  Zoom 16: X=[47188-47292], Y=[29399-29477] → 105×79 = 8,295 tiles
+  Zoom 17: X=[94376-94584], Y=[58798-58955] → 209×158 = 33,022 tiles
+  Zoom 18: X=[188752-189168], Y=[117596-117910] → 417×315 = 131,355 tiles
+
+Sample Feature Properties (first feature):
+  fid: 20
+  OBJECTID: 20
+  KUDA: KUDA
+  Area: 0.0189977559195
+  PLU: Residential
+  ELU:  
+  PLU_Catego:  
+  Ex_PR:  
+  Name:  
+  Category:  
+
+File Size: 8.27 MB
+Loading GeoJSON data...
+
+Basic Information:
+  Type: FeatureCollection
+  Name: ResidentialExpansion
+  CRS: urn:ogc:def:crs:OGC:1.3:CRS84
+
+Feature Count: 2,288
+
+Analyzing all 2,288 features...
+  Processed 1,000 features...
+  Processed 2,000 features...
+
+Geometry Types:
+  MultiPolygon: 2,288 (100.0%)
+
+Total Coordinate Points: 169,021
+Average Points per Feature: 73.9
+
+Properties/Attributes (22 unique):
+  - Area
+  - Area_1
+  - Category
+  - Check_
+  - ELU
+  - Ex_PR
+  - F60MT
+  - KUDA
+  - Layout
+  - MXU
+  - NEW_OLD
+  - Name
+  - OBJECTID
+  - PLU
+  - PLU_Catego
+  - PLU_NAME
+  - Pipe_Line
+  - Shape__Area
+  - Shape__Length
+  - Streems
+  ... and 2 more
+
+Bounding Box:
+  Min Longitude: 79.209180
+  Max Longitude: 79.785222
+  Min Latitude: 17.779150
+  Max Latitude: 18.194786
+  Width: 0.576042 degrees (63.94 km approx)
+  Height: 0.415637 degrees (46.14 km approx)
+  Center: [79.497201, 17.986968]
+
+Tile Ranges for Different Zoom Levels:
+  Zoom 10: X=[  737-  738], Y=[  459-  460] → 2×2 = 4 tiles
+  Zoom 11: X=[ 1474- 1477], Y=[  918-  921] → 4×4 = 16 tiles
+  Zoom 12: X=[ 2949- 2955], Y=[ 1837- 1842] → 7×6 = 42 tiles
+  Zoom 13: X=[ 5898- 5911], Y=[ 3674- 3684] → 14×11 = 154 tiles
+  Zoom 14: X=[11796-11823], Y=[ 7349- 7369] → 28×21 = 588 tiles
+  Zoom 15: X=[23593-23646], Y=[14699-14739] → 54×41 = 2,214 tiles
+  Zoom 16: X=[47187-47292], Y=[29398-29478] → 106×81 = 8,586 tiles
+  Zoom 17: X=[94375-94584], Y=[58797-58956] → 210×160 = 33,600 tiles
+  Zoom 18: X=[188750-189169], Y=[117594-117912] → 420×319 = 133,980 tiles
+
+Sample Feature Properties (first feature):
+  fid: 23522
+  OBJECTID: 23522
+  KUDA:  
+  Area: 0.0065103175434
+  PLU: Residential Expansion
+  ELU:  
+  PLU_Catego: 45 mts Mixed Buffer
+  Ex_PR:  
+  Name:  
+  Category:  
+
+File Size: 8.14 MB
+Loading GeoJSON data...
+
+Basic Information:
+  Type: FeatureCollection
+  Name: Road Buffer
+  CRS: urn:ogc:def:crs:OGC:1.3:CRS84
+
+Feature Count: 22
+
+Analyzing all 22 features...
+
+Geometry Types:
+  MultiPolygon: 22 (100.0%)
+
+Total Coordinate Points: 194,677
+Average Points per Feature: 8849.0
+
+Properties/Attributes (22 unique):
+  - Area
+  - Area_1
+  - Category
+  - Check_
+  - ELU
+  - Ex_PR
+  - F60MT
+  - KUDA
+  - Layout
+  - MXU
+  - NEW_OLD
+  - Name
+  - OBJECTID
+  - PLU
+  - PLU_Catego
+  - PLU_NAME
+  - Pipe_Line
+  - Shape__Area
+  - Shape__Length
+  - Streems
+  ... and 2 more
+
+Bounding Box:
+  Min Longitude: 79.206688
+  Max Longitude: 79.853406
+  Min Latitude: 17.766859
+  Max Latitude: 18.258688
+  Width: 0.646718 degrees (71.79 km approx)
+  Height: 0.491829 degrees (54.59 km approx)
+  Center: [79.530047, 18.012774]
+
+Tile Ranges for Different Zoom Levels:
+  Zoom 10: X=[  737-  739], Y=[  459-  460] → 3×2 = 6 tiles
+  Zoom 11: X=[ 1474- 1478], Y=[  918-  921] → 5×4 = 20 tiles
+  Zoom 12: X=[ 2949- 2956], Y=[ 1836- 1842] → 8×7 = 56 tiles
+  Zoom 13: X=[ 5898- 5913], Y=[ 3673- 3685] → 16×13 = 208 tiles
+  Zoom 14: X=[11796-11826], Y=[ 7346- 7370] → 31×25 = 775 tiles
+  Zoom 15: X=[23593-23652], Y=[14693-14740] → 60×48 = 2,880 tiles
+  Zoom 16: X=[47187-47304], Y=[29386-29480] → 118×95 = 11,210 tiles
+  Zoom 17: X=[94374-94609], Y=[58772-58961] → 236×190 = 44,840 tiles
+  Zoom 18: X=[188748-189219], Y=[117545-117922] → 472×378 = 178,416 tiles
+
+Sample Feature Properties (first feature):
+  fid: 42890
+  OBJECTID: 42890
+  KUDA: KUDA
+  Area: 0.00736112723032
+  PLU: Road Buffer
+  ELU:  
+  PLU_Catego:  
+  Ex_PR:  
+  Name:  
+  Category:  
+
+File Size: 24.72 MB
+Loading GeoJSON data...
+
+Basic Information:
+  Type: FeatureCollection
+  Name: Transportation
+  CRS: urn:ogc:def:crs:OGC:1.3:CRS84
+
+Feature Count: 2,222
+
+Analyzing all 2,222 features...
+  Processed 1,000 features...
+  Processed 2,000 features...
+
+Geometry Types:
+  MultiPolygon: 2,222 (100.0%)
+
+Total Coordinate Points: 563,409
+Average Points per Feature: 253.6
+
+Properties/Attributes (22 unique):
+  - Area
+  - Area_1
+  - Category
+  - Check_
+  - ELU
+  - Ex_PR
+  - F60MT
+  - KUDA
+  - Layout
+  - MXU
+  - NEW_OLD
+  - Name
+  - OBJECTID
+  - PLU
+  - PLU_Catego
+  - PLU_NAME
+  - Pipe_Line
+  - Shape__Area
+  - Shape__Length
+  - Streems
+  ... and 2 more
+
+Bounding Box:
+  Min Longitude: 79.212881
+  Max Longitude: 79.784643
+  Min Latitude: 17.781458
+  Max Latitude: 18.208689
+  Width: 0.571762 degrees (63.47 km approx)
+  Height: 0.427231 degrees (47.42 km approx)
+  Center: [79.498762, 17.995073]
+
+Tile Ranges for Different Zoom Levels:
+  Zoom 10: X=[  737-  738], Y=[  459-  460] → 2×2 = 4 tiles
+  Zoom 11: X=[ 1474- 1477], Y=[  918-  921] → 4×4 = 16 tiles
+  Zoom 12: X=[ 2949- 2955], Y=[ 1837- 1842] → 7×6 = 42 tiles
+  Zoom 13: X=[ 5898- 5911], Y=[ 3674- 3684] → 14×11 = 154 tiles
+  Zoom 14: X=[11797-11823], Y=[ 7348- 7369] → 27×22 = 594 tiles
+  Zoom 15: X=[23594-23646], Y=[14697-14738] → 53×42 = 2,226 tiles
+  Zoom 16: X=[47188-47292], Y=[29395-29477] → 105×83 = 8,715 tiles
+  Zoom 17: X=[94376-94584], Y=[58791-58955] → 209×165 = 34,485 tiles
+  Zoom 18: X=[188753-189169], Y=[117583-117910] → 417×328 = 136,776 tiles
+
+Sample Feature Properties (first feature):
+  fid: 325
+  OBJECTID: 325
+  KUDA: KUDA
+  Area: 0.047732128752
+  PLU: Transportation
+  ELU:  
+  PLU_Catego:  
+  Ex_PR: EX
+  Name: Hanamkonda Bus Stand
+  Category:  
+
+File Size: 17.69 MB
+Loading GeoJSON data...
+
+Basic Information:
+  Type: FeatureCollection
+  Name: Water Bodies Buffer
+  CRS: urn:ogc:def:crs:OGC:1.3:CRS84
+
+Feature Count: 2,720
+
+Analyzing all 2,720 features...
+  Processed 1,000 features...
+  Processed 2,000 features...
+
+Geometry Types:
+  MultiPolygon: 2,720 (100.0%)
+
+Total Coordinate Points: 389,285
+Average Points per Feature: 143.1
+
+Properties/Attributes (22 unique):
+  - Area
+  - Area_1
+  - Category
+  - Check_
+  - ELU
+  - Ex_PR
+  - F60MT
+  - KUDA
+  - Layout
+  - MXU
+  - NEW_OLD
+  - Name
+  - OBJECTID
+  - PLU
+  - PLU_Catego
+  - PLU_NAME
+  - Pipe_Line
+  - Shape__Area
+  - Shape__Length
+  - Streems
+  ... and 2 more
+
+Bounding Box:
+  Min Longitude: 79.223620
+  Max Longitude: 79.782372
+  Min Latitude: 17.783039
+  Max Latitude: 18.202291
+  Width: 0.558753 degrees (62.02 km approx)
+  Height: 0.419252 degrees (46.54 km approx)
+  Center: [79.502996, 17.992665]
+
+Tile Ranges for Different Zoom Levels:
+  Zoom 10: X=[  737-  738], Y=[  459-  460] → 2×2 = 4 tiles
+  Zoom 11: X=[ 1474- 1477], Y=[  918-  921] → 4×4 = 16 tiles
+  Zoom 12: X=[ 2949- 2955], Y=[ 1837- 1842] → 7×6 = 42 tiles
+  Zoom 13: X=[ 5898- 5911], Y=[ 3674- 3684] → 14×11 = 154 tiles
+  Zoom 14: X=[11797-11822], Y=[ 7349- 7369] → 26×21 = 546 tiles
+  Zoom 15: X=[23595-23645], Y=[14698-14738] → 51×41 = 2,091 tiles
+  Zoom 16: X=[47190-47291], Y=[29397-29477] → 102×81 = 8,262 tiles
+  Zoom 17: X=[94380-94583], Y=[58794-58954] → 204×161 = 32,844 tiles
+  Zoom 18: X=[188760-189167], Y=[117588-117909] → 408×322 = 131,376 tiles
+
+Sample Feature Properties (first feature):
+  fid: 177
+  OBJECTID: 177
+  KUDA: KUDA
+  Area: 0.00774425344042
+  PLU: Water Body Buffer
+  ELU:  
+  PLU_Catego:  
+  Ex_PR:  
+  Name: 2
+  Category:  
+
+
+File Size: 17.46 MB
+Loading GeoJSON data...
+
+Basic Information:
+  Type: FeatureCollection
+  Name: Water Bodies
+  CRS: urn:ogc:def:crs:OGC:1.3:CRS84
+
+Feature Count: 4,453
+
+Analyzing all 4,453 features...
+  Processed 1,000 features...
+  Processed 2,000 features...
+  Processed 3,000 features...
+  Processed 4,000 features...
+
+Geometry Types:
+  MultiPolygon: 4,453 (100.0%)
+
+Total Coordinate Points: 358,129
+Average Points per Feature: 80.4
+
+Properties/Attributes (22 unique):
+  - Area
+  - Area_1
+  - Category
+  - Check_
+  - ELU
+  - Ex_PR
+  - F60MT
+  - KUDA
+  - Layout
+  - MXU
+  - NEW_OLD
+  - Name
+  - OBJECTID
+  - PLU
+  - PLU_Catego
+  - PLU_NAME
+  - Pipe_Line
+  - Shape__Area
+  - Shape__Length
+  - Streems
+  ... and 2 more
+
+Bounding Box:
+  Min Longitude: 79.213261
+  Max Longitude: 79.791344
+  Min Latitude: 17.783120
+  Max Latitude: 18.203512
+  Width: 0.578083 degrees (64.17 km approx)
+  Height: 0.420392 degrees (46.66 km approx)
+  Center: [79.502302, 17.993316]
+
+Tile Ranges for Different Zoom Levels:
+  Zoom 10: X=[  737-  738], Y=[  459-  460] → 2×2 = 4 tiles
+  Zoom 11: X=[ 1474- 1477], Y=[  918-  921] → 4×4 = 16 tiles
+  Zoom 12: X=[ 2949- 2955], Y=[ 1837- 1842] → 7×6 = 42 tiles
+  Zoom 13: X=[ 5898- 5911], Y=[ 3674- 3684] → 14×11 = 154 tiles
+  Zoom 14: X=[11797-11823], Y=[ 7349- 7369] → 27×21 = 567 tiles
+  Zoom 15: X=[23594-23646], Y=[14698-14738] → 53×41 = 2,173 tiles
+  Zoom 16: X=[47188-47293], Y=[29396-29477] → 106×82 = 8,692 tiles
+  Zoom 17: X=[94376-94587], Y=[58793-58954] → 212×162 = 34,344 tiles
+  Zoom 18: X=[188753-189174], Y=[117587-117909] → 422×323 = 136,306 tiles
+
+Sample Feature Properties (first feature):
+  fid: 5883
+  OBJECTID: 5883
+  KUDA:  
+  Area: 0.000128942086105
+  PLU: Water Bodies
+  ELU:  
+  PLU_Catego:  
+  Ex_PR: EX
+  Name:  
+  Category: Agriculture
+
+File Size: 0.01 MB
+Loading GeoJSON data...
+
+Basic Information:
+  Type: FeatureCollection
+  Name: Zoological Park
+  CRS: urn:ogc:def:crs:OGC:1.3:CRS84
+
+Feature Count: 3
+
+Analyzing all 3 features...
+
+Geometry Types:
+  MultiPolygon: 3 (100.0%)
+
+Total Coordinate Points: 193
+Average Points per Feature: 64.3
+
+Properties/Attributes (22 unique):
+  - Area
+  - Area_1
+  - Category
+  - Check_
+  - ELU
+  - Ex_PR
+  - F60MT
+  - KUDA
+  - Layout
+  - MXU
+  - NEW_OLD
+  - Name
+  - OBJECTID
+  - PLU
+  - PLU_Catego
+  - PLU_NAME
+  - Pipe_Line
+  - Shape__Area
+  - Shape__Length
+  - Streems
+  ... and 2 more
+
+Bounding Box:
+  Min Longitude: 79.556961
+  Max Longitude: 79.563795
+  Min Latitude: 17.990899
+  Max Latitude: 17.995927
+  Width: 0.006834 degrees (0.76 km approx)
+  Height: 0.005028 degrees (0.56 km approx)
+  Center: [79.560378, 17.993413]
+
+Tile Ranges for Different Zoom Levels:
+  Zoom 10: X=[  738-  738], Y=[  459-  459] → 1×1 = 1 tiles
+  Zoom 11: X=[ 1476- 1476], Y=[  919-  919] → 1×1 = 1 tiles
+  Zoom 12: X=[ 2953- 2953], Y=[ 1839- 1839] → 1×1 = 1 tiles
+  Zoom 13: X=[ 5906- 5906], Y=[ 3679- 3679] → 1×1 = 1 tiles
+  Zoom 14: X=[11812-11813], Y=[ 7359- 7359] → 2×1 = 2 tiles
+  Zoom 15: X=[23625-23626], Y=[14718-14718] → 2×1 = 2 tiles
+  Zoom 16: X=[47250-47252], Y=[29436-29437] → 3×2 = 6 tiles
+  Zoom 17: X=[94501-94504], Y=[58873-58875] → 4×3 = 12 tiles
+  Zoom 18: X=[189003-189008], Y=[117746-117750] → 6×5 = 30 tiles
+
+Sample Feature Properties (first feature):
+  fid: 15889
+  OBJECTID: 15889
+  KUDA: KUDA
+  Area: 0.220246744547
+  PLU: Zoological park
+  ELU:  
+  PLU_Catego:  
+  Ex_PR: EX
+  Name:  
+  Category:  
+
+Total Files Analyzed: 22
+Total File Size: 168.26 MB
+Total Features: 45,342
+Average Features per File: 2,061
+
+Overall Coverage Area:
+  Min Longitude: 79.206688
+  Max Longitude: 79.853406
+  Min Latitude: 17.766859
+  Max Latitude: 18.258688
+  Center: [79.530047, 18.012774]
+  Area: 0.6467° × 0.4918° (~71.8km × 54.6km)
+
+Files by Size (Largest First):
+  Residential.geojson                      -    36.77 MB -   12,551 features
+  Transportation.geojson                   -    24.72 MB -    2,222 features
+  Water Bodies Buffer.geojson              -    17.69 MB -    2,720 features
+  Water Bodies.geojson                     -    17.46 MB -    4,453 features
+  Agriculture.geojson                      -    16.18 MB -    6,123 features
+  Mixed Use.geojson                        -    14.37 MB -    6,077 features
+  Growth Corridor.geojson                  -     8.86 MB -    2,867 features
+  ResidentialExpansion.geojson             -     8.27 MB -    2,288 features
+  Road Buffer.geojson                      -     8.14 MB -       22 features
+  Hill Buffer.geojson                      -     3.40 MB -      498 features
+
+Files by Feature Count (Most Features First):
+  Residential.geojson                      -   12,551 features
+  Agriculture.geojson                      -    6,123 features
+  Mixed Use.geojson                        -    6,077 features
+  Water Bodies.geojson                     -    4,453 features
+  Growth Corridor.geojson                  -    2,867 features
+  Water Bodies Buffer.geojson              -    2,720 features
+  ResidentialExpansion.geojson             -    2,288 features
+  Transportation.geojson                   -    2,222 features
+  Public and Semi-Public.geojson           -    1,760 features
+  Recreational.geojson                     -    1,018 features
+
+Geometry Types Across All Files:
+  MultiPolygon: 45,342 (100.0%)
+
+Most Common Properties (appearing in multiple files):
+  Area                           - appears in 22/22 files
+  Area_1                         - appears in 22/22 files
+  Category                       - appears in 22/22 files
+  Check_                         - appears in 22/22 files
+  ELU                            - appears in 22/22 files
+  Ex_PR                          - appears in 22/22 files
+  F60MT                          - appears in 22/22 files
+  KUDA                           - appears in 22/22 files
+  Layout                         - appears in 22/22 files
+  MXU                            - appears in 22/22 files
+  NEW_OLD                        - appears in 22/22 files
+  Name                           - appears in 22/22 files
+  OBJECTID                       - appears in 22/22 files
+  PLU                            - appears in 22/22 files
+  PLU_Catego                     - appears in 22/22 files
+  PLU_NAME                       - appears in 22/22 files
+  Pipe_Line                      - appears in 22/22 files
+  Shape__Area                    - appears in 22/22 files
+  Shape__Length                  - appears in 22/22 files
+  Streems                        - appears in 22/22 files
+
+
+1. BOUNDING BOX:
+   BBOX = [79.206688, 17.766859, 79.853406, 18.258688]
+
+2. CENTER COORDINATES:
+   CENTER = [79.530047, 18.012774]
+
+3. RECOMMENDED ZOOM LEVELS:
+   - Overview: Zoom 10-12 (good for city-wide view)
+   - Standard: Zoom 13-15 (good for neighborhood detail)
+   - Detailed: Zoom 16-18 (good for plot/parcel level)
+
+4. ESTIMATED TILE COUNTS:
+   Zoom 10: ~6 tiles
+   Zoom 12: ~56 tiles
+   Zoom 14: ~775 tiles
+   Zoom 16: ~11,210 tiles
+   Zoom 18: ~178,416 tiles
+
+5. LAYER CATEGORIES:
+   Total Layers: 22
+    1. Agriculture
+    2. AirStrip
+    3. Commercial
+    4. Forest
+    5. Growth Corridor
+    6. Growth Corridor 2
+    7. Heritage
+    8. Hill Buffer
+    9. Hillocks
+   10. Industrial
+   11. Mixed Use
+   12. Public Utilities
+   13. Public and Semi-Public
+   14. Railway Land
+   15. Recreational
+   16. Residential
+   17. ResidentialExpansion
+   18. Road Buffer
+   19. Transportation
+   20. Water Bodies
+   21. Water Bodies Buffer
+   22. Zoological Park
+
+6. DATA CHARACTERISTICS:
+   - Total Features: 45,342
+   - Average Complexity: 76.2 coords/feature
+   - Coordinate Reference System: EPSG:4326 (WGS84)
+
+7. RENDERING CONSIDERATIONS:
+   - Files with >10k features may need feature simplification
+   - Consider separate tile generation for each layer category
+   - Use clustering for dense point data
+   - Implement progressive loading for high zoom levels
+
+8. SUGGESTED TILE GENERATION PARAMETERS:
+   MIN_ZOOM = 10
+   MAX_ZOOM = 18
+   TILE_SIZE = 256  # pixels
+   BUFFER_SIZE = 64  # pixels (to handle features at tile edges)
+   SIMPLIFICATION = True  # Simplify geometries at lower zooms
+   FORMAT = 'vector'  # MVT (Mapbox Vector Tiles) recommended
+
+
