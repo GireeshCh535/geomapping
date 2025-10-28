@@ -1,314 +1,503 @@
 #!/usr/bin/env python3
 """
-Warangal Master Plan - PNG Tile Generator
-Converts GeoJSON files to PNG tiles (zoom 7-18) with custom styling
+Warangal Master Plan - FIXED Tile Generator
+Solves: Features disappearing at zoom 8-16 and appearing only at 17+
 """
 
-import os
 import json
-import math
+import os
+import time
 from pathlib import Path
-from typing import Dict, List, Tuple
-import pandas as pd
-import geopandas as gpd
-from shapely.geometry import box
 from PIL import Image, ImageDraw
-import numpy as np
+import mercantile
+from shapely.geometry import shape, box
+from rtree import index
 
-# Configuration
-INPUT_DIR = "/Users/rohitboni/Downloads/All_files/project/1acre/geomapping_full/geomapping/data/Telangana/warangal/master_plan"
-OUTPUT_DIR = "./tiles"
-MIN_ZOOM = 7
-MAX_ZOOM = 18
-TILE_SIZE = 256
-
-# Layer styling configuration with colors
-LAYER_STYLES = {
-    "Agriculture": {"color": "#D3FFBE", "pattern": None},
-    "AirStrip": {"color": "#FF00C5", "pattern": "diagonal", "pattern_color": "#FFFFFF"},
-    "Commercial": {"color": "#0070FF", "pattern": None},
-    "Forest": {"color": "#267300", "pattern": None},
-    "Growth Corridor 2": {"color": "#FF73DF", "pattern": None},
-    "Growth Corridor": {"color": "#FFBEE8", "pattern": None},
-    "Heritage": {"color": "#FFA77F", "pattern": "diagonal", "pattern_color": "#732600"},
-    "Hill Buffer": {"color": "#55FF00", "pattern": None},
-    "Hillocks": {"color": "#A87000", "pattern": None},
-    "Industrial": {"color": "#C500FF", "pattern": None},
-    "Mixed Use": {"color": "#FFAA00", "pattern": None},
-    "Public and Semi-Public": {"color": "#FF0000", "pattern": None},
-    "Public Utilities": {"color": "#E69800", "pattern": "diagonal", "pattern_color": "#FF0000"},
-    "Railway Land": {"color": "#CCCCCC", "pattern": None},
-    "Recreational": {"color": "#55FF00", "pattern": None},
-    "Residential": {"color": "#FFFF00", "pattern": None},
-    "ResidentialExpansion": {"color": "#9C9C9C", "pattern": None},
-    "Road Buffer": {"color": "#4E4E4E", "pattern": None},
-    "Transportation": {"color": "#B2B2B2", "pattern": None},
-    "Water Bodies": {"color": "#00C5FF", "pattern": None},
-    "Water Bodies Buffer": {"color": "#55FF00", "pattern": None},
-    "Zoological Park": {"color": "#38A800", "pattern": None}
-}
-
-# Simplification tolerances by zoom level (in degrees)
-SIMPLIFICATION = {
-    7: 0.01, 8: 0.005, 9: 0.002, 10: 0.001,
-    11: 0.0005, 12: 0.0002, 13: 0.0001, 14: 0.00005,
-    15: 0.00002, 16: 0.00001, 17: 0.000005, 18: 0
-}
-
-
-def hex_to_rgb(hex_color: str) -> Tuple[int, int, int]:
-    """Convert hex color to RGB tuple."""
-    hex_color = hex_color.lstrip('#')
-    return tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))
-
-
-def lat_lon_to_tile(lat: float, lon: float, zoom: int) -> Tuple[int, int]:
-    """Convert latitude/longitude to tile coordinates."""
-    n = 2 ** zoom
-    x = int((lon + 180) / 360 * n)
-    y = int((1 - math.log(math.tan(math.radians(lat)) + 
-            1 / math.cos(math.radians(lat))) / math.pi) / 2 * n)
-    return x, y
-
-
-def tile_to_lat_lon(x: int, y: int, zoom: int) -> Tuple[float, float, float, float]:
-    """Convert tile coordinates to bounding box (min_lon, min_lat, max_lon, max_lat)."""
-    n = 2 ** zoom
-    min_lon = x / n * 360 - 180
-    max_lon = (x + 1) / n * 360 - 180
-    
-    min_lat_rad = math.atan(math.sinh(math.pi * (1 - 2 * (y + 1) / n)))
-    max_lat_rad = math.atan(math.sinh(math.pi * (1 - 2 * y / n)))
-    
-    min_lat = math.degrees(min_lat_rad)
-    max_lat = math.degrees(max_lat_rad)
-    
-    return min_lon, min_lat, max_lon, max_lat
-
-
-def create_diagonal_pattern(size: int, color: Tuple[int, int, int], 
-                           bg_color: Tuple[int, int, int], zoom: int) -> Image.Image:
-    """Create a diagonal hatching pattern."""
-    # Adjust spacing based on zoom level
-    if zoom <= 10:
-        spacing = 8
-    elif zoom <= 13:
-        spacing = 6
-    elif zoom <= 15:
-        spacing = 4
-    else:
-        spacing = 3
-    
-    pattern = Image.new('RGBA', (size, size), bg_color + (255,))
-    draw = ImageDraw.Draw(pattern)
-    
-    # Adjust line width based on zoom
-    line_width = 1 if zoom < 14 else 2
-    
-    # Draw diagonal lines
-    for i in range(-size, size * 2, spacing):
-        draw.line([(i, 0), (i + size, size)], fill=color + (255,), width=line_width)
-    
-    return pattern
-
-
-def load_all_geojson_files(input_dir: str) -> gpd.GeoDataFrame:
-    """Load and combine all GeoJSON files into a single GeoDataFrame."""
-    print("Loading GeoJSON files...")
-    all_gdfs = []
-    
-    geojson_files = list(Path(input_dir).glob("*.geojson"))
-    
-    for file_path in geojson_files:
-        try:
-            layer_name = file_path.stem
-            print(f"  Loading {layer_name}...")
-            
-            gdf = gpd.read_file(file_path)
-            gdf['layer'] = layer_name
-            
-            # Ensure CRS is WGS84
-            if gdf.crs is None:
-                gdf.set_crs('EPSG:4326', inplace=True)
-            elif gdf.crs.to_string() != 'EPSG:4326':
-                gdf = gdf.to_crs('EPSG:4326')
-            
-            all_gdfs.append(gdf)
-            
-        except Exception as e:
-            print(f"  Error loading {file_path.name}: {e}")
-    
-    if not all_gdfs:
-        raise ValueError("No GeoJSON files loaded successfully!")
-    
-    # Combine all GeoDataFrames
-    combined_gdf = gpd.GeoDataFrame(pd.concat(all_gdfs, ignore_index=True))
-    print(f"\nTotal features loaded: {len(combined_gdf)}")
-    
-    return combined_gdf
-
-
-def render_tile(gdf: gpd.GeoDataFrame, x: int, y: int, zoom: int) -> Image.Image:
-    """Render a single tile as PNG."""
-    # Get tile bounds
-    min_lon, min_lat, max_lon, max_lat = tile_to_lat_lon(x, y, zoom)
-    tile_bbox = box(min_lon, min_lat, max_lon, max_lat)
-    
-    # Filter features that intersect with tile
-    tile_gdf = gdf[gdf.intersects(tile_bbox)].copy()
-    
-    if tile_gdf.empty:
-        return None
-    
-    # Clip geometries to tile bounds
-    tile_gdf['geometry'] = tile_gdf.geometry.intersection(tile_bbox)
-    tile_gdf = tile_gdf[~tile_gdf.geometry.is_empty]
-    
-    if tile_gdf.empty:
-        return None
-    
-    # Simplify geometries based on zoom level
-    tolerance = SIMPLIFICATION.get(zoom, 0)
-    if tolerance > 0:
-        tile_gdf['geometry'] = tile_gdf.geometry.simplify(tolerance, preserve_topology=True)
-    
-    # Create image
-    img = Image.new('RGBA', (TILE_SIZE, TILE_SIZE), (0, 0, 0, 0))
-    draw = ImageDraw.Draw(img)
-    
-    # Calculate coordinate transformation
-    lon_scale = TILE_SIZE / (max_lon - min_lon)
-    lat_scale = TILE_SIZE / (max_lat - min_lat)
-    
-    def transform_coords(coords):
-        """Transform lon/lat to pixel coordinates."""
-        pixels = []
-        for lon, lat in coords:
-            x_pix = int((lon - min_lon) * lon_scale)
-            y_pix = int((max_lat - lat) * lat_scale)
-            pixels.append((x_pix, y_pix))
-        return pixels
-    
-    # Render each feature
-    for _, feature in tile_gdf.iterrows():
-        layer_name = feature.get('layer', '')
-        style = LAYER_STYLES.get(layer_name, {"color": "#808080", "pattern": None})
+class WarangalFixedTileGenerator:
+    def __init__(self, data_dir, output_dir):
+        self.data_dir = Path(data_dir)
+        self.output_dir = Path(output_dir)
+        self.tile_size = 256
+        self.spatial_index = index.Index()
+        self.feature_id_counter = 0
+        self.feature_lookup = {}
         
-        geom = feature.geometry
-        if geom is None or geom.is_empty:
-            continue
+    def get_color_map(self):
+        """Exact color mapping for all Warangal zones"""
+        return {
+            'Agriculture': {'fill': '#D3FFBE'},
+            
+            'AirStrip': {
+                'type': 'hatched',
+                'base': '#FF00C5',
+                'hatch': '#FFFFFF',
+                'solid_lowzoom': '#FF66D9'
+            },
+            
+            'Commercial': {'fill': '#0070FF'},
+            'Forest': {'fill': '#267300'},
+            'Growth Corridor': {'fill': '#FFBEE8'},
+            'Growth Corridor 2': {'fill': '#FF73DF'},
+            
+            'Heritage': {
+                'type': 'hatched',
+                'base': '#FFA77F',
+                'hatch': '#732600',
+                'solid_lowzoom': '#FFB899'
+            },
+            
+            'Hill Buffer': {'fill': '#55FF00'},
+            'Hillocks': {'fill': '#A87000'},
+            'Industrial': {'fill': '#C500FF'},
+            'Mixed Use': {'fill': '#FFAA00'},
+            'Public and Semi-Public': {'fill': '#FF0000'},
+            
+            'Public Utilities': {
+                'type': 'hatched',
+                'base': '#E69800',
+                'hatch': '#FF0000',
+                'solid_lowzoom': '#FFB033'
+            },
+            
+            'Railway Land': {'fill': '#CCCCCC'},
+            'Recreational': {'fill': '#55FF00'},
+            'Residential': {'fill': '#FFFF00'},
+            'ResidentialExpansion': {'fill': '#9C9C9C'},
+            'Road Buffer': {'fill': '#4E4E4E'},
+            'Transportation': {'fill': '#B2B2B2'},
+            'Water Bodies': {'fill': '#00C5FF'},
+            'Water Bodies Buffer': {'fill': '#55FF00'},
+            'Zoological Park': {'fill': '#38A800'}
+        }
+    
+    def hex_to_rgb(self, hex_color):
+        """Convert hex color to RGB tuple"""
+        hex_color = hex_color.lstrip('#')
+        return tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))
+    
+    def load_geojson_files(self):
+        """Load all GeoJSON files and build spatial index"""
+        print("\n" + "="*80)
+        print("LOADING GEOJSON DATA - WARANGAL")
+        print("="*80)
         
-        # Handle MultiPolygon and Polygon
-        if geom.geom_type == 'MultiPolygon':
-            polygons = list(geom.geoms)
-        elif geom.geom_type == 'Polygon':
-            polygons = [geom]
-        else:
-            continue
+        geojson_files = sorted(self.data_dir.glob('*.geojson'))
+        total_files = len(geojson_files)
+        total_features = 0
         
-        base_color = hex_to_rgb(style['color'])
+        print(f"Found {total_files} GeoJSON files\n")
         
-        for poly in polygons:
-            # Draw exterior
-            if poly.exterior is not None:
-                exterior_coords = list(poly.exterior.coords)
-                pixel_coords = transform_coords(exterior_coords)
+        load_start = time.time()
+        
+        for idx, geojson_file in enumerate(geojson_files, 1):
+            zone_name = geojson_file.stem
+            file_size = geojson_file.stat().st_size / 1024 / 1024
+            
+            print(f"[{idx:2d}/{total_files}] {zone_name:<45} ({file_size:6.2f} MB)", end=" ", flush=True)
+            
+            try:
+                with open(geojson_file, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
                 
-                if len(pixel_coords) >= 3:
-                    # Fill with base color
-                    draw.polygon(pixel_coords, fill=base_color + (255,), outline=None)
+                features = data.get('features', [])
+                loaded = 0
+                
+                for feature in features:
+                    try:
+                        geom = shape(feature['geometry'])
+                        if not geom.is_valid:
+                            geom = geom.buffer(0)
+                        
+                        feature_data = {
+                            'geometry': geom,
+                            'zone': zone_name,
+                            'properties': feature.get('properties', {})
+                        }
+                        
+                        bounds = geom.bounds
+                        self.spatial_index.insert(self.feature_id_counter, bounds)
+                        self.feature_lookup[self.feature_id_counter] = feature_data
+                        self.feature_id_counter += 1
+                        loaded += 1
+                        
+                    except:
+                        continue
+                
+                total_features += loaded
+                print(f"✓ {loaded:>6,} features")
+                
+            except Exception as e:
+                print(f"✗ Error: {e}")
+                continue
+        
+        load_elapsed = time.time() - load_start
+        
+        print(f"\n{'='*80}")
+        print(f"LOADED: {total_features:,} features in {load_elapsed:.1f}s")
+        print(f"{'='*80}\n")
+    
+    def get_bounds(self):
+        """Calculate geographic bounds"""
+        min_lon, min_lat = float('inf'), float('inf')
+        max_lon, max_lat = float('-inf'), float('-inf')
+        
+        for feature_data in self.feature_lookup.values():
+            bounds = feature_data['geometry'].bounds
+            min_lon = min(min_lon, bounds[0])
+            min_lat = min(min_lat, bounds[1])
+            max_lon = max(max_lon, bounds[2])
+            max_lat = max(max_lat, bounds[3])
+        
+        return (min_lon, min_lat, max_lon, max_lat)
+    
+    def draw_diagonal_hatch(self, draw, coords, base_rgb, hatch_rgb, scale):
+        """Fast diagonal hatch pattern"""
+        draw.polygon(coords, fill=base_rgb, outline=None)
+        
+        xs = [p[0] for p in coords]
+        ys = [p[1] for p in coords]
+        min_x, max_x = min(xs), max(xs)
+        min_y, max_y = min(ys), max(ys)
+        
+        spacing = 6 * scale
+        for offset in range(int(-max_y + min_y), int(max_x - min_x), spacing):
+            x1 = min_x + max(0, offset)
+            y1 = min_y + max(0, -offset)
+            x2 = min_x + min(max_x - min_x, max_y - min_y + offset)
+            y2 = min_y + min(max_y - min_y, max_x - min_x - offset)
+            draw.line([(x1, y1), (x2, y2)], fill=hatch_rgb, width=scale)
+    
+    def render_tile(self, tile):
+        """Render tile with FIXED visibility - no disappearing features"""
+        z, x, y = tile.z, tile.x, tile.y
+        
+        # 2x scale for anti-aliasing
+        scale = 2
+        img_size = self.tile_size * scale
+        
+        is_low_zoom = z < 14
+        
+        img = Image.new('RGBA', (img_size, img_size), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(img)
+        
+        tile_bounds = mercantile.bounds(tile)
+        tile_bbox = box(tile_bounds.west, tile_bounds.south, 
+                       tile_bounds.east, tile_bounds.north)
+        
+        # Fast spatial query
+        intersecting_ids = list(self.spatial_index.intersection(tile_bbox.bounds))
+        
+        if not intersecting_ids:
+            return None
+        
+        color_map = self.get_color_map()
+        
+        # CRITICAL: Track if we actually rendered anything
+        features_rendered = False
+        
+        # ULTRA-CONSERVATIVE simplification - only at very low zooms
+        # This ensures features NEVER disappear
+        simplification_tolerance = {
+            7: 0.0001,   # ~11m - very gentle
+            8: 0.00005,  # ~5.5m
+            9: 0.00002,  # ~2.2m
+            10: 0.00001, # ~1.1m
+            11: 0.000005,# ~0.55m
+            12: 0        # No simplification from zoom 12+
+        }
+        tolerance = simplification_tolerance.get(z, 0)
+        
+        # Render features
+        for feature_id in intersecting_ids:
+            feature_data = self.feature_lookup[feature_id]
+            geom = feature_data['geometry']
+            zone = feature_data['zone']
+            
+            # CRITICAL: Skip if doesn't actually intersect (spatial index can have false positives)
+            if not geom.intersects(tile_bbox):
+                continue
+            
+            if zone not in color_map:
+                continue
+            
+            color_info = color_map[zone]
+            
+            # CRITICAL: Store original geometry for fallback
+            original_geom = geom
+            
+            # Clip to tile bounds - STRICT clipping
+            try:
+                geom = geom.intersection(tile_bbox)
+                if geom.is_empty or not geom.is_valid:
+                    continue
+                # ADDITIONAL: Check if clipped geometry has meaningful area
+                if geom.area < 1e-10:  # Essentially zero area
+                    continue
+            except:
+                continue
+            
+            # ULTRA-SAFE simplification
+            # Only simplify VERY LARGE features at low zoom
+            if tolerance > 0 and z < 12 and geom.area > tolerance * 100:
+                try:
+                    simplified = geom.simplify(tolerance, preserve_topology=True)
+                    # Very strict validation - use original if ANY doubt
+                    if (simplified.is_valid and 
+                        not simplified.is_empty and 
+                        simplified.area > geom.area * 0.7):  # Must keep 70% of area
+                        geom = simplified
+                    else:
+                        geom = original_geom.intersection(tile_bbox)  # Use original
+                except:
+                    geom = original_geom.intersection(tile_bbox)  # Use original on error
+            
+            # Handle MultiPolygon and Polygon
+            if geom.geom_type == 'Polygon':
+                polygons = [geom]
+            elif geom.geom_type == 'MultiPolygon':
+                polygons = list(geom.geoms)
+            else:
+                continue
+            
+            for polygon in polygons:
+                # Skip invalid polygons
+                if not polygon.is_valid or polygon.is_empty:
+                    continue
                     
-                    # Apply pattern if needed
-                    if style.get('pattern') == 'diagonal':
-                        pattern_color = hex_to_rgb(style.get('pattern_color', '#000000'))
-                        pattern = create_diagonal_pattern(TILE_SIZE, pattern_color, base_color, zoom)
-                        
-                        # Create mask for this polygon
-                        mask = Image.new('L', (TILE_SIZE, TILE_SIZE), 0)
-                        mask_draw = ImageDraw.Draw(mask)
-                        mask_draw.polygon(pixel_coords, fill=255)
-                        
-                        # Composite pattern onto image
-                        img.paste(pattern, (0, 0), mask)
-            
-            # Draw holes (if any)
-            for interior in poly.interiors:
-                interior_coords = list(interior.coords)
-                pixel_coords = transform_coords(interior_coords)
-                if len(pixel_coords) >= 3:
-                    draw.polygon(pixel_coords, fill=(0, 0, 0, 0))
-    
-    return img
-
-
-def generate_tiles(gdf: gpd.GeoDataFrame, output_dir: str):
-    """Generate all tiles for zoom levels 7-18."""
-    os.makedirs(output_dir, exist_ok=True)
-    
-    # Get overall bounds
-    bounds = gdf.total_bounds  # [minx, miny, maxx, maxy]
-    min_lon, min_lat, max_lon, max_lat = bounds
-    
-    print(f"\nData bounds: [{min_lon:.6f}, {min_lat:.6f}, {max_lon:.6f}, {max_lat:.6f}]")
-    print(f"\nGenerating tiles from zoom {MIN_ZOOM} to {MAX_ZOOM}...")
-    
-    total_tiles = 0
-    
-    for zoom in range(MIN_ZOOM, MAX_ZOOM + 1):
-        # Calculate tile range for this zoom level
-        # Note: Y coordinates increase from north to south
-        min_x, min_y = lat_lon_to_tile(min_lat, min_lon, zoom)
-        max_x, max_y = lat_lon_to_tile(max_lat, max_lon, zoom)
-        
-        # Swap min_y and max_y since Y increases southward
-        min_y, max_y = max_y, min_y
-        
-        zoom_tiles = 0
-        zoom_dir = os.path.join(output_dir, str(zoom))
-        
-        print(f"\nZoom {zoom}: Tile range X[{min_x}-{max_x}] Y[{min_y}-{max_y}]")
-        
-        for x in range(min_x, max_x + 1):
-            x_dir = os.path.join(zoom_dir, str(x))
-            
-            for y in range(min_y, max_y + 1):
-                tile_img = render_tile(gdf, x, y, zoom)
+                # Convert to pixel coordinates
+                pixel_coords = []
+                try:
+                    for coord in polygon.exterior.coords:
+                        lon, lat = coord[0], coord[1]
+                        px = (lon - tile_bounds.west) / (tile_bounds.east - tile_bounds.west) * img_size
+                        py = (tile_bounds.north - lat) / (tile_bounds.north - tile_bounds.south) * img_size
+                        pixel_coords.append((px, py))
+                except:
+                    continue
                 
-                if tile_img is not None:
-                    os.makedirs(x_dir, exist_ok=True)
-                    tile_path = os.path.join(x_dir, f"{y}.png")
-                    tile_img.save(tile_path, 'PNG')
-                    zoom_tiles += 1
+                if len(pixel_coords) < 3:
+                    continue
+                
+                # CRITICAL FIX: Better small feature handling
+                xs = [p[0] for p in pixel_coords]
+                ys = [p[1] for p in pixel_coords]
+                width = max(xs) - min(xs)
+                height = max(ys) - min(ys)
+                
+                # If feature is VERY tiny (< 1px), draw a larger point for visibility
+                if width < 1 * scale or height < 1 * scale:
+                    center_x = sum(xs) / len(xs)
+                    center_y = sum(ys) / len(ys)
+                    # Larger radius for better visibility
+                    radius = 2 * scale  # Was 1.5, now 2 for better visibility
+                    
+                    if color_info.get('type') == 'hatched':
+                        fill_rgb = self.hex_to_rgb(color_info.get('solid_lowzoom', 
+                                                   color_info.get('base', '#FFFFFF')))
+                    else:
+                        fill_rgb = self.hex_to_rgb(color_info['fill'])
+                    
+                    draw.ellipse([center_x - radius, center_y - radius, 
+                                center_x + radius, center_y + radius], fill=fill_rgb)
+                    features_rendered = True
+                    continue
+                
+                # ADDITIONAL: For small but not tiny features, ensure minimum rendering size
+                if width < 3 * scale or height < 3 * scale:
+                    # Draw both the polygon AND a point for visibility
+                    center_x = sum(xs) / len(xs)
+                    center_y = sum(ys) / len(ys)
+                    
+                    if color_info.get('type') == 'hatched':
+                        fill_rgb = self.hex_to_rgb(color_info.get('solid_lowzoom', 
+                                                   color_info.get('base', '#FFFFFF')))
+                    else:
+                        fill_rgb = self.hex_to_rgb(color_info['fill'])
+                    
+                    # Draw a small filled circle at center
+                    radius = 1.5 * scale
+                    draw.ellipse([center_x - radius, center_y - radius, 
+                                center_x + radius, center_y + radius], fill=fill_rgb)
+                    features_rendered = True
+                
+                # Render based on type - with fallbacks
+                try:
+                    if color_info.get('type') == 'hatched':
+                        if is_low_zoom and 'solid_lowzoom' in color_info:
+                            fill_rgb = self.hex_to_rgb(color_info['solid_lowzoom'])
+                            draw.polygon(pixel_coords, fill=fill_rgb, outline=None)
+                        else:
+                            base_rgb = self.hex_to_rgb(color_info['base'])
+                            hatch_rgb = self.hex_to_rgb(color_info['hatch'])
+                            self.draw_diagonal_hatch(draw, pixel_coords, base_rgb, hatch_rgb, scale)
+                    
+                    else:
+                        fill_rgb = self.hex_to_rgb(color_info['fill'])
+                        draw.polygon(pixel_coords, fill=fill_rgb, outline=None)
+                    
+                    features_rendered = True
+                    
+                except Exception as e:
+                    # FALLBACK: If pattern drawing fails, draw solid color
+                    try:
+                        if color_info.get('type') == 'hatched':
+                            fill_rgb = self.hex_to_rgb(color_info.get('solid_lowzoom', 
+                                                       color_info.get('base', '#FFFFFF')))
+                        else:
+                            fill_rgb = self.hex_to_rgb(color_info['fill'])
+                        draw.polygon(pixel_coords, fill=fill_rgb, outline=None)
+                        features_rendered = True
+                    except:
+                        pass  # Skip if even fallback fails
         
-        print(f"  Generated {zoom_tiles} tiles")
-        total_tiles += zoom_tiles
+        # CRITICAL: Only return tile if we actually rendered something
+        if not features_rendered:
+            return None
+        
+        # Downsample for anti-aliasing
+        img = img.resize((self.tile_size, self.tile_size), Image.LANCZOS)
+        return img
     
-    print(f"\n{'='*60}")
-    print(f"Total tiles generated: {total_tiles}")
-    print(f"Output directory: {output_dir}")
-    print(f"{'='*60}")
+    def generate_tiles(self, min_zoom=7, max_zoom=18):
+        """Generate tiles with progress tracking"""
+        print(f"\n{'='*80}")
+        print(f"GENERATING TILES (Zoom {min_zoom}-{max_zoom})")
+        print(f"{'='*80}")
+        
+        bounds = self.get_bounds()
+        print(f"Bounds: [{bounds[1]:.4f}, {bounds[0]:.4f}] to [{bounds[3]:.4f}, {bounds[2]:.4f}]\n")
+        
+        total_tiles = 0
+        overall_start = time.time()
+        
+        for zoom in range(min_zoom, max_zoom + 1):
+            zoom_start = time.time()
+            
+            tiles = list(mercantile.tiles(
+                bounds[0], bounds[1], bounds[2], bounds[3], 
+                zooms=[zoom]
+            ))
+            
+            total_for_zoom = len(tiles)
+            print(f"Zoom {zoom:2d} | {total_for_zoom:,} tiles", end=" ", flush=True)
+            
+            zoom_dir = self.output_dir / str(zoom)
+            rendered = 0
+            
+            for tile in tiles:
+                img = self.render_tile(tile)
+                
+                if img is not None:
+                    tile_dir = zoom_dir / str(tile.x)
+                    tile_dir.mkdir(parents=True, exist_ok=True)
+                    
+                    tile_path = tile_dir / f"{tile.y}.png"
+                    img.save(tile_path, 'PNG', optimize=True)
+                    rendered += 1
+            
+            zoom_elapsed = time.time() - zoom_start
+            speed = rendered / zoom_elapsed if zoom_elapsed > 0 else 0
+            print(f"| ✓ {rendered:,} rendered in {zoom_elapsed:.1f}s ({speed:.1f} tiles/s)")
+            
+            total_tiles += rendered
+        
+        overall_elapsed = time.time() - overall_start
+        print(f"\n{'='*80}")
+        print(f"✓ COMPLETE: {total_tiles:,} tiles in {overall_elapsed:.1f}s "
+              f"({overall_elapsed/60:.1f} min)")
+        print(f"{'='*80}\n")
+    
+    def generate_html_viewer(self):
+        """Generate HTML viewer"""
+        bounds = self.get_bounds()
+        center_lon = (bounds[0] + bounds[2]) / 2
+        center_lat = (bounds[1] + bounds[3]) / 2
+        
+        html = f"""<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Warangal Master Plan</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <style>body, html, #map {{ margin:0; padding:0; height:100%; }}</style>
+</head>
+<body>
+  <div id="map"></div>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script>
+    const map = L.map('map').setView([{center_lat:.6f}, {center_lon:.6f}], 12);
+    L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{{z}}/{{y}}/{{x}}', {{
+      maxZoom: 19
+    }}).addTo(map);
+    L.tileLayer('./{{z}}/{{x}}/{{y}}.png', {{
+      minZoom: 7, maxZoom: 18, opacity: 0.8
+    }}).addTo(map);
+  </script>
+</body>
+</html>"""
+        
+        (self.output_dir / 'index.html').write_text(html)
+        print(f"✓ Viewer: {self.output_dir}/index.html")
 
 
 def main():
-    """Main execution function."""
-    print("="*60)
-    print("Warangal Master Plan - Tile Generator")
-    print("="*60)
+    import sys
     
-    try:
-        # Load all GeoJSON files
-        gdf = load_all_geojson_files(INPUT_DIR)
+    # Try multiple possible paths
+    possible_paths = [
+        Path('/Users/rohitboni/Downloads/All_files/project/1acre/geomapping_full/geomapping/data/Telangana/warangal/master_plan'),
+        Path('/home/gamyam/1acre/geomapping/data/Telangana/warangal/master_plan'),
+        Path('./data/Telangana/warangal/master_plan'),
+        Path('../../../data/Telangana/warangal/master_plan')
+    ]
+    
+    # Find the correct path
+    data_dir = None
+    for path in possible_paths:
+        if path.exists():
+            data_dir = path
+            break
+    
+    # If still not found, ask user
+    if data_dir is None:
+        print("="*80)
+        print("ERROR: Could not find GeoJSON data directory")
+        print("="*80)
+        print("\nTried the following paths:")
+        for path in possible_paths:
+            print(f"  - {path}")
+        print("\nPlease provide the correct path to the master_plan directory:")
+        user_path = input("> ").strip()
+        data_dir = Path(user_path)
         
-        # Generate tiles
-        generate_tiles(gdf, OUTPUT_DIR)
-        
-        print("\n✓ Tile generation complete!")
-        
-    except Exception as e:
-        print(f"\n✗ Error: {e}")
-        import traceback
-        traceback.print_exc()
+        if not data_dir.exists():
+            print(f"\n✗ Error: Directory does not exist: {data_dir}")
+            sys.exit(1)
+    
+    output_dir = Path('./warangal_tiles')
+    
+    print("="*80)
+    print("WARANGAL MASTER PLAN - FIXED TILE GENERATOR")
+    print("="*80)
+    print(f"\nData directory: {data_dir}")
+    print(f"Output directory: {output_dir}")
+    
+    generator = WarangalFixedTileGenerator(data_dir, output_dir)
+    generator.load_geojson_files()
+    
+    # Check if any files were loaded
+    if generator.feature_id_counter == 0:
+        print("\n✗ Error: No features loaded. Please check:")
+        print(f"  1. Directory exists: {data_dir}")
+        print(f"  2. Directory contains .geojson files")
+        print(f"  3. Files are readable")
+        sys.exit(1)
+    
+    generator.generate_tiles(min_zoom=7, max_zoom=18)
+    generator.generate_html_viewer()
+    
+    print(f"\nTo view: cd {output_dir} && python3 -m http.server 8009\n")
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()
