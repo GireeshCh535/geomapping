@@ -7,8 +7,14 @@ This script analyzes all GeoJSON files in data/andhra_pradesh/amaravati/master_p
 and finds the smallest feature in each file. The output is structured for tile generation
 planning.
 
+The analysis identifies:
+- Smallest feature in each file (by area)
+- Sample of smallest feature with full GeoJSON data
+- Bounding box and tile coordinate information
+- Configuration data useful for tile generation
+
 Usage:
-    python3 analyze_amaravati_smallest_features.py
+    python3 amaravati_smallest_features_analysis.py
 """
 
 import json
@@ -62,13 +68,16 @@ def calculate_feature_area(feature):
     
     if geom_type in ['Polygon', 'MultiPolygon']:
         if geom_type == 'Polygon':
-            return get_bbox_area(coordinates)
+            # Polygon: coordinates is [[[lon, lat], ...]]
+            return get_bbox_area(coordinates[0] if coordinates else [])
         elif geom_type == 'MultiPolygon':
+            # MultiPolygon: coordinates is [[[[lon, lat], ...]], ...]
             # Return minimum area across all polygons
             min_area = float('inf')
             for polygon in coordinates:
-                if polygon:
-                    area = get_bbox_area(polygon[0] if isinstance(polygon[0][0], (int, float)) else polygon)
+                if polygon and len(polygon) > 0:
+                    # First ring of polygon
+                    area = get_bbox_area(polygon[0] if polygon[0] else [])
                     min_area = min(min_area, area)
             return min_area
     
@@ -321,24 +330,32 @@ def generate_tile_generation_config(all_results):
     for result in sorted(valid_results, key=lambda x: x['filename']):
         sf = result['smallest_feature']
         print(f"\n   {result['filename']}:")
-        print(f"      - Index: {sf['index']}")
-        print(f"      - Type: {sf['geometry_type']}")
+        print(f"      - Total Features: {result['total_features']:,}")
+        print(f"      - Smallest Feature Index: {sf['index']}")
+        print(f"      - Geometry Type: {sf['geometry_type']}")
         print(f"      - Area: {sf['area_approx_sq_deg']:.10f} sq deg")
-        if sf['bbox']:
+        if sf['bbox'] and sf['tile_info']:
+            print(f"      - Size: {sf['tile_info']['width_km']:.4f} km × {sf['tile_info']['height_km']:.4f} km")
             print(f"      - BBox: [{sf['bbox']['min_lon']:.6f}, {sf['bbox']['min_lat']:.6f}, "
                   f"{sf['bbox']['max_lon']:.6f}, {sf['bbox']['max_lat']:.6f}]")
+    
+    print("\n5. TILE GENERATION RECOMMENDATIONS:")
+    print("   - Use the smallest feature samples to test tile rendering")
+    print("   - Ensure tiles at recommended zoom levels can display smallest features")
+    print("   - Consider feature simplification for lower zoom levels")
+    print("   - BBox values can be used to set spatial indexing bounds")
 
 
 def save_results_json(all_results, output_path):
     """Save analysis results to JSON file"""
     output_file = Path(output_path)
     with open(output_file, 'w', encoding='utf-8') as f:
-        json.dump(all_results, f, indent=2, ensure_ascii=False)
+        json.dump(all_results, f, separators=(',', ':'), ensure_ascii=False)
     print(f"\n✅ Results saved to: {output_file}")
 
 
 def save_feature_samples_json(all_results, output_path):
-    """Save only the smallest feature samples to a JSON file"""
+    """Save only the smallest feature samples to a JSON file (single line format)"""
     samples = {}
     for result in all_results:
         if result and result['smallest_feature']:
@@ -346,7 +363,7 @@ def save_feature_samples_json(all_results, output_path):
     
     output_file = Path(output_path)
     with open(output_file, 'w', encoding='utf-8') as f:
-        json.dump(samples, f, indent=2, ensure_ascii=False)
+        json.dump(samples, f, separators=(',', ':'), ensure_ascii=False)
     print(f"✅ Feature samples saved to: {output_file}")
 
 
@@ -354,7 +371,7 @@ def main():
     """Main analysis function"""
     # Get the script directory and project root
     script_dir = Path(__file__).parent
-    project_root = script_dir.parent.parent if script_dir.name == 'scripts' else script_dir.parent
+    project_root = script_dir
     
     data_path = project_root / "data" / "andhra_pradesh" / "amaravati" / "master_plan"
     
@@ -400,3 +417,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

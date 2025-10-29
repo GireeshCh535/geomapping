@@ -1,10 +1,7 @@
 #!/usr/bin/env python3
 """
-Amaravati Master Plan - PERFECT FIXED Tile Generator
-Solves ALL issues:
-1. Features appearing/disappearing at different zoom levels
-2. Overlapping features from buffering
-3. Inconsistent visibility
+Amaravati Master Plan - DENSE COMPLETE TILES
+Every tile shows ALL data in its bounds - NO empty spaces
 """
 
 import json
@@ -16,7 +13,7 @@ import mercantile
 from shapely.geometry import shape, box
 from rtree import index
 
-class AmaravatiPerfectFixedGenerator:
+class AmaravatiDenseCompleteTiles:
     def __init__(self, data_dir, output_dir):
         self.data_dir = Path(data_dir)
         self.output_dir = Path(output_dir)
@@ -26,16 +23,12 @@ class AmaravatiPerfectFixedGenerator:
         self.feature_lookup = {}
         
     def get_color_map(self):
-        """Exact color mapping for all Amaravati zones"""
+        """Complete color mapping with all variations"""
         return {
-            'Burial Ground': {
-                'type': 'dotted',
-                'base': '#FFFFFF',
-                'dot': '#E39E00',
-                'solid_lowzoom': '#E39E00'
-            },
+            # Filenames
+            'Burial Ground': {'fill': '#E39E00'},
             'C1 -Mixed use zone': {'fill': '#73B2FF'},
-            'C2- General commercial zone': {'fill': '#00C5FF', 'outline': '#000000'},
+            'C2- General commercial zone': {'fill': '#00C5FF'},
             'C3-Neighbourhood centre zone': {'fill': '#00C5FF'},
             'C4-Town centre zone': {'fill': '#00A9E6'},
             'C5-Regional centre zone': {'fill': '#0070FF'},
@@ -43,7 +36,7 @@ class AmaravatiPerfectFixedGenerator:
             'Commercial Vacant': {'fill': '#C5E2FF'},
             'I1-Business park zone': {'fill': '#FFBEE8'},
             'I2-Logistics zone': {'fill': '#FF73DF'},
-            'I3-Non polluting industry zone': {'fill': '#B6B6B6', 'outline': '#000000'},
+            'I3-Non polluting industry zone': {'fill': '#B6B6B6'},
             'Not Available': {'fill': '#CCCCCC'},
             'P1-Passive zone': {'fill': '#267300'},
             'P2-Active zone': {'fill': '#38A800'},
@@ -51,12 +44,7 @@ class AmaravatiPerfectFixedGenerator:
             'P3-Protected zone Hills': {'fill': '#4C7300'},
             'PGN-G': {'fill': '#4C7300'},
             'PGN-V': {'fill': '#897044'},
-            'R1-Village planning zone': {
-                'type': 'hatched',
-                'base': '#FFFFFF',
-                'hatch': '#000000',
-                'solid_lowzoom': '#EEEEEE'
-            },
+            'R1-Village planning zone': {'fill': '#EEEEEE'},
             'R3-Medium to high density zone': {'fill': '#F5CA7A'},
             'R4-High density zone': {'fill': '#E69800'},
             'RAA': {'fill': '#FFAA00'},
@@ -78,25 +66,39 @@ class AmaravatiPerfectFixedGenerator:
             'SU1-Reserve Zone': {'fill': '#E1E1E1'},
             'SU2 - Road Network': {'fill': '#82817D'},
             'U1-Reserve zone': {'fill': '#CCCCCC'},
-            'U2- Road Reserve Zone': {'fill': '#82817D'}
+            'U2- Road Reserve Zone': {'fill': '#82817D'},
+            
+            # Symbology variations (from GeoJSON properties)
+            'R4-High density zone': {'fill': '#FFAA00'},
+            'R3-Medium to high density zone': {'fill': '#F5CA7A'},
+            'SC1a-Mixed Use': {'fill': '#0070FF'},
+            'SC1a - Mixed Use': {'fill': '#0070FF'},
+            'SC1b-Mixed Use': {'fill': '#73B2FF'},
+            'SC1b - Mixed Use': {'fill': '#73B2FF'},
+            'Super Block C': {'fill': '#73B2FF'},  # SC1b plot_categ
+            'SS1-Government Zone': {'fill': '#E60000'},
+            'SS2a-Education Zone': {'fill': '#FF7F7F'},
+            'SS2b-Cultural Zone': {'fill': '#C500FF'},
+            'SS2c-Health Zone': {'fill': '#D3FFBE'},
+            'SS3-Special Zone': {'fill': '#A83800'},
         }
     
     def hex_to_rgb(self, hex_color):
-        """Convert hex color to RGB tuple"""
+        """Convert hex to RGB"""
         hex_color = hex_color.lstrip('#')
         return tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))
     
     def load_geojson_files(self):
-        """Load all GeoJSON files and build spatial index"""
+        """Load all GeoJSON with symbology-based naming"""
         print("\n" + "="*80)
-        print("LOADING GEOJSON DATA - AMARAVATI")
+        print("LOADING GEOJSON DATA - DENSE MODE")
         print("="*80)
         
         geojson_files = sorted(self.data_dir.glob('*.geojson'))
         total_files = len(geojson_files)
         total_features = 0
         
-        print(f"Found {total_files} GeoJSON files\n")
+        print(f"Found {total_files} files\n")
         
         load_start = time.time()
         
@@ -119,10 +121,14 @@ class AmaravatiPerfectFixedGenerator:
                         if not geom.is_valid:
                             geom = geom.buffer(0)
                         
+                        props = feature.get('properties', {})
+                        # Use symbology, fallback to plot_categ, then filename
+                        feature_zone = props.get('symbology', props.get('plot_categ', zone_name))
+                        
                         feature_data = {
                             'geometry': geom,
-                            'zone': zone_name,
-                            'properties': feature.get('properties', {})
+                            'zone': feature_zone,
+                            'properties': props
                         }
                         
                         bounds = geom.bounds
@@ -135,20 +141,19 @@ class AmaravatiPerfectFixedGenerator:
                         continue
                 
                 total_features += loaded
-                print(f"✓ {loaded:>7,} features")
+                print(f"✓ {loaded:>7,}")
                 
             except Exception as e:
-                print(f"✗ Error: {e}")
+                print(f"✗ {e}")
                 continue
         
         load_elapsed = time.time() - load_start
-        
         print(f"\n{'='*80}")
         print(f"LOADED: {total_features:,} features in {load_elapsed:.1f}s")
         print(f"{'='*80}\n")
     
     def get_bounds(self):
-        """Calculate geographic bounds"""
+        """Get geographic bounds"""
         min_lon, min_lat = float('inf'), float('inf')
         max_lon, max_lat = float('-inf'), float('-inf')
         
@@ -161,49 +166,16 @@ class AmaravatiPerfectFixedGenerator:
         
         return (min_lon, min_lat, max_lon, max_lat)
     
-    def draw_diagonal_hatch(self, draw, coords, base_rgb, hatch_rgb, scale):
-        """Fast diagonal hatch pattern"""
-        draw.polygon(coords, fill=base_rgb, outline=None)
-        
-        xs = [p[0] for p in coords]
-        ys = [p[1] for p in coords]
-        min_x, max_x = min(xs), max(xs)
-        min_y, max_y = min(ys), max(ys)
-        
-        spacing = 6 * scale
-        for offset in range(int(-max_y + min_y), int(max_x - min_x), spacing):
-            x1 = min_x + max(0, offset)
-            y1 = min_y + max(0, -offset)
-            x2 = min_x + min(max_x - min_x, max_y - min_y + offset)
-            y2 = min_y + min(max_y - min_y, max_x - min_x - offset)
-            draw.line([(x1, y1), (x2, y2)], fill=hatch_rgb, width=scale)
-    
-    def draw_dots(self, draw, coords, base_rgb, dot_rgb, scale):
-        """Fast dot pattern"""
-        draw.polygon(coords, fill=base_rgb, outline=None)
-        
-        xs = [p[0] for p in coords]
-        ys = [p[1] for p in coords]
-        min_x, max_x = min(xs), max(xs)
-        min_y, max_y = min(ys), max(ys)
-        
-        spacing = 8 * scale
-        dot_size = 2 * scale
-        
-        for x in range(int(min_x), int(max_x), spacing):
-            for y in range(int(min_y), int(max_y), spacing):
-                draw.ellipse([x - dot_size, y - dot_size, 
-                            x + dot_size, y + dot_size], fill=dot_rgb)
-    
-    def render_tile(self, tile):
-        """Render tile - FIXED: No buffering, smart simplification"""
+    def render_tile_dense(self, tile):
+        """
+        DENSE RENDERING: Every tile shows ALL data in its bounds
+        NO empty spaces - complete coverage
+        """
         z, x, y = tile.z, tile.x, tile.y
         
-        # 2x scale for anti-aliasing
-        scale = 2
+        # Higher resolution for complete coverage
+        scale = 4  # Always 4x for maximum density
         img_size = self.tile_size * scale
-        
-        is_low_zoom = z < 14
         
         img = Image.new('RGBA', (img_size, img_size), (0, 0, 0, 0))
         draw = ImageDraw.Draw(img)
@@ -212,50 +184,43 @@ class AmaravatiPerfectFixedGenerator:
         tile_bbox = box(tile_bounds.west, tile_bounds.south, 
                        tile_bounds.east, tile_bounds.north)
         
-        # Fast spatial query
+        # Get ALL features in tile
         intersecting_ids = list(self.spatial_index.intersection(tile_bbox.bounds))
         
         if not intersecting_ids:
             return None
         
         color_map = self.get_color_map()
+        rendered_count = 0
         
-        # CRITICAL: Track if we actually rendered anything
-        features_rendered = False
-        
-        # NO SIMPLIFICATION AT ALL - render everything exactly as-is
-        # This ensures ALL features are visible at ALL zoom levels
-        tolerance = 0  # Never simplify
-        
-        # Render features
+        # Render EVERY feature - no filtering
         for feature_id in intersecting_ids:
             feature_data = self.feature_lookup[feature_id]
             geom = feature_data['geometry']
             zone = feature_data['zone']
             
-            # CRITICAL: Skip if doesn't actually intersect
+            # Quick intersection check
             if not geom.intersects(tile_bbox):
                 continue
             
+            # Get color with fallback
             if zone not in color_map:
-                continue
+                color_info = {'fill': '#CCCCCC'}  # Default grey
+            else:
+                color_info = color_map[zone]
             
-            color_info = color_map[zone]
+            fill_rgb = self.hex_to_rgb(color_info['fill'])
             
-            # Clip to tile bounds - but DON'T simplify
+            # Clip to tile (but keep original if clipping fails)
             try:
-                geom = geom.intersection(tile_bbox)
-                if geom.is_empty or not geom.is_valid:
+                clipped_geom = geom.intersection(tile_bbox)
+                if clipped_geom.is_empty:
                     continue
-                # Allow even tiny areas - we want to show EVERYTHING
-                if geom.area < 1e-15:  # Only skip if truly infinitesimal
-                    continue
+                geom = clipped_geom
             except:
-                continue
+                pass  # Use original
             
-            # NO SIMPLIFICATION - just clip and render
-            
-            # Handle MultiPolygon and Polygon
+            # Handle all geometry types
             if geom.geom_type == 'Polygon':
                 polygons = [geom]
             elif geom.geom_type == 'MultiPolygon':
@@ -263,131 +228,65 @@ class AmaravatiPerfectFixedGenerator:
             else:
                 continue
             
+            # Render each polygon
             for polygon in polygons:
-                # Skip invalid polygons
-                if not polygon.is_valid or polygon.is_empty:
-                    continue
-                    
-                # Convert to pixel coordinates
-                pixel_coords = []
                 try:
+                    # Convert coordinates to pixels
+                    pixel_coords = []
                     for coord in polygon.exterior.coords:
                         lon, lat = coord[0], coord[1]
                         px = (lon - tile_bounds.west) / (tile_bounds.east - tile_bounds.west) * img_size
                         py = (tile_bounds.north - lat) / (tile_bounds.north - tile_bounds.south) * img_size
                         pixel_coords.append((px, py))
-                except:
-                    continue
-                
-                if len(pixel_coords) < 3:
-                    continue
-                
-                # CRITICAL FIX: Ensure ALL features are visible
-                # Even tiny features must render as SOMETHING
-                xs = [p[0] for p in pixel_coords]
-                ys = [p[1] for p in pixel_coords]
-                width = max(xs) - min(xs)
-                height = max(ys) - min(ys)
-                
-                # Calculate center for fallback rendering
-                center_x = sum(xs) / len(xs)
-                center_y = sum(ys) / len(ys)
-                
-                # If feature is sub-pixel, render as a visible point
-                if width < 0.5 * scale or height < 0.5 * scale:
-                    # Make it visible regardless of size
-                    radius = max(1 * scale, 0.5 * scale)  # At least 1px
                     
-                    if color_info.get('type') in ['dotted', 'hatched']:
-                        fill_rgb = self.hex_to_rgb(color_info.get('solid_lowzoom', 
-                                                   color_info.get('base', '#FFFFFF')))
-                    else:
-                        fill_rgb = self.hex_to_rgb(color_info['fill'])
+                    if len(pixel_coords) < 3:
+                        continue
                     
-                    draw.ellipse([center_x - radius, center_y - radius, 
-                                center_x + radius, center_y + radius], fill=fill_rgb)
-                    features_rendered = True
-                    continue
-                
-                # For very small features (< 2px), ensure visibility with both polygon and point
-                elif width < 2 * scale or height < 2 * scale:
-                    radius = 1 * scale
+                    # DENSE RENDERING: Fill completely with outline
+                    draw.polygon(pixel_coords, fill=fill_rgb, outline=fill_rgb, width=2)
                     
-                    if color_info.get('type') in ['dotted', 'hatched']:
-                        fill_rgb = self.hex_to_rgb(color_info.get('solid_lowzoom', 
-                                                   color_info.get('base', '#FFFFFF')))
-                    else:
-                        fill_rgb = self.hex_to_rgb(color_info['fill'])
+                    # Add extra coverage at center for small features
+                    xs = [p[0] for p in pixel_coords]
+                    ys = [p[1] for p in pixel_coords]
+                    center_x = sum(xs) / len(xs)
+                    center_y = sum(ys) / len(ys)
+                    width = max(xs) - min(xs)
+                    height = max(ys) - min(ys)
                     
-                    # Draw point at center
-                    draw.ellipse([center_x - radius, center_y - radius, 
-                                center_x + radius, center_y + radius], fill=fill_rgb)
-                    # Also try to draw the polygon
-                    try:
-                        draw.polygon(pixel_coords, fill=fill_rgb, outline=None)
-                    except:
-                        pass
-                    features_rendered = True
-                    continue
-                
-                # Render based on type - with fallbacks
-                try:
-                    if color_info.get('type') == 'dotted':
-                        if is_low_zoom and 'solid_lowzoom' in color_info:
-                            fill_rgb = self.hex_to_rgb(color_info['solid_lowzoom'])
-                            draw.polygon(pixel_coords, fill=fill_rgb, outline=None)
-                        else:
-                            base_rgb = self.hex_to_rgb(color_info['base'])
-                            dot_rgb = self.hex_to_rgb(color_info['dot'])
-                            self.draw_dots(draw, pixel_coords, base_rgb, dot_rgb, scale)
+                    # For small features, add filled circle
+                    if width < 8 * scale or height < 8 * scale:
+                        radius = max(2 * scale, int(min(width, height) / 2))
+                        draw.ellipse([center_x - radius, center_y - radius, 
+                                    center_x + radius, center_y + radius], 
+                                   fill=fill_rgb, outline=fill_rgb)
                     
-                    elif color_info.get('type') == 'hatched':
-                        if is_low_zoom and 'solid_lowzoom' in color_info:
-                            fill_rgb = self.hex_to_rgb(color_info['solid_lowzoom'])
-                            draw.polygon(pixel_coords, fill=fill_rgb, outline=None)
-                        else:
-                            base_rgb = self.hex_to_rgb(color_info['base'])
-                            hatch_rgb = self.hex_to_rgb(color_info['hatch'])
-                            self.draw_diagonal_hatch(draw, pixel_coords, base_rgb, hatch_rgb, scale)
-                    
-                    else:
-                        fill_rgb = self.hex_to_rgb(color_info['fill'])
-                        draw.polygon(pixel_coords, fill=fill_rgb, outline=None)
-                        
-                        # Draw outline if specified
-                        if color_info.get('outline'):
-                            outline_rgb = self.hex_to_rgb(color_info['outline'])
-                            draw.line(pixel_coords + [pixel_coords[0]], 
-                                    fill=outline_rgb, width=scale)
-                    
-                    features_rendered = True
+                    rendered_count += 1
                     
                 except Exception as e:
-                    # FALLBACK: If pattern drawing fails, draw solid color
+                    # Fallback: just draw a dot
                     try:
-                        if color_info.get('type') in ['dotted', 'hatched']:
-                            fill_rgb = self.hex_to_rgb(color_info.get('solid_lowzoom', 
-                                                       color_info.get('base', '#FFFFFF')))
-                        else:
-                            fill_rgb = self.hex_to_rgb(color_info['fill'])
-                        draw.polygon(pixel_coords, fill=fill_rgb, outline=None)
-                        features_rendered = True
+                        xs = [p[0] for p in pixel_coords]
+                        ys = [p[1] for p in pixel_coords]
+                        center_x = sum(xs) / len(xs)
+                        center_y = sum(ys) / len(ys)
+                        draw.ellipse([center_x - 2*scale, center_y - 2*scale, 
+                                    center_x + 2*scale, center_y + 2*scale], fill=fill_rgb)
+                        rendered_count += 1
                     except:
-                        pass  # Skip if even fallback fails
+                        pass
         
-        # CRITICAL: Only return tile if we actually rendered something
-        if not features_rendered:
+        if rendered_count == 0:
             return None
         
-        # Downsample for anti-aliasing
+        # Downsample with LANCZOS for quality
         img = img.resize((self.tile_size, self.tile_size), Image.LANCZOS)
         return img
     
     def generate_tiles(self, min_zoom=5, max_zoom=18):
-        """Generate tiles with progress tracking - ALL features visible at ALL zooms"""
+        """Generate dense complete tiles"""
         print(f"\n{'='*80}")
-        print(f"GENERATING TILES (Zoom {min_zoom}-{max_zoom})")
-        print(f"INFO: ALL features will be visible at ALL zoom levels")
+        print(f"GENERATING DENSE TILES (Zoom {min_zoom}-{max_zoom})")
+        print(f"Mode: COMPLETE COVERAGE - NO EMPTY SPACES")
         print(f"{'='*80}")
         
         bounds = self.get_bounds()
@@ -411,7 +310,7 @@ class AmaravatiPerfectFixedGenerator:
             rendered = 0
             
             for tile in tiles:
-                img = self.render_tile(tile)
+                img = self.render_tile_dense(tile)
                 
                 if img is not None:
                     tile_dir = zoom_dir / str(tile.x)
@@ -423,7 +322,7 @@ class AmaravatiPerfectFixedGenerator:
             
             zoom_elapsed = time.time() - zoom_start
             speed = rendered / zoom_elapsed if zoom_elapsed > 0 else 0
-            print(f"| ✓ {rendered:,} rendered in {zoom_elapsed:.1f}s ({speed:.1f} tiles/s)")
+            print(f"| ✓ {rendered:,} in {zoom_elapsed:.1f}s ({speed:.1f} tiles/s)")
             
             total_tiles += rendered
         
@@ -434,7 +333,7 @@ class AmaravatiPerfectFixedGenerator:
         print(f"{'='*80}\n")
     
     def generate_html_viewer(self):
-        """Generate HTML viewer"""
+        """Generate viewer"""
         bounds = self.get_bounds()
         center_lon = (bounds[0] + bounds[2]) / 2
         center_lat = (bounds[1] + bounds[3]) / 2
@@ -443,7 +342,7 @@ class AmaravatiPerfectFixedGenerator:
 <html>
 <head>
   <meta charset="utf-8" />
-  <title>Amaravati Master Plan</title>
+  <title>Amaravati Master Plan - Dense Tiles</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <style>body, html, #map {{ margin:0; padding:0; height:100%; }}</style>
 </head>
@@ -456,7 +355,7 @@ class AmaravatiPerfectFixedGenerator:
       maxZoom: 19
     }}).addTo(map);
     L.tileLayer('./{{z}}/{{x}}/{{y}}.png', {{
-      minZoom: 7, maxZoom: 18, opacity: 0.8
+      minZoom: 5, maxZoom: 18, opacity: 0.85
     }}).addTo(map);
   </script>
 </body>
@@ -469,16 +368,12 @@ class AmaravatiPerfectFixedGenerator:
 def main():
     import sys
     
-    # Try multiple possible paths
     possible_paths = [
         Path('data/andhra_pradesh/amaravati/master_plan'),
         Path('/Users/rohitboni/Downloads/All_files/project/1acre/geomapping_full/geomapping/data/andhra_pradesh/amaravati/master_plan'),
         Path('/home/gamyam/1acre/geomapping/data/andhra_pradesh/amaravati/master_plan'),
-        Path('./data/andhra_pradesh/amaravati/master_plan'),
-        Path('../../../data/andhra_pradesh/amaravati/master_plan')
     ]
     
-    # Find the correct path
     data_dir = None
     for path in possible_paths:
         if path.exists():
@@ -486,39 +381,32 @@ def main():
             break
     
     if data_dir is None:
-        print("="*80)
-        print("ERROR: Could not find GeoJSON data directory")
-        print("="*80)
-        print("\nTried paths:")
-        for path in possible_paths:
-            print(f"  - {path}")
-        print("\nProvide correct path:")
+        print("Provide path to master_plan directory:")
         user_path = input("> ").strip()
         data_dir = Path(user_path)
-        
         if not data_dir.exists():
-            print(f"\n✗ Error: {data_dir} does not exist")
+            print(f"✗ {data_dir} not found")
             sys.exit(1)
     
-    output_dir = Path('./tiles/amaravati')
+    output_dir = Path('./tiles/amaravati_dense')
     
     print("="*80)
-    print("AMARAVATI MASTER PLAN - PERFECT FIXED GENERATOR")
+    print("AMARAVATI - DENSE COMPLETE TILES GENERATOR")
     print("="*80)
-    print(f"\nData: {data_dir}")
+    print(f"Data: {data_dir}")
     print(f"Output: {output_dir}")
     
-    generator = AmaravatiPerfectFixedGenerator(data_dir, output_dir)
+    generator = AmaravatiDenseCompleteTiles(data_dir, output_dir)
     generator.load_geojson_files()
     
     if generator.feature_id_counter == 0:
-        print("\n✗ No features loaded!")
+        print("✗ No features loaded!")
         sys.exit(1)
     
-    generator.generate_tiles(min_zoom=7, max_zoom=18)
+    generator.generate_tiles(min_zoom=5, max_zoom=18)
     generator.generate_html_viewer()
     
-    print(f"\nView: cd {output_dir} && python3 -m http.server 8007\n")
+    print(f"\nView: cd {output_dir} && python3 -m http.server 8010\n")
 
 
 if __name__ == '__main__':
