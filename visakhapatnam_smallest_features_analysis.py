@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-Amaravati Master Plan - Smallest Feature Analysis for Tile Generation
-======================================================================
+Visakhapatnam Master Plan - Smallest Feature Analysis for Tile Generation
+==========================================================================
 
-This script analyzes all GeoJSON files in data/andhra_pradesh/amaravati/master_plan/
+This script analyzes all GeoJSON files in data/andhra_pradesh/visakhapatnam/master_plan/
 and finds the smallest feature in each file. The output is structured for tile generation
 planning.
 
@@ -14,7 +14,7 @@ The analysis identifies:
 - Configuration data useful for tile generation
 
 Usage:
-    python3 amaravati_smallest_features_analysis.py
+    python3 visakhapatnam_smallest_features_analysis.py
 """
 
 import json
@@ -183,17 +183,19 @@ def analyze_file_for_smallest_feature(filepath):
             # Check for holes (interior rings)
             coords = geom.get('coordinates', [])
             if geom_type == 'Polygon' and coords:
+                # Polygon: [exterior_ring, interior_ring1, interior_ring2, ...]
                 if len(coords) > 1:
                     features_with_holes += 1
                     holes_count = len(coords) - 1
                     max_holes_in_feature = max(max_holes_in_feature, holes_count)
             elif geom_type == 'MultiPolygon' and coords:
+                # MultiPolygon: [[exterior, interior1, ...], [exterior2, interior2, ...]]
                 for polygon in coords:
                     if len(polygon) > 1:
                         features_with_holes += 1
                         holes_count = len(polygon) - 1
                         max_holes_in_feature = max(max_holes_in_feature, holes_count)
-                        break
+                        break  # Count feature once even if multiple polygons have holes
             
             # Find smallest
             area = calculate_feature_area(feature)
@@ -422,14 +424,14 @@ def main():
     script_dir = Path(__file__).parent
     project_root = script_dir
     
-    data_path = project_root / "data" / "andhra_pradesh" / "amaravati" / "master_plan"
+    data_path = project_root / "data" / "andhra_pradesh" / "visakhapatnam" / "master_plan"
     
     if not data_path.exists():
         print(f"ERROR: Directory not found: {data_path}")
         sys.exit(1)
     
     print(f"{'='*80}")
-    print(f"AMARAVATI MASTER PLAN - SMALLEST FEATURE ANALYSIS")
+    print(f"VISAKHAPATNAM MASTER PLAN - SMALLEST FEATURE ANALYSIS")
     print(f"{'='*80}")
     print(f"\nAnalyzing GeoJSON files in: {data_path}")
     print(f"{'='*80}\n")
@@ -456,11 +458,11 @@ def main():
     
     # Save results
     output_dir = project_root
-    save_results_json(all_results, output_dir / "amaravati_smallest_features_analysis.json")
-    save_feature_samples_json(all_results, output_dir / "amaravati_smallest_features_samples.json")
+    save_results_json(all_results, output_dir / "visakhapatnam_smallest_features_analysis.json")
+    save_feature_samples_json(all_results, output_dir / "visakhapatnam_smallest_features_samples.json")
     
-    print(f"\n💡 Note: Analytical data (geometry types, holes, etc.) in amaravati_smallest_features_analysis.json")
-    print(f"   Compact smallest feature metadata in amaravati_smallest_features_samples.json")
+    print(f"\n💡 Note: Analytical data (geometry types, holes, etc.) in visakhapatnam_smallest_features_analysis.json")
+    print(f"   Compact smallest feature metadata in visakhapatnam_smallest_features_samples.json")
     
     print(f"\n{'='*80}")
     print("Analysis Complete!")

@@ -2,7 +2,7 @@
 """
 Visakhapatnam Master Plan - SEAMLESS COMPLETE TILES
 Every feature visible at every zoom level - Transparent background
-Adapted from Warangal tile generator with Visakhapatnam-specific styling
+Supports: Solid fills, Hatch patterns, Dot patterns
 """
 
 import json
@@ -24,49 +24,13 @@ class VisakhapatnamSeamlessTiles:
         self.feature_lookup = {}
         
     def get_color_map(self):
-        """Visakhapatnam color mapping - exact match to specifications"""
+        """Visakhapatnam color mapping with patterns"""
         return {
-            # Use Zones
+            # File name as key (normalized)
             'Agricultural_Use_Zone': {
                 'fill': '#D3FFBE', 
                 'outline': '#A9CC98'
             },
-            'Commercial_Use_Zone': {
-                'fill': '#004DA8', 
-                'outline': '#003A80'
-            },
-            'Residential_Use_Zone': {
-                'fill': '#FFFF73', 
-                'outline': '#CCCC5C'
-            },
-            'Mixed_Use_Zone_1': {
-                'fill': '#FFAA00', 
-                'outline': '#CC8800'
-            },
-            'Mixed_Use_Zone_2_BAIA': {
-                'fill': '#FFD37F', 
-                'outline': '#CCA966'
-            },
-            'Mixed_Use_Zone_3_BAIA': {
-                'fill': '#E69800', 
-                'outline': '#B87A00',
-                'pattern': 'hatch',
-                'pattern_color': '#E1E1E1'
-            },
-            'Mixed_Use_Zone_4_BAIA': {
-                'fill': '#FFAA00', 
-                'outline': '#CC8800',
-                'pattern': 'dot',
-                'pattern_color': '#000000'
-            },
-            'Special_Area_Use_Zone': {
-                'fill': '#FFFFFF', 
-                'outline': '#CCCCCC',
-                'pattern': 'hatch',
-                'pattern_color': '#002673'
-            },
-            
-            # Environmental/Protected Zones
             'Blue_Zone_Water_Bodies': {
                 'fill': '#73FFDF', 
                 'outline': '#5CCCB2'
@@ -75,26 +39,10 @@ class VisakhapatnamSeamlessTiles:
                 'fill': '#A87000', 
                 'outline': '#865A00'
             },
-            'Green_Zone_Forest': {
-                'fill': '#00734C', 
-                'outline': '#005C3D'
+            'Commercial_Use_Zone': {
+                'fill': '#004DA8', 
+                'outline': '#003D86'
             },
-            'Water_Body_Buffer': {
-                'fill': '#4CE600', 
-                'outline': '#3DB800',
-                'pattern': 'dot',
-                'pattern_color': '#267300'
-            },
-            'Kambalakonda_Eco_Sensitive_Zone_NAOB_Buffer_Zoological_Park': {
-                'fill': '#D7C29E', 
-                'outline': '#AC9B7E'
-            },
-            'Kambalakonda_WildLife_Sanctuary_Biodiversity_Area': {
-                'fill': '#38A800', 
-                'outline': '#2D8600'
-            },
-            
-            # Existing Facilities
             'Existing_Crematorium_Burial_Ground_Graveyard': {
                 'fill': '#FFFFFF', 
                 'outline': '#CCCCCC',
@@ -116,6 +64,12 @@ class VisakhapatnamSeamlessTiles:
                 'outline': '#CC0000',
                 'pattern': 'dot',
                 'pattern_color': '#CCCCCC'
+            },
+            'Proposed_Industrial_Use_Zone': {
+                'fill': '#C500FF', 
+                'outline': '#9E00CC',
+                'pattern': 'hatch',
+                'pattern_color': '#FFFFFF'
             },
             'Existing_Industrial_Area': {
                 'fill': '#C500FF', 
@@ -145,15 +99,39 @@ class VisakhapatnamSeamlessTiles:
             },
             'Existing_Transportation_Facility': {
                 'fill': '#686868', 
-                'outline': '#535353'
+                'outline': '#545454'
             },
-            
-            # Proposed Development
-            'Proposed_Industrial_Use_Zone': {
-                'fill': '#C500FF', 
-                'outline': '#9E00CC',
+            'Green_Zone_Forest': {
+                'fill': '#00734C', 
+                'outline': '#005C3D'
+            },
+            'Kambalakonda_Eco_Sensitive_Zone_NAOB_Buffer_Zoological_Park': {
+                'fill': '#D7C29E', 
+                'outline': '#AC9B7E'
+            },
+            'Kambalakonda_WildLife_Sanctuary_Biodiversity_Area': {
+                'fill': '#38A800', 
+                'outline': '#2D8600'
+            },
+            'Mixed_Use_Zone_1': {
+                'fill': '#FFAA00', 
+                'outline': '#CC8800'
+            },
+            'Mixed_Use_Zone_2_BAIA': {
+                'fill': '#FFD37F', 
+                'outline': '#CCA966'
+            },
+            'Mixed_Use_Zone_3_BAIA': {
+                'fill': '#E69800', 
+                'outline': '#B87A00',
                 'pattern': 'hatch',
-                'pattern_color': '#FFFFFF'
+                'pattern_color': '#E1E1E1'
+            },
+            'Mixed_Use_Zone_4_BAIA': {
+                'fill': '#FFAA00', 
+                'outline': '#CC8800',
+                'pattern': 'dot',
+                'pattern_color': '#000000'
             },
             'Proposed_PSP_Use_Zone': {
                 'fill': '#FF0000', 
@@ -181,14 +159,28 @@ class VisakhapatnamSeamlessTiles:
                 'pattern': 'hatch',
                 'pattern_color': '#FFFFFF'
             },
-            
-            # Infrastructure
+            'Residential_Use_Zone': {
+                'fill': '#FFFF73', 
+                'outline': '#CCCC5C'
+            },
             'Sea_River_Accreted_Land': {
                 'fill': '#D7C29E', 
                 'outline': '#AC9B7E',
                 'pattern': 'dot',
                 'pattern_color': '#E39E00'
-            }
+            },
+            'Special_Area_Use_Zone': {
+                'fill': '#FFFFFF', 
+                'outline': '#CCCCCC',
+                'pattern': 'hatch',
+                'pattern_color': '#002673'
+            },
+            'Water_Body_Buffer': {
+                'fill': '#4CE600', 
+                'outline': '#3DB800',
+                'pattern': 'dot',
+                'pattern_color': '#267300'
+            },
         }
     
     def hex_to_rgb(self, hex_color):
@@ -298,8 +290,8 @@ class VisakhapatnamSeamlessTiles:
         
         return (min_lon, min_lat, max_lon, max_lat)
     
-    def create_pattern(self, draw, poly, base, ptype, pcolor, img_size):
-        """Create hatch or dot pattern"""
+    def create_hatch_pattern(self, draw, poly, base, pcolor, img_size):
+        """Create diagonal hatch pattern"""
         draw.polygon(poly, fill=base)
         
         if len(poly) < 3:
@@ -309,19 +301,50 @@ class VisakhapatnamSeamlessTiles:
         min_x, max_x = int(min(xs)), int(max(xs))
         min_y, max_y = int(min(ys)), int(max(ys))
         
-        if ptype == "hatch":
-            spacing = max(3, (max_x - min_x) // 15)
-            for i in range(min_x - max_y, max_x + max_y, spacing):
-                pts = [(x, x - i) for x in range(min_x, max_x + 1) if min_y <= x - i <= max_y]
-                if len(pts) > 1:
-                    draw.line(pts, fill=pcolor, width=1)
+        spacing = max(3, (max_x - min_x) // 15)
+        for i in range(min_x - max_y, max_x + max_y, spacing):
+            pts = [(x, x - i) for x in range(min_x, max_x + 1) if min_y <= x - i <= max_y]
+            if len(pts) > 1:
+                draw.line(pts, fill=pcolor, width=1)
+    
+    def create_dot_pattern(self, draw, poly, base, pcolor, img_size):
+        """Create dot pattern"""
+        draw.polygon(poly, fill=base)
         
-        elif ptype == "dot":
-            spacing = max(4, (max_x - min_x) // 20)
+        if len(poly) < 3:
+            return
+        
+        xs, ys = zip(*poly)
+        min_x, max_x = int(min(xs)), int(max(xs))
+        min_y, max_y = int(min(ys)), int(max(ys))
+        
+        # Dot spacing and size
+        spacing = max(5, (max_x - min_x) // 20)
+        dot_size = max(1, spacing // 3)
+        
+        # Create a polygon mask to check if points are inside
+        from shapely.geometry import Point
+        from shapely.geometry import Polygon as ShapelyPolygon
+        
+        # Create shapely polygon from pixel coordinates
+        try:
+            poly_shape = ShapelyPolygon(poly)
+            
+            # Draw dots in grid pattern
             for x in range(min_x, max_x, spacing):
                 for y in range(min_y, max_y, spacing):
-                    if min_x <= x <= max_x and min_y <= y <= max_y:
-                        draw.ellipse([x-1, y-1, x+1, y+1], fill=pcolor)
+                    point = Point(x, y)
+                    if poly_shape.contains(point):
+                        draw.ellipse([x - dot_size, y - dot_size, 
+                                    x + dot_size, y + dot_size], 
+                                   fill=pcolor)
+        except:
+            # Fallback: simple grid without polygon check
+            for x in range(min_x, max_x, spacing):
+                for y in range(min_y, max_y, spacing):
+                    draw.ellipse([x - dot_size, y - dot_size, 
+                                x + dot_size, y + dot_size], 
+                               fill=pcolor)
     
     def render_polygon_with_holes(self, draw, polygon, tile_bounds, lon_buffer, lat_buffer, 
                                   buffered_size, fill_rgb, color_info):
@@ -329,6 +352,7 @@ class VisakhapatnamSeamlessTiles:
         Render polygon with interior rings (holes) properly.
         Create a mask where holes are transparent.
         """
+        # Create a temporary image for this polygon with alpha channel
         poly_img = Image.new('RGBA', (buffered_size, buffered_size), (0, 0, 0, 0))
         poly_draw = ImageDraw.Draw(poly_img)
         
@@ -345,10 +369,23 @@ class VisakhapatnamSeamlessTiles:
         if len(exterior_pixels) < 3:
             return
         
-        fill_rgba = fill_rgb + (255,)
-        poly_draw.polygon(exterior_pixels, fill=fill_rgba, outline=fill_rgba)
+        # Draw exterior ring with full opacity
+        fill_rgba = fill_rgb + (255,)  # Add alpha channel
         
-        # Draw interior rings (holes) as transparent
+        # Apply pattern if specified
+        if 'pattern' in color_info:
+            if color_info['pattern'] == 'hatch':
+                self.create_hatch_pattern(poly_draw, exterior_pixels, fill_rgba,
+                                        self.hex_to_rgb(color_info['pattern_color']) + (255,),
+                                        buffered_size)
+            elif color_info['pattern'] == 'dot':
+                self.create_dot_pattern(poly_draw, exterior_pixels, fill_rgba,
+                                      self.hex_to_rgb(color_info['pattern_color']) + (255,),
+                                      buffered_size)
+        else:
+            poly_draw.polygon(exterior_pixels, fill=fill_rgba, outline=fill_rgba)
+        
+        # Draw interior rings (holes) as transparent (black with full alpha = cut out)
         for interior in polygon.interiors:
             interior_pixels = []
             for coord in interior.coords:
@@ -360,9 +397,10 @@ class VisakhapatnamSeamlessTiles:
                 interior_pixels.append((int(px), int(py)))
             
             if len(interior_pixels) >= 3:
+                # Draw hole as fully transparent (this cuts out the area)
                 poly_draw.polygon(interior_pixels, fill=(0, 0, 0, 0), outline=(0, 0, 0, 0))
         
-        # Composite onto main image
+        # Composite the polygon with holes onto the main image
         draw._image.paste(poly_img, (0, 0), poly_img)
     
     def render_tile_seamless(self, tile):
@@ -371,6 +409,7 @@ class VisakhapatnamSeamlessTiles:
         - Buffer zone to prevent seams
         - All features visible
         - No clipping artifacts
+        - Supports hatch and dot patterns
         """
         z, x, y = tile.z, tile.x, tile.y
         
@@ -420,6 +459,7 @@ class VisakhapatnamSeamlessTiles:
             geom = feature_data['geometry']
             zone = feature_data['zone']
             
+            # Get color info for this zone
             color_info = color_map.get(zone, {'fill': '#CCCCCC', 'outline': '#999999'})
             
             fill_rgb = self.hex_to_rgb(color_info['fill'])
@@ -455,24 +495,33 @@ class VisakhapatnamSeamlessTiles:
                     height = max(ys) - min(ys)
                     feature_size = max(width, height)
                     
+                    # Check if polygon has interior rings (holes)
                     has_holes = len(polygon.interiors) > 0
                     
                     if feature_size >= min_size:
+                        # Normal rendering
                         int_pixels = [(int(x), int(y)) for x, y in pixel_coords]
                         
                         if has_holes:
+                            # Render polygon with holes using mask
                             self.render_polygon_with_holes(draw, polygon, tile_bounds, lon_buffer, lat_buffer, 
                                                           buffered_size, fill_rgb, color_info)
                         else:
+                            # Simple polygon without holes
                             if 'pattern' in color_info:
-                                self.create_pattern(draw, int_pixels, fill_rgb, 
-                                                 color_info['pattern'], 
-                                                 self.hex_to_rgb(color_info['pattern_color']),
-                                                 buffered_size)
+                                pattern_type = color_info['pattern']
+                                pattern_color = self.hex_to_rgb(color_info['pattern_color'])
+                                
+                                if pattern_type == 'hatch':
+                                    self.create_hatch_pattern(draw, int_pixels, fill_rgb, 
+                                                            pattern_color, buffered_size)
+                                elif pattern_type == 'dot':
+                                    self.create_dot_pattern(draw, int_pixels, fill_rgb, 
+                                                          pattern_color, buffered_size)
                             else:
                                 draw.polygon(int_pixels, fill=fill_rgb, outline=fill_rgb, width=0)
                     else:
-                        # Enlarge small features
+                        # Enlarge small features (skip if has holes - too complex)
                         if not has_holes:
                             center_x = sum(xs) / len(xs)
                             center_y = sum(ys) / len(ys)
@@ -485,10 +534,15 @@ class VisakhapatnamSeamlessTiles:
                                 enlarged_coords.append((int(new_x), int(new_y)))
                             
                             if 'pattern' in color_info:
-                                self.create_pattern(draw, enlarged_coords, fill_rgb,
-                                                 color_info['pattern'],
-                                                 self.hex_to_rgb(color_info['pattern_color']),
-                                                 buffered_size)
+                                pattern_type = color_info['pattern']
+                                pattern_color = self.hex_to_rgb(color_info['pattern_color'])
+                                
+                                if pattern_type == 'hatch':
+                                    self.create_hatch_pattern(draw, enlarged_coords, fill_rgb,
+                                                            pattern_color, buffered_size)
+                                elif pattern_type == 'dot':
+                                    self.create_dot_pattern(draw, enlarged_coords, fill_rgb,
+                                                          pattern_color, buffered_size)
                             else:
                                 draw.polygon(enlarged_coords, fill=fill_rgb, outline=fill_rgb, width=0)
                             
@@ -579,7 +633,7 @@ class VisakhapatnamSeamlessTiles:
 <html>
 <head>
   <meta charset="utf-8" />
-  <title>Visakhapatnam Master Plan</title>
+  <title>Visakhapatnam Master Plan - Seamless Tiles</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <style>
     body, html, #map {{ margin:0; padding:0; height:100%; }}
@@ -607,13 +661,13 @@ class VisakhapatnamSeamlessTiles:
     const info = L.control({{position: 'topright'}});
     info.onAdd = function() {{
       this._div = L.DomUtil.create('div', 'info');
-      this._div.innerHTML = '<b>Visakhapatnam Master Plan</b><br/>Seamless tiles - 511,757 features<br/>Zoom: ' + map.getZoom();
+      this._div.innerHTML = '<b>Visakhapatnam Master Plan</b><br/>Seamless tiles - Hatch & Dot patterns<br/>Zoom: ' + map.getZoom();
       return this._div;
     }};
     info.addTo(map);
     
     map.on('zoomend', function() {{
-      info._div.innerHTML = '<b>Visakhapatnam Master Plan</b><br/>Seamless tiles - 511,757 features<br/>Zoom: ' + map.getZoom();
+      info._div.innerHTML = '<b>Visakhapatnam Master Plan</b><br/>Seamless tiles - Hatch & Dot patterns<br/>Zoom: ' + map.getZoom();
     }});
   </script>
 </body>
@@ -645,13 +699,12 @@ def main():
             print(f"✗ Path not found: {data_dir}")
             sys.exit(1)
     
-    output_dir = Path('./visakhapatnam_tiles')
+    output_dir = Path('./visakhapatnam_tiles1')
     
     print("="*80)
     print("VISAKHAPATNAM MASTER PLAN - SEAMLESS TILE GENERATOR")
-    print("✅ 511,757 features across 31 GeoJSON layers")
-    print("✅ Handles polygon holes/interior rings")
-    print("✅ Hatch and dot patterns supported")
+    print("✅ Properly handles polygon holes/interior rings")
+    print("✅ Supports Hatch and Dot patterns")
     print("="*80)
     print(f"Input:  {data_dir}")
     print(f"Output: {output_dir}")
@@ -663,10 +716,7 @@ def main():
         print("✗ No features loaded!")
         sys.exit(1)
     
-    # Generate tiles (adjust zoom range as needed)
-    # For testing: min_zoom=7, max_zoom=12 (~500 tiles)
-    # For production: min_zoom=7, max_zoom=18 (~900K tiles)
-    generator.generate_tiles(min_zoom=15, max_zoom=18)
+    generator.generate_tiles(min_zoom=7, max_zoom=18)
     generator.generate_html_viewer()
     
     print(f"\n💡 To view: cd {output_dir} && python3 -m http.server 8012")
@@ -675,3 +725,4 @@ def main():
 
 if __name__ == '__main__':
     main()
+

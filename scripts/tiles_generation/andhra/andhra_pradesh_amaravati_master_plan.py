@@ -192,14 +192,27 @@ class AmaravatiEnhancedTiles:
         min_size = self.get_min_feature_size(z, scale)
         img_size = self.tile_size * scale
         
-        img = Image.new('RGBA', (img_size, img_size), (0, 0, 0, 0))
+        # Render buffer to eliminate seams (5% buffer on each side)
+        buffer_ratio = 0.05
+        buffer_pixels = int(img_size * buffer_ratio)
+        buffered_size = img_size + (2 * buffer_pixels)
+        
+        img = Image.new('RGBA', (buffered_size, buffered_size), (0, 0, 0, 0))
         draw = ImageDraw.Draw(img)
         
         tile_bounds = mercantile.bounds(tile)
-        tile_bbox = box(tile_bounds.west, tile_bounds.south, 
-                       tile_bounds.east, tile_bounds.north)
         
-        # Get ALL features in tile
+        # Expand tile bounds by buffer ratio for seamless edges
+        width = tile_bounds.east - tile_bounds.west
+        height = tile_bounds.north - tile_bounds.south
+        buffered_west = tile_bounds.west - (width * buffer_ratio)
+        buffered_south = tile_bounds.south - (height * buffer_ratio)
+        buffered_east = tile_bounds.east + (width * buffer_ratio)
+        buffered_north = tile_bounds.north + (height * buffer_ratio)
+        
+        tile_bbox = box(buffered_west, buffered_south, buffered_east, buffered_north)
+        
+        # Get ALL features in buffered tile area
         intersecting_ids = list(self.spatial_index.intersection(tile_bbox.bounds))
         
         if not intersecting_ids:
@@ -247,12 +260,12 @@ class AmaravatiEnhancedTiles:
             # Render each polygon
             for polygon in polygons:
                 try:
-                    # Convert to pixels
+                    # Convert to pixels using buffered bounds
                     pixel_coords = []
                     for coord in polygon.exterior.coords:
                         lon, lat = coord[0], coord[1]
-                        px = (lon - tile_bounds.west) / (tile_bounds.east - tile_bounds.west) * img_size
-                        py = (tile_bounds.north - lat) / (tile_bounds.north - tile_bounds.south) * img_size
+                        px = (lon - buffered_west) / (buffered_east - buffered_west) * buffered_size
+                        py = (buffered_north - lat) / (buffered_north - buffered_south) * buffered_size
                         pixel_coords.append((px, py))
                     
                     if len(pixel_coords) < 3:
@@ -297,8 +310,8 @@ class AmaravatiEnhancedTiles:
                     # Fallback: render as dot at centroid
                     try:
                         centroid = polygon.centroid
-                        cx = (centroid.x - tile_bounds.west) / (tile_bounds.east - tile_bounds.west) * img_size
-                        cy = (tile_bounds.north - centroid.y) / (tile_bounds.north - tile_bounds.south) * img_size
+                        cx = (centroid.x - buffered_west) / (buffered_east - buffered_west) * buffered_size
+                        cy = (buffered_north - centroid.y) / (buffered_north - buffered_south) * buffered_size
                         dot_size = min_size // 2
                         draw.ellipse([cx - dot_size, cy - dot_size, cx + dot_size, cy + dot_size],
                                    fill=fill_rgb, outline=outline_rgb)
@@ -309,7 +322,11 @@ class AmaravatiEnhancedTiles:
         if rendered_count == 0:
             return None
         
-        # High-quality downsample
+        # Crop to remove buffer and get seamless edges
+        img = img.crop((buffer_pixels, buffer_pixels, 
+                       buffer_pixels + img_size, buffer_pixels + img_size))
+        
+        # High-quality downsample to final tile size
         img = img.resize((self.tile_size, self.tile_size), Image.LANCZOS)
         return img
     
@@ -447,7 +464,7 @@ def main():
             print(f"✗ Path not found: {data_dir}")
             sys.exit(1)
     
-    output_dir = Path('./amaravati_tiles_enhanced')
+    output_dir = Path('./amaravati_tiles')
     
     print("="*80)
     print("AMARAVATI MASTER PLAN - ENHANCED TILE GENERATOR")

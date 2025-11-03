@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Warangal Master Plan - DENSE COMPLETE TILES
-Every tile shows ALL data in its bounds - NO empty spaces
+Warangal Master Plan - SEAMLESS COMPLETE TILES
+Every feature visible at every zoom level - Transparent background
 """
 
 import json
@@ -13,7 +13,7 @@ import mercantile
 from shapely.geometry import shape, box
 from rtree import index
 
-class WarangalDenseCompleteTiles:
+class WarangalSeamlessTiles:
     def __init__(self, data_dir, output_dir):
         self.data_dir = Path(data_dir)
         self.output_dir = Path(output_dir)
@@ -21,32 +21,120 @@ class WarangalDenseCompleteTiles:
         self.spatial_index = index.Index()
         self.feature_id_counter = 0
         self.feature_lookup = {}
+        self.debug_4e4e4e_count = 0
+        self.debug_boundary_count = 0
+        
+    def log_4e4e4e_detection(self, tile, zone, filename, geom, area, feature_data, tile_bounds):
+        """Log when #4E4E4E color is detected"""
+        self.debug_4e4e4e_count += 1
+        
+        # Only log first 20 occurrences to avoid spam
+        if self.debug_4e4e4e_count <= 20:
+            bounds = geom.bounds
+            
+            # Check if near boundary
+            edge_threshold = 0.001  # ~100m
+            near_west = abs(bounds[0] - tile_bounds.west) < edge_threshold
+            near_south = abs(bounds[1] - tile_bounds.south) < edge_threshold
+            near_east = abs(bounds[2] - tile_bounds.east) < edge_threshold
+            near_north = abs(bounds[3] - tile_bounds.north) < edge_threshold
+            
+            is_boundary = any([near_west, near_south, near_east, near_north])
+            boundary_sides = []
+            if near_west: boundary_sides.append("WEST")
+            if near_south: boundary_sides.append("SOUTH")
+            if near_east: boundary_sides.append("EAST")
+            if near_north: boundary_sides.append("NORTH")
+            
+            print(f"\n{'='*80}")
+            print(f"⚠️  #4E4E4E DETECTED (occurrence #{self.debug_4e4e4e_count})")
+            print(f"{'='*80}")
+            print(f"   Zone: '{zone}'")
+            print(f"   Filename: '{filename}'")
+            print(f"   PLU: '{feature_data['properties'].get('PLU', '<MISSING>')}'")
+            print(f"   Tile: z={tile.z}, x={tile.x}, y={tile.y}")
+            print(f"   Feature area: {area:.10f}")
+            print(f"   Geometry type: {geom.geom_type}")
+            print(f"   Geometry bounds: {bounds}")
+            print(f"   Tile bounds: west={tile_bounds.west:.6f}, south={tile_bounds.south:.6f}, "
+                  f"east={tile_bounds.east:.6f}, north={tile_bounds.north:.6f}")
+            if is_boundary:
+                print(f"   🔴 AT BOUNDARY: {', '.join(boundary_sides)}")
+            else:
+                print(f"   ✓ NOT at boundary (interior feature)")
+            print(f"   Properties: {feature_data['properties']}")
+            print(f"{'='*80}\n")
+    
+    def dump_boundary_features(self, tile, tile_bounds, features_to_render):
+        """Dump features near tile boundaries"""
+        edge_threshold = 0.001  # ~100m from edge
+        
+        boundary_features = []
+        for area, feature_id, feature_data in features_to_render:
+            geom = feature_data['geometry']
+            bounds = geom.bounds
+            
+            # Check if near any edge
+            near_west = abs(bounds[0] - tile_bounds.west) < edge_threshold
+            near_south = abs(bounds[1] - tile_bounds.south) < edge_threshold
+            near_east = abs(bounds[2] - tile_bounds.east) < edge_threshold
+            near_north = abs(bounds[3] - tile_bounds.north) < edge_threshold
+            
+            if any([near_west, near_south, near_east, near_north]):
+                boundary_features.append({
+                    'zone': feature_data['zone'],
+                    'filename': feature_data['filename'],
+                    'area': area,
+                    'bounds': bounds,
+                    'properties': feature_data['properties'],
+                    'plu': feature_data['properties'].get('PLU', '<MISSING>')
+                })
+        
+        if boundary_features and self.debug_boundary_count < 3:  # Only log first 3 tiles
+            self.debug_boundary_count += 1
+            print(f"\n{'~'*80}")
+            print(f"🔍 BOUNDARY FEATURES for tile z={tile.z}, x={tile.x}, y={tile.y}")
+            print(f"   Found {len(boundary_features)} features near edges")
+            print(f"{'~'*80}")
+            for i, bf in enumerate(boundary_features[:10]):  # Show first 10
+                print(f"   [{i+1}] Zone: '{bf['zone']}' | Filename: '{bf['filename']}' | PLU: '{bf['plu']}'")
+            if len(boundary_features) > 10:
+                print(f"   ... and {len(boundary_features) - 10} more boundary features")
+            print(f"{'~'*80}\n")
         
     def get_color_map(self):
-        """Complete color mapping for Warangal"""
+        """Warangal color mapping - exact match to file names"""
         return {
-            'Agriculture': {'fill': '#D3FFBE'},
-            'AirStrip': {'fill': '#FF66D9'},
-            'Commercial': {'fill': '#0070FF'},
-            'Forest': {'fill': '#267300'},
-            'Growth Corridor': {'fill': '#FFBEE8'},
-            'Growth Corridor 2': {'fill': '#FF73DF'},
-            'Heritage': {'fill': '#FFB899'},
-            'Hill Buffer': {'fill': '#55FF00'},
-            'Hillocks': {'fill': '#A87000'},
-            'Industrial': {'fill': '#C500FF'},
-            'Mixed Use': {'fill': '#FFAA00'},
-            'Public and Semi-Public': {'fill': '#FF0000'},
-            'Public Utilities': {'fill': '#FFB033'},
-            'Railway Land': {'fill': '#CCCCCC'},
-            'Recreational': {'fill': '#55FF00'},
-            'Residential': {'fill': '#FFFF00'},
-            'ResidentialExpansion': {'fill': '#9C9C9C'},
-            'Road Buffer': {'fill': '#4E4E4E'},
-            'Transportation': {'fill': '#B2B2B2'},
-            'Water Bodies': {'fill': '#00C5FF'},
-            'Water Bodies Buffer': {'fill': '#55FF00'},
-            'Zoological Park': {'fill': '#38A800'}
+            # Exact file name matches
+            'Agriculture': {'fill': '#D3FFBE', 'outline': '#A9CC98'},
+            'AirStrip': {'fill': '#FF00C5', 'outline': '#CC009E', 'pattern': 'hatch', 'pattern_color': '#FFFFFF'},
+            'Commercial': {'fill': '#0070FF', 'outline': '#005ACC'},
+            'Forest': {'fill': '#267300', 'outline': '#1D5C00'},
+            'Growth Corridor': {'fill': '#FFBEE8', 'outline': '#CC98BA'},
+            'Growth Corridor 2': {'fill': '#FF73DF', 'outline': '#CC5CB2'},
+            'Heritage': {'fill': '#FFA77F', 'outline': '#CC8666', 'pattern': 'hatch', 'pattern_color': '#732600'},
+            'Hill Buffer': {'fill': '#55FF00', 'outline': '#44CC00'},
+            'Hillocks': {'fill': '#A87000', 'outline': '#865A00'},
+            'Industrial': {'fill': '#C500FF', 'outline': '#9E00CC'},
+            'Mixed Use': {'fill': '#FFAA00', 'outline': '#CC8800'},
+            'Public and Semi-Public': {'fill': '#FF0000', 'outline': '#CC0000'},
+            'Public & Semi-Public': {'fill': '#FF0000', 'outline': '#CC0000'},
+            'Public Utilities': {'fill': '#E69800', 'outline': '#B87A00', 'pattern': 'hatch', 'pattern_color': '#FF0000'},
+            'Railway Land': {'fill': '#CCCCCC', 'outline': '#A3A3A3'},
+            'Recreational': {'fill': '#55FF00', 'outline': '#44CC00'},
+            'Residential': {'fill': '#FFFF00', 'outline': '#CCCC00'},
+            'ResidentialExpansion': {'fill': '#9C9C9C', 'outline': '#7D7D7D'},
+            'Residential Expansion': {'fill': '#9C9C9C', 'outline': '#7D7D7D'},
+            'Road Buffer': {'fill': '#4E4E4E', 'outline': '#3E3E3E'},
+            'Transportation': {'fill': '#B2B2B2', 'outline': '#8F8F8F'},
+            'Water Bodies': {'fill': '#00C5FF', 'outline': '#009ECC'},
+            'Water Bodies Buffer': {'fill': '#55FF00', 'outline': '#44CC00'},
+            'Water Body Buffer': {'fill': '#55FF00', 'outline': '#44CC00'},
+            'Zoological Park': {'fill': '#38A800', 'outline': '#2D8600'},
+            'Zoological park': {'fill': '#38A800', 'outline': '#2D8600'},
+            
+            # Property-based matches (PLU field)
+            'Air Strip': {'fill': '#FF00C5', 'outline': '#CC009E', 'pattern': 'hatch', 'pattern_color': '#FFFFFF'},
         }
     
     def hex_to_rgb(self, hex_color):
@@ -54,10 +142,32 @@ class WarangalDenseCompleteTiles:
         hex_color = hex_color.lstrip('#')
         return tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))
     
+    def get_zoom_scale(self, zoom):
+        """Get rendering scale based on zoom level"""
+        if zoom <= 10:
+            return 6
+        elif zoom <= 13:
+            return 5
+        elif zoom <= 16:
+            return 4
+        else:
+            return 3
+    
+    def get_min_feature_size(self, zoom, scale):
+        """Minimum feature size in pixels"""
+        if zoom <= 10:
+            return 4 * scale
+        elif zoom <= 13:
+            return 3 * scale
+        elif zoom <= 16:
+            return 2 * scale
+        else:
+            return 1.5 * scale
+    
     def load_geojson_files(self):
-        """Load all GeoJSON"""
+        """Load all Warangal GeoJSON files"""
         print("\n" + "="*80)
-        print("LOADING GEOJSON DATA - WARANGAL DENSE MODE")
+        print("LOADING WARANGAL GEOJSON DATA")
         print("="*80)
         
         geojson_files = sorted(self.data_dir.glob('*.geojson'))
@@ -72,7 +182,7 @@ class WarangalDenseCompleteTiles:
             zone_name = geojson_file.stem
             file_size = geojson_file.stat().st_size / 1024 / 1024
             
-            print(f"[{idx:2d}/{total_files}] {zone_name:<45} ({file_size:6.2f} MB)", end=" ", flush=True)
+            print(f"[{idx:2d}/{total_files}] {zone_name:<50} ({file_size:6.2f} MB)", end=" ", flush=True)
             
             try:
                 with open(geojson_file, 'r', encoding='utf-8') as f:
@@ -87,10 +197,19 @@ class WarangalDenseCompleteTiles:
                         if not geom.is_valid:
                             geom = geom.buffer(0)
                         
+                        if geom.is_empty:
+                            continue
+                        
+                        props = feature.get('properties', {})
+                        # Use PLU field, fallback to file name
+                        feature_zone = props.get('PLU', zone_name)
+                        
                         feature_data = {
                             'geometry': geom,
-                            'zone': zone_name,
-                            'properties': feature.get('properties', {})
+                            'zone': feature_zone,
+                            'filename': zone_name,  # Store filename for fallback
+                            'properties': props,
+                            'area': geom.area
                         }
                         
                         bounds = geom.bounds
@@ -103,7 +222,7 @@ class WarangalDenseCompleteTiles:
                         continue
                 
                 total_features += loaded
-                print(f"✓ {loaded:>6,}")
+                print(f"✓ {loaded:>7,}")
                 
             except Exception as e:
                 print(f"✗ {e}")
@@ -128,21 +247,104 @@ class WarangalDenseCompleteTiles:
         
         return (min_lon, min_lat, max_lon, max_lat)
     
-    def render_tile_dense(self, tile):
-        """DENSE RENDERING: Complete coverage, no empty spaces"""
+    def create_pattern(self, draw, poly, base, ptype, pcolor, img_size):
+        """Create hatch pattern"""
+        draw.polygon(poly, fill=base)
+        
+        if len(poly) < 3:
+            return
+        
+        xs, ys = zip(*poly)
+        min_x, max_x = int(min(xs)), int(max(xs))
+        min_y, max_y = int(min(ys)), int(max(ys))
+        
+        if ptype == "hatch":
+            spacing = max(3, (max_x - min_x) // 15)
+            for i in range(min_x - max_y, max_x + max_y, spacing):
+                pts = [(x, x - i) for x in range(min_x, max_x + 1) if min_y <= x - i <= max_y]
+                if len(pts) > 1:
+                    draw.line(pts, fill=pcolor, width=1)
+    
+    def render_polygon_with_holes(self, draw, polygon, tile_bounds, lon_buffer, lat_buffer, 
+                                  buffered_size, fill_rgb, color_info):
+        """
+        Render polygon with interior rings (holes) properly.
+        Create a mask where holes are transparent.
+        """
+        # Create a temporary image for this polygon with alpha channel
+        poly_img = Image.new('RGBA', (buffered_size, buffered_size), (0, 0, 0, 0))
+        poly_draw = ImageDraw.Draw(poly_img)
+        
+        # Convert exterior ring to pixel coordinates
+        exterior_pixels = []
+        for coord in polygon.exterior.coords:
+            lon, lat = coord[0], coord[1]
+            px = ((lon - (tile_bounds.west - lon_buffer)) / 
+                  ((tile_bounds.east + lon_buffer) - (tile_bounds.west - lon_buffer)) * buffered_size)
+            py = (((tile_bounds.north + lat_buffer) - lat) / 
+                  ((tile_bounds.north + lat_buffer) - (tile_bounds.south - lat_buffer)) * buffered_size)
+            exterior_pixels.append((int(px), int(py)))
+        
+        if len(exterior_pixels) < 3:
+            return
+        
+        # Draw exterior ring with full opacity
+        fill_rgba = fill_rgb + (255,)  # Add alpha channel
+        poly_draw.polygon(exterior_pixels, fill=fill_rgba, outline=fill_rgba)
+        
+        # Draw interior rings (holes) as transparent (black with full alpha = cut out)
+        for interior in polygon.interiors:
+            interior_pixels = []
+            for coord in interior.coords:
+                lon, lat = coord[0], coord[1]
+                px = ((lon - (tile_bounds.west - lon_buffer)) / 
+                      ((tile_bounds.east + lon_buffer) - (tile_bounds.west - lon_buffer)) * buffered_size)
+                py = (((tile_bounds.north + lat_buffer) - lat) / 
+                      ((tile_bounds.north + lat_buffer) - (tile_bounds.south - lat_buffer)) * buffered_size)
+                interior_pixels.append((int(px), int(py)))
+            
+            if len(interior_pixels) >= 3:
+                # Draw hole as fully transparent (this cuts out the area)
+                poly_draw.polygon(interior_pixels, fill=(0, 0, 0, 0), outline=(0, 0, 0, 0))
+        
+        # Composite the polygon with holes onto the main image
+        # Get the current image and paste the polygon with alpha compositing
+        draw._image.paste(poly_img, (0, 0), poly_img)
+    
+    def render_tile_seamless(self, tile):
+        """
+        SEAMLESS RENDERING for Warangal:
+        - Buffer zone to prevent seams
+        - All features visible
+        - No clipping artifacts
+        """
         z, x, y = tile.z, tile.x, tile.y
         
-        scale = 4  # Always 4x for maximum density
+        scale = self.get_zoom_scale(z)
+        min_size = self.get_min_feature_size(z, scale)
         img_size = self.tile_size * scale
         
-        img = Image.new('RGBA', (img_size, img_size), (0, 0, 0, 0))
-        draw = ImageDraw.Draw(img)
+        # Buffer zone
+        buffer_pixels = 4 * scale
+        buffered_size = img_size + (buffer_pixels * 2)
+        
+        img_buffered = Image.new('RGBA', (buffered_size, buffered_size), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(img_buffered)
         
         tile_bounds = mercantile.bounds(tile)
-        tile_bbox = box(tile_bounds.west, tile_bounds.south, 
-                       tile_bounds.east, tile_bounds.north)
         
-        intersecting_ids = list(self.spatial_index.intersection(tile_bbox.bounds))
+        # 2% buffer for seamless tiles
+        lon_buffer = (tile_bounds.east - tile_bounds.west) * 0.02
+        lat_buffer = (tile_bounds.north - tile_bounds.south) * 0.02
+        
+        tile_bbox_buffered = box(
+            tile_bounds.west - lon_buffer, 
+            tile_bounds.south - lat_buffer,
+            tile_bounds.east + lon_buffer, 
+            tile_bounds.north + lat_buffer
+        )
+        
+        intersecting_ids = list(self.spatial_index.intersection(tile_bbox_buffered.bounds))
         
         if not intersecting_ids:
             return None
@@ -150,25 +352,28 @@ class WarangalDenseCompleteTiles:
         color_map = self.get_color_map()
         rendered_count = 0
         
+        # Sort by area
+        features_to_render = []
         for feature_id in intersecting_ids:
             feature_data = self.feature_lookup[feature_id]
+            if feature_data['geometry'].intersects(tile_bbox_buffered):
+                features_to_render.append((feature_data['area'], feature_id, feature_data))
+        
+        features_to_render.sort(key=lambda x: x[0], reverse=True)
+        
+        # Render all features
+        for area, feature_id, feature_data in features_to_render:
             geom = feature_data['geometry']
             zone = feature_data['zone']
+            filename = feature_data['filename']
             
-            if not geom.intersects(tile_bbox):
-                continue
+            # Try zone name first, then filename
+            color_info = color_map.get(zone, color_map.get(filename, {'fill': '#CCCCCC', 'outline': '#999999'}))
             
-            color_info = color_map.get(zone, {'fill': '#CCCCCC'})
             fill_rgb = self.hex_to_rgb(color_info['fill'])
+            outline_rgb = self.hex_to_rgb(color_info.get('outline', color_info['fill']))
             
-            try:
-                clipped_geom = geom.intersection(tile_bbox)
-                if clipped_geom.is_empty:
-                    continue
-                geom = clipped_geom
-            except:
-                pass
-            
+            # Handle geometry types
             if geom.geom_type == 'Polygon':
                 polygons = [geom]
             elif geom.geom_type == 'MultiPolygon':
@@ -176,60 +381,97 @@ class WarangalDenseCompleteTiles:
             else:
                 continue
             
+            # Render each polygon
             for polygon in polygons:
                 try:
+                    # Convert exterior ring to pixel coordinates
                     pixel_coords = []
                     for coord in polygon.exterior.coords:
                         lon, lat = coord[0], coord[1]
-                        px = (lon - tile_bounds.west) / (tile_bounds.east - tile_bounds.west) * img_size
-                        py = (tile_bounds.north - lat) / (tile_bounds.north - tile_bounds.south) * img_size
+                        px = ((lon - (tile_bounds.west - lon_buffer)) / 
+                              ((tile_bounds.east + lon_buffer) - (tile_bounds.west - lon_buffer)) * buffered_size)
+                        py = (((tile_bounds.north + lat_buffer) - lat) / 
+                              ((tile_bounds.north + lat_buffer) - (tile_bounds.south - lat_buffer)) * buffered_size)
                         pixel_coords.append((px, py))
                     
                     if len(pixel_coords) < 3:
                         continue
                     
-                    # Dense fill with outline
-                    draw.polygon(pixel_coords, fill=fill_rgb, outline=fill_rgb, width=2)
-                    
-                    # Extra coverage for small features
                     xs = [p[0] for p in pixel_coords]
                     ys = [p[1] for p in pixel_coords]
-                    center_x = sum(xs) / len(xs)
-                    center_y = sum(ys) / len(ys)
                     width = max(xs) - min(xs)
                     height = max(ys) - min(ys)
+                    feature_size = max(width, height)
                     
-                    if width < 8 * scale or height < 8 * scale:
-                        radius = max(2 * scale, int(min(width, height) / 2))
-                        draw.ellipse([center_x - radius, center_y - radius, 
-                                    center_x + radius, center_y + radius], 
-                                   fill=fill_rgb, outline=fill_rgb)
+                    # Check if polygon has interior rings (holes)
+                    has_holes = len(polygon.interiors) > 0
+                    
+                    if feature_size >= min_size:
+                        # Normal rendering
+                        int_pixels = [(int(x), int(y)) for x, y in pixel_coords]
+                        
+                        if has_holes:
+                            # Render polygon with holes using mask
+                            self.render_polygon_with_holes(draw, polygon, tile_bounds, lon_buffer, lat_buffer, 
+                                                          buffered_size, fill_rgb, color_info)
+                        else:
+                            # Simple polygon without holes
+                            if 'pattern' in color_info:
+                                self.create_pattern(draw, int_pixels, fill_rgb, 
+                                                 color_info['pattern'], 
+                                                 self.hex_to_rgb(color_info['pattern_color']),
+                                                 buffered_size)
+                            else:
+                                draw.polygon(int_pixels, fill=fill_rgb, outline=fill_rgb, width=0)
+                    else:
+                        # Enlarge small features (skip if has holes - too complex)
+                        if not has_holes:
+                            center_x = sum(xs) / len(xs)
+                            center_y = sum(ys) / len(ys)
+                            
+                            scale_factor = min_size / max(feature_size, 0.1)
+                            enlarged_coords = []
+                            for px, py in pixel_coords:
+                                new_x = center_x + (px - center_x) * scale_factor
+                                new_y = center_y + (py - center_y) * scale_factor
+                                enlarged_coords.append((int(new_x), int(new_y)))
+                            
+                            if 'pattern' in color_info:
+                                self.create_pattern(draw, enlarged_coords, fill_rgb,
+                                                 color_info['pattern'],
+                                                 self.hex_to_rgb(color_info['pattern_color']),
+                                                 buffered_size)
+                            else:
+                                draw.polygon(enlarged_coords, fill=fill_rgb, outline=fill_rgb, width=0)
+                            
+                            # Center dot
+                            dot_size = min_size // 2
+                            draw.ellipse([center_x - dot_size, center_y - dot_size,
+                                        center_x + dot_size, center_y + dot_size],
+                                       fill=fill_rgb)
                     
                     rendered_count += 1
                     
                 except:
-                    try:
-                        xs = [p[0] for p in pixel_coords]
-                        ys = [p[1] for p in pixel_coords]
-                        center_x = sum(xs) / len(xs)
-                        center_y = sum(ys) / len(ys)
-                        draw.ellipse([center_x - 2*scale, center_y - 2*scale, 
-                                    center_x + 2*scale, center_y + 2*scale], fill=fill_rgb)
-                        rendered_count += 1
-                    except:
-                        pass
+                    pass
         
         if rendered_count == 0:
             return None
         
+        # Crop buffer
+        img = img_buffered.crop((buffer_pixels, buffer_pixels, 
+                                buffered_size - buffer_pixels, 
+                                buffered_size - buffer_pixels))
+        
+        # Downsample
         img = img.resize((self.tile_size, self.tile_size), Image.LANCZOS)
         return img
     
-    def generate_tiles(self, min_zoom=5, max_zoom=18):
-        """Generate dense complete tiles"""
+    def generate_tiles(self, min_zoom=7, max_zoom=18):
+        """Generate seamless tiles for Warangal"""
         print(f"\n{'='*80}")
-        print(f"GENERATING DENSE TILES (Zoom {min_zoom}-{max_zoom})")
-        print(f"Mode: COMPLETE COVERAGE - NO EMPTY SPACES")
+        print(f"GENERATING WARANGAL TILES (Zoom {min_zoom}-{max_zoom})")
+        print(f"Mode: SEAMLESS - NO TILE BOUNDARIES")
         print(f"{'='*80}")
         
         bounds = self.get_bounds()
@@ -247,13 +489,17 @@ class WarangalDenseCompleteTiles:
             ))
             
             total_for_zoom = len(tiles)
-            print(f"Zoom {zoom:2d} | {total_for_zoom:,} tiles", end=" ", flush=True)
+            scale = self.get_zoom_scale(zoom)
+            min_size = self.get_min_feature_size(zoom, scale)
+            
+            print(f"Zoom {zoom:2d} | {total_for_zoom:,} tiles | Scale: {scale}x | Min: {min_size:.1f}px", 
+                  end=" ", flush=True)
             
             zoom_dir = self.output_dir / str(zoom)
             rendered = 0
             
             for tile in tiles:
-                img = self.render_tile_dense(tile)
+                img = self.render_tile_seamless(tile)
                 
                 if img is not None:
                     tile_dir = zoom_dir / str(tile.x)
@@ -265,7 +511,7 @@ class WarangalDenseCompleteTiles:
             
             zoom_elapsed = time.time() - zoom_start
             speed = rendered / zoom_elapsed if zoom_elapsed > 0 else 0
-            print(f"| ✓ {rendered:,} in {zoom_elapsed:.1f}s ({speed:.1f} tiles/s)")
+            print(f"| ✓ {rendered:,} in {zoom_elapsed:.1f}s ({speed:.1f} t/s)")
             
             total_tiles += rendered
         
@@ -276,7 +522,7 @@ class WarangalDenseCompleteTiles:
         print(f"{'='*80}\n")
     
     def generate_html_viewer(self):
-        """Generate viewer"""
+        """Generate viewer for Warangal"""
         bounds = self.get_bounds()
         center_lon = (bounds[0] + bounds[2]) / 2
         center_lat = (bounds[1] + bounds[3]) / 2
@@ -285,36 +531,56 @@ class WarangalDenseCompleteTiles:
 <html>
 <head>
   <meta charset="utf-8" />
-  <title>Warangal Master Plan - Dense Tiles</title>
+  <title>Warangal Master Plan - Fixed (Polygon Holes)</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-  <style>body, html, #map {{ margin:0; padding:0; height:100%; }}</style>
+  <style>
+    body, html, #map {{ margin:0; padding:0; height:100%; }}
+    .info {{ padding: 10px; background: white; border-radius: 5px; box-shadow: 0 0 15px rgba(0,0,0,0.2); }}
+  </style>
 </head>
 <body>
   <div id="map"></div>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script>
     const map = L.map('map').setView([{center_lat:.6f}, {center_lon:.6f}], 12);
+    
     L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{{z}}/{{y}}/{{x}}', {{
+      attribution: 'Esri',
       maxZoom: 19
     }}).addTo(map);
+    
     L.tileLayer('./{{z}}/{{x}}/{{y}}.png', {{
-      minZoom: 5, maxZoom: 18, opacity: 0.85
+      minZoom: 7,
+      maxZoom: 18,
+      opacity: 0.9,
+      attribution: 'Warangal Master Plan'
     }}).addTo(map);
+    
+    const info = L.control({{position: 'topright'}});
+    info.onAdd = function() {{
+      this._div = L.DomUtil.create('div', 'info');
+      this._div.innerHTML = '<b>Warangal Master Plan</b><br/>Seamless tiles - no boundaries<br/>Zoom: ' + map.getZoom();
+      return this._div;
+    }};
+    info.addTo(map);
+    
+    map.on('zoomend', function() {{
+      info._div.innerHTML = '<b>Warangal Master Plan</b><br/>Seamless tiles - no boundaries<br/>Zoom: ' + map.getZoom();
+    }});
   </script>
 </body>
 </html>"""
         
         (self.output_dir / 'index.html').write_text(html)
-        print(f"✓ Viewer: {self.output_dir}/index.html")
+        print(f"✓ Viewer saved: {self.output_dir}/index.html")
 
 
 def main():
     import sys
     
     possible_paths = [
+        Path('data/Telangana/warangal/master_plan'),
         Path('/Users/rohitboni/Downloads/All_files/project/1acre/geomapping_full/geomapping/data/Telangana/warangal/master_plan'),
-        Path('/home/gamyam/1acre/geomapping/data/Telangana/warangal/master_plan'),
-        Path('./data/Telangana/warangal/master_plan'),
     ]
     
     data_dir = None
@@ -324,32 +590,34 @@ def main():
             break
     
     if data_dir is None:
-        print("Provide path to master_plan directory:")
+        print("Enter path to Warangal master_plan directory:")
         user_path = input("> ").strip()
         data_dir = Path(user_path)
         if not data_dir.exists():
-            print(f"✗ {data_dir} not found")
+            print(f"✗ Path not found: {data_dir}")
             sys.exit(1)
     
-    output_dir = Path('./tiles/warangal_dense')
+    output_dir = Path('./warangal_tiles_fixed')
     
     print("="*80)
-    print("WARANGAL - DENSE COMPLETE TILES GENERATOR")
+    print("WARANGAL MASTER PLAN - SEAMLESS TILE GENERATOR (Fixed)")
+    print("✅ Properly handles polygon holes/interior rings")
     print("="*80)
-    print(f"Data: {data_dir}")
+    print(f"Input:  {data_dir}")
     print(f"Output: {output_dir}")
     
-    generator = WarangalDenseCompleteTiles(data_dir, output_dir)
+    generator = WarangalSeamlessTiles(data_dir, output_dir)
     generator.load_geojson_files()
     
     if generator.feature_id_counter == 0:
         print("✗ No features loaded!")
         sys.exit(1)
     
-    generator.generate_tiles(min_zoom=5, max_zoom=18)
+    generator.generate_tiles(min_zoom=7, max_zoom=18)
     generator.generate_html_viewer()
     
-    print(f"\nView: cd {output_dir} && python3 -m http.server 8011\n")
+    print(f"\n💡 To view: cd {output_dir} && python3 -m http.server 8011")
+    print(f"   Then open: http://localhost:8011/\n")
 
 
 if __name__ == '__main__':

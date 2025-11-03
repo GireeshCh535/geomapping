@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-Amaravati Master Plan - Smallest Feature Analysis for Tile Generation
-======================================================================
+Warangal Master Plan - Smallest Feature Analysis for Tile Generation
+=====================================================================
 
-This script analyzes all GeoJSON files in data/andhra_pradesh/amaravati/master_plan/
+This script analyzes all GeoJSON files in data/Telangana/warangal/master_plan/
 and finds the smallest feature in each file. The output is structured for tile generation
 planning.
 
@@ -14,7 +14,7 @@ The analysis identifies:
 - Configuration data useful for tile generation
 
 Usage:
-    python3 amaravati_smallest_features_analysis.py
+    python3 warangal_smallest_features_analysis.py
 """
 
 import json
@@ -422,14 +422,14 @@ def main():
     script_dir = Path(__file__).parent
     project_root = script_dir
     
-    data_path = project_root / "data" / "andhra_pradesh" / "amaravati" / "master_plan"
+    data_path = project_root / "data" / "Telangana" / "warangal" / "master_plan"
     
     if not data_path.exists():
         print(f"ERROR: Directory not found: {data_path}")
         sys.exit(1)
     
     print(f"{'='*80}")
-    print(f"AMARAVATI MASTER PLAN - SMALLEST FEATURE ANALYSIS")
+    print(f"WARANGAL MASTER PLAN - SMALLEST FEATURE ANALYSIS")
     print(f"{'='*80}")
     print(f"\nAnalyzing GeoJSON files in: {data_path}")
     print(f"{'='*80}\n")
@@ -456,11 +456,11 @@ def main():
     
     # Save results
     output_dir = project_root
-    save_results_json(all_results, output_dir / "amaravati_smallest_features_analysis.json")
-    save_feature_samples_json(all_results, output_dir / "amaravati_smallest_features_samples.json")
+    save_results_json(all_results, output_dir / "warangal_smallest_features_analysis.json")
+    save_feature_samples_json(all_results, output_dir / "warangal_smallest_features_samples.json")
     
-    print(f"\n💡 Note: Analytical data (geometry types, holes, etc.) in amaravati_smallest_features_analysis.json")
-    print(f"   Compact smallest feature metadata in amaravati_smallest_features_samples.json")
+    print(f"\n💡 Note: Analytical data (geometry types, holes, etc.) in warangal_smallest_features_analysis.json")
+    print(f"   Compact smallest feature metadata in warangal_smallest_features_samples.json")
     
     print(f"\n{'='*80}")
     print("Analysis Complete!")
