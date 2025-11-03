@@ -215,8 +215,12 @@ def load_features_by_layer(geojson_files):
         features = []
         for feature in data.get('features', []):
             try:
+                # Check if geometry exists and is not None
+                if feature.get('geometry') is None:
+                    continue
+                
                 # Get PLU_NAME for reference
-                plu_name = feature['properties'].get('PLU_NAME', '')
+                plu_name = feature['properties'].get('PLU_NAME', '') if feature.get('properties') else ''
                 
                 # Validate geometry
                 geom = shape(feature['geometry'])
