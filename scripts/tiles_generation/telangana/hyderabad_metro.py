@@ -19,8 +19,10 @@ import webbrowser
 from shapely.geometry import box, Point, LineString, MultiLineString
 
 # Add the project root to the Python path
-script_dir = Path(__file__).parent
-project_root = script_dir
+# Script is at: scripts/tiles_generation/telangana/hyderabad_metro.py
+# Project root is 3 levels up from script
+script_dir = Path(__file__).resolve().parent
+project_root = script_dir.parent.parent.parent
 sys.path.insert(0, str(project_root))
 
 # Default settings for tile generation and viewer
@@ -57,15 +59,15 @@ class HyderabadMetroTileGenerator:
             'Metro Phase 2B': '#EF6908'
         }
         
-        # Line widths and station sizes
+        # Line widths and station sizes (thicker for better visibility)
         self.line_widths = {
-            8: 1, 9: 1, 10: 1, 11: 1, 12: 2, 13: 2,
-            14: 2, 15: 3, 16: 3, 17: 4, 18: 4
+            8: 2, 9: 2, 10: 3, 11: 3, 12: 4, 13: 4,
+            14: 5, 15: 5, 16: 6, 17: 7, 18: 8
         }
         
         self.station_sizes = {
-            8: 0, 9: 0, 10: 1, 11: 2, 12: 2, 13: 3,
-            14: 3, 15: 4, 16: 4, 17: 5, 18: 6
+            8: 0, 9: 0, 10: 2, 11: 3, 12: 4, 13: 5,
+            14: 6, 15: 7, 16: 8, 17: 9, 18: 10
         }
         
         # All stations are red
@@ -174,7 +176,7 @@ class HyderabadMetroTileGenerator:
     
     def draw_line_antialiased(self, draw: ImageDraw, coordinates: List[Tuple[float, float]], 
                              color: str, width: int, tile_x: int, tile_y: int, zoom: int):
-        """Draw a line on the tile with improved antialiasing"""
+        """Draw a line on the tile with improved antialiasing (thicker with better rendering)"""
         if len(coordinates) < 2:
             return
         
@@ -183,7 +185,8 @@ class HyderabadMetroTileGenerator:
             px, py = self.wgs84_to_tile_pixel(lon, lat, tile_x, tile_y, zoom)
             pixel_coords.append((px, py))
         
-        padding = width + 10
+        # Increased padding for thicker lines
+        padding = width + 15
         visible_segments = []
         
         for i in range(len(pixel_coords) - 1):
@@ -203,18 +206,18 @@ class HyderabadMetroTileGenerator:
     
     def draw_station_marker(self, draw: ImageDraw, lon: float, lat: float, 
                            size: int, tile_x: int, tile_y: int, zoom: int):
-        """Draw a station marker on the tile"""
+        """Draw a station marker on the tile (larger with better border)"""
         if size <= 0:
             return
             
         pixel_x, pixel_y = self.wgs84_to_tile_pixel(lon, lat, tile_x, tile_y, zoom)
         
-        padding = size + 5
+        padding = size + 10
         if -padding <= pixel_x <= 256 + padding and -padding <= pixel_y <= 256 + padding:
             px, py = round(pixel_x), round(pixel_y)
             
-            # White background
-            white_size = size + 1
+            # White background (thicker border)
+            white_size = size + 2
             white_bbox = [px - white_size, py - white_size, px + white_size, py + white_size]
             draw.ellipse(white_bbox, fill='white', outline=None)
             
@@ -317,13 +320,17 @@ class HyderabadMetroTileGenerator:
         
         return img
     
-    def generate_png_tiles(self, min_zoom: int = 8, max_zoom: int = 18):
-        """Generate PNG tiles with empty border tiles to prevent bleeding"""
+    def generate_png_tiles(self, min_zoom: int = 8, max_zoom: int = 18) -> int:
+        """Generate PNG tiles with empty border tiles to prevent bleeding
+        
+        Returns:
+            int: Total number of tiles generated
+        """
         print(f"Generating tiles for zoom levels {min_zoom} to {max_zoom}")
         
         if self.data_bounds is None:
             print("No data to generate tiles from")
-            return
+            return 0
         
         min_lon, min_lat, max_lon, max_lat = self.data_bounds
         print(f"Data bounds: [{min_lon:.4f}, {min_lat:.4f}] to [{max_lon:.4f}, {max_lat:.4f}]")
@@ -405,6 +412,8 @@ class HyderabadMetroTileGenerator:
         print(f"  - Data tiles: {total_tiles - total_empty_tiles}")
         print(f"  - Empty border tiles: {total_empty_tiles}")
         print(f"Output directory: {self.output_dir}")
+        
+        return total_tiles
 
     def write_mapbox_viewer_html(self, access_token: str, port: int) -> Path:
         """Create an index.html in the tiles output dir that overlays the raster tiles on a Mapbox basemap."""
@@ -560,10 +569,20 @@ def main():
     generator = HyderabadMetroTileGenerator()
     
     # Generate tiles with empty borders
-    generator.generate_png_tiles(min_zoom=settings["min_zoom"], max_zoom=settings["max_zoom"])
+    print("Step 1: Generating tiles...")
+    tiles_generated = generator.generate_png_tiles(min_zoom=settings["min_zoom"], max_zoom=settings["max_zoom"])
+    
+    if tiles_generated == 0:
+        print("\nError: No tiles were generated. Please check that the data files exist:")
+        print(f"  - {generator.metro_lines_path}")
+        print(f"  - {generator.metro_stations_path}")
+        sys.exit(1)
+    
+    print(f"\nStep 2: Tiles generated successfully ({tiles_generated} tiles)")
     
     # Optionally view
     if settings["view"]:
+        print("\nStep 3: Starting tile server and viewer...")
         token = settings["token"]
         port = settings["port"]
         if not token:
