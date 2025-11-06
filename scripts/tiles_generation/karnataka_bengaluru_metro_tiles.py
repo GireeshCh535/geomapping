@@ -16,7 +16,7 @@ import json
 import logging
 import argparse
 from shapely.geometry import shape, LineString, MultiLineString, Point, box
-from shapely.ops import transform, unary_union
+from shapely.ops import transform, unary_union, linemerge
 from shapely.validation import make_valid
 import pyproj
 from functools import partial
@@ -154,8 +154,8 @@ class KarnatakaBengaluruMetroTileGenerator:
         logger.info("Data processing completed")
     
     def extract_stations_from_lines(self):
-        """Extract station/junction coordinates from line endpoints"""
-        self.stations = {}  # Dictionary: station_name -> (lon, lat)
+        """Extract station/junction coordinates from line endpoints (only real stations)"""
+        self.stations = []  # List of (lon, lat) tuples for junction/terminal stations
         
         for idx, row in self.gdf.iterrows():
             geometry = row.geometry
@@ -164,20 +164,13 @@ class KarnatakaBengaluruMetroTileGenerator:
                 continue
             
             try:
-                # Get junction names
-                from_junction = row.get('fromjunction', '')
-                to_junction = row.get('tojunction', '')
-                
-                # Extract coordinates from geometry
+                # Extract coordinates from geometry endpoints (actual junctions/terminals)
                 if geometry.geom_type == 'LineString':
                     coords = list(geometry.coords)
                     if len(coords) >= 2:
-                        # First point is from_junction
-                        if from_junction and from_junction.strip():
-                            self.stations[from_junction.strip()] = coords[0]
-                        # Last point is to_junction
-                        if to_junction and to_junction.strip():
-                            self.stations[to_junction.strip()] = coords[-1]
+                        # Add first and last points (start and end junctions)
+                        self.stations.append(coords[0])
+                        self.stations.append(coords[-1])
                 
                 elif geometry.geom_type == 'MultiLineString':
                     # For MultiLineString, use first line's start and last line's end
@@ -188,22 +181,21 @@ class KarnatakaBengaluruMetroTileGenerator:
                         first_coords = list(first_line.coords)
                         last_coords = list(last_line.coords)
                         
-                        if len(first_coords) >= 2 and from_junction and from_junction.strip():
-                            self.stations[from_junction.strip()] = first_coords[0]
+                        if len(first_coords) >= 2:
+                            self.stations.append(first_coords[0])
                         
-                        if len(last_coords) >= 2 and to_junction and to_junction.strip():
-                            self.stations[to_junction.strip()] = last_coords[-1]
+                        if len(last_coords) >= 2:
+                            self.stations.append(last_coords[-1])
             
             except Exception as e:
                 logger.warning(f"Error extracting stations from feature {idx}: {e}")
                 continue
         
-        logger.info(f"Extracted {len(self.stations)} unique station/junction points")
+        # Remove duplicates (same junction used by multiple lines)
+        self.stations = list(set(self.stations))
         
-        # Log some station names for verification
-        if self.stations:
-            sample_stations = list(self.stations.keys())[:5]
-            logger.info(f"Sample stations: {', '.join(sample_stations)}")
+        logger.info(f"Extracted {len(self.stations)} unique junction/terminal station points")
+        logger.info(f"Note: Only showing major junctions/terminals, not all intermediate stations")
     
     def get_line_width(self, zoom):
         """Get line width based on zoom level (thicker lines)"""
@@ -440,9 +432,9 @@ class KarnatakaBengaluruMetroTileGenerator:
                 except Exception as e:
                     continue
         
-        # Draw station markers (junctions)
+        # Draw station markers (all stations interpolated along lines)
         if station_size > 0 and hasattr(self, 'stations') and self.stations:
-            for station_name, (lon, lat) in self.stations.items():
+            for (lon, lat) in self.stations:
                 try:
                     # Create point for intersection check
                     station_point = Point(lon, lat)
