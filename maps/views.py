@@ -1347,6 +1347,26 @@ class CoordinateSearchTestView(APIView):
                     'data': data
                 }
             
+            # Special handling for bengaluru_air_funnel_zones layer
+            if layer.slug == 'bengaluru_air_funnel_zones' and containing_features:
+                primary_feature = containing_features[0]
+                detailed_category = primary_feature.get('detailed_category', {})
+                properties = detailed_category.get('properties', {}) or {}
+                height_value = properties.get('Pemissible Height', '')
+                return {
+                    'data': height_value
+                }
+            
+            # Special handling for hyderabad_air_funnel_zones layer
+            if layer.slug == 'hyderabad_air_funnel_zones' and containing_features:
+                primary_feature = containing_features[0]
+                detailed_category = primary_feature.get('detailed_category', {})
+                properties = detailed_category.get('properties', {}) or {}
+                height_value = properties.get('Pemissible Height', '')
+                return {
+                    'data': height_value
+                }
+            
             # Special handling for BMRDA boundary layers
             if layer.slug in ['bengaluru_anekal_masterplan', 'bengaluru_chikkaballapura_masterplan', 'bengaluru_hosakote_masterplan', 'bengaluru_nelamangala_masterplan',
             'coimbatore_master_plan', 'hosur_master_plan', 'kochi_master_plan', 'chennai_master_plan',
