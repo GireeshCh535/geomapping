@@ -1074,6 +1074,40 @@ class CoordinateSearchTestView(APIView):
                             'data': data_string
                         }
                     
+                    elif layer.slug == 'hyderabad_metro':
+                        detailed_category = feature_data.get('detailed_category', {})
+                        properties = detailed_category.get('properties', {})
+
+                        name = properties.get('name', '')
+                        status = properties.get('Status', '')
+                        linecolour = properties.get('linecolour', '')
+                        from_junct = properties.get('from_junct', '')
+                        to_junct = properties.get('to_junct', '')
+
+                        route_parts = []
+                        if from_junct:
+                            route_parts.append(from_junct)
+                        if to_junct:
+                            if route_parts:
+                                route_parts.append('to')
+                            route_parts.append(to_junct)
+                        route = ' '.join(route_parts)
+
+                        parts = []
+                        if name:
+                            parts.append(name)
+                        if status:
+                            parts.append(f"Status: {status}")
+                        if linecolour:
+                            parts.append(linecolour)
+                        if route:
+                            parts.append(route)
+                        data_string = ', '.join(parts)
+
+                        return {
+                            'data': data_string
+                        }
+
                     elif layer.slug == 'bengaluru_highways':
                         detailed_category = feature_data.get('detailed_category', {})
                         properties = detailed_category.get('properties', {})
@@ -1265,6 +1299,41 @@ class CoordinateSearchTestView(APIView):
                     'data': data_string
                 }
             
+            if layer.slug == 'hyderabad_metro' and containing_features:
+                primary_feature = containing_features[0]
+                detailed_category = primary_feature.get('detailed_category', {})
+                properties = detailed_category.get('properties', {})
+
+                name = properties.get('name', '')
+                status = properties.get('Status', '')
+                linecolour = properties.get('linecolour', '')
+                from_junct = properties.get('from_junct', '')
+                to_junct = properties.get('to_junct', '')
+
+                route_parts = []
+                if from_junct:
+                    route_parts.append(from_junct)
+                if to_junct:
+                    if route_parts:
+                        route_parts.append('to')
+                    route_parts.append(to_junct)
+                route = ' '.join(route_parts)
+
+                parts = []
+                if name:
+                    parts.append(name)
+                if status:
+                    parts.append(f"Status: {status}")
+                if linecolour:
+                    parts.append(linecolour)
+                if route:
+                    parts.append(route)
+                data_string = ', '.join(parts)
+
+                return {
+                    'data': data_string
+                }
+
             # Special handling for bengaluru_highways layer
             if layer.slug == 'bengaluru_highways' and containing_features:
                 primary_feature = containing_features[0]
