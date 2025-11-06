@@ -15,7 +15,7 @@ from PIL import Image, ImageDraw, ImageFilter
 import json
 import logging
 import argparse
-from shapely.geometry import shape, LineString, MultiLineString, Point, box
+from shapely.geometry import shape, LineString, MultiLineString, box
 from shapely.ops import transform, unary_union, linemerge
 from shapely.validation import make_valid
 import pyproj
@@ -48,9 +48,6 @@ class KarnatakaBengaluruMetroTileGenerator:
             'Yellow': '#FFD700',    # Phase 2 (Corridor 3)
             'Pink': '#FF69B4'       # Phase 2 (Under Construction)
         }
-        
-        # Station marker color
-        self.station_color = '#FF0000'
         
         # Data storage
         self.gdf = None
@@ -147,55 +144,7 @@ class KarnatakaBengaluruMetroTileGenerator:
         logger.info("Building spatial index...")
         self.spatial_index = self.gdf.sindex
         
-        # Extract station/junction points from line endpoints
-        logger.info("Extracting station/junction coordinates...")
-        self.extract_stations_from_lines()
-        
         logger.info("Data processing completed")
-    
-    def extract_stations_from_lines(self):
-        """Extract station/junction coordinates from line endpoints (only real stations)"""
-        self.stations = []  # List of (lon, lat) tuples for junction/terminal stations
-        
-        for idx, row in self.gdf.iterrows():
-            geometry = row.geometry
-            
-            if geometry is None or geometry.is_empty:
-                continue
-            
-            try:
-                # Extract coordinates from geometry endpoints (actual junctions/terminals)
-                if geometry.geom_type == 'LineString':
-                    coords = list(geometry.coords)
-                    if len(coords) >= 2:
-                        # Add first and last points (start and end junctions)
-                        self.stations.append(coords[0])
-                        self.stations.append(coords[-1])
-                
-                elif geometry.geom_type == 'MultiLineString':
-                    # For MultiLineString, use first line's start and last line's end
-                    if len(geometry.geoms) > 0:
-                        first_line = geometry.geoms[0]
-                        last_line = geometry.geoms[-1]
-                        
-                        first_coords = list(first_line.coords)
-                        last_coords = list(last_line.coords)
-                        
-                        if len(first_coords) >= 2:
-                            self.stations.append(first_coords[0])
-                        
-                        if len(last_coords) >= 2:
-                            self.stations.append(last_coords[-1])
-            
-            except Exception as e:
-                logger.warning(f"Error extracting stations from feature {idx}: {e}")
-                continue
-        
-        # Remove duplicates (same junction used by multiple lines)
-        self.stations = list(set(self.stations))
-        
-        logger.info(f"Extracted {len(self.stations)} unique junction/terminal station points")
-        logger.info(f"Note: Only showing major junctions/terminals, not all intermediate stations")
     
     def get_line_width(self, zoom):
         """Get line width based on zoom level (thicker lines)"""
@@ -204,14 +153,6 @@ class KarnatakaBengaluruMetroTileGenerator:
             12: 4, 13: 4, 14: 5, 15: 5, 16: 6, 17: 7, 18: 8
         }
         return line_widths.get(zoom, 4)
-    
-    def get_station_size(self, zoom):
-        """Get station marker size based on zoom level (larger dots)"""
-        station_sizes = {
-            4: 0, 5: 0, 6: 0, 7: 0, 8: 0, 9: 0, 10: 2, 11: 3, 
-            12: 4, 13: 5, 14: 6, 15: 7, 16: 8, 17: 9, 18: 10
-        }
-        return station_sizes.get(zoom, 0)
     
     def get_features_for_tile(self, tile_bounds):
         """Get features that intersect with the tile bounds"""
@@ -364,26 +305,6 @@ class KarnatakaBengaluruMetroTileGenerator:
         
         return pixel_x, pixel_y
     
-    def draw_station_marker(self, draw, lon: float, lat: float, size: int, tile_x: int, tile_y: int, zoom: int):
-        """Draw a station marker on the tile (larger with better border)"""
-        if size <= 0:
-            return
-            
-        pixel_x, pixel_y = self.wgs84_to_tile_pixel(lon, lat, tile_x, tile_y, zoom)
-        
-        padding = size + 10
-        if -padding <= pixel_x <= 256 + padding and -padding <= pixel_y <= 256 + padding:
-            px, py = round(pixel_x), round(pixel_y)
-            
-            # White background (thicker border)
-            white_size = size + 2
-            white_bbox = [px - white_size, py - white_size, px + white_size, py + white_size]
-            draw.ellipse(white_bbox, fill='white', outline=None)
-            
-            # Red station marker
-            bbox = [px - size, py - size, px + size, py + size]
-            draw.ellipse(bbox, fill=self.station_color, outline=None)
-    
     def generate_tile(self, x, y, zoom, force_empty=False):
         """Generate a single tile (identical to Hyderabad Metro)"""
         # Create transparent tile
@@ -397,7 +318,6 @@ class KarnatakaBengaluruMetroTileGenerator:
         tile_bounds = mercantile.bounds(x, y, zoom)
         
         line_width = self.get_line_width(zoom)
-        station_size = self.get_station_size(zoom)
         
         buffer_deg = 0.001
         tile_box = box(
@@ -429,18 +349,6 @@ class KarnatakaBengaluruMetroTileGenerator:
                             coords = list(geometry.coords)
                             if len(coords) >= 2:
                                 self.draw_line_antialiased(draw, coords, color, line_width, x, y, zoom)
-                except Exception as e:
-                    continue
-        
-        # Draw station markers (all stations interpolated along lines)
-        if station_size > 0 and hasattr(self, 'stations') and self.stations:
-            for (lon, lat) in self.stations:
-                try:
-                    # Create point for intersection check
-                    station_point = Point(lon, lat)
-                    
-                    if station_point.intersects(tile_box):
-                        self.draw_station_marker(draw, lon, lat, station_size, x, y, zoom)
                 except Exception as e:
                     continue
         

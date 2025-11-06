@@ -1354,7 +1354,7 @@ class CoordinateSearchTestView(APIView):
                 properties = detailed_category.get('properties', {}) or {}
                 height_value = properties.get('Pemissible Height', '')
                 return {
-                    'data': height_value
+                    'data': f"Permissible Height : {height_value}" if height_value else "Permissible Height : "
                 }
             
             # Special handling for hyderabad_air_funnel_zones layer
@@ -1364,7 +1364,7 @@ class CoordinateSearchTestView(APIView):
                 properties = detailed_category.get('properties', {}) or {}
                 height_value = properties.get('Pemissible Height', '')
                 return {
-                    'data': height_value
+                    'data': f"Permissible Height : {height_value}" if height_value else "Permissible Height : "
                 }
             
             # Special handling for BMRDA boundary layers

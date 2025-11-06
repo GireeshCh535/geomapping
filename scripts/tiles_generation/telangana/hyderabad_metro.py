@@ -16,7 +16,7 @@ import geopandas as gpd
 from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 from functools import partial
 import webbrowser
-from shapely.geometry import box, Point, LineString, MultiLineString
+from shapely.geometry import box, LineString, MultiLineString
 
 # Add the project root to the Python path
 # Script is at: scripts/tiles_generation/telangana/hyderabad_metro.py
@@ -38,7 +38,6 @@ class HyderabadMetroTileGenerator:
     def __init__(self):
         # Paths to the analyzed metro data
         self.metro_lines_path = project_root / "data" / "Telangana" / "Hyderabad" / "metro-lines" / "Hyd_metro_lines_ph_1&2_Final.geojson"
-        self.metro_stations_path = project_root / "data" / "Telangana" / "Hyderabad" / "metro-lines" / "Hyd_metro_stations_ph1&2.geojson"
         self.output_dir = project_root / "hyderabad_metro_tiles"
         
         # Create output directory
@@ -59,19 +58,11 @@ class HyderabadMetroTileGenerator:
             'Metro Phase 2B': '#EF6908'
         }
         
-        # Line widths and station sizes (thicker for better visibility)
+        # Line widths (thicker for better visibility)
         self.line_widths = {
             8: 2, 9: 2, 10: 3, 11: 3, 12: 4, 13: 4,
             14: 5, 15: 5, 16: 6, 17: 7, 18: 8
         }
-        
-        self.station_sizes = {
-            8: 0, 9: 0, 10: 2, 11: 3, 12: 4, 13: 5,
-            14: 6, 15: 7, 16: 8, 17: 9, 18: 10
-        }
-        
-        # All stations are red
-        self.station_color = '#FF0000'
         
         # Load the GeoJSON data
         self.load_metro_data()
@@ -84,7 +75,7 @@ class HyderabadMetroTileGenerator:
         all_bounds = []
         if not self.lines_gdf.empty:
             all_bounds.append(self.lines_gdf.total_bounds)
-        if not self.stations_gdf.empty:
+        if hasattr(self, 'stations_gdf') and not self.stations_gdf.empty:
             all_bounds.append(self.stations_gdf.total_bounds)
         
         if not all_bounds:
@@ -112,17 +103,8 @@ class HyderabadMetroTileGenerator:
                 print(f"Warning: Metro lines file not found at {self.metro_lines_path}")
                 self.lines_gdf = gpd.GeoDataFrame()
             
-            # Load metro stations
-            if self.metro_stations_path.exists():
-                self.stations_gdf = gpd.read_file(self.metro_stations_path)
-                print(f"Loaded {len(self.stations_gdf)} metro stations")
-                if self.stations_gdf.crs is None:
-                    self.stations_gdf.set_crs('EPSG:4326', inplace=True)
-                elif self.stations_gdf.crs.to_string() != 'EPSG:4326':
-                    self.stations_gdf = self.stations_gdf.to_crs('EPSG:4326')
-            else:
-                print(f"Warning: Metro stations file not found at {self.metro_stations_path}")
-                self.stations_gdf = gpd.GeoDataFrame()
+            # No stations are rendered in this configuration
+            self.stations_gdf = gpd.GeoDataFrame()
                 
         except Exception as e:
             print(f"Error loading metro data: {e}")
@@ -204,27 +186,6 @@ class HyderabadMetroTileGenerator:
             except Exception:
                 pass
     
-    def draw_station_marker(self, draw: ImageDraw, lon: float, lat: float, 
-                           size: int, tile_x: int, tile_y: int, zoom: int):
-        """Draw a station marker on the tile (larger with better border)"""
-        if size <= 0:
-            return
-            
-        pixel_x, pixel_y = self.wgs84_to_tile_pixel(lon, lat, tile_x, tile_y, zoom)
-        
-        padding = size + 10
-        if -padding <= pixel_x <= 256 + padding and -padding <= pixel_y <= 256 + padding:
-            px, py = round(pixel_x), round(pixel_y)
-            
-            # White background (thicker border)
-            white_size = size + 2
-            white_bbox = [px - white_size, py - white_size, px + white_size, py + white_size]
-            draw.ellipse(white_bbox, fill='white', outline=None)
-            
-            # Red station marker
-            bbox = [px - size, py - size, px + size, py + size]
-            draw.ellipse(bbox, fill=self.station_color, outline=None)
-    
     def tile_has_data(self, tile_x: int, tile_y: int, zoom: int) -> bool:
         """Check if a tile contains any metro data"""
         tile_bounds = mercantile.bounds(tile_x, tile_y, zoom)
@@ -244,13 +205,6 @@ class HyderabadMetroTileGenerator:
                 if row.geometry and row.geometry.intersects(tile_box):
                     return True
         
-        # Check stations (only at higher zoom levels)
-        station_size = self.station_sizes.get(zoom, 0)
-        if station_size > 0 and not self.stations_gdf.empty:
-            for _, row in self.stations_gdf.iterrows():
-                if row.geometry and row.geometry.intersects(tile_box):
-                    return True
-        
         return False
     
     def generate_tile(self, x: int, y: int, zoom: int, force_empty: bool = False) -> Image.Image:
@@ -266,8 +220,6 @@ class HyderabadMetroTileGenerator:
         tile_bounds = mercantile.bounds(x, y, zoom)
         
         line_width = self.line_widths.get(zoom, 3)
-        station_size = self.station_sizes.get(zoom, 0)
-        
         buffer_deg = 0.001
         tile_box = box(
             tile_bounds.west - buffer_deg,
@@ -299,22 +251,6 @@ class HyderabadMetroTileGenerator:
                             coords = list(geometry.coords)
                             if len(coords) >= 2:
                                 self.draw_line_antialiased(draw, coords, color, line_width, x, y, zoom)
-                except Exception as e:
-                    continue
-        
-        # Draw station markers
-        if station_size > 0 and not self.stations_gdf.empty:
-            for idx, row in self.stations_gdf.iterrows():
-                geometry = row.geometry
-                
-                if geometry is None:
-                    continue
-                
-                try:
-                    if geometry.intersects(tile_box):
-                        if geometry.geom_type == 'Point':
-                            lon, lat = geometry.x, geometry.y
-                            self.draw_station_marker(draw, lon, lat, station_size, x, y, zoom)
                 except Exception as e:
                     continue
         
@@ -575,7 +511,6 @@ def main():
     if tiles_generated == 0:
         print("\nError: No tiles were generated. Please check that the data files exist:")
         print(f"  - {generator.metro_lines_path}")
-        print(f"  - {generator.metro_stations_path}")
         sys.exit(1)
     
     print(f"\nStep 2: Tiles generated successfully ({tiles_generated} tiles)")
