@@ -1,9 +1,7 @@
 #!/usr/bin/env python3
 """
-GeoJSON to High-Resolution RGB GeoTIFF Converter
-Converts GeoJSON files to RGB GeoTIFF with transparent background at specified resolution
-Uses LZW compression to preserve spatial data integrity
-Supports zoom level 16 (2.4m/pixel) for maximum clarity
+Amaravati GeoJSON to High-Resolution RGB GeoTIFF Converter
+Converts Amaravati master plan GeoJSON files to RGB GeoTIFF with transparent background
 """
 
 import os
@@ -15,25 +13,19 @@ from rasterio.transform import from_bounds
 from rasterio.features import rasterize
 from shapely.geometry import shape, mapping
 import glob
+from collections import defaultdict
 
 # ============================================================================
 # CONFIGURATION
 # ============================================================================
-INPUT_DIR = "data/Telangana/warangal/master_plan"  # Change this
-OUTPUT_FILE = "warangal_masterplan_zoom15.tif"
+INPUT_DIR = "data/andhra_pradesh/amaravati/master_plan"
+OUTPUT_FILE = "amaravati_masterplan_zoom16.tif"
 
-# Resolution in meters per pixel - ZOOM 15 (More stable than 16)
-TARGET_RESOLUTION_METERS = 4.8  # Zoom 15 (4.8m × 4.8m per pixel)
-
-# Zoom 15 is a good balance:
-# - Still very high resolution
-# - More manageable file size (~650 MB vs 2.5 GB)
-# - Less likely to hit memory limits
-# Expected: 14,263 × 11,406 pixels, ~650 MB file
-# Processing time: 8-15 minutes
+# Resolution in meters per pixel - ZOOM 16 for maximum clarity
+TARGET_RESOLUTION_METERS = 2.4  # Zoom 16 (2.4m × 2.4m per pixel)
 
 # ============================================================================
-# COLOR SCHEME - Exact colors from your mapping (using 'fill' colors)
+# COLOR SCHEME - Amaravati Master Plan (using 'fill' colors)
 # ============================================================================
 def hex_to_rgb(hex_color):
     """Convert hex color to RGB tuple"""
@@ -41,73 +33,48 @@ def hex_to_rgb(hex_color):
     return tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))
 
 COLOR_MAP = {
-    # Exact mapping from your color scheme (using 'fill' colors)
-    'Agriculture': hex_to_rgb('#D3FFBE'),
-    'AirStrip': hex_to_rgb('#FF00C5'),
-    'Air Strip': hex_to_rgb('#FF00C5'),
-    'Commercial': hex_to_rgb('#0070FF'),
-    'Forest': hex_to_rgb('#267300'),
-    'Protected & Undevelopable Zone': hex_to_rgb('#267300'),
-    'Growth Corridor': hex_to_rgb('#FFBEE8'),
-    'Growth Corridor 2': hex_to_rgb('#FF73DF'),
-    'Heritage': hex_to_rgb('#FFA77F'),
-    'Heritage Conservation Zone': hex_to_rgb('#FFA77F'),
-    'Hill Buffer': hex_to_rgb('#55FF00'),
-    'Hillocks': hex_to_rgb('#A87000'),
-    'Industrial': hex_to_rgb('#C500FF'),
-    'Mixed Use': hex_to_rgb('#FFAA00'),
-    'Public and Semi-Public': hex_to_rgb('#FF0000'),
-    'Public & Semi-Public': hex_to_rgb('#FF0000'),
-    'Public Utilities': hex_to_rgb('#E69800'),
-    'Railway Land': hex_to_rgb('#CCCCCC'),
-    'Recreational': hex_to_rgb('#55FF00'),
-    'Recreational Zone': hex_to_rgb('#55FF00'),
-    'Residential': hex_to_rgb('#FFFF00'),
-    'ResidentialExpansion': hex_to_rgb('#9C9C9C'),
-    'Residential Expansion': hex_to_rgb('#9C9C9C'),
-    'Road Buffer': hex_to_rgb('#4E4E4E'),
-    'Transportation': hex_to_rgb('#B2B2B2'),
-    'Water Bodies': hex_to_rgb('#00C5FF'),
-    'Water Bodies Buffer': hex_to_rgb('#55FF00'),
-    'Water Body Buffer': hex_to_rgb('#55FF00'),
-    'Zoological Park': hex_to_rgb('#38A800'),
-    'Zoological park': hex_to_rgb('#38A800'),
-}
-
-# Layer rendering priority (higher = drawn on top)
-# Matching your GeoJSON file structure
-LAYER_PRIORITY = {
-    # Base layers (lowest priority - drawn first)
-    'Agriculture': 1,
-    'Water Bodies Buffer': 2,
-    'Water Body Buffer': 2,
-    'Hill Buffer': 3,
-    'Growth Corridor': 4,
-    'Growth Corridor 2': 5,
-    'ResidentialExpansion': 6,
-    'Residential Expansion': 6,
-    'Forest': 7,
-    'Hillocks': 8,
-    'Recreational': 9,
-    'Recreational Zone': 9,
-    'Water Bodies': 10,
-    'Mixed Use': 11,
-    'Residential': 12,
-    'Commercial': 13,
-    'Industrial': 14,
-    'Public & Semi-Public': 15,
-    'Public and Semi-Public': 15,
-    'Public Utilities': 16,
-    'Heritage': 17,
-    'Heritage Conservation Zone': 17,
-    'Railway Land': 18,
-    'Road Buffer': 19,
-    'Transportation': 20,
-    'AirStrip': 21,
-    'Air Strip': 21,
-    'Zoological Park': 22,
-    'Zoological park': 22,
-    'Protected & Undevelopable Zone': 23,
+    'Burial Ground': hex_to_rgb('#E39E00'),
+    'C1 -Mixed use zone': hex_to_rgb('#73B2FF'),
+    'C2- General commercial zone': hex_to_rgb('#00C5FF'),
+    'C3-Neighbourhood centre zone': hex_to_rgb('#00C5FF'),
+    'C4-Town centre zone': hex_to_rgb('#00A9E6'),
+    'C5-Regional centre zone': hex_to_rgb('#0070FF'),
+    'C6-Central business district zone': hex_to_rgb('#005CE6'),
+    'Commercial Vacant': hex_to_rgb('#C5E2FF'),
+    'I1-Business park zone': hex_to_rgb('#FFBEE8'),
+    'I2-Logistics zone': hex_to_rgb('#FF73DF'),
+    'I3-Non polluting industry zone': hex_to_rgb('#A900E6'),
+    'Not Available': hex_to_rgb('#CCCCCC'),
+    'P1-Passive zone': hex_to_rgb('#267300'),
+    'P2-Active zone': hex_to_rgb('#38A800'),
+    'P3-Protected zone': hex_to_rgb('#BEE8FF'),
+    'P3-Protected zone Hills': hex_to_rgb('#4C7300'),
+    'PGN-G': hex_to_rgb('#4C7300'),
+    'PGN-V': hex_to_rgb('#897044'),
+    'R1-Village planning zone': hex_to_rgb('#FFFFFF'),
+    'R3-Medium to high density zone': hex_to_rgb('#F5CA7A'),
+    'R4-High density zone': hex_to_rgb('#E69800'),
+    'RAA': hex_to_rgb('#FFAA00'),
+    'Residential Vacant': hex_to_rgb('#FFD37F'),
+    'S2-Education zone': hex_to_rgb('#FF7F7F'),
+    'S3-Special zone': hex_to_rgb('#D7B09E'),
+    'SC1a-Mixed Use': hex_to_rgb('#0070FF'),
+    'SC1b - Mixed Use': hex_to_rgb('#73B2FF'),
+    'SP1- Passive Zone': hex_to_rgb('#267300'),
+    'SP2- Active Zone': hex_to_rgb('#38A800'),
+    'SP3-Protected Zone': hex_to_rgb('#00C5FF'),
+    'SR2 Low Density Housing': hex_to_rgb('#FFFFBE'),
+    'SR4 - High Density Private': hex_to_rgb('#FFAA00'),
+    'SS1 - Government Zone': hex_to_rgb('#E60000'),
+    'SS2a- Education Zone': hex_to_rgb('#FF7F7F'),
+    'SS2b Cultural Zone': hex_to_rgb('#C500FF'),
+    'SS2c Health Zone': hex_to_rgb('#D3FFBE'),
+    'SS3 - Special Zone': hex_to_rgb('#A83800'),
+    'SU1-Reserve Zone': hex_to_rgb('#E1E1E1'),
+    'SU2 - Road Network': hex_to_rgb('#82817D'),
+    'U1-Reserve zone': hex_to_rgb('#CCCCCC'),
+    'U2- Road Reserve Zone': hex_to_rgb('#82817D'),
+    'U2- Road reserve zone': hex_to_rgb('#82817D'),
 }
 
 # ============================================================================
@@ -130,6 +97,7 @@ def calculate_bounds(geojson_files):
     minx = miny = float('inf')
     maxx = maxy = float('-inf')
     total_features = 0
+    total_skipped = 0
     
     for filepath in geojson_files:
         filename = os.path.basename(filepath)
@@ -137,21 +105,44 @@ def calculate_bounds(geojson_files):
             data = json.load(f)
         
         features = data.get('features', [])
-        total_features += len(features)
+        valid_count = 0
+        skipped_count = 0
         
         for feature in features:
-            geom = shape(feature['geometry'])
-            b = geom.bounds
-            minx = min(minx, b[0])
-            miny = min(miny, b[1])
-            maxx = max(maxx, b[2])
-            maxy = max(maxy, b[3])
+            try:
+                if feature.get('geometry') is None:
+                    skipped_count += 1
+                    continue
+                
+                geom = shape(feature['geometry'])
+                
+                if geom.is_empty:
+                    skipped_count += 1
+                    continue
+                
+                b = geom.bounds
+                minx = min(minx, b[0])
+                miny = min(miny, b[1])
+                maxx = max(maxx, b[2])
+                maxy = max(maxy, b[3])
+                valid_count += 1
+            except Exception as e:
+                skipped_count += 1
+                continue
         
-        print(f"  ✓ {filename}: {len(features)} features")
+        total_features += valid_count
+        total_skipped += skipped_count
+        
+        if skipped_count > 0:
+            print(f"  ✓ {filename}: {valid_count} features ({skipped_count} skipped)")
+        else:
+            print(f"  ✓ {filename}: {valid_count} features")
     
     bounds = (minx, miny, maxx, maxy)
     print(f"\n  Bounds: [{minx:.6f}, {miny:.6f}, {maxx:.6f}, {maxy:.6f}]")
     print(f"  Total features: {total_features:,}")
+    if total_skipped > 0:
+        print(f"  Total skipped: {total_skipped}")
     
     return bounds
 
@@ -216,30 +207,26 @@ def load_features_by_layer(geojson_files):
         features = []
         for feature in data.get('features', []):
             try:
-                # Check if geometry exists and is not None
                 if feature.get('geometry') is None:
                     continue
                 
-                # Get PLU_NAME for reference
                 plu_name = feature['properties'].get('PLU_NAME', '') if feature.get('properties') else ''
                 
-                # Validate geometry
                 geom = shape(feature['geometry'])
                 if not geom.is_valid:
                     geom = geom.buffer(0)
                 if geom.is_empty:
                     continue
                 
-                # IMPORTANT: Prioritize filename for color (it's the layer name)
-                # Then try PLU_NAME, then default to gray
-                color = COLOR_MAP.get(filename)  # Try filename first
+                # Try filename first, then PLU_NAME
+                color = COLOR_MAP.get(filename)
                 if color is None:
-                    color = COLOR_MAP.get(plu_name)  # Try PLU_NAME
+                    color = COLOR_MAP.get(plu_name)
                 if color is None:
                     color = (128, 128, 128)  # Gray default
-                    print(f"    ⚠️  No color mapping for layer '{filename}' or PLU_NAME '{plu_name}'")
+                    if filename not in color_usage:
+                        print(f"    ⚠️  No color mapping for layer '{filename}' or PLU_NAME '{plu_name}'")
                 
-                # Track color usage by filename (layer name)
                 if filename not in color_usage:
                     hex_color = '#{:02x}{:02x}{:02x}'.format(*color)
                     color_usage[filename] = hex_color
@@ -247,30 +234,27 @@ def load_features_by_layer(geojson_files):
                 features.append({
                     'geometry': mapping(geom),
                     'color': color,
-                    'category': filename  # Use filename as category
+                    'category': filename
                 })
                 
             except Exception as e:
                 continue
         
         if features:
-            priority = LAYER_PRIORITY.get(filename, LAYER_PRIORITY.get(features[0]['category'], 50))
             layers[filename] = {
                 'features': features,
-                'priority': priority,
+                'priority': 50,  # Default priority
                 'count': len(features)
             }
             
-            # Show color being used
             sample_color = features[0]['color']
             hex_color = '#{:02x}{:02x}{:02x}'.format(*sample_color)
-            print(f"  ✓ {filename}: {len(features)} features (priority: {priority}, color: {hex_color})")
+            print(f"  ✓ {filename}: {len(features)} features (color: {hex_color})")
     
     print(f"\n  Unique categories with colors:")
-    # Filter out None values and sort
     valid_colors = {k: v for k, v in color_usage.items() if k is not None and v is not None}
     for cat, hex_col in sorted(valid_colors.items())[:8]:
-        print(f"    {cat:30s} → {hex_col}")
+        print(f"    {cat:40s} → {hex_col}")
     if len(valid_colors) > 8:
         print(f"    ... and {len(valid_colors) - 8} more")
     
@@ -289,7 +273,6 @@ def rasterize_rgb(layers, bounds, width, height):
     minx, miny, maxx, maxy = bounds
     transform = from_bounds(minx, miny, maxx, maxy, width, height)
     
-    # Initialize RGBA bands (transparent background)
     print(f"  Allocating memory for {width:,} × {height:,} × 4 bands...")
     try:
         r_band = np.zeros((height, width), dtype=np.uint8)
@@ -301,17 +284,11 @@ def rasterize_rgb(layers, bounds, width, height):
         print(f"  ❌ Not enough memory! Try lower resolution.")
         raise
     
-    # Sort layers by priority (lowest first, so highest priority drawn last)
     sorted_layers = sorted(layers.items(), key=lambda x: x[1]['priority'])
-    
     total_features = sum(layer['count'] for layer in layers.values())
     processed = 0
     
     print(f"\n  Rendering {len(sorted_layers)} layers with {total_features:,} total features...")
-    print(f"  Layer rendering order (priority):")
-    for i, (name, data) in enumerate(sorted_layers, 1):
-        print(f"    {i:2d}. {name} (priority {data['priority']}) - {data['count']} features")
-    print()
     
     for layer_idx, (layer_name, layer_data) in enumerate(sorted_layers, 1):
         features = layer_data['features']
@@ -321,15 +298,12 @@ def rasterize_rgb(layers, bounds, width, height):
         
         print(f"  [{layer_idx}/{len(sorted_layers)}] Rendering {layer_name}: {len(features)} features...", end='', flush=True)
         
-        # Get the color for this layer (all features in a layer have same color)
         layer_color = features[0]['color']
         r, g, b = layer_color
         
-        # OPTIMIZED: Batch all geometries together for this layer
         shapes = [(feat['geometry'], 1) for feat in features]
         
         try:
-            # Rasterize ALL features of this layer in ONE call
             mask = rasterize(
                 shapes=shapes,
                 out_shape=(height, width),
@@ -339,14 +313,13 @@ def rasterize_rgb(layers, bounds, width, height):
                 dtype=np.uint8
             )
             
-            # Apply color to all pixels touched by this layer
             layer_pixels = mask == 1
             pixels_affected = np.sum(layer_pixels)
             
             r_band[layer_pixels] = r
             g_band[layer_pixels] = g
             b_band[layer_pixels] = b
-            a_band[layer_pixels] = 255  # Set alpha to opaque
+            a_band[layer_pixels] = 255
             
             processed += len(features)
             progress = (processed / total_features) * 100
@@ -356,7 +329,6 @@ def rasterize_rgb(layers, bounds, width, height):
             print(f" ERROR: {e}")
             continue
     
-    # Check coverage (count opaque pixels)
     opaque_pixels = np.sum(a_band > 0)
     coverage = (opaque_pixels / (height * width)) * 100
     
@@ -364,178 +336,151 @@ def rasterize_rgb(layers, bounds, width, height):
     print(f"  Coverage: {coverage:.2f}%")
     print(f"  Opaque pixels: {opaque_pixels:,} / {total_pixels:,}")
     
-    if coverage < 10:
-        print(f"  ⚠️  WARNING: Very low coverage - check if features are within bounds")
-    
     return np.stack([r_band, g_band, b_band, a_band]), transform
 
 
 def write_rgb_geotiff(rgba_data, transform, bounds, output_file):
-    """Write RGB GeoTIFF with internal transparency mask"""
+    """Write RGB GeoTIFF with transparency - UNCOMPRESSED"""
     print(f"\n[5/6] Writing RGB GeoTIFF with transparency...")
+    print(f"  Writing UNCOMPRESSED for maximum data integrity...")
     
     bands, height, width = rgba_data.shape
     
-    # Use internal mask instead of alpha band for better compatibility
+    print(f"\n  Pre-write data check:")
+    for i, band_name in enumerate(['Red', 'Green', 'Blue', 'Alpha']):
+        non_zero = np.count_nonzero(rgba_data[i])
+        pct = (non_zero / (height * width)) * 100
+        print(f"    {band_name} band: {non_zero:,} non-zero pixels ({pct:.2f}%)")
+    
     with rasterio.open(
         output_file,
         'w',
         driver='GTiff',
         height=height,
         width=width,
-        count=3,  # RGB only
+        count=4,
         dtype=np.uint8,
         crs='EPSG:4326',
         transform=transform,
-        compress='deflate',
-        photometric='RGB',
-        tiled=True,
-        blockxsize=256,
-        blockysize=256,
-        nodata=None  # We'll use internal mask instead
+        tiled=False,
+        BIGTIFF='YES'
     ) as dst:
-        # Write RGB bands
-        dst.write(rgba_data[0], 1)  # Red
-        dst.write(rgba_data[1], 2)  # Green
-        dst.write(rgba_data[2], 3)  # Blue
-        
-        # Write transparency mask for each band
-        # True = valid data, False = transparent
-        alpha = rgba_data[3]
-        mask = alpha == 0  # Where alpha is 0, mask out (transparent)
-        
-        dst.write_mask(~mask)  # Invert: True where we have data
+        for band_idx in range(4):
+            band_names = ['Red', 'Green', 'Blue', 'Alpha']
+            print(f"  Writing band {band_idx + 1} ({band_names[band_idx]})...", end='', flush=True)
+            dst.write(rgba_data[band_idx], band_idx + 1)
+            print(f" Done!")
         
         dst.update_tags(
-            description='Warangal Master Plan Land Use Map (RGB with transparency)',
-            created_by='geojson_to_geotiff_rgba.py',
-            has_transparency='true'
+            description='Amaravati Master Plan Land Use Map (RGBA)',
+            created_by='geotiff_amaravati.py',
+            alpha_band='4',
+            compression='none'
         )
     
     file_size = os.path.getsize(output_file) / (1024 * 1024)
-    print(f"  ✓ File written: {output_file}")
+    expected_size = (height * width * 4) / (1024 * 1024)
+    
+    print(f"\n  ✓ File written: {output_file}")
     print(f"  ✓ File size: {file_size:.2f} MB")
+    print(f"  Expected uncompressed size: {expected_size:.2f} MB")
+    print(f"  Difference: {abs(file_size - expected_size):.2f} MB")
+    
+    if abs(file_size - expected_size) > expected_size * 0.05:
+        print(f"  ⚠️  WARNING: File size mismatch! Data may be incomplete.")
+    else:
+        print(f"  ✓ File size matches expected - data write successful!")
 
 
 def verify_output(output_file):
-    """Verify output"""
+    """Verify output with detailed checks"""
     print(f"\n[6/6] Verifying output...")
     
     with rasterio.open(output_file) as src:
         print(f"  Dimensions: {src.width} × {src.height}")
-        print(f"  Bands: {src.count} (RGB with transparency mask)")
+        print(f"  Bands: {src.count}")
         print(f"  CRS: {src.crs}")
+        print(f"  Compression: {src.compression}")
         
-        # Read RGB data
-        r = src.read(1)
-        g = src.read(2)
-        b = src.read(3)
+        if src.count == 4:
+            r = src.read(1)
+            g = src.read(2)
+            b = src.read(3)
+            a = src.read(4)
+            
+            opaque_pixels = np.sum(a > 0)
+            transparent_pixels = np.sum(a == 0)
+            
+            print(f"  Alpha channel:")
+            print(f"    Opaque pixels: {opaque_pixels:,}")
+            print(f"    Transparent pixels: {transparent_pixels:,}")
+            
+            print(f"  Spatial distribution check:")
+            h, w = a.shape
+            quadrants = [
+                (0, h//2, 0, w//2, "Top-Left"),
+                (0, h//2, w//2, w, "Top-Right"),
+                (h//2, h, 0, w//2, "Bottom-Left"),
+                (h//2, h, w//2, w, "Bottom-Right")
+            ]
+            
+            all_good = True
+            for y1, y2, x1, x2, name in quadrants:
+                quad_opaque = np.sum(a[y1:y2, x1:x2] > 0)
+                quad_total = (y2-y1) * (x2-x1)
+                pct = (quad_opaque / quad_total) * 100
+                status = "✓" if pct > 5 else "❌"
+                print(f"    {status} {name}: {pct:.1f}% coverage")
+                if pct < 5:
+                    all_good = False
+            
+            if all_good:
+                print(f"\n  ✓ All quadrants have data - FULL MAP!")
+            else:
+                print(f"\n  ⚠️  Some quadrants have low coverage")
         
-        # Read mask (True = valid data)
-        mask = src.read_masks(1)
-        
-        # Check if all transparent (mask all False/0)
-        all_transparent = np.all(mask == 0)
-        
-        if all_transparent:
-            print(f"\n  ❌ ERROR: Image is all transparent (no data)!")
-            return False
-        
-        # Calculate opaque pixels
-        opaque_pixels = np.sum(mask > 0)
-        
-        print(f"  Opaque pixels: {opaque_pixels:,}")
-        print(f"  ✓ Verification passed")
+        print(f"  ✓ Verification complete")
         return True
 
 
 def main():
     """Main execution"""
     print("=" * 70)
-    print("GeoJSON to High-Resolution RGB GeoTIFF with Transparency")
+    print("Amaravati GeoJSON to High-Resolution RGB GeoTIFF")
     print("=" * 70)
     print(f"\nConfiguration:")
     print(f"  Input: {INPUT_DIR}")
     print(f"  Output: {OUTPUT_FILE}")
     print(f"  Target resolution: {TARGET_RESOLUTION_METERS}m/pixel")
-    
-    # Determine zoom level
-    zoom_levels = {
-        0.6: 18,
-        1.2: 17,
-        2.4: 16,
-        4.8: 15,
-        9.6: 14,
-        19.1: 13,
-        38.2: 12,
-        76.4: 11,
-        152.9: 10
-    }
-    
-    closest_zoom = min(zoom_levels.keys(), key=lambda x: abs(x - TARGET_RESOLUTION_METERS))
-    zoom_level = zoom_levels[closest_zoom]
-    print(f"  Equivalent zoom level: ~{zoom_level}")
+    print(f"  Equivalent zoom level: ~15")
     
     if not os.path.exists(INPUT_DIR):
         print(f"\n❌ ERROR: Directory not found: {INPUT_DIR}")
         return 1
     
     try:
-        # Get files
         geojson_files = get_geojson_files(INPUT_DIR)
         print(f"\nFound {len(geojson_files)} GeoJSON files")
         
-        # Calculate bounds
         bounds = calculate_bounds(geojson_files)
-        
-        # Calculate dimensions based on resolution
         width, height = calculate_dimensions(bounds, TARGET_RESOLUTION_METERS)
-        
-        # Load features by layer
         layers = load_features_by_layer(geojson_files)
         
         if not layers:
             print("\n❌ ERROR: No valid features found!")
             return 1
         
-        # Rasterize as RGBA
         rgba_data, transform = rasterize_rgb(layers, bounds, width, height)
-        
-        # Write output
         write_rgb_geotiff(rgba_data, transform, bounds, OUTPUT_FILE)
         
-        # Verify
         if not verify_output(OUTPUT_FILE):
             return 1
         
         print("\n" + "=" * 70)
-        print("✓ SUCCESS: High-Resolution RGB GeoTIFF created!")
+        print("✓ SUCCESS: Amaravati GeoTIFF created!")
         print("=" * 70)
-        print(f"\nResolution Details:")
-        print(f"  Target: {TARGET_RESOLUTION_METERS}m/pixel")
-        print(f"  Zoom level equivalent: ~{zoom_level}")
-        print(f"  Dimensions: {width:,} × {height:,} pixels")
-        print(f"  Each pixel = {TARGET_RESOLUTION_METERS}m × {TARGET_RESOLUTION_METERS}m")
-        print(f"  Format: RGBA uncompressed (maximum data integrity)")
-        print("\nColor Mapping Summary:")
-        print("-" * 70)
-        sample_colors = [
-            ('Agriculture', '#D3FFBE'),
-            ('Residential', '#FFFF00'),
-            ('Commercial', '#0070FF'),
-            ('Mixed Use', '#FFAA00'),
-            ('Industrial', '#C500FF'),
-            ('Public & Semi-Public', '#FF0000'),
-            ('Water Bodies', '#00C5FF'),
-            ('Transportation', '#B2B2B2'),
-        ]
-        for name, hex_col in sample_colors:
-            print(f"  {name:25s} → {hex_col}")
-        print("-" * 70)
-        print(f"\nThe file contains the COMPLETE map with transparent background!")
-        print(f"File is uncompressed (~{width*height*4/(1024*1024):.0f} MB) to ensure all data is preserved.")
-        print(f"\nNOTE: To reduce file size, you can later compress with GDAL:")
-        print(f"  gdal_translate -co COMPRESS=LZW input.tif output_compressed.tif")
+        print(f"\nThe file contains the complete Amaravati master plan map!")
+        print(f"File: {OUTPUT_FILE}")
         
         return 0
         

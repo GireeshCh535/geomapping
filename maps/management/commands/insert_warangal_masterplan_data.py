@@ -1,7 +1,7 @@
 """
 Django management command to insert Warangal master plan data
-This creates ONE layer (warangal_master_plan_2015) with all masterplan files as features
-Following the hierarchy: telangana -> warangal -> warangal_master_plan_2015 -> all features
+This creates ONE layer (warangal_master_plan) with all masterplan files as features
+Following the hierarchy: telangana -> warangal -> warangal_master_plan -> all features
 """
 
 from django.core.management.base import BaseCommand, CommandError
@@ -155,10 +155,10 @@ class Command(BaseCommand):
         """Delete existing Warangal masterplan data"""
         self.stdout.write('Deleting existing Warangal masterplan data...')
         
-        # Delete the masterplan layer and all its features
+        # Delete the masterplan layer(s) and all their features
         deleted_layers = DataLayer.objects.filter(
             city=self.city,
-            slug='warangal_master_plan_2015'
+            slug__in=['warangal_master_plan', 'warangal_master_plan_2015']
         ).delete()
         
         if deleted_layers[0] > 0:
@@ -167,7 +167,7 @@ class Command(BaseCommand):
         # Delete any existing layer groups
         deleted_groups = LayerGroup.objects.filter(
             city=self.city,
-            slug='warangal_master_plan_2015'
+            slug__in=['warangal_master_plan', 'warangal_master_plan_2015']
         ).delete()
         
         if deleted_groups[0] > 0:
@@ -180,7 +180,7 @@ class Command(BaseCommand):
         # Create layer group
         self.layer_group, created = LayerGroup.objects.get_or_create(
             city=self.city,
-            slug='warangal_master_plan_2015',
+            slug='warangal_master_plan',
             defaults={
                 'name': 'Warangal Master Plan 2015',
                 'description': 'Comprehensive master plan data for Warangal including all land use zones',
@@ -202,7 +202,7 @@ class Command(BaseCommand):
         # Create the main data layer
         self.masterplan_layer, created = DataLayer.objects.get_or_create(
             city=self.city,
-            slug='warangal_master_plan_2015',
+            slug='warangal_master_plan',
             defaults={
                 'name': 'Warangal Master Plan 2015',
                 'description': 'Complete master plan data for Warangal with all land use zones and infrastructure',

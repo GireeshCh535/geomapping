@@ -25,37 +25,7 @@ class VisakhapatnamDenseCompleteTiles:
     def get_color_map(self):
         """Complete color mapping for Visakhapatnam"""
         return {
-            'Agricultural_Use_Zone': {'fill': '#D3FFBE'},
-            'Blue_Zone_Water_Bodies': {'fill': '#73FFDF'},
-            'Brown_Zone_Hills': {'fill': '#A87000'},
-            'Commercial_Use_Zone': {'fill': '#004DA8'},
-            'Existing_Crematorium_Burial_Ground_Graveyard': {'fill': '#FF8080'},
-            'Existing_Educational_Facilities': {'fill': '#CC0000'},
-            'Existing_Government_Semi_Government_Facilities': {'fill': '#FF0000'},
-            'Existing_Health_Facilities': {'fill': '#FF6666'},
-            'Proposed_Industrial_Use_Zone': {'fill': '#D966FF'},
-            'Existing_Industrial_Area': {'fill': '#C500FF'},
-            'Existing_Public_Utilities': {'fill': '#FF9999'},
-            'Existing_Recreational_Playgrounds_Parks_Layout_OpenSpace': {'fill': '#55FF00'},
-            'Existing_Religious_Facilities': {'fill': '#FF6666'},
-            'Existing_Road_Railway_Line_Area': {'fill': '#828282'},
-            'Existing_Transportation_Facility': {'fill': '#686868'},
-            'Green_Zone_Forest': {'fill': '#00734C'},
-            'Kambalakonda_Eco_Sensitive_Zone_NAOB_Buffer_Zoological_Park': {'fill': '#D7C29E'},
-            'Kambalakonda_WildLife_Sanctuary_Biodiversity_Area': {'fill': '#38A800'},
-            'Mixed_Use_Zone_1': {'fill': '#FFAA00'},
-            'Mixed_Use_Zone_2_BAIA': {'fill': '#FFD37F'},
-            'Mixed_Use_Zone_3_BAIA': {'fill': '#F0B000'},
-            'Mixed_Use_Zone_4_BAIA': {'fill': '#FFBB33'},
-            'Proposed_PSP_Use_Zone': {'fill': '#FFCCCC'},
-            'Proposed_Public_Utilities_Use_Zone': {'fill': '#FF9999'},
-            'Proposed_Recreational_Use_Zone': {'fill': '#4C7300'},
-            'Proposed_Road_Network': {'fill': '#000000'},
-            'Proposed_Transportation_Facility_Use_Zone': {'fill': '#555555'},
-            'Residential_Use_Zone': {'fill': '#FFFF73'},
-            'Sea_River_Accreted_Land': {'fill': '#E0D0B0'},
-            'Special_Area_Use_Zone': {'fill': '#CCE0FF'},
-            'Water_Body_Buffer': {'fill': '#66FF33'}
+            'x
         }
     
     def hex_to_rgb(self, hex_color):
