@@ -48,7 +48,7 @@ class HyderabadHMDABoundaryTileGenerator:
     def get_color_map(self):
         """Color mapping for HMDA boundary"""
         return {
-            'NEW HMDA BOUNDARY': {'fill': '#DEDDDD', 'outline': '#DEDDDD'}
+            'NEW HMDA BOUNDARY': {'fill': '#B3B2B2', 'outline': '#F2F1F1'}
         }
 
     def hex_to_rgb(self, hex_color):
@@ -128,7 +128,7 @@ class HyderabadHMDABoundaryTileGenerator:
         return (min_lon, min_lat, max_lon, max_lat)
 
     def render_polygon_with_holes(self, draw, polygon, tile_bounds, lon_buffer, lat_buffer,
-                                  buffered_size, fill_rgb):
+                                  buffered_size, fill_rgb, outline_rgb):
         """Render polygon with interior rings (holes) properly"""
         poly_img = Image.new('RGBA', (buffered_size, buffered_size), (0, 0, 0, 0))
         poly_draw = ImageDraw.Draw(poly_img)
@@ -146,7 +146,8 @@ class HyderabadHMDABoundaryTileGenerator:
             return
 
         fill_rgba = fill_rgb + (255,)  # 100% opacity
-        poly_draw.polygon(exterior_pixels, fill=fill_rgba, outline=fill_rgba)
+        outline_rgba = outline_rgb + (255,)
+        poly_draw.polygon(exterior_pixels, fill=fill_rgba, outline=outline_rgba)
 
         for interior in polygon.interiors:
             interior_pixels = []
@@ -239,7 +240,7 @@ class HyderabadHMDABoundaryTileGenerator:
 
                     if has_holes:
                         self.render_polygon_with_holes(draw, polygon, tile_bounds, lon_buffer, lat_buffer,
-                                                      buffered_size, fill_rgb)
+                                                      buffered_size, fill_rgb, outline_rgb)
                     else:
                         fill_rgba = fill_rgb + (255,)
                         draw.polygon(int_pixels, fill=fill_rgba, outline=outline_rgb)

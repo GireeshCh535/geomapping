@@ -19,17 +19,13 @@ from collections import defaultdict
 # CONFIGURATION
 # ============================================================================
 INPUT_DIR = "data/andhra_pradesh/visakhapatnam/master_plan"
-OUTPUT_FILE = "visakhapatnam_masterplan_zoom15_compressed.tif"
+OUTPUT_FILE = "visakhapatnam_masterplan_zoom16_compressed.tif"
 
-# Resolution in meters per pixel
-# Zoom 16 (2.4m) creates VERY large files (~14GB uncompressed, ~2-4GB compressed)
-# Zoom 15 (4.8m) is recommended for Visakhapatnam - still high quality but manageable size
-TARGET_RESOLUTION_METERS = 4.8  # Zoom 15 - RECOMMENDED (1/4 the file size of zoom 16)
+# Resolution in meters per pixel - ZOOM 16 with LZW compression
+TARGET_RESOLUTION_METERS = 2.4  # Zoom 16 (2.4m × 2.4m per pixel)
 
-# To use Zoom 16 instead (very large file):
-# TARGET_RESOLUTION_METERS = 2.4  # Zoom 16 - WARNING: Creates ~2-4GB file
-
-# File will use LZW compression to reduce size while preserving all spatial data
+# File will use LZW compression to reduce size from ~14GB to ~2-4GB
+# LZW is safe for geospatial data and preserves all spatial information
 
 # ============================================================================
 # COLOR SCHEME - Visakhapatnam Master Plan (using 'fill' colors)

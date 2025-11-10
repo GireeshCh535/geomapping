@@ -1308,7 +1308,7 @@ class CoordinateSearchTestView(APIView):
                 road_width = properties.get('Road Width (in feet)', '')
 
                 if name and road_width:
-                    data_string = f"{name}\n\nRoad Width (in feet) : {road_width}"
+                    data_string = f"{name}, Road Width (in feet) : {road_width}"
                 elif name:
                     data_string = name
                 elif road_width:
@@ -1435,6 +1435,11 @@ class CoordinateSearchTestView(APIView):
                 
                 return {
                     'data': data
+                }
+            
+            if layer.slug == 'hyderabad_hmda_extended_area':
+                return {
+                    'data': layer.name
                 }
             
             # Special handling for bengaluru_air_funnel_zones layer
