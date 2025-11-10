@@ -1299,6 +1299,27 @@ class CoordinateSearchTestView(APIView):
                     'data': data_string
                 }
             
+            if layer.slug == 'bengaluru_masterplan_roads' and containing_features:
+                primary_feature = containing_features[0]
+                detailed_category = primary_feature.get('detailed_category', {})
+                properties = detailed_category.get('properties', {})
+
+                name = properties.get('Name', '') or primary_feature.get('feature_name', '')
+                road_width = properties.get('Road Width (in feet)', '')
+
+                if name and road_width:
+                    data_string = f"{name}\n\nRoad Width (in feet) : {road_width}"
+                elif name:
+                    data_string = name
+                elif road_width:
+                    data_string = f"Road Width (in feet) : {road_width}"
+                else:
+                    data_string = 'Masterplan Road'
+
+                return {
+                    'data': data_string
+                }
+
             if layer.slug == 'hyderabad_metro' and containing_features:
                 primary_feature = containing_features[0]
                 detailed_category = primary_feature.get('detailed_category', {})
