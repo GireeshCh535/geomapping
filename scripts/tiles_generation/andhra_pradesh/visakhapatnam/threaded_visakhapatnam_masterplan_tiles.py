@@ -58,18 +58,22 @@ class ThreadedVisakhapatnamMasterplanTileGenerator:
             logger.info("Data already loaded and cached")
             return
 
-        # Find the GeoTIFF file
-        if self.data_path.is_file() and self.data_path.suffix.lower() == ".tif":
-            geotiff_files = [self.data_path]
+        # Find the GeoTIFF file - check if it's an absolute path or relative to project root
+        if self.data_path.is_absolute() and self.data_path.is_file():
+            geotiff_path = self.data_path
+        elif self.data_path.is_file():
+            geotiff_path = self.data_path
         else:
-            search_dir = self.data_path if self.data_path.is_dir() else self.data_path.parent
-            geotiff_files = list(search_dir.glob("*.tif"))
+            # Try to find in project root
+            script_dir = Path(__file__).resolve().parent
+            project_root = script_dir.parent.parent.parent
+            potential_path = project_root / self.data_path.name
+            if potential_path.is_file():
+                geotiff_path = potential_path
+            else:
+                logger.error(f"GeoTIFF file not found: {self.data_path}")
+                return
 
-        if not geotiff_files:
-            logger.error(f"No GeoTIFF files found in {self.data_path}")
-            return
-
-        geotiff_path = geotiff_files[0]
         logger.info(f"Loading and caching GeoTIFF: {geotiff_path}")
 
         # Reproject GeoTIFF to WGS84 and cache the data
@@ -78,7 +82,7 @@ class ThreadedVisakhapatnamMasterplanTileGenerator:
         logger.info("Data loaded and cached successfully")
 
     def reproject_geotiff_to_wgs84(self, geotiff_path):
-        """Reproject RGBA GeoTIFF to WGS84 and return the transformed data and bounds"""
+        """Reproject RGB/RGBA GeoTIFF to WGS84 and return the transformed data and bounds"""
         with rasterio.open(geotiff_path) as src:
             logger.info(f"Original CRS: {src.crs}")
             logger.info(f"Original bounds: {src.bounds}")
@@ -129,15 +133,21 @@ class ThreadedVisakhapatnamMasterplanTileGenerator:
                 resampling=Resampling.nearest
             )
 
-            reproject(
-                source=src.read(4),  # Alpha band
-                destination=destination_a,
-                src_transform=src.transform,
-                src_crs=src.crs,
-                dst_transform=transform,
-                dst_crs='EPSG:4326',
-                resampling=Resampling.nearest
-            )
+            # Handle alpha band if present (band 4), otherwise create fully opaque alpha
+            if src.count >= 4:
+                reproject(
+                    source=src.read(4),  # Alpha band
+                    destination=destination_a,
+                    src_transform=src.transform,
+                    src_crs=src.crs,
+                    dst_transform=transform,
+                    dst_crs='EPSG:4326',
+                    resampling=Resampling.nearest
+                )
+            else:
+                # No alpha band - create fully opaque alpha channel
+                destination_a.fill(255)
+                logger.info("No alpha band found - creating fully opaque alpha channel")
 
             # Calculate WGS84 bounds
             wgs84_bounds = {
