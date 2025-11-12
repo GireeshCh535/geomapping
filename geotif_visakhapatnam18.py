@@ -19,17 +19,22 @@ from collections import defaultdict
 # CONFIGURATION
 # ============================================================================
 INPUT_DIR = "data/andhra_pradesh/visakhapatnam/master_plan"
-OUTPUT_FILE = "visakhapatnam_masterplan_zoom15_compressed.tif"
+OUTPUT_FILE = "visakhapatnam_masterplan_zoom18_compressed.tif"
 
-# Resolution in meters per pixel
-# Zoom 16 (2.4m) creates VERY large files (~14GB uncompressed, ~2-4GB compressed)
-# Zoom 15 (4.8m) is recommended for Visakhapatnam - still high quality but manageable size
-TARGET_RESOLUTION_METERS = 4.8  # Zoom 15 - RECOMMENDED (1/4 the file size of zoom 16)
+# Resolution in meters per pixel - ZOOM 18 (EXTREME RESOLUTION)
+TARGET_RESOLUTION_METERS = 0.6  # Zoom 18 (0.6m × 0.6m per pixel)
 
-# To use Zoom 16 instead (very large file):
-# TARGET_RESOLUTION_METERS = 2.4  # Zoom 16 - WARNING: Creates ~2-4GB file
-
-# File will use LZW compression to reduce size while preserving all spatial data
+# ⚠️ WARNING: Zoom 18 creates EXTREMELY LARGE files
+# Expected file size: ~30-50 GB with LZW compression
+# Processing time: 1-3 hours
+# Memory required: ~20-30 GB RAM
+# 
+# Make sure you have:
+# - At least 60GB free disk space
+# - At least 32GB RAM
+# - 1-3 hours of processing time
+#
+# Consider using Zoom 16 (2.4m) instead for more manageable size
 
 # ============================================================================
 # COLOR SCHEME - Visakhapatnam Master Plan (using 'fill' colors)
@@ -72,6 +77,8 @@ COLOR_MAP = {
     'Special_Area_Use_Zone': hex_to_rgb('#CCE0FF'),
     'Water_Body_Buffer': hex_to_rgb('#66FF33'),
 }
+
+OUTLINE_COLOR = (0, 0, 0)
 
 # ============================================================================
 # FUNCTIONS
@@ -171,18 +178,33 @@ def calculate_dimensions(bounds, target_resolution_meters):
     # Calculate actual resolution achieved
     actual_resolution = width_meters / width_px
     
-    # Estimate file size (RGBA = 4 bytes per pixel, UNCOMPRESSED)
+    # Estimate file size (RGBA = 4 bytes per pixel, with LZW compression ~20-30% for zoom 18)
     uncompressed_mb = (width_px * height_px * 4) / (1024 * 1024)
+    
+    # Zoom 18 compresses less efficiently due to more detail
+    if target_resolution_meters <= 0.6:
+        compression_estimate = 0.25  # ~25% of original (zoom 18 has less redundancy)
+    elif target_resolution_meters <= 2.4:
+        compression_estimate = 0.20  # ~20% of original (zoom 16)
+    else:
+        compression_estimate = 0.15  # ~15% of original (zoom 14-15)
+    
+    estimated_mb = uncompressed_mb * compression_estimate
     
     print(f"  Target resolution: {target_resolution_meters:.2f} m/pixel")
     print(f"  Actual resolution: {actual_resolution:.2f} m/pixel")
     print(f"  Output dimensions: {width_px:,} × {height_px:,} pixels")
     print(f"  Total pixels: {width_px * height_px:,}")
-    print(f"  File size (uncompressed RGBA): ~{uncompressed_mb:.0f} MB")
+    print(f"  File size (uncompressed): ~{uncompressed_mb:.0f} MB (~{uncompressed_mb/1024:.1f} GB)")
+    print(f"  File size (LZW compressed): ~{estimated_mb:.0f} MB (~{estimated_mb/1024:.1f} GB)")
     
-    if width_px * height_px > 100_000_000:
+    if width_px * height_px > 500_000_000:
+        print(f"  ⚠️  EXTREMELY LARGE IMAGE - processing may take 1-3 HOURS!")
+        print(f"  ⚠️  Memory required: ~{(width_px * height_px * 4) / (1024**3):.1f} GB RAM")
+        print(f"  ⚠️  Ensure you have ~{(uncompressed_mb/1024)*2:.0f} GB free disk space!")
+    elif width_px * height_px > 100_000_000:
         print(f"  ⚠️  Large image - processing may take 10-30 minutes!")
-        print(f"  ⚠️  File will be ~{uncompressed_mb/1024:.1f} GB - ensure sufficient disk space!")
+        print(f"  ⚠️  File will be ~{estimated_mb/1024:.1f} GB - ensure sufficient disk space!")
     
     return width_px, height_px
 
@@ -330,6 +352,33 @@ def rasterize_rgb(layers, bounds, width, height):
             b_band[layer_pixels] = b
             a_band[layer_pixels] = 255
             
+            outline_shapes = []
+            for feat in features:
+                try:
+                    geom = shape(feat['geometry'])
+                    boundary = geom.boundary if hasattr(geom, "boundary") else geom
+                    if boundary.is_empty:
+                        continue
+                    outline_shapes.append((mapping(boundary), 1))
+                except Exception:
+                    continue
+
+            if outline_shapes:
+                outline_mask = rasterize(
+                    shapes=outline_shapes,
+                    out_shape=(height, width),
+                    transform=transform,
+                    fill=0,
+                    all_touched=True,
+                    dtype=np.uint8
+                )
+                outline_pixels = outline_mask == 1
+                if outline_pixels.any():
+                    r_band[outline_pixels] = OUTLINE_COLOR[0]
+                    g_band[outline_pixels] = OUTLINE_COLOR[1]
+                    b_band[outline_pixels] = OUTLINE_COLOR[2]
+                    a_band[outline_pixels] = 255
+            
             processed += len(features)
             progress = (processed / total_features) * 100
             print(f" Done! ({pixels_affected:,} pixels, {progress:.1f}% complete)")
@@ -460,7 +509,7 @@ def main():
     print("=" * 70)
     
     # Determine zoom level
-    zoom_level = 16 if TARGET_RESOLUTION_METERS <= 2.4 else 15
+    zoom_level = 18 if TARGET_RESOLUTION_METERS <= 0.6 else (16 if TARGET_RESOLUTION_METERS <= 2.4 else 15)
     
     print(f"\nConfiguration:")
     print(f"  Input: {INPUT_DIR}")
@@ -468,6 +517,26 @@ def main():
     print(f"  Target resolution: {TARGET_RESOLUTION_METERS}m/pixel")
     print(f"  Equivalent zoom level: ~{zoom_level}")
     print(f"  Compression: LZW (for smaller file size)")
+    
+    # Warning for Zoom 18
+    if TARGET_RESOLUTION_METERS <= 0.6:
+        print(f"\n" + "!" * 70)
+        print(f"⚠️  WARNING: ZOOM 18 CREATES EXTREMELY LARGE FILES")
+        print(f"!" * 70)
+        print(f"  Expected file size: ~30-50 GB (compressed)")
+        print(f"  Processing time: 1-3 hours")
+        print(f"  Memory required: ~20-30 GB RAM")
+        print(f"  Disk space needed: ~60 GB free")
+        print(f"\n  This is 16x more pixels than Zoom 16!")
+        print(f"  Consider using Zoom 16 (2.4m) instead for manageable size.")
+        print(f"\n  Press Ctrl+C now to cancel, or wait 10 seconds to continue...")
+        
+        import time
+        for i in range(10, 0, -1):
+            print(f"  Starting in {i}...", end='\r')
+            time.sleep(1)
+        print(f"\n  Proceeding with Zoom 18...")
+        print(f"!" * 70)
     
     if not os.path.exists(INPUT_DIR):
         print(f"\n❌ ERROR: Directory not found: {INPUT_DIR}")
