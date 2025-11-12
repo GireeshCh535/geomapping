@@ -32,10 +32,10 @@ class ThreadedAmaravatiMasterplanTileGenerator:
     Maintains pixel-by-pixel rendering for maximum quality
     """
 
-    def __init__(self, data_dir: str = "data/andhra_pradesh/amaravati/master_plan",
+    def __init__(self, data_path: str = "amaravati_masterplan_zoom16.tif",
                  output_dir: str = "amaravati_masterplan_tiles_threaded",
                  max_workers: int = None):
-        self.data_dir = Path(data_dir)
+        self.data_path = Path(data_path)
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(exist_ok=True)
 
@@ -59,9 +59,14 @@ class ThreadedAmaravatiMasterplanTileGenerator:
             return
 
         # Find the GeoTIFF file
-        geotiff_files = list(self.data_dir.glob("*.tif"))
+        if self.data_path.is_file() and self.data_path.suffix.lower() == ".tif":
+            geotiff_files = [self.data_path]
+        else:
+            search_dir = self.data_path if self.data_path.is_dir() else self.data_path.parent
+            geotiff_files = list(search_dir.glob("*.tif"))
+
         if not geotiff_files:
-            logger.error(f"No GeoTIFF files found in {self.data_dir}")
+            logger.error(f"No GeoTIFF files found in {self.data_path}")
             return
 
         geotiff_path = geotiff_files[0]
