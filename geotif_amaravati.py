@@ -77,6 +77,8 @@ COLOR_MAP = {
     'U2- Road reserve zone': hex_to_rgb('#82817D'),
 }
 
+OUTLINE_COLOR = (0, 0, 0)
+
 # ============================================================================
 # FUNCTIONS
 # ============================================================================
@@ -320,6 +322,33 @@ def rasterize_rgb(layers, bounds, width, height):
             g_band[layer_pixels] = g
             b_band[layer_pixels] = b
             a_band[layer_pixels] = 255
+            
+            outline_shapes = []
+            for feat in features:
+                try:
+                    geom = shape(feat['geometry'])
+                    boundary = geom.boundary if hasattr(geom, "boundary") else geom
+                    if boundary.is_empty:
+                        continue
+                    outline_shapes.append((mapping(boundary), 1))
+                except Exception:
+                    continue
+
+            if outline_shapes:
+                outline_mask = rasterize(
+                    shapes=outline_shapes,
+                    out_shape=(height, width),
+                    transform=transform,
+                    fill=0,
+                    all_touched=True,
+                    dtype=np.uint8
+                )
+                outline_pixels = outline_mask == 1
+                if outline_pixels.any():
+                    r_band[outline_pixels] = OUTLINE_COLOR[0]
+                    g_band[outline_pixels] = OUTLINE_COLOR[1]
+                    b_band[outline_pixels] = OUTLINE_COLOR[2]
+                    a_band[outline_pixels] = 255
             
             processed += len(features)
             progress = (processed / total_features) * 100
