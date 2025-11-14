@@ -1420,6 +1420,18 @@ class CoordinateSearchTestView(APIView):
                 }
             
             # Special handling for hyderabad_future_city layer
+            if layer.slug == 'hyderabad_hmda_extended_area':
+                return {
+                    'data': layer.name
+                }
+
+            if layer.slug == 'amaravati_master_plan' and containing_features:
+                primary_feature = containing_features[0]
+                feature_name = primary_feature.get('feature_name') or primary_feature.get('detailed_category', {}).get('plot_category', 'Unknown')
+                return {
+                    'data': feature_name
+                }
+
             if layer.slug == 'hyderabad_future_city' and containing_features:
                 primary_feature = containing_features[0]
                 detailed_category = primary_feature.get('detailed_category', {})
@@ -1435,11 +1447,6 @@ class CoordinateSearchTestView(APIView):
                 
                 return {
                     'data': data
-                }
-            
-            if layer.slug == 'hyderabad_hmda_extended_area':
-                return {
-                    'data': layer.name
                 }
             
             # Special handling for bengaluru_air_funnel_zones layer
