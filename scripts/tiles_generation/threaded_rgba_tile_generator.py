@@ -45,14 +45,14 @@ class ThreadedRGBATileGenerator:
 
     def __init__(
         self,
-        data_dir: str,
+        data_path: str,
         output_dir: str,
         tiles_relative_path: Optional[str] = None,
         style_name: str = "Masterplan Tiles (Threaded)",
         attribution: str = "Urban Development Authority",
         max_workers: Optional[int] = None,
     ):
-        self.data_dir = Path(data_dir)
+        self.data_path = Path(data_path)
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -70,8 +70,8 @@ class ThreadedRGBATileGenerator:
         self.wgs84_transform = None
 
         logger.info(
-            "Initialized generator | data_dir=%s output_dir=%s workers=%s",
-            self.data_dir,
+            "Initialized generator | data_path=%s output_dir=%s workers=%s",
+            self.data_path,
             self.output_dir,
             self.max_workers,
         )
@@ -84,11 +84,13 @@ class ThreadedRGBATileGenerator:
             logger.info("Data already cached")
             return
 
-        geotiffs = sorted(self.data_dir.glob("*.tif"))
-        if not geotiffs:
-            raise FileNotFoundError(f"No GeoTIFF files found in {self.data_dir}")
-
-        geotiff_path = geotiffs[0]
+        if self.data_path.is_file():
+            geotiff_path = self.data_path
+        else:
+            geotiffs = sorted(self.data_path.glob("*.tif"))
+            if not geotiffs:
+                raise FileNotFoundError(f"No GeoTIFF files found in {self.data_path}")
+            geotiff_path = geotiffs[0]
         logger.info("Loading GeoTIFF: %s", geotiff_path)
         (
             self.wgs84_data_r,
@@ -282,7 +284,7 @@ class ThreadedRGBATileGenerator:
             "sources": {
                 "rgba-masterplan": {
                     "type": "raster",
-                    "tiles": [tile_url] if tile_url else [],
+                    "tiles": [tile_url],
                     "tileSize": 256,
                 }
             },
@@ -301,11 +303,10 @@ class ThreadedRGBATileGenerator:
         tilejson = {
             "tilejson": "2.2.0",
             "name": self.style_name,
-            "description": f"Tiles generated from {self.data_dir}",
+            "description": f"Tiles generated from {self.data_path}",
             "version": "1.0.0",
             "attribution": self.attribution,
             "scheme": "xyz",
-            "tiles": [tile_url],
             "tiles": [tile_url],
             "minzoom": min_zoom,
             "maxzoom": max_zoom,
@@ -372,7 +373,7 @@ class ThreadedRGBATileGenerator:
 # -----------------------------------------------------------------------------
 def parse_args():
     parser = argparse.ArgumentParser(description="Generic RGBA tile generator")
-    parser.add_argument("--data-dir", required=True, help="Directory containing GeoTIFF")
+    parser.add_argument("--data-path", required=True, help="Path to GeoTIFF file or directory containing it")
     parser.add_argument("--output-dir", required=True, help="Directory to write tiles")
     parser.add_argument("--min-zoom", type=int, default=8)
     parser.add_argument("--max-zoom", type=int, default=16)
@@ -386,7 +387,7 @@ def parse_args():
 def main():
     args = parse_args()
     generator = ThreadedRGBATileGenerator(
-        data_dir=args.data_dir,
+        data_path=args.data_path,
         output_dir=args.output_dir,
         tiles_relative_path=args.tiles_relative_path,
         style_name=args.style_name,
