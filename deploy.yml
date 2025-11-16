@@ -301,45 +301,17 @@
       register: cert_expiry
       ignore_errors: yes
 
-    - name: Check if certificate is expired or expiring soon (within 30 days)
-      shell: |
-        if [ "{{ cert_expiry.stdout }}" = "NOT_EXISTS" ]; then
-          echo "true"
-        else
-          EXPIRY_DATE="{{ cert_expiry.stdout }}"
-          # Parse date (format: Nov 16 04:48:08 2025 GMT or similar)
-          EXPIRY_EPOCH=$(date -d "$EXPIRY_DATE" +%s 2>/dev/null || echo "0")
-          if [ "$EXPIRY_EPOCH" = "0" ]; then
-            # Try alternative parsing
-            EXPIRY_EPOCH=$(date +%s -d "$EXPIRY_DATE" 2>/dev/null || echo "0")
-          fi
-          CURRENT_EPOCH=$(date +%s)
-          if [ "$EXPIRY_EPOCH" != "0" ] && [ "$CURRENT_EPOCH" -gt 0 ]; then
-            DAYS_UNTIL_EXPIRY=$(( ($EXPIRY_EPOCH - $CURRENT_EPOCH) / 86400 ))
-            if [ $DAYS_UNTIL_EXPIRY -lt 30 ]; then
-              echo "true"
-            else
-              echo "false"
-            fi
-          else
-            # If we can't parse, assume renewal needed
-            echo "true"
-          fi
-        fi
-      register: cert_needs_renewal
-      when: ssl_cert.stat.exists
-
     - name: Display SSL certificate status
       debug:
         msg: |
           SSL Certificate Status:
           - Exists: {{ ssl_cert.stat.exists }}
           - Expiry: {{ cert_expiry.stdout if cert_expiry.stdout is defined else 'N/A' }}
-          - Needs Renewal: {{ cert_needs_renewal.stdout if cert_needs_renewal.stdout is defined else 'N/A' }}
 
     - name: Create or renew SSL certificate using standalone mode
       shell: |
         # Use standalone mode since nginx is not running
+        # Certbot will create new certificate if none exists, or renew if expiring within 30 days
         certbot certonly \
           --standalone \
           --non-interactive \
@@ -350,7 +322,6 @@
           --keep-until-expiring \
           --expand
       register: certbot_result
-      when: not ssl_cert.stat.exists or (cert_needs_renewal.stdout is defined and cert_needs_renewal.stdout == "true")
       ignore_errors: yes
 
     - name: Force renew SSL certificate if previous attempt failed
