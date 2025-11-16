@@ -308,23 +308,7 @@
           - Exists: {{ ssl_cert.stat.exists }}
           - Expiry: {{ cert_expiry.stdout if cert_expiry.stdout is defined else 'N/A' }}
 
-    - name: Create or renew SSL certificate using standalone mode
-      shell: |
-        # Use standalone mode since nginx is not running
-        # Certbot will create new certificate if none exists, or renew if expiring within 30 days
-        certbot certonly \
-          --standalone \
-          --non-interactive \
-          --agree-tos \
-          --email admin@1acre.in \
-          --preferred-challenges http \
-          -d {{ domain }} \
-          --keep-until-expiring \
-          --expand
-      register: certbot_result
-      ignore_errors: yes
-
-    - name: Remove old certificate if certbot failed (likely expired)
+    - name: Remove old certificate to force new certificate generation
       file:
         path: "{{ item }}"
         state: absent
@@ -332,10 +316,24 @@
         - "/etc/letsencrypt/live/{{ domain }}"
         - "/etc/letsencrypt/archive/{{ domain }}"
         - "/etc/letsencrypt/renewal/{{ domain }}.conf"
-      when: certbot_result.rc != 0
       ignore_errors: yes
 
-    - name: Force create new SSL certificate after cleanup
+    - name: Create new SSL certificate using standalone mode
+      shell: |
+        # Use standalone mode since nginx is not running
+        # Always create a fresh certificate on every deployment
+        certbot certonly \
+          --standalone \
+          --non-interactive \
+          --agree-tos \
+          --email admin@1acre.in \
+          --preferred-challenges http \
+          -d {{ domain }} \
+          --expand
+      register: certbot_result
+      ignore_errors: yes
+
+    - name: Retry certificate creation if first attempt failed
       shell: |
         certbot certonly \
           --standalone \
