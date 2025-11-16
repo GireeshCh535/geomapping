@@ -365,15 +365,9 @@
     - name: Set up automatic SSL renewal cron job
       cron:
         name: "SSL certificate renewal"
-        job: |
-          # Stop Docker containers temporarily for renewal
-          cd {{ project_dir }} && docker-compose stop nginx || true
-          sleep 5
-          certbot renew --standalone --non-interactive --preferred-challenges http
-          cd {{ project_dir }} && docker-compose start nginx || true
+        job: "cd {{ project_dir }} && docker-compose stop nginx || true && sleep 5 && certbot renew --standalone --non-interactive --preferred-challenges http && cd {{ project_dir }} && docker-compose start nginx || true"
         minute: "0"
         hour: "3"
-        weekday: "*"
         user: root
 
     # ===================================
