@@ -242,26 +242,7 @@
         line: "DEBUG = False"
 
     # ===================================
-    # STEP 5: SSL CERTIFICATE (SKIP - ALREADY EXISTS)
-    # ===================================
-    
-    - name: Check if SSL certificate exists for our domain
-      stat:
-        path: "/etc/letsencrypt/live/{{ domain }}/fullchain.pem"
-      register: ssl_cert
-
-    - name: Display SSL certificate status
-      debug:
-        msg: "SSL certificate for {{ domain }} exists: {{ ssl_cert.stat.exists }}"
-
-    # Skip SSL generation since it already exists
-    - name: SSL certificate already configured
-      debug:
-        msg: "✅ SSL certificate already exists for {{ domain }}, skipping generation"
-      when: ssl_cert.stat.exists
-
-    # ===================================
-    # STEP 6: STOP HOST NGINX (DOCKER NGINX WILL TAKE OVER)
+    # STEP 5: SSL CERTIFICATE CREATION/RENEWAL
     # ===================================
     
     - name: Stop and disable host nginx to avoid port conflicts
@@ -276,6 +257,162 @@
         path: "/etc/nginx/sites-enabled/{{ domain }}"
         state: absent
       ignore_errors: yes
+
+    - name: Stop any existing Docker containers to free ports 80/443
+      shell: |
+        if [ -d "{{ project_dir }}" ] && [ -f "{{ project_dir }}/docker-compose.yml" ]; then
+          cd {{ project_dir }} && docker-compose down --remove-orphans || true
+        fi
+        # Also stop any containers using ports 80/443
+        docker ps --filter "publish=80" --filter "publish=443" -q | xargs -r docker stop || true
+      ignore_errors: yes
+      become_user: ubuntu
+
+    - name: Wait for ports to be free
+      pause:
+        seconds: 5
+
+    - name: Check if certbot is installed
+      command: which certbot
+      register: certbot_installed
+      ignore_errors: yes
+
+    - name: Install certbot and python3-certbot-nginx
+      apt:
+        name:
+          - certbot
+          - python3-certbot-nginx
+        state: present
+        update_cache: yes
+      when: certbot_installed.rc != 0
+
+    - name: Check if SSL certificate exists for our domain
+      stat:
+        path: "/etc/letsencrypt/live/{{ domain }}/fullchain.pem"
+      register: ssl_cert
+
+    - name: Check certificate expiry date if it exists
+      shell: |
+        if [ -f "/etc/letsencrypt/live/{{ domain }}/fullchain.pem" ]; then
+          openssl x509 -enddate -noout -in /etc/letsencrypt/live/{{ domain }}/fullchain.pem | cut -d= -f2
+        else
+          echo "NOT_EXISTS"
+        fi
+      register: cert_expiry
+      ignore_errors: yes
+
+    - name: Check if certificate is expired or expiring soon (within 30 days)
+      shell: |
+        if [ "{{ cert_expiry.stdout }}" = "NOT_EXISTS" ]; then
+          echo "true"
+        else
+          EXPIRY_DATE="{{ cert_expiry.stdout }}"
+          # Parse date (format: Nov 16 04:48:08 2025 GMT or similar)
+          EXPIRY_EPOCH=$(date -d "$EXPIRY_DATE" +%s 2>/dev/null || echo "0")
+          if [ "$EXPIRY_EPOCH" = "0" ]; then
+            # Try alternative parsing
+            EXPIRY_EPOCH=$(date +%s -d "$EXPIRY_DATE" 2>/dev/null || echo "0")
+          fi
+          CURRENT_EPOCH=$(date +%s)
+          if [ "$EXPIRY_EPOCH" != "0" ] && [ "$CURRENT_EPOCH" -gt 0 ]; then
+            DAYS_UNTIL_EXPIRY=$(( ($EXPIRY_EPOCH - $CURRENT_EPOCH) / 86400 ))
+            if [ $DAYS_UNTIL_EXPIRY -lt 30 ]; then
+              echo "true"
+            else
+              echo "false"
+            fi
+          else
+            # If we can't parse, assume renewal needed
+            echo "true"
+          fi
+        fi
+      register: cert_needs_renewal
+      when: ssl_cert.stat.exists
+
+    - name: Display SSL certificate status
+      debug:
+        msg: |
+          SSL Certificate Status:
+          - Exists: {{ ssl_cert.stat.exists }}
+          - Expiry: {{ cert_expiry.stdout if cert_expiry.stdout is defined else 'N/A' }}
+          - Needs Renewal: {{ cert_needs_renewal.stdout if cert_needs_renewal.stdout is defined else 'N/A' }}
+
+    - name: Create or renew SSL certificate using standalone mode
+      shell: |
+        # Use standalone mode since nginx is not running
+        certbot certonly \
+          --standalone \
+          --non-interactive \
+          --agree-tos \
+          --email admin@1acre.in \
+          --preferred-challenges http \
+          -d {{ domain }} \
+          --keep-until-expiring \
+          --expand
+      register: certbot_result
+      when: not ssl_cert.stat.exists or (cert_needs_renewal.stdout is defined and cert_needs_renewal.stdout == "true")
+      ignore_errors: yes
+
+    - name: Force renew SSL certificate if previous attempt failed
+      shell: |
+        # Force renewal by deleting old certificate first if it's expired
+        if [ -f "/etc/letsencrypt/live/{{ domain }}/fullchain.pem" ]; then
+          EXPIRY_DATE=$(openssl x509 -enddate -noout -in /etc/letsencrypt/live/{{ domain }}/fullchain.pem | cut -d= -f2)
+          EXPIRY_EPOCH=$(date -d "$EXPIRY_DATE" +%s 2>/dev/null || echo "0")
+          if [ "$EXPIRY_EPOCH" = "0" ]; then
+            EXPIRY_EPOCH=$(date +%s -d "$EXPIRY_DATE" 2>/dev/null || echo "0")
+          fi
+          CURRENT_EPOCH=$(date +%s)
+          if [ "$EXPIRY_EPOCH" != "0" ] && [ "$CURRENT_EPOCH" -gt 0 ] && [ $EXPIRY_EPOCH -lt $CURRENT_EPOCH ]; then
+            # Certificate is expired, delete and recreate
+            rm -rf /etc/letsencrypt/live/{{ domain }}
+            rm -rf /etc/letsencrypt/archive/{{ domain }}
+            rm -rf /etc/letsencrypt/renewal/{{ domain }}.conf
+          fi
+        fi
+        # Create new certificate
+        certbot certonly \
+          --standalone \
+          --non-interactive \
+          --agree-tos \
+          --email admin@1acre.in \
+          --preferred-challenges http \
+          -d {{ domain }}
+      when: certbot_result.rc != 0
+      ignore_errors: yes
+
+    - name: Verify SSL certificate was created/renewed
+      stat:
+        path: "/etc/letsencrypt/live/{{ domain }}/fullchain.pem"
+      register: ssl_cert_after
+
+    - name: Display SSL certificate creation result
+      debug:
+        msg: |
+          {% if ssl_cert_after.stat.exists %}
+          ✅ SSL certificate successfully created/renewed for {{ domain }}
+          Certificate path: /etc/letsencrypt/live/{{ domain }}/fullchain.pem
+          {% else %}
+          ⚠️ SSL certificate creation may have failed. Please check manually.
+          {% endif %}
+
+    - name: Set up automatic SSL renewal cron job
+      cron:
+        name: "SSL certificate renewal"
+        job: |
+          # Stop Docker containers temporarily for renewal
+          cd {{ project_dir }} && docker-compose stop nginx || true
+          sleep 5
+          certbot renew --standalone --non-interactive --preferred-challenges http
+          cd {{ project_dir }} && docker-compose start nginx || true
+        minute: "0"
+        hour: "3"
+        weekday: "*"
+        user: root
+
+    # ===================================
+    # STEP 6: PREPARE NGINX CONFIGURATION
+    # ===================================
 
     - name: Create nginx configuration directory for Docker
       file:
@@ -358,14 +495,6 @@
       args:
         chdir: "{{ project_dir }}"
       become_user: ubuntu
-
-    - name: Add SSL renewal cron job
-      cron:
-        name: "SSL renewal"
-        job: "certbot renew --quiet --deploy-hook 'cd {{ project_dir }} && docker-compose restart nginx'"
-        minute: "0"
-        hour: "3"
-        weekday: "1"
 
     - name: Wait for nginx container to be ready
       wait_for:
