@@ -1,6 +1,8 @@
 from django.contrib import admin
 from django.contrib.gis import admin as gis_admin
 from django.db.models import Count, Q
+from django.utils.html import format_html
+from django.urls import reverse
 import json
 
 from .models import (
@@ -40,7 +42,7 @@ class StateAdmin(AuditFieldsMixin, admin.ModelAdmin):
         "code",
         "slug",
         "is_active",
-        "cities_count",
+        "cities_link",
         "layers_count",
         "created_at",
     )
@@ -57,8 +59,11 @@ class StateAdmin(AuditFieldsMixin, admin.ModelAdmin):
         )
 
     @admin.display(ordering="cities_count", description="Cities")
-    def cities_count(self, obj):
-        return obj.cities_count
+    def cities_link(self, obj):
+        count = obj.cities_count
+        url = reverse("admin:maps_city_changelist") + f"?state_ref__id__exact={obj.id}"
+        return format_html('<a href="{}">{} Cities</a>', url, count)
+    cities_link.short_description = "Cities"
 
     @admin.display(ordering="layers_count", description="Layers")
     def layers_count(self, obj):
@@ -73,7 +78,7 @@ class CityAdmin(AuditFieldsMixin, admin.ModelAdmin):
         "slug",
         "state_name",
         "is_active",
-        "layers_count",
+        "layers_link",
         "processed_layers",
         "features_count",
         "created_at",
@@ -101,8 +106,11 @@ class CityAdmin(AuditFieldsMixin, admin.ModelAdmin):
         return obj.state
 
     @admin.display(ordering="layers_count", description="Layers")
-    def layers_count(self, obj):
-        return obj.layers_count
+    def layers_link(self, obj):
+        count = obj.layers_count
+        url = reverse("admin:maps_datalayer_changelist") + f"?city__id__exact={obj.id}"
+        return format_html('<a href="{}">{} Layers</a>', url, count)
+    layers_link.short_description = "Layers"
 
     @admin.display(ordering="processed_layers", description="Processed")
     def processed_layers(self, obj):
