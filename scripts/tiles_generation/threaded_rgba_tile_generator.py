@@ -21,7 +21,6 @@ import mercantile
 import numpy as np
 from PIL import Image, ImageDraw
 import rasterio
-from rasterio.transform import rowcol
 from rasterio.warp import Resampling, calculate_default_transform, reproject
 
 
@@ -223,49 +222,73 @@ class ThreadedRGBATileGenerator:
         return generated
 
     def _generate_single_tile(self, zoom, x, y, tile_path: Path) -> bool:
+        """Generate a single PNG tile using pixel-by-pixel rendering"""
         try:
-            bounds = mercantile.bounds(x, y, zoom)
-            img = Image.new("RGBA", (256, 256), (0, 0, 0, 0))
+            # Get tile bounds
+            tile_bounds = mercantile.bounds(x, y, zoom)
+            
+            # Create a blank tile
+            img = Image.new('RGBA', (256, 256), (0, 0, 0, 0))
             draw = ImageDraw.Draw(img)
-            self._render_tile(bounds, draw)
-            img.save(tile_path, "PNG")
+            
+            # Render the WGS84 data to this tile using pixel-by-pixel approach
+            self._render_tile(tile_bounds, draw)
+            
+            # Save the tile
+            img.save(tile_path, 'PNG')
             return True
-        except Exception as exc:  # pylint: disable=broad-except
-            logger.error("Failed tile %s/%s/%s: %s", zoom, x, y, exc)
+            
+        except Exception as e:
+            logger.error(f"Error generating tile {zoom}/{x}/{y}: {e}")
             return False
 
-    def _render_tile(self, tile_bounds, draw: ImageDraw.ImageDraw):
-        if (
-            tile_bounds.east < self.wgs84_bounds["west"]
-            or tile_bounds.west > self.wgs84_bounds["east"]
-            or tile_bounds.south > self.wgs84_bounds["north"]
-            or tile_bounds.north < self.wgs84_bounds["south"]
-        ):
-            return
+    def _render_tile(self, tile_bounds, draw):
+        """Render WGS84 data to a tile using pixel-by-pixel approach for maximum quality"""
+        try:
+            # Check if tile bounds intersect with data bounds
+            if (tile_bounds.east < self.wgs84_bounds['west'] or 
+                tile_bounds.west > self.wgs84_bounds['east'] or 
+                tile_bounds.south > self.wgs84_bounds['north'] or 
+                tile_bounds.north < self.wgs84_bounds['south']):
+                return
 
-        height, width = self.wgs84_data_r.shape
-        for ty in range(256):
-            lat = tile_bounds.north - (
-                (tile_bounds.north - tile_bounds.south) * ty / 256.0
-            )
-            for tx in range(256):
-                lon = tile_bounds.west + (
-                    (tile_bounds.east - tile_bounds.west) * tx / 256.0
-                )
-                data_x, data_y = self._wgs84_to_pixel(lon, lat, width, height)
-                if 0 <= data_x < width and 0 <= data_y < height:
-                    a = int(self.wgs84_data_a[data_y, data_x])
-                    if a > 0:
+            # Get data dimensions
+            height, width = self.wgs84_data_r.shape
+            
+            # Sample points in the tile (every pixel for high quality)
+            for tile_y in range(0, 256, 1):
+                for tile_x in range(0, 256, 1):
+                    # Convert tile pixel to WGS84 coordinates
+                    lon = tile_bounds.west + (tile_bounds.east - tile_bounds.west) * tile_x / 256
+                    lat = tile_bounds.north - (tile_bounds.north - tile_bounds.south) * tile_y / 256
+                    
+                    # Convert WGS84 coordinates to data pixel coordinates
+                    data_x, data_y = self._wgs84_to_pixel(lon, lat, width, height)
+                    
+                    if 0 <= data_x < width and 0 <= data_y < height:
                         r = int(self.wgs84_data_r[data_y, data_x])
                         g = int(self.wgs84_data_g[data_y, data_x])
                         b = int(self.wgs84_data_b[data_y, data_x])
-                        draw.point((tx, ty), fill=(r, g, b))
+                        a = int(self.wgs84_data_a[data_y, data_x])
+                        
+                        # Only draw pixels that are not transparent
+                        # Preserve ALL colors including black (0,0,0) - only check alpha
+                        if a > 0:
+                            # Use the actual RGB values from the GeoTIFF
+                            rgb_color = (r, g, b)
+                            
+                            # Draw the pixel
+                            draw.point((tile_x, tile_y), fill=rgb_color)
+
+        except Exception as e:
+            logger.error(f"Error rendering data to tile: {e}")
 
     def _wgs84_to_pixel(self, lon, lat, width, height):
+        """Convert WGS84 coordinates to data pixel coordinates"""
+        # Use the inverse transform to get pixel coordinates
+        from rasterio.transform import rowcol
+        
         row, col = rowcol(self.wgs84_transform, lon, lat)
-        # Clamp to array bounds
-        col = min(max(col, 0), width - 1)
-        row = min(max(row, 0), height - 1)
         return int(col), int(row)
 
     # ------------------------------------------------------------------ #
