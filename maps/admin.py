@@ -187,7 +187,8 @@ class DataLayerAdmin(AuditFieldsMixin, admin.ModelAdmin):
         "is_true",
         "is_processed",
         "tiles_generated",
-        "feature_count",
+        "actual_feature_count",
+        "files_info",
         "geometry_type",
         "created_at",
     )
@@ -198,6 +199,7 @@ class DataLayerAdmin(AuditFieldsMixin, admin.ModelAdmin):
         "city__name",
         "category__name",
         "data_source",
+        "file_path",
     )
     list_filter = (
         "city",
@@ -213,13 +215,227 @@ class DataLayerAdmin(AuditFieldsMixin, admin.ModelAdmin):
     list_select_related = ("city", "category", "layer_group")
     prepopulated_fields = {"slug": ("name",)}
     actions = ("mark_as_visible", "mark_as_hidden", "mark_as_processed")
+    readonly_fields = ("actual_feature_count_display", "files_list_display", "file_breakdown_display")
     fieldsets = (
         ("Basic information", {"fields": ("city", "category", "layer_group", "name", "slug", "description")}),
-        ("Files", {"fields": ("is_directory", "file_format", "file_path", "file_pattern", "original_filename")}),
-        ("Processing", {"fields": ("is_true", "is_processed", "tiles_generated", "feature_count", "categorization_method", "processing_errors")}),
+        ("Files", {"fields": ("is_directory", "file_format", "file_path", "file_pattern", "original_filename", "files_list_display", "file_breakdown_display")}),
+        ("Processing", {"fields": ("is_true", "is_processed", "tiles_generated", "feature_count", "actual_feature_count_display", "categorization_method", "processing_errors")}),
         ("Geometry", {"fields": ("geometry_type", "bbox_xmin", "bbox_ymin", "bbox_xmax", "bbox_ymax")}),
         ("Metadata", {"fields": ("data_source", "last_updated")}),
     )
+
+    def get_queryset(self, request):
+        qs = super().get_queryset(request)
+        return qs.annotate(
+            actual_features=Count("geofeature_set", distinct=True)
+        )
+
+    @admin.display(ordering="actual_features", description="Features")
+    def actual_feature_count(self, obj):
+        """Display actual feature count from database with color coding"""
+        count = getattr(obj, 'actual_features', None)
+        if count is None:
+            count = obj.geofeature_set.count()
+        
+        stored_count = obj.feature_count or 0
+        
+        # Color code based on match
+        if count == stored_count:
+            color = "green"
+        elif stored_count == 0:
+            color = "orange"
+        else:
+            color = "red"
+        
+        # Format numbers with commas
+        count_str = f"{count:,}"
+        stored_str = f"{stored_count:,}"
+        
+        return format_html(
+            '<span style="color: {}; font-weight: bold;">{}</span> '
+            '<span style="color: #666; font-size: 0.9em;">(stored: {})</span>',
+            color, count_str, stored_str
+        )
+
+    @admin.display(description="Files")
+    def files_info(self, obj):
+        """Display file information clearly in list view"""
+        if obj.is_directory:
+            # Directory-based layer
+            try:
+                files = obj.get_files()
+                file_count = len(files)
+                
+                if obj.source_files:
+                    source_count = len(obj.source_files)
+                    return format_html(
+                        '<span style="color: #0066cc; font-weight: bold;">📁 Directory</span><br/>'
+                        '<span style="color: #666;">{} files</span> '
+                        '<span style="color: #999;">({} in DB)</span>',
+                        file_count, source_count
+                    )
+                else:
+                    return format_html(
+                        '<span style="color: #0066cc; font-weight: bold;">📁 Directory</span><br/>'
+                        '<span style="color: #666;">{} files</span>',
+                        file_count
+                    )
+            except Exception as e:
+                return format_html(
+                    '<span style="color: red;">Error: {}</span>',
+                    str(e)[:50]
+                )
+        else:
+            # Single file layer
+            if obj.file_path:
+                filename = obj.file_path.split('/')[-1] if '/' in obj.file_path else obj.file_path
+                return format_html(
+                    '<span style="color: #0066cc;">📄 {}</span>',
+                    filename[:50] + ('...' if len(filename) > 50 else '')
+                )
+            elif obj.original_filename:
+                return format_html(
+                    '<span style="color: #0066cc;">📄 {}</span>',
+                    obj.original_filename[:50] + ('...' if len(obj.original_filename) > 50 else '')
+                )
+            else:
+                return format_html('<span style="color: #999;">No file</span>')
+
+    @admin.display(description="Actual Feature Count")
+    def actual_feature_count_display(self, obj):
+        """Display actual feature count in detail view"""
+        if obj.pk:
+            count = obj.geofeature_set.count()
+            stored_count = obj.feature_count or 0
+            
+            if count == stored_count:
+                status = format_html('<span style="color: green;">✓ Match</span>')
+            elif stored_count == 0:
+                status = format_html('<span style="color: orange;">⚠ Not stored</span>')
+            else:
+                status = format_html('<span style="color: red;">✗ Mismatch</span>')
+            
+            # Format numbers with commas
+            count_str = f"{count:,}"
+            stored_str = f"{stored_count:,}"
+            
+            return format_html(
+                '<div style="font-size: 1.1em; margin: 10px 0;">'
+                '<strong>Actual Count:</strong> <span style="color: #0066cc; font-size: 1.2em;">{}</span><br/>'
+                '<strong>Stored Count:</strong> <span style="color: #666;">{}</span><br/>'
+                '<strong>Status:</strong> {}'
+                '</div>',
+                count_str, stored_str, status
+            )
+        return "Save the layer first to see feature count"
+
+    @admin.display(description="Files List")
+    def files_list_display(self, obj):
+        """Display all files for this layer in detail view"""
+        if not obj.pk:
+            return "Save the layer first to see files"
+        
+        try:
+            files = obj.get_files()
+            
+            if obj.is_directory:
+                if not files:
+                    return format_html('<span style="color: #999;">No files found in directory</span>')
+                
+                file_list_html = '<div style="max-height: 300px; overflow-y: auto; border: 1px solid #ddd; padding: 10px; background: #f9f9f9;">'
+                file_list_html += f'<strong style="color: #0066cc;">Directory: {obj.file_path or "N/A"}</strong><br/>'
+                file_list_html += f'<strong>Pattern: {obj.file_pattern or "*.*"}</strong><br/>'
+                file_list_html += f'<strong>Total Files: {len(files)}</strong><hr/>'
+                
+                for i, file_path in enumerate(files[:50], 1):  # Show first 50 files
+                    filename = file_path.split('/')[-1] if '/' in file_path else file_path
+                    file_list_html += f'<div style="padding: 2px 0; font-family: monospace; font-size: 0.9em;">{i}. {filename}</div>'
+                
+                if len(files) > 50:
+                    file_list_html += f'<div style="color: #999; margin-top: 10px;">... and {len(files) - 50} more files</div>'
+                
+                file_list_html += '</div>'
+                return format_html(file_list_html)
+            else:
+                # Single file
+                if obj.file_path:
+                    return format_html(
+                        '<div style="padding: 10px; background: #f9f9f9; border: 1px solid #ddd;">'
+                        '<strong style="color: #0066cc;">File Path:</strong><br/>'
+                        '<code style="word-break: break-all;">{}</code>'
+                        '</div>',
+                        obj.file_path
+                    )
+                elif obj.original_filename:
+                    return format_html(
+                        '<div style="padding: 10px; background: #f9f9f9; border: 1px solid #ddd;">'
+                        '<strong style="color: #0066cc;">Original Filename:</strong><br/>'
+                        '<code>{}</code>'
+                        '</div>',
+                        obj.original_filename
+                    )
+                else:
+                    return format_html('<span style="color: #999;">No file path specified</span>')
+        except Exception as e:
+            return format_html(
+                '<div style="color: red; padding: 10px; background: #ffe6e6; border: 1px solid #ff9999;">'
+                '<strong>Error loading files:</strong><br/>{}'
+                '</div>',
+                str(e)
+            )
+
+    @admin.display(description="File Breakdown")
+    def file_breakdown_display(self, obj):
+        """Display feature count breakdown by source file"""
+        if not obj.pk:
+            return "Save the layer first to see file breakdown"
+        
+        if not obj.is_directory:
+            return format_html('<span style="color: #999;">Single file layer - no breakdown available</span>')
+        
+        try:
+            breakdown = obj.get_file_features_breakdown()
+            
+            if not breakdown:
+                return format_html('<span style="color: #999;">No features found</span>')
+            
+            total_features = sum(breakdown.values())
+            total_features_str = f"{total_features:,}"
+            breakdown_html = '<div style="max-height: 300px; overflow-y: auto; border: 1px solid #ddd; padding: 10px; background: #f9f9f9;">'
+            breakdown_html += f'<strong style="color: #0066cc;">Total Features: {total_features_str}</strong><hr/>'
+            
+            # Sort by count descending
+            sorted_breakdown = sorted(breakdown.items(), key=lambda x: x[1], reverse=True)
+            
+            for filename, count in sorted_breakdown[:30]:  # Show top 30
+                percentage = (count / total_features * 100) if total_features > 0 else 0
+                count_str = f"{count:,}"
+                percentage_str = f"{percentage:.1f}"
+                filename_display = filename[:80] + ('...' if len(filename) > 80 else '')
+                
+                breakdown_html += format_html(
+                    '<div style="padding: 5px 0; border-bottom: 1px solid #eee;">'
+                    '<span style="font-weight: bold;">{}</span><br/>'
+                    '<span style="color: #0066cc; font-size: 1.1em;">{} features</span> '
+                    '<span style="color: #999;">({}%)</span>'
+                    '</div>',
+                    filename_display,
+                    count_str,
+                    percentage_str
+                )
+            
+            if len(sorted_breakdown) > 30:
+                breakdown_html += f'<div style="color: #999; margin-top: 10px;">... and {len(sorted_breakdown) - 30} more files</div>'
+            
+            breakdown_html += '</div>'
+            return format_html(breakdown_html)
+        except Exception as e:
+            return format_html(
+                '<div style="color: red; padding: 10px; background: #ffe6e6; border: 1px solid #ff9999;">'
+                '<strong>Error loading breakdown:</strong><br/>{}'
+                '</div>',
+                str(e)
+            )
 
     @admin.action(description="Mark selected layers as visible")
     def mark_as_visible(self, request, queryset):
