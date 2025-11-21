@@ -56,13 +56,13 @@ class JaipurSeamlessTiles:
             "WATER_BODIES": {'fill': '#BEE8FF', 'outline': '#96BACC'},
             
             # Hatched patterns
-            "COMMUNICATION": {'fill': None, 'outline': '#E69800', 'pattern': 'hatch', 'pattern_color': '#E69800'},
+            "COMMUNICATION": {'fill': '#FFFFFF', 'outline': '#E69800', 'pattern': 'hatch', 'pattern_color': '#E69800'},
             "MIXED": {'fill': '#FFAA00', 'outline': '#CC8800', 'pattern': 'hatch', 'pattern_color': '#000000'},
             "PUBLIC UTILITIES": {'fill': '#E69800', 'outline': '#B87800', 'pattern': 'hatch', 'pattern_color': '#FF0000'},
             "PUBLIC_UTILITIES": {'fill': '#E69800', 'outline': '#B87800', 'pattern': 'hatch', 'pattern_color': '#FF0000'},
-            "RELIGIOUS": {'fill': None, 'outline': '#FF00C5', 'pattern': 'hatch', 'pattern_color': '#FF00C5'},
-            "SPECIFIC LAND USE": {'fill': None, 'outline': '#000000', 'pattern': 'hatch', 'pattern_color': '#000000'},
-            "SPECIFIC_LAND_USE": {'fill': None, 'outline': '#000000', 'pattern': 'hatch', 'pattern_color': '#000000'},
+            "RELIGIOUS": {'fill': '#FFFFFF', 'outline': '#FF00C5', 'pattern': 'hatch', 'pattern_color': '#FF00C5'},
+            "SPECIFIC LAND USE": {'fill': '#FFFFFF', 'outline': '#000000', 'pattern': 'hatch', 'pattern_color': '#000000'},
+            "SPECIFIC_LAND_USE": {'fill': '#FFFFFF', 'outline': '#000000', 'pattern': 'hatch', 'pattern_color': '#000000'},
             "U1_2025": {'fill': '#FFFFFF', 'outline': '#CCCCCC', 'pattern': 'hatch', 'pattern_color': '#73B2FF'},
             "U1 2025": {'fill': '#FFFFFF', 'outline': '#CCCCCC', 'pattern': 'hatch', 'pattern_color': '#73B2FF'},
             "U2 HIZ": {'fill': '#00A884', 'outline': '#008669', 'pattern': 'hatch', 'pattern_color': '#E1E1E1'},
@@ -75,14 +75,14 @@ class JaipurSeamlessTiles:
             "U3_LIZ": {'fill': '#FFEBAF', 'outline': '#CCBC8C', 'pattern': 'hatch', 'pattern_color': '#FF0000'},
             
             # Dots pattern
-            "ECO-SENSITIVE ZONE": {'fill': None, 'outline': '#000000', 'pattern': 'dots', 'pattern_color': '#38A800'},
-            "ECO_SENSITIVE__ZONE": {'fill': None, 'outline': '#000000', 'pattern': 'dots', 'pattern_color': '#38A800'},
-            "ECO SENSITIVE ZONE": {'fill': None, 'outline': '#000000', 'pattern': 'dots', 'pattern_color': '#38A800'},
+            "ECO-SENSITIVE ZONE": {'fill': '#FFFFFF', 'outline': '#000000', 'pattern': 'dots', 'pattern_color': '#38A800'},
+            "ECO_SENSITIVE__ZONE": {'fill': '#FFFFFF', 'outline': '#000000', 'pattern': 'dots', 'pattern_color': '#38A800'},
+            "ECO SENSITIVE ZONE": {'fill': '#FFFFFF', 'outline': '#000000', 'pattern': 'dots', 'pattern_color': '#38A800'},
             
             # Cross hatch pattern
-            "GOVT AND SEMI GOVERNMERNT": {'fill': None, 'outline': '#000000', 'pattern': 'cross_hatch', 'pattern_color': '#A87000'},
-            "GOVT_AND_SEMI_GOVERNMERNT": {'fill': None, 'outline': '#000000', 'pattern': 'cross_hatch', 'pattern_color': '#A87000'},
-            "GOVT AND SEMI GOVERNMENT": {'fill': None, 'outline': '#000000', 'pattern': 'cross_hatch', 'pattern_color': '#A87000'},
+            "GOVT AND SEMI GOVERNMERNT": {'fill': '#FFFFFF', 'outline': '#000000', 'pattern': 'cross_hatch', 'pattern_color': '#A87000'},
+            "GOVT_AND_SEMI_GOVERNMERNT": {'fill': '#FFFFFF', 'outline': '#000000', 'pattern': 'cross_hatch', 'pattern_color': '#A87000'},
+            "GOVT AND SEMI GOVERNMENT": {'fill': '#FFFFFF', 'outline': '#000000', 'pattern': 'cross_hatch', 'pattern_color': '#A87000'},
             
             # Dashed pattern
             "PUBLIC & SEMI PUBLIC": {'fill': '#0070FF', 'outline': '#005ACC', 'pattern': 'dashed', 'pattern_color': '#002673'},
@@ -238,139 +238,173 @@ class JaipurSeamlessTiles:
         poly_shape = Polygon(poly)
         
         if ptype == "hatch":
-            spacing = max(3, (max_x - min_x) // 15)
+            spacing = max(5, (max_x - min_x) // 12)
             for i in range(min_x - max_y, max_x + max_y, spacing):
                 # Create full hatch line
                 line_pts = [(x, x - i) for x in range(min_x - 10, max_x + 10) if min_y - 10 <= x - i <= max_y + 10]
                 if len(line_pts) < 2:
                     continue
                 # Create LineString and clip to polygon
-                line = LineString(line_pts)
-                clipped = line.intersection(poly_shape)
-                if clipped.is_empty:
-                    continue
-                # Draw clipped line segments
-                if clipped.geom_type == 'LineString':
-                    clipped_pts = list(clipped.coords)
-                    if len(clipped_pts) >= 2:
-                        int_pts = [(int(x), int(y)) for x, y in clipped_pts]
-                        draw.line(int_pts, fill=pcolor, width=1)
-                elif clipped.geom_type == 'MultiLineString':
-                    for line_seg in clipped.geoms:
-                        clipped_pts = list(line_seg.coords)
+                try:
+                    line = LineString(line_pts)
+                    clipped = line.intersection(poly_shape)
+                    if clipped.is_empty:
+                        continue
+                    # Draw clipped line segments
+                    if clipped.geom_type == 'LineString':
+                        clipped_pts = list(clipped.coords)
                         if len(clipped_pts) >= 2:
                             int_pts = [(int(x), int(y)) for x, y in clipped_pts]
-                            draw.line(int_pts, fill=pcolor, width=1)
+                            draw.line(int_pts, fill=pcolor, width=2)
+                    elif clipped.geom_type == 'MultiLineString':
+                        for line_seg in clipped.geoms:
+                            clipped_pts = list(line_seg.coords)
+                            if len(clipped_pts) >= 2:
+                                int_pts = [(int(x), int(y)) for x, y in clipped_pts]
+                                draw.line(int_pts, fill=pcolor, width=2)
+                except:
+                    continue
         
         elif ptype == "cross_hatch":
             # Draw two sets of perpendicular hatch lines
-            spacing = max(3, (max_x - min_x) // 15)
+            spacing = max(5, (max_x - min_x) // 12)
             # First set (diagonal from top-left to bottom-right)
             for i in range(min_x - max_y, max_x + max_y, spacing):
                 line_pts = [(x, x - i) for x in range(min_x - 10, max_x + 10) if min_y - 10 <= x - i <= max_y + 10]
                 if len(line_pts) < 2:
                     continue
-                line = LineString(line_pts)
-                clipped = line.intersection(poly_shape)
-                if clipped.is_empty:
-                    continue
-                if clipped.geom_type == 'LineString':
-                    clipped_pts = list(clipped.coords)
-                    if len(clipped_pts) >= 2:
-                        int_pts = [(int(x), int(y)) for x, y in clipped_pts]
-                        draw.line(int_pts, fill=pcolor, width=1)
-                elif clipped.geom_type == 'MultiLineString':
-                    for line_seg in clipped.geoms:
-                        clipped_pts = list(line_seg.coords)
+                try:
+                    line = LineString(line_pts)
+                    clipped = line.intersection(poly_shape)
+                    if clipped.is_empty:
+                        continue
+                    if clipped.geom_type == 'LineString':
+                        clipped_pts = list(clipped.coords)
                         if len(clipped_pts) >= 2:
                             int_pts = [(int(x), int(y)) for x, y in clipped_pts]
-                            draw.line(int_pts, fill=pcolor, width=1)
+                            draw.line(int_pts, fill=pcolor, width=2)
+                    elif clipped.geom_type == 'MultiLineString':
+                        for line_seg in clipped.geoms:
+                            clipped_pts = list(line_seg.coords)
+                            if len(clipped_pts) >= 2:
+                                int_pts = [(int(x), int(y)) for x, y in clipped_pts]
+                                draw.line(int_pts, fill=pcolor, width=2)
+                except:
+                    continue
             # Second set (diagonal from top-right to bottom-left)
             for i in range(min_x + max_y, max_x - min_y, spacing):
                 line_pts = [(x, i - x) for x in range(min_x - 10, max_x + 10) if min_y - 10 <= i - x <= max_y + 10]
                 if len(line_pts) < 2:
                     continue
-                line = LineString(line_pts)
-                clipped = line.intersection(poly_shape)
-                if clipped.is_empty:
-                    continue
-                if clipped.geom_type == 'LineString':
-                    clipped_pts = list(clipped.coords)
-                    if len(clipped_pts) >= 2:
-                        int_pts = [(int(x), int(y)) for x, y in clipped_pts]
-                        draw.line(int_pts, fill=pcolor, width=1)
-                elif clipped.geom_type == 'MultiLineString':
-                    for line_seg in clipped.geoms:
-                        clipped_pts = list(line_seg.coords)
+                try:
+                    line = LineString(line_pts)
+                    clipped = line.intersection(poly_shape)
+                    if clipped.is_empty:
+                        continue
+                    if clipped.geom_type == 'LineString':
+                        clipped_pts = list(clipped.coords)
                         if len(clipped_pts) >= 2:
                             int_pts = [(int(x), int(y)) for x, y in clipped_pts]
-                            draw.line(int_pts, fill=pcolor, width=1)
+                            draw.line(int_pts, fill=pcolor, width=2)
+                    elif clipped.geom_type == 'MultiLineString':
+                        for line_seg in clipped.geoms:
+                            clipped_pts = list(line_seg.coords)
+                            if len(clipped_pts) >= 2:
+                                int_pts = [(int(x), int(y)) for x, y in clipped_pts]
+                                draw.line(int_pts, fill=pcolor, width=2)
+                except:
+                    continue
         
         elif ptype == "dashed":
-            spacing = max(3, (max_x - min_x) // 15)
-            dash_length = 4
-            gap_length = 2
+            spacing = max(5, (max_x - min_x) // 12)
+            dash_length = 8
+            gap_length = 4
             for i in range(min_x - max_y, max_x + max_y, spacing):
                 line_pts = [(x, x - i) for x in range(min_x - 10, max_x + 10) if min_y - 10 <= x - i <= max_y + 10]
                 if len(line_pts) < 2:
                     continue
-                line = LineString(line_pts)
-                clipped = line.intersection(poly_shape)
-                if clipped.is_empty:
-                    continue
-                if clipped.geom_type == 'LineString':
-                    clipped_pts = list(clipped.coords)
-                    if len(clipped_pts) >= 2:
-                        # Draw dashed line
-                        for j in range(0, len(clipped_pts) - 1, dash_length + gap_length):
-                            end_idx = min(j + dash_length, len(clipped_pts) - 1)
-                            if end_idx > j:
-                                int_pts = [(int(x), int(y)) for x, y in clipped_pts[j:end_idx+1]]
-                                if len(int_pts) >= 2:
-                                    draw.line(int_pts, fill=pcolor, width=1)
-                elif clipped.geom_type == 'MultiLineString':
-                    for line_seg in clipped.geoms:
-                        clipped_pts = list(line_seg.coords)
+                try:
+                    line = LineString(line_pts)
+                    clipped = line.intersection(poly_shape)
+                    if clipped.is_empty:
+                        continue
+                    if clipped.geom_type == 'LineString':
+                        clipped_pts = list(clipped.coords)
                         if len(clipped_pts) >= 2:
-                            for j in range(0, len(clipped_pts) - 1, dash_length + gap_length):
-                                end_idx = min(j + dash_length, len(clipped_pts) - 1)
+                            # Draw dashed line by creating segments
+                            total_length = len(clipped_pts)
+                            j = 0
+                            while j < total_length - 1:
+                                end_idx = min(j + dash_length, total_length - 1)
                                 if end_idx > j:
                                     int_pts = [(int(x), int(y)) for x, y in clipped_pts[j:end_idx+1]]
                                     if len(int_pts) >= 2:
-                                        draw.line(int_pts, fill=pcolor, width=1)
+                                        draw.line(int_pts, fill=pcolor, width=2)
+                                j += dash_length + gap_length
+                    elif clipped.geom_type == 'MultiLineString':
+                        for line_seg in clipped.geoms:
+                            clipped_pts = list(line_seg.coords)
+                            if len(clipped_pts) >= 2:
+                                total_length = len(clipped_pts)
+                                j = 0
+                                while j < total_length - 1:
+                                    end_idx = min(j + dash_length, total_length - 1)
+                                    if end_idx > j:
+                                        int_pts = [(int(x), int(y)) for x, y in clipped_pts[j:end_idx+1]]
+                                        if len(int_pts) >= 2:
+                                            draw.line(int_pts, fill=pcolor, width=2)
+                                    j += dash_length + gap_length
+                except:
+                    continue
         
         elif ptype == "dotted":
-            spacing = max(3, (max_x - min_x) // 15)
-            dot_spacing = 3
+            spacing = max(5, (max_x - min_x) // 12)
+            dot_spacing = 4
+            dot_radius = 2
             for i in range(min_x - max_y, max_x + max_y, spacing):
                 line_pts = [(x, x - i) for x in range(min_x - 10, max_x + 10) if min_y - 10 <= x - i <= max_y + 10]
                 if len(line_pts) < 2:
                     continue
-                line = LineString(line_pts)
-                clipped = line.intersection(poly_shape)
-                if clipped.is_empty:
-                    continue
-                if clipped.geom_type == 'LineString':
-                    clipped_pts = list(clipped.coords)
-                    # Draw dots along the line
-                    for j in range(0, len(clipped_pts), dot_spacing):
-                        pt = clipped_pts[j]
-                        if poly_shape.contains(Point(pt)):
-                            draw.ellipse([int(pt[0])-1, int(pt[1])-1, int(pt[0])+1, int(pt[1])+1], fill=pcolor)
-                elif clipped.geom_type == 'MultiLineString':
-                    for line_seg in clipped.geoms:
-                        clipped_pts = list(line_seg.coords)
+                try:
+                    line = LineString(line_pts)
+                    clipped = line.intersection(poly_shape)
+                    if clipped.is_empty:
+                        continue
+                    if clipped.geom_type == 'LineString':
+                        clipped_pts = list(clipped.coords)
+                        # Draw dots along the line
                         for j in range(0, len(clipped_pts), dot_spacing):
                             pt = clipped_pts[j]
-                            if poly_shape.contains(Point(pt)):
-                                draw.ellipse([int(pt[0])-1, int(pt[1])-1, int(pt[0])+1, int(pt[1])+1], fill=pcolor)
+                            try:
+                                if poly_shape.contains(Point(pt)):
+                                    draw.ellipse([int(pt[0])-dot_radius, int(pt[1])-dot_radius, 
+                                                int(pt[0])+dot_radius, int(pt[1])+dot_radius], fill=pcolor)
+                            except:
+                                continue
+                    elif clipped.geom_type == 'MultiLineString':
+                        for line_seg in clipped.geoms:
+                            clipped_pts = list(line_seg.coords)
+                            for j in range(0, len(clipped_pts), dot_spacing):
+                                pt = clipped_pts[j]
+                                try:
+                                    if poly_shape.contains(Point(pt)):
+                                        draw.ellipse([int(pt[0])-dot_radius, int(pt[1])-dot_radius, 
+                                                    int(pt[0])+dot_radius, int(pt[1])+dot_radius], fill=pcolor)
+                                except:
+                                    continue
+                except:
+                    continue
         
         elif ptype == "dots":
-            spacing = 6
+            spacing = 24
+            dot_radius = 3
             for y in range(min_y, max_y + 1, spacing):
                 for x in range(min_x, max_x + 1, spacing):
-                    if poly_shape.contains(Point(x, y)):
-                        draw.ellipse([x-1, y-1, x+1, y+1], fill=pcolor)
+                    try:
+                        if poly_shape.contains(Point(x, y)):
+                            draw.ellipse([x-dot_radius, y-dot_radius, x+dot_radius, y+dot_radius], fill=pcolor)
+                    except:
+                        continue
     
     def render_polygon_with_holes(self, draw, polygon, tile_bounds, img_size, buffer_pixels,
                                   buffered_size, fill_rgb, color_info, outline_width=1):
@@ -401,9 +435,20 @@ class JaipurSeamlessTiles:
         fill_rgba = fill_rgb + (255,) if fill_rgb else None  # Add alpha channel
         black_outline = (0, 0, 0, 255)  # Black outline
         
-        # Draw fill first, then outline on top for precise boundaries
-        if fill_rgba:
-            poly_draw.polygon(exterior_pixels, fill=fill_rgba)
+        # Check if pattern should be applied
+        if 'pattern' in color_info:
+            # Apply pattern (dots, hatch, etc.)
+            pattern_color = self.hex_to_rgb(color_info['pattern_color'])
+            self.create_pattern(poly_draw, exterior_pixels, fill_rgb, 
+                             color_info['pattern'], 
+                             pattern_color,
+                             buffered_size)
+        else:
+            # Draw fill first, then outline on top for precise boundaries
+            if fill_rgba:
+                poly_draw.polygon(exterior_pixels, fill=fill_rgba)
+        
+        # Draw black outline
         if len(exterior_pixels) > 1:
             closed_pixels = exterior_pixels + [exterior_pixels[0]]
             poly_draw.line(closed_pixels, fill=black_outline, width=outline_width)
