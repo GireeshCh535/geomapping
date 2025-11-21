@@ -1,0 +1,52 @@
+{
+    "city_name": "Noida Master Plan 2031",
+    "data_dir": "C:/Users/ADMIN/Desktop/code/geomapping/data/NOIDA 2031 Masterplan Plots",
+    "output_dir": "C:/Users/ADMIN/Desktop/code/geomapping/tile_generation_system/output/noida",
+    "zoom_range": [
+        10,
+        18
+    ],
+    "tile_size": 256,
+    "supersample_factor": 4,
+    "legend_path": "C:/Users/ADMIN/Desktop/code/geomapping/tile_generation_system/configs/noida/noida_legend.csv",
+    "filename_mapping": {
+        "Five_Percent_Abadi": "5 % Abadi",
+        "Commercial": "Commercial",
+        "Farmhouse": "Farmhouse",
+        "Green": "Green",
+        "Group_Housing": "Group Housing",
+        "Housing": "Housing",
+        "Industrial": "Industrial",
+        "Institutional": "Institutional",
+        "ROAD": "Road",
+        "Recreational_Green": "Recreational Green",
+        "Residential": "Residential",
+        "Sports": "Sports",
+        "Transport": "Transport",
+        "Utility": "Utility",
+        "Village_Abadi": "Village Abadi",
+        "Water_Body": "Water Body",
+        "NA": "NA",
+        "Not_Known": "Not Known"
+    },
+    "rendering_priority": {
+        "Water Body": 1,
+        "Road": 2,
+        "Green": 3,
+        "Recreational Green": 3,
+        "Industrial": 4,
+        "Institutional": 4,
+        "Residential": 5,
+        "Housing": 5,
+        "Group Housing": 5,
+        "Commercial": 6,
+        "Utility": 6,
+        "Transport": 6,
+        "Sports": 6,
+        "Farmhouse": 6,
+        "Village Abadi": 7,
+        "5 % Abadi": 7,
+        "NA": 0,
+        "Not Known": 0
+    }
+}

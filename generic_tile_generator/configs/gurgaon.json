@@ -1,0 +1,102 @@
+{
+    "city_name": "Gurgaon Master Plan",
+    "data_dir": "C:\\Users\\ADMIN\\Desktop\\code\\geomapping\\tile_generation_system\\Data\\Gurgaon_MasterplanZones",
+    "output_dir": "C:\\Users\\ADMIN\\Desktop\\code\\geomapping\\tile_generation_system\\output\\gurgaon",
+    "zoom_range": [
+        10,
+        18
+    ],
+    "tile_size": 256,
+    "supersample_factor": 4,
+    "legend_path": "C:\\Users\\ADMIN\\Desktop\\code\\geomapping\\tile_generation_system\\Data\\Gurgaon_MasterplanZones\\legend.csv",
+    "styles": {
+        "100 Residential (Group Housing/Plotted)": {
+            "fill_color": "#FFFF73",
+            "hatch": "",
+            "hatch_color": ""
+        },
+        "1000 Natural Conservation Zone Hubs)": {
+            "fill_color": "#38A800",
+            "hatch": "",
+            "hatch_color": ""
+        },
+        "200 Commercial": {
+            "fill_color": "#BED2FF",
+            "hatch": "",
+            "hatch_color": ""
+        },
+        "300 Industrial": {
+            "fill_color": "#A80084",
+            "hatch": "",
+            "hatch_color": ""
+        },
+        "400 Transport and Communication": {
+            "fill_color": "#828282",
+            "hatch": "",
+            "hatch_color": ""
+        },
+        "500 Public Utilities": {
+            "fill_color": "#A83800",
+            "hatch": "",
+            "hatch_color": ""
+        },
+        "600 Public and Semi Public Use": {
+            "fill_color": "#E60000",
+            "hatch": "",
+            "hatch_color": ""
+        },
+        "700 Open Spaces": {
+            "fill_color": "#F57A7A",
+            "hatch": "//////",
+            "hatch_color": "#FFFFFF"
+        },
+        "800 Agriculture Zone": {
+            "fill_color": "#FFFFFF",
+            "hatch": "......",
+            "hatch_color": "#4CE600"
+        },
+        "900 Special Zone": {
+            "fill_color": "#DF73FF",
+            "hatch": "",
+            "hatch_color": ""
+        },
+        "H6 World Trade Hub": {
+            "fill_color": "#FFFF00",
+            "hatch": "",
+            "hatch_color": ""
+        },
+        "Hubs": {
+            "fill_color": "#FFAA00",
+            "hatch": "",
+            "hatch_color": ""
+        }
+    },
+    "filename_mapping": {
+        "Agriculture_Zone": "800 Agriculture Zone",
+        "Commercial": "200 Commercial",
+        "Hubs": "Hubs",
+        "Industrial": "300 Industrial",
+        "Natural_Conservation_Zone_Hubs": "1000 Natural Conservation Zone Hubs)",
+        "Open_Spaces": "700 Open Spaces",
+        "Public_and_Semi_Public_Use": "600 Public and Semi Public Use",
+        "Public_Utilities": "500 Public Utilities",
+        "Residential_GroupHousing_Plotted": "100 Residential (Group Housing/Plotted)",
+        "Special_Zone": "900 Special Zone",
+        "Transport_and_Communication": "400 Transport and Communication",
+        "World_Trade_Hub": "H6 World Trade Hub"
+    },
+    "rendering_priority": {
+        "100 Residential (Group Housing/Plotted)": 5,
+        "1000 Natural Conservation Zone Hubs)": 5,
+        "200 Commercial": 5,
+        "300 Industrial": 5,
+        "400 Transport and Communication": 5,
+        "500 Public Utilities": 5,
+        "600 Public and Semi Public Use": 5,
+        "700 Open Spaces": 10,
+        "800 Agriculture Zone": 10,
+        "900 Special Zone": 5,
+        "H6 World Trade Hub": 5,
+        "Hubs": 5
+    }
+}
