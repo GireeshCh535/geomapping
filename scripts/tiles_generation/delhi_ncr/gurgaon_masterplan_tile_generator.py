@@ -179,18 +179,25 @@ class GurgaonSeamlessTiles:
     
     def create_pattern(self, draw, poly, base, ptype, pcolor, img_size):
         """Create patterns: hatch, dots, or airplane - clipped to polygon boundary"""
-        # Draw base fill first
-        draw.polygon(poly, fill=base)
-        
         if len(poly) < 3:
             return
+        
+        # Draw base fill first
+        if base:
+            draw.polygon(poly, fill=base)
         
         xs, ys = zip(*poly)
         min_x, max_x = int(min(xs)), int(max(xs))
         min_y, max_y = int(min(ys)), int(max(ys))
         
-        # Create polygon shape for clipping
-        poly_shape = Polygon(poly)
+        # Create polygon shape for clipping - ensure it's valid
+        try:
+            poly_shape = Polygon(poly)
+            if not poly_shape.is_valid:
+                poly_shape = poly_shape.buffer(0)
+        except:
+            # If polygon creation fails, use bounding box for dots
+            poly_shape = None
         
         if ptype == "hatch":
             spacing = max(3, (max_x - min_x) // 15)
@@ -217,11 +224,24 @@ class GurgaonSeamlessTiles:
                             int_pts = [(int(x), int(y)) for x, y in clipped_pts]
                             draw.line(int_pts, fill=pcolor, width=2)
         elif ptype == "dots":
-            spacing = 6
+            spacing = 24
+            dot_radius = 3
+            
+            # Draw dots across the polygon area
             for y in range(min_y, max_y + 1, spacing):
                 for x in range(min_x, max_x + 1, spacing):
-                    if poly_shape.contains(Point(x, y)):
-                        draw.ellipse([x-1, y-1, x+1, y+1], fill=pcolor)
+                    # Check if point is inside polygon
+                    if poly_shape is not None:
+                        try:
+                            point = Point(x, y)
+                            if poly_shape.contains(point):
+                                draw.ellipse([x-dot_radius, y-dot_radius, x+dot_radius, y+dot_radius], fill=pcolor)
+                        except:
+                            # Fallback: draw dot if within bounding box
+                            draw.ellipse([x-dot_radius, y-dot_radius, x+dot_radius, y+dot_radius], fill=pcolor)
+                    else:
+                        # If polygon shape is None, draw dots in bounding box
+                        draw.ellipse([x-dot_radius, y-dot_radius, x+dot_radius, y+dot_radius], fill=pcolor)
         elif ptype == "airplane":
             spacing = 18
             for y in range(min_y, max_y + 1, spacing):
@@ -260,10 +280,22 @@ class GurgaonSeamlessTiles:
         
         # Draw exterior ring with full opacity and black outline
         black_outline = (0, 0, 0, 255)  # Black outline
-        # Draw fill first (if exists), then outline on top for precise boundaries
-        if fill_rgb:
-            fill_rgba = fill_rgb + (255,)  # Add alpha channel
-            poly_draw.polygon(exterior_pixels, fill=fill_rgba)
+        
+        # Check if pattern should be applied
+        if 'pattern' in color_info:
+            # Apply pattern (dots, hatch, etc.)
+            pattern_color = self.hex_to_rgb(color_info['pattern_color'])
+            self.create_pattern(poly_draw, exterior_pixels, fill_rgb, 
+                             color_info['pattern'], 
+                             pattern_color,
+                             buffered_size)
+        else:
+            # Draw fill first (if exists), then outline on top for precise boundaries
+            if fill_rgb:
+                fill_rgba = fill_rgb + (255,)  # Add alpha channel
+                poly_draw.polygon(exterior_pixels, fill=fill_rgba)
+        
+        # Draw black outline
         if len(exterior_pixels) > 1:
             closed_pixels = exterior_pixels + [exterior_pixels[0]]
             poly_draw.line(closed_pixels, fill=black_outline, width=outline_width)
@@ -395,7 +427,7 @@ class GurgaonSeamlessTiles:
                         else:
                             # Simple polygon without holes - draw with black outline
                             black_outline = (0, 0, 0)  # Black outline
-                            if 'pattern' in color_info and fill_rgb:
+                            if 'pattern' in color_info:
                                 self.create_pattern(draw, int_pixels, fill_rgb, 
                                                  color_info['pattern'], 
                                                  self.hex_to_rgb(color_info['pattern_color']),
@@ -431,7 +463,7 @@ class GurgaonSeamlessTiles:
                             
                             # Draw with black outline
                             black_outline = (0, 0, 0)  # Black outline
-                            if 'pattern' in color_info and fill_rgb:
+                            if 'pattern' in color_info:
                                 self.create_pattern(draw, enlarged_coords, fill_rgb,
                                                  color_info['pattern'],
                                                  self.hex_to_rgb(color_info['pattern_color']),
