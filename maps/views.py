@@ -1180,6 +1180,38 @@ class CoordinateSearchTestView(APIView):
                             'data': data_string
                         }
                     
+                    # Special handling for all air funnel zones layers (nearby features)
+                    elif layer.slug in [
+                        'bengaluru_air_funnel_zones',
+                        'hyderabad_air_funnel_zones',
+                        'kozhikode_air_funnel_zones',
+                        'ayodhya_air_funnel_zones',
+                        'raipur_air_funnel_zones',
+                        'ahmedabad_air_funnel_zones',
+                        'warangal_air_funnel_zones',
+                        'nagpur_air_funnel_zones',
+                        'bhubaneshwar_air_funnel_zones',
+                        'chennai_air_funnel_zones',
+                        'delhi_air_funnel_zones',
+                        'diu_air_funnel_zones',
+                        'dholera_air_funnel_zones',
+                        'guwahati_air_funnel_zones',
+                        'jaipur_air_funnel_zones',
+                        'tirupati_air_funnel_zones',
+                        'kochi_air_funnel_zones',
+                        'lucknow_air_funnel_zones',
+                        'mumbai_air_funnel_zones',
+                        'noida_air_funnel_zones',
+                        'patna_air_funnel_zones',
+                        'raigarh_air_funnel_zones'
+                    ]:
+                        detailed_category = feature_data.get('detailed_category', {})
+                        properties = detailed_category.get('properties', {}) or {}
+                        height_value = properties.get('Pemissible Height', '')
+                        return {
+                            'data': f"Permissible Height : {height_value}" if height_value else "Permissible Height : "
+                        }
+                    
                     elif layer.slug in ['bengaluru_anekal_masterplan', 'bengaluru_chikkaballapura_masterplan', 'bengaluru_hosakote_masterplan', 'bengaluru_nelamangala_masterplan',
             'coimbatore_master_plan', 'hosur_master_plan', 'kochi_master_plan', 'chennai_master_plan',
             'tirupati_masterplan', 'cuttack_masterplan', 'vgtm_masterplan', 'kakinada_masterplan',
@@ -1449,18 +1481,33 @@ class CoordinateSearchTestView(APIView):
                     'data': data
                 }
             
-            # Special handling for bengaluru_air_funnel_zones layer
-            if layer.slug == 'bengaluru_air_funnel_zones' and containing_features:
-                primary_feature = containing_features[0]
-                detailed_category = primary_feature.get('detailed_category', {})
-                properties = detailed_category.get('properties', {}) or {}
-                height_value = properties.get('Pemissible Height', '')
-                return {
-                    'data': f"Permissible Height : {height_value}" if height_value else "Permissible Height : "
-                }
+            # Special handling for all air funnel zones layers
+            air_funnel_zones_layers = [
+                'bengaluru_air_funnel_zones',
+                'hyderabad_air_funnel_zones',
+                'kozhikode_air_funnel_zones',
+                'ayodhya_air_funnel_zones',
+                'raipur_air_funnel_zones',
+                'ahmedabad_air_funnel_zones',
+                'warangal_air_funnel_zones',
+                'nagpur_air_funnel_zones',
+                'bhubaneshwar_air_funnel_zones',
+                'chennai_air_funnel_zones',
+                'delhi_air_funnel_zones',
+                'diu_air_funnel_zones',
+                'dholera_air_funnel_zones',
+                'guwahati_air_funnel_zones',
+                'jaipur_air_funnel_zones',
+                'tirupati_air_funnel_zones',
+                'kochi_air_funnel_zones',
+                'lucknow_air_funnel_zones',
+                'mumbai_air_funnel_zones',
+                'noida_air_funnel_zones',
+                'patna_air_funnel_zones',
+                'raigarh_air_funnel_zones'
+            ]
             
-            # Special handling for hyderabad_air_funnel_zones layer
-            if layer.slug == 'hyderabad_air_funnel_zones' and containing_features:
+            if layer.slug in air_funnel_zones_layers and containing_features:
                 primary_feature = containing_features[0]
                 detailed_category = primary_feature.get('detailed_category', {})
                 properties = detailed_category.get('properties', {}) or {}
