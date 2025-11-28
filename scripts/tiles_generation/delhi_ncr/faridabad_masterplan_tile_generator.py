@@ -10,7 +10,7 @@ import time
 from pathlib import Path
 from PIL import Image, ImageDraw
 import mercantile
-from shapely.geometry import shape, box
+from shapely.geometry import shape, box, Point, Polygon, LineString
 from rtree import index
 
 class FaridabadSeamlessTiles:
@@ -31,38 +31,99 @@ class FaridabadSeamlessTiles:
         return value.upper()
     
     def get_color_map(self):
-        """Faridabad color mapping - matches geotif_faridabad.py"""
+        """Faridabad color mapping - updated with new specifications"""
         def hex_to_rgb(hex_color):
             hex_color = hex_color.lstrip('#')
             return tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))
         
         return {
-            "AGRICULTURAL ZONE": {'fill': '#F4E123', 'outline': '#C4B41C'},
-            "FARIDABAD 2031 MASTERPLAN LANDUSE PLAN ZONES AGRICULTURAL ZONE": {'fill': '#F4E123', 'outline': '#C4B41C'},
-            "COMMERCIAL": {'fill': '#8400A8', 'outline': '#6A0086'},
-            "FARIDABAD 2031 MASTERPLAN LANDUSE PLAN ZONES COMMERCIAL": {'fill': '#8400A8', 'outline': '#6A0086'},
-            "INDUSTRIAL": {'fill': '#6DD300', 'outline': '#57A800'},
-            "FARIDABAD 2031 MASTERPLAN LANDUSE PLAN ZONES INDUSTRIAL": {'fill': '#6DD300', 'outline': '#57A800'},
-            "MIXED LANDUSE": {'fill': '#6677CD', 'outline': '#525FA4'},
-            "MIXED LAND USE": {'fill': '#6677CD', 'outline': '#525FA4'},
-            "FARIDABAD 2031 MASTERPLAN LANDUSE PLAN ZONES MIXED LANDUSE": {'fill': '#6677CD', 'outline': '#525FA4'},
-            "NATURAL CONSERVATION ZONE": {'fill': '#FF73DF', 'outline': '#CC5CB2'},
-            "FARIDABAD 2031 MASTERPLAN LANDUSE PLAN ZONES NATURAL CONSERVATION ZONE": {'fill': '#FF73DF', 'outline': '#CC5CB2'},
-            "OPEN SPACES": {'fill': '#0084A8', 'outline': '#006A86'},
-            "FARIDABAD 2031 MASTERPLAN LANDUSE PLAN ZONES OPEN SPACES": {'fill': '#0084A8', 'outline': '#006A86'},
-            "PUBLIC & SEMI PUBLIC": {'fill': '#734C00', 'outline': '#5C3D00'},
-            "PUBLIC AND SEMI PUBLIC": {'fill': '#734C00', 'outline': '#5C3D00'},
-            "PUBLIC SEMI PUBLIC": {'fill': '#734C00', 'outline': '#5C3D00'},
-            "FARIDABAD 2031 MASTERPLAN LANDUSE PLAN ZONES PUBLIC SEMI PUBLIC": {'fill': '#734C00', 'outline': '#5C3D00'},
-            "PUBLIC UTILITIES": {'fill': '#FFAA00', 'outline': '#CC8800'},
-            "FARIDABAD 2031 MASTERPLAN LANDUSE PLAN ZONES PUBLIC UTILITIES": {'fill': '#FFAA00', 'outline': '#CC8800'},
-            "RESIDENTIAL": {'fill': '#EA2130', 'outline': '#BB1A26'},
-            "FARIDABAD 2031 MASTERPLAN LANDUSE PLAN ZONES RESIDENTIAL": {'fill': '#EA2130', 'outline': '#BB1A26'},
-            "SPECIAL ECONOMIC ZONE": {'fill': '#9C9C9C', 'outline': '#7D7D7D'},
-            "FARIDABAD 2031 MASTERPLAN LANDUSE PLAN ZONES SPECIAL ECONOMIC ZONE": {'fill': '#9C9C9C', 'outline': '#7D7D7D'},
-            "TRANSPORTS & COMMUNICATION": {'fill': '#00A884', 'outline': '#00866A'},
-            "TRANSPORTS AND COMMUNICATION": {'fill': '#00A884', 'outline': '#00866A'},
-            "FARIDABAD 2031 MASTERPLAN LANDUSE PLAN ZONES TRANSPORTS AND COMMUNICATION": {'fill': '#00A884', 'outline': '#00866A'},
+            # Agricultural Zone
+            "AGRICULTURAL ZONE": {'fill': '#98ed7d', 'outline': '#7ABE63'},
+            "FARIDABAD 2031 MASTERPLAN LANDUSE PLAN ZONES AGRICULTURAL ZONE": {'fill': '#98ed7d', 'outline': '#7ABE63'},
+            
+            # Commercial
+            "COMMERCIAL": {'fill': '#38ffff', 'outline': '#2DCCCC'},
+            "FARIDABAD 2031 MASTERPLAN LANDUSE PLAN ZONES COMMERCIAL": {'fill': '#38ffff', 'outline': '#2DCCCC'},
+            
+            # Industrial
+            "INDUSTRIAL": {'fill': '#b772ff', 'outline': '#925BCC'},
+            "FARIDABAD 2031 MASTERPLAN LANDUSE PLAN ZONES INDUSTRIAL": {'fill': '#b772ff', 'outline': '#925BCC'},
+            
+            # Mixed Landuse
+            "MIXED LANDUSE": {'fill': '#5050ff', 'outline': '#4040CC'},
+            "MIXED LAND USE": {'fill': '#5050ff', 'outline': '#4040CC'},
+            "FARIDABAD 2031 MASTERPLAN LANDUSE PLAN ZONES MIXED LANDUSE": {'fill': '#5050ff', 'outline': '#4040CC'},
+            
+            # Natural Conservation Zone
+            "NATURAL CONSERVATION ZONE": {'fill': '#76c576', 'outline': '#5E9E5E'},
+            "FARIDABAD 2031 MASTERPLAN LANDUSE PLAN ZONES NATURAL CONSERVATION ZONE": {'fill': '#76c576', 'outline': '#5E9E5E'},
+            
+            # Open Spaces
+            "OPEN SPACES": {'fill': '#2dff2d', 'outline': '#24CC24'},
+            "FARIDABAD 2031 MASTERPLAN LANDUSE PLAN ZONES OPEN SPACES": {'fill': '#2dff2d', 'outline': '#24CC24'},
+            
+            # Public & Semi Public
+            "PUBLIC & SEMI PUBLIC": {'fill': '#ff245a', 'outline': '#CC1D48'},
+            "PUBLIC AND SEMI PUBLIC": {'fill': '#ff245a', 'outline': '#CC1D48'},
+            "PUBLIC SEMI PUBLIC": {'fill': '#ff245a', 'outline': '#CC1D48'},
+            "FARIDABAD 2031 MASTERPLAN LANDUSE PLAN ZONES PUBLIC SEMI PUBLIC": {'fill': '#ff245a', 'outline': '#CC1D48'},
+            
+            # Public Utilities
+            "PUBLIC UTILITIES": {'fill': '#ed98ac', 'outline': '#BE7A8A'},
+            "FARIDABAD 2031 MASTERPLAN LANDUSE PLAN ZONES PUBLIC UTILITIES": {'fill': '#ed98ac', 'outline': '#BE7A8A'},
+            
+            # Residential
+            "RESIDENTIAL": {'fill': '#ffff6f', 'outline': '#CCCC58'},
+            "FARIDABAD 2031 MASTERPLAN LANDUSE PLAN ZONES RESIDENTIAL": {'fill': '#ffff6f', 'outline': '#CCCC58'},
+            
+            # Special Economic Zone
+            "SPECIAL ECONOMIC ZONE": {'fill': '#fcb2fc', 'outline': '#CA8FCA'},
+            "FARIDABAD 2031 MASTERPLAN LANDUSE PLAN ZONES SPECIAL ECONOMIC ZONE": {'fill': '#fcb2fc', 'outline': '#CA8FCA'},
+            
+            # Transports & Communication
+            "TRANSPORTS & COMMUNICATION": {'fill': '#c2c2c2', 'outline': '#9B9B9B'},
+            "TRANSPORTS AND COMMUNICATION": {'fill': '#c2c2c2', 'outline': '#9B9B9B'},
+            "FARIDABAD 2031 MASTERPLAN LANDUSE PLAN ZONES TRANSPORTS AND COMMUNICATION": {'fill': '#c2c2c2', 'outline': '#9B9B9B'},
+            
+            # Village Abadi
+            "VILLAGE ABADI": {'fill': '#ff9328', 'outline': '#CC7620'},
+            "FARIDABAD 2031 MASTERPLAN PLANNING ZONES VILLAGE ABADI": {'fill': '#ff9328', 'outline': '#CC7620'},
+            
+            # Defense Land
+            "DEFENSE LAND": {'fill': '#ff46ff', 'outline': '#CC38CC'},
+            "DEFENCE LAND": {'fill': '#ff46ff', 'outline': '#CC38CC'},
+            
+            # Expressway Amenity Zone - Solid Fill: #ffffff, Hatch Fill: #ff4848
+            "EXPRESSWAY AMENITY ZONE": {'fill': '#ffffff', 'outline': '#CCCCCC', 'pattern': 'hatch', 'pattern_color': '#ff4848'},
+            "EXPRESSWAY AMENITY": {'fill': '#ffffff', 'outline': '#CCCCCC', 'pattern': 'hatch', 'pattern_color': '#ff4848'},
+            
+            # Other categories (keeping for backward compatibility)
+            "TOWN OUTGROWTH": {'fill': None, 'outline': '#000000'},
+            "FARIDABAD 2031 MASTERPLAN PLANNING ZONES TOWN OUTGROWTH": {'fill': None, 'outline': '#000000'},
+            "HOUSING BOARD": {'fill': '#DF73FF', 'outline': '#B25CCC'},
+            "FARIDABAD 2031 MASTERPLAN PLANNING ZONES HOUSING BOARD": {'fill': '#DF73FF', 'outline': '#B25CCC'},
+            "TOWNSHIPS": {'fill': '#D7B09E', 'outline': '#AC8D7E'},
+            "FARIDABAD 2031 MASTERPLAN PLANNING ZONES TOWNSHIPS": {'fill': '#D7B09E', 'outline': '#AC8D7E'},
+            "HAMLETS": {'fill': '#BFB8FD', 'outline': '#9993CA'},
+            "RESIDENTIAL BUILT UP HAMLETS": {'fill': '#BFB8FD', 'outline': '#9993CA'},
+            "RESIDENTIAL BUILT UP RESIDENTIAL": {'fill': '#F5CA7A', 'outline': '#C4A262'},
+            "RESIDENTIAL BUILT UP": {'fill': '#F5CA7A', 'outline': '#C4A262'},
+            "FARIDABAD 2031 MASTERPLAN PLANNING ZONES RESIDENTIAL BUILT UP HAMLETS": {'fill': '#BFB8FD', 'outline': '#9993CA'},
+            "FARIDABAD 2031 MASTERPLAN PLANNING ZONES RESIDENTIAL BUILT UP RESIDENTIAL": {'fill': '#F5CA7A', 'outline': '#C4A262'},
+            "FARIDABAD 2031 MASTERPLAN PLANNING ZONES INDUSTRIAL": {'fill': '#E69800', 'outline': '#B87A00'},
+            "GOVT LAND": {'fill': '#F57AB6', 'outline': '#C46292'},
+            "FARIDABAD 2031 MASTERPLAN PLANNING ZONES GOVT LAND": {'fill': '#F57AB6', 'outline': '#C46292'},
+            "VILLAGE ABADI EXPANSION": {'fill': '#CCCCCC', 'outline': '#A3A3A3'},
+            "FARIDABAD 2031 MASTERPLAN PLANNING ZONES VILLAGE ABADI EXPANSION": {'fill': '#CCCCCC', 'outline': '#A3A3A3'},
+            "HSIIDC": {'fill': '#FFFFBE', 'outline': '#CCCC98'},
+            "HUDA": {'fill': '#66CDAB', 'outline': '#52A488'},
+            "PARK": {'fill': '#C6E2B2', 'outline': '#9EB58E'},
+            "GREEN BELT": {'fill': '#D3FFBE', 'outline': '#A9CC98'},
+            "GREENBELT": {'fill': '#D3FFBE', 'outline': '#A9CC98'},
+            "MORE THAN GREEN BELT": {'fill': '#D3FFBE', 'outline': '#A9CC98'},
+            "30 M WIDE GREEN BELT": {'fill': '#D3FFBE', 'outline': '#A9CC98'},
+            "18 M WIDE GREEN BELT": {'fill': '#D3FFBE', 'outline': '#A9CC98'},
+            "100 M WIDE GREEN BELT": {'fill': '#D3FFBE', 'outline': '#A9CC98'},
             "TOWN OUTGROWTH": {'fill': None, 'outline': '#000000'},
             "FARIDABAD 2031 MASTERPLAN PLANNING ZONES TOWN OUTGROWTH": {'fill': None, 'outline': '#000000'},
             "HOUSING BOARD": {'fill': '#DF73FF', 'outline': '#B25CCC'},
@@ -95,6 +156,8 @@ class FaridabadSeamlessTiles:
     
     def hex_to_rgb(self, hex_color):
         """Convert hex to RGB"""
+        if hex_color is None:
+            return None
         hex_color = hex_color.lstrip('#')
         return tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))
     
@@ -244,34 +307,75 @@ class FaridabadSeamlessTiles:
         return (min_lon, min_lat, max_lon, max_lat)
     
     def create_pattern(self, draw, poly, base, ptype, pcolor, img_size):
-        """Create patterns: hatch, dots, or airplane"""
-        if base:
-            draw.polygon(poly, fill=base)
-        
+        """Create patterns: hatch, dots, or airplane - clipped to polygon boundary"""
         if len(poly) < 3:
             return
+        
+        # Draw base fill first
+        if base:
+            draw.polygon(poly, fill=base)
         
         xs, ys = zip(*poly)
         min_x, max_x = int(min(xs)), int(max(xs))
         min_y, max_y = int(min(ys)), int(max(ys))
         
+        # Create polygon shape for clipping - ensure it's valid
+        try:
+            poly_shape = Polygon(poly)
+            if not poly_shape.is_valid:
+                poly_shape = poly_shape.buffer(0)
+        except:
+            # If polygon creation fails, use bounding box for dots
+            poly_shape = None
+        
         if ptype == "hatch":
             spacing = max(3, (max_x - min_x) // 15)
             for i in range(min_x - max_y, max_x + max_y, spacing):
-                pts = [(x, x - i) for x in range(min_x, max_x + 1) if min_y <= x - i <= max_y]
-                if len(pts) > 1:
-                    draw.line(pts, fill=pcolor, width=1)
+                # Create full hatch line
+                line_pts = [(x, x - i) for x in range(min_x - 10, max_x + 10) if min_y - 10 <= x - i <= max_y + 10]
+                if len(line_pts) < 2:
+                    continue
+                # Create LineString and clip to polygon
+                line = LineString(line_pts)
+                clipped = line.intersection(poly_shape)
+                if clipped.is_empty:
+                    continue
+                # Draw clipped line segments
+                if clipped.geom_type == 'LineString':
+                    clipped_pts = list(clipped.coords)
+                    if len(clipped_pts) >= 2:
+                        int_pts = [(int(x), int(y)) for x, y in clipped_pts]
+                        draw.line(int_pts, fill=pcolor, width=2)
+                elif clipped.geom_type == 'MultiLineString':
+                    for line_seg in clipped.geoms:
+                        clipped_pts = list(line_seg.coords)
+                        if len(clipped_pts) >= 2:
+                            int_pts = [(int(x), int(y)) for x, y in clipped_pts]
+                            draw.line(int_pts, fill=pcolor, width=2)
         elif ptype == "dots":
-            spacing = 6
+            spacing = 24
+            dot_radius = 3
+            
+            # Draw dots across the polygon area
             for y in range(min_y, max_y + 1, spacing):
                 for x in range(min_x, max_x + 1, spacing):
-                    if min_x <= x <= max_x and min_y <= y <= max_y:
-                        draw.ellipse([x-1, y-1, x+1, y+1], fill=pcolor)
+                    # Check if point is inside polygon
+                    if poly_shape is not None:
+                        try:
+                            point = Point(x, y)
+                            if poly_shape.contains(point):
+                                draw.ellipse([x-dot_radius, y-dot_radius, x+dot_radius, y+dot_radius], fill=pcolor)
+                        except:
+                            # Fallback: draw dot if within bounding box
+                            draw.ellipse([x-dot_radius, y-dot_radius, x+dot_radius, y+dot_radius], fill=pcolor)
+                    else:
+                        # If polygon shape is None, draw dots in bounding box
+                        draw.ellipse([x-dot_radius, y-dot_radius, x+dot_radius, y+dot_radius], fill=pcolor)
         elif ptype == "airplane":
             spacing = 18
             for y in range(min_y, max_y + 1, spacing):
                 for x in range(min_x, max_x + 1, spacing):
-                    if min_x <= x <= max_x and min_y <= y <= max_y:
+                    if poly_shape is not None and poly_shape.contains(Point(x, y)):
                         # Draw cross pattern (airplane marker)
                         draw.line([(x-3, y), (x+3, y)], fill=pcolor, width=1)
                         draw.line([(x, y-3), (x, y+3)], fill=pcolor, width=1)
@@ -305,10 +409,22 @@ class FaridabadSeamlessTiles:
         
         # Draw exterior ring with full opacity and black outline
         black_outline = (0, 0, 0, 255)  # Black outline
-        # Draw fill first (if exists), then outline on top for precise boundaries
-        if fill_rgb:
-            fill_rgba = fill_rgb + (255,)  # Add alpha channel
-            poly_draw.polygon(exterior_pixels, fill=fill_rgba)
+        
+        # Check if pattern should be applied
+        if 'pattern' in color_info:
+            # Apply pattern (dots, hatch, etc.)
+            pattern_color = self.hex_to_rgb(color_info['pattern_color'])
+            self.create_pattern(poly_draw, exterior_pixels, fill_rgb, 
+                             color_info['pattern'], 
+                             pattern_color,
+                             buffered_size)
+        else:
+            # Draw fill first (if exists), then outline on top for precise boundaries
+            if fill_rgb:
+                fill_rgba = fill_rgb + (255,)  # Add alpha channel
+                poly_draw.polygon(exterior_pixels, fill=fill_rgba)
+        
+        # Draw black outline
         if len(exterior_pixels) > 1:
             closed_pixels = exterior_pixels + [exterior_pixels[0]]
             poly_draw.line(closed_pixels, fill=black_outline, width=outline_width)
@@ -440,7 +556,7 @@ class FaridabadSeamlessTiles:
                         else:
                             # Simple polygon without holes - draw with black outline
                             black_outline = (0, 0, 0)  # Black outline
-                            if 'pattern' in color_info and fill_rgb:
+                            if 'pattern' in color_info:
                                 self.create_pattern(draw, int_pixels, fill_rgb, 
                                                  color_info['pattern'], 
                                                  self.hex_to_rgb(color_info['pattern_color']),
@@ -476,7 +592,7 @@ class FaridabadSeamlessTiles:
                             
                             # Draw with black outline
                             black_outline = (0, 0, 0)  # Black outline
-                            if 'pattern' in color_info and fill_rgb:
+                            if 'pattern' in color_info:
                                 self.create_pattern(draw, enlarged_coords, fill_rgb,
                                                  color_info['pattern'],
                                                  self.hex_to_rgb(color_info['pattern_color']),

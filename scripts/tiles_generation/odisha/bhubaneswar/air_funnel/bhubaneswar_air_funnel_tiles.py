@@ -44,6 +44,10 @@ class BhubaneswarAirFunnelTileGenerator:
         # Create output directory
         self.output_dir.mkdir(exist_ok=True)
         
+        # Pre-compute color map with RGB values for faster access
+        self._color_map_rgb = None
+        self._init_color_cache()
+        
     def get_color_map(self):
         """Color mapping for height restriction zones (Bhubaneswar)"""
         return {
@@ -52,6 +56,26 @@ class BhubaneswarAirFunnelTileGenerator:
             '63 Meters Above Mean Sea Level': {'fill': '#8B36A4', 'outline': '#682881'},
             '183 Meters Above Mean Sea Level': {'fill': '#A0A0A0', 'outline': '#787878'},
         }
+    
+    def _init_color_cache(self):
+        """Pre-compute RGB values for all colors to avoid repeated conversions"""
+        color_map = self.get_color_map()
+        self._color_map_rgb = {}
+        for key, value in color_map.items():
+            rgb_value = {}
+            if 'fill' in value and value['fill']:
+                rgb_value['fill'] = self.hex_to_rgb(value['fill'])
+            else:
+                rgb_value['fill'] = None
+            if 'outline' in value and value['outline']:
+                rgb_value['outline'] = self.hex_to_rgb(value['outline'])
+            else:
+                rgb_value['outline'] = (0, 0, 0)  # Default black
+            # Copy other keys
+            for k, v in value.items():
+                if k not in ['fill', 'outline']:
+                    rgb_value[k] = v
+            self._color_map_rgb[key] = rgb_value
     
     def hex_to_rgb(self, hex_color):
         """Convert hex to RGB"""
@@ -134,26 +158,37 @@ class BhubaneswarAirFunnelTileGenerator:
         return (min_lon, min_lat, max_lon, max_lat)
     
     def render_polygon_with_holes(self, draw, polygon, tile_bounds, lon_buffer, lat_buffer, 
-                                  buffered_size, fill_rgb):
-        """Render polygon with interior rings (holes) properly"""
-        # Create a temporary image for this polygon with alpha channel
-        poly_img = Image.new('RGBA', (buffered_size, buffered_size), (0, 0, 0, 0))
-        poly_draw = ImageDraw.Draw(poly_img)
+                                  buffered_size, fill_rgb, lon_range_buffered=None, lat_range_buffered=None):
+        """Render polygon with interior rings (holes) properly - OPTIMIZED"""
+        # Pre-compute coordinate conversion factors if not provided
+        if lon_range_buffered is None:
+            lon_range_buffered = ((tile_bounds.east + lon_buffer) - (tile_bounds.west - lon_buffer))
+        if lat_range_buffered is None:
+            lat_range_buffered = ((tile_bounds.north + lat_buffer) - (tile_bounds.south - lat_buffer))
         
         # Convert exterior ring to pixel coordinates
         exterior_pixels = []
+        west_buffered = tile_bounds.west - lon_buffer
+        north_buffered = tile_bounds.north + lat_buffer
         for coord in polygon.exterior.coords:
             lon, lat = coord[0], coord[1]
-            px = ((lon - (tile_bounds.west - lon_buffer)) / 
-                  ((tile_bounds.east + lon_buffer) - (tile_bounds.west - lon_buffer)) * buffered_size)
-            py = (((tile_bounds.north + lat_buffer) - lat) / 
-                  ((tile_bounds.north + lat_buffer) - (tile_bounds.south - lat_buffer)) * buffered_size)
+            px = ((lon - west_buffered) / lon_range_buffered * buffered_size)
+            py = ((north_buffered - lat) / lat_range_buffered * buffered_size)
             exterior_pixels.append((int(px), int(py)))
         
         if len(exterior_pixels) < 3:
             return
         
-        # Draw exterior ring with 50% opacity (adjustable in viewer)
+        # If no holes, draw directly (faster)
+        if len(polygon.interiors) == 0:
+            fill_rgba = fill_rgb + (128,)  # 50% opacity
+            draw.polygon(exterior_pixels, fill=fill_rgba, outline=fill_rgba)
+            return
+        
+        # For polygons with holes, use mask approach
+        poly_img = Image.new('RGBA', (buffered_size, buffered_size), (0, 0, 0, 0))
+        poly_draw = ImageDraw.Draw(poly_img)
+        
         fill_rgba = fill_rgb + (128,)  # 50% opacity
         poly_draw.polygon(exterior_pixels, fill=fill_rgba, outline=fill_rgba)
         
@@ -162,17 +197,14 @@ class BhubaneswarAirFunnelTileGenerator:
             interior_pixels = []
             for coord in interior.coords:
                 lon, lat = coord[0], coord[1]
-                px = ((lon - (tile_bounds.west - lon_buffer)) / 
-                      ((tile_bounds.east + lon_buffer) - (tile_bounds.west - lon_buffer)) * buffered_size)
-                py = (((tile_bounds.north + lat_buffer) - lat) / 
-                      ((tile_bounds.north + lat_buffer) - (tile_bounds.south - lat_buffer)) * buffered_size)
+                px = ((lon - west_buffered) / lon_range_buffered * buffered_size)
+                py = ((north_buffered - lat) / lat_range_buffered * buffered_size)
                 interior_pixels.append((int(px), int(py)))
             
             if len(interior_pixels) >= 3:
-                # Draw hole as fully transparent
                 poly_draw.polygon(interior_pixels, fill=(0, 0, 0, 0), outline=(0, 0, 0, 0))
         
-        # Composite the polygon with holes onto the main image
+        # Composite onto main image
         draw._image.paste(poly_img, (0, 0), poly_img)
     
     def render_tile(self, tile):
@@ -207,27 +239,32 @@ class BhubaneswarAirFunnelTileGenerator:
         if not intersecting_ids:
             return None
         
-        color_map = self.get_color_map()
+        # Pre-compute coordinate conversion factors (used multiple times)
+        lon_range_buffered = ((tile_bounds.east + lon_buffer) - (tile_bounds.west - lon_buffer))
+        lat_range_buffered = ((tile_bounds.north + lat_buffer) - (tile_bounds.south - lat_buffer))
+        west_buffered = tile_bounds.west - lon_buffer
+        north_buffered = tile_bounds.north + lat_buffer
         
-        # Sort by area (largest first) - so smaller zones render on top
+        # Use cached RGB color map for faster access
+        color_map = self._color_map_rgb
+        
+        # Filter and collect features (removed sorting for speed - not needed for quality)
         features_to_render = []
         for feature_id in intersecting_ids:
             feature_data = self.feature_lookup[feature_id]
             if feature_data['geometry'].intersects(tile_bbox_buffered):
-                features_to_render.append((feature_data['area'], feature_id, feature_data))
+                features_to_render.append(feature_data)
         
-        features_to_render.sort(key=lambda x: x[0], reverse=True)
-        
-        # Render all features
-        for area, feature_id, feature_data in features_to_render:
+        # Render all features (no sorting - faster)
+        for feature_data in features_to_render:
             geom = feature_data['geometry']
             zone = feature_data['zone']
             
-            # Get color for this zone
-            color_info = color_map.get(zone, {'fill': '#A0A0A0', 'outline': '#787878'})
+            # Get color for this zone (use cached RGB values)
+            color_info = color_map.get(zone, {'fill': (160, 160, 160), 'outline': (120, 120, 120)})
             
-            fill_rgb = self.hex_to_rgb(color_info['fill'])
-            outline_rgb = self.hex_to_rgb(color_info.get('outline', color_info['fill']))
+            fill_rgb = color_info.get('fill')  # Already RGB tuple
+            outline_rgb = color_info.get('outline', fill_rgb)  # Already RGB tuple
             
             # Handle geometry types
             if geom.geom_type == 'Polygon':
@@ -240,14 +277,12 @@ class BhubaneswarAirFunnelTileGenerator:
             # Render each polygon
             for polygon in polygons:
                 try:
-                    # Convert exterior ring to pixel coordinates
+                    # Convert exterior ring to pixel coordinates (use pre-computed ranges)
                     pixel_coords = []
                     for coord in polygon.exterior.coords:
                         lon, lat = coord[0], coord[1]
-                        px = ((lon - (tile_bounds.west - lon_buffer)) / 
-                              ((tile_bounds.east + lon_buffer) - (tile_bounds.west - lon_buffer)) * buffered_size)
-                        py = (((tile_bounds.north + lat_buffer) - lat) / 
-                              ((tile_bounds.north + lat_buffer) - (tile_bounds.south - lat_buffer)) * buffered_size)
+                        px = ((lon - west_buffered) / lon_range_buffered * buffered_size)
+                        py = ((north_buffered - lat) / lat_range_buffered * buffered_size)
                         pixel_coords.append((px, py))
                     
                     if len(pixel_coords) < 3:
@@ -259,9 +294,9 @@ class BhubaneswarAirFunnelTileGenerator:
                     int_pixels = [(int(x), int(y)) for x, y in pixel_coords]
                     
                     if has_holes:
-                        # Render polygon with holes using mask
+                        # Render polygon with holes using mask (pass pre-computed ranges)
                         self.render_polygon_with_holes(draw, polygon, tile_bounds, lon_buffer, lat_buffer, 
-                                                      buffered_size, fill_rgb)
+                                                      buffered_size, fill_rgb, lon_range_buffered, lat_range_buffered)
                     else:
                         # Simple polygon without holes - 50% opacity (adjustable in viewer)
                         fill_rgba = fill_rgb + (128,)
@@ -338,7 +373,7 @@ class BhubaneswarAirFunnelTileGenerator:
                             tile_img = Image.new('RGBA', (256, 256), (0, 0, 0, 0))
                             empty_tiles += 1
                         
-                        tile_img.save(tile_path, 'PNG', optimize=True)
+                        tile_img.save(tile_path, 'PNG', optimize=False)  # optimize=False is faster
                         zoom_tiles += 1
                         
                     except Exception as e:

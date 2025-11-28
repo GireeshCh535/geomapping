@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Jaipur Master Plan - SEAMLESS COMPLETE TILES
+Puducherry Master Plan - SEAMLESS COMPLETE TILES
 Every feature visible at every zoom level - Transparent background
 """
 
@@ -11,19 +11,46 @@ from pathlib import Path
 from PIL import Image, ImageDraw
 import mercantile
 from shapely.geometry import shape, box, Point, Polygon, LineString
+from shapely.ops import transform
 from rtree import index
+try:
+    from pyproj import Transformer
+    HAS_PYPROJ = True
+except ImportError:
+    HAS_PYPROJ = False
+    print("Warning: pyproj not available. Coordinate transformation disabled.")
 
-class JaipurSeamlessTiles:
-    def __init__(self, data_dir, output_dir):
+class PuducherrySeamlessTiles:
+    def __init__(self, data_dir, output_dir, source_crs='EPSG:32644'):
+        """
+        Initialize Puducherry tile generator
+        
+        Args:
+            data_dir: Directory containing GeoJSON files
+            output_dir: Output directory for tiles
+            source_crs: Source CRS of the GeoJSON data (default: EPSG:32644 for UTM Zone 44N)
+        """
         self.data_dir = Path(data_dir)
         self.output_dir = Path(output_dir)
         self.tile_size = 256
         self.spatial_index = index.Index()
         self.feature_id_counter = 0
         self.feature_lookup = {}
-        # Pre-compute color map with RGB values for faster access
-        self._color_map_rgb = None
-        self._init_color_cache()
+        self.source_crs = source_crs
+        self.needs_transform = False
+        
+        # Setup coordinate transformation if pyproj is available
+        if HAS_PYPROJ:
+            try:
+                self.transformer = Transformer.from_crs(source_crs, 'EPSG:4326', always_xy=True)
+                self.needs_transform = True
+                print(f"✓ Coordinate transformation enabled: {source_crs} -> EPSG:4326")
+            except Exception as e:
+                print(f"⚠️ Could not initialize transformer: {e}")
+                self.needs_transform = False
+        else:
+            # Try to detect if transformation is needed by checking first file
+            self.needs_transform = None  # Will be determined during loading
         
     def normalize_category(self, value):
         """Normalize category name"""
@@ -32,121 +59,104 @@ class JaipurSeamlessTiles:
         value = " ".join(str(value).replace("_", " ").split())
         return value.upper()
     
-    def _init_color_cache(self):
-        """Pre-compute RGB values for all colors to avoid repeated conversions"""
-        color_map = self.get_color_map()
-        self._color_map_rgb = {}
-        for key, value in color_map.items():
-            rgb_value = {}
-            if 'fill' in value and value['fill']:
-                rgb_value['fill'] = self.hex_to_rgb(value['fill'])
-            else:
-                rgb_value['fill'] = None
-            if 'outline' in value and value['outline']:
-                rgb_value['outline'] = self.hex_to_rgb(value['outline'])
-            else:
-                rgb_value['outline'] = (0, 0, 0)  # Default black
-            if 'pattern_color' in value and value['pattern_color']:
-                rgb_value['pattern_color'] = self.hex_to_rgb(value['pattern_color'])
-            # Copy other keys
-            for k, v in value.items():
-                if k not in ['fill', 'outline', 'pattern_color']:
-                    rgb_value[k] = v
-            self._color_map_rgb[key] = rgb_value
-    
     def get_color_map(self):
-        """Jaipur color mapping based on user specifications"""
+        """Puducherry color mapping based on user specifications"""
         return {
-            # Simple solid fills
-            "AGRICULTURE LAND": {'fill': '#d0ffb8', 'outline': '#A6CC93'},
-            "AGRICULTURE_LAND": {'fill': '#d0ffb8', 'outline': '#A6CC93'},
+            # AGRICULTURAL ZONE - Solid Fill: #adffaf, Outline: #000000
+            "AGRICULTURAL ZONE": {'fill': '#adffaf', 'outline': '#000000'},
+            "AGRICULTURAL_ZONE": {'fill': '#adffaf', 'outline': '#000000'},
             
-            "COMMERCIAL": {'fill': '#ff7d7d', 'outline': '#CC6464'},
+            # EXISTING COMMERCIAL ZONE - Solid Fill: #3d5fea, Outline: #000000
+            "EXISTING COMMERCIAL ZONE": {'fill': '#3d5fea', 'outline': '#000000'},
+            "EXISTING_COMMERCIAL_ZONE": {'fill': '#3d5fea', 'outline': '#000000'},
             
-            # Communication - Hatched Lines: c3c35a, Outline: E69800, Solid Fill: FFFFFF
-            "COMMUNICATION": {'fill': '#FFFFFF', 'outline': '#E69800', 'pattern': 'hatch', 'pattern_color': '#c3c35a'},
+            # EXISTING MIXED COMMERCIAL ZONE - Solid Fill: #ffffff, Hatched Fill: #44b7ff, Outline: #000000
+            "EXISTING MIXED COMMERCIAL ZONE": {'fill': '#ffffff', 'outline': '#000000', 'pattern': 'hatch', 'pattern_color': '#44b7ff'},
+            "EXISTING_MIXED_COMMERCIAL_ZONE": {'fill': '#ffffff', 'outline': '#000000', 'pattern': 'hatch', 'pattern_color': '#44b7ff'},
             
-            # Eco-Sensitive Zone - Dots Colour: 4daf4a, Outline: 000000, Solid Fill: FFFFFF
-            "ECO-SENSITIVE ZONE": {'fill': '#FFFFFF', 'outline': '#000000', 'pattern': 'dots', 'pattern_color': '#4daf4a'},
-            "ECO_SENSITIVE__ZONE": {'fill': '#FFFFFF', 'outline': '#000000', 'pattern': 'dots', 'pattern_color': '#4daf4a'},
-            "ECO SENSITIVE ZONE": {'fill': '#FFFFFF', 'outline': '#000000', 'pattern': 'dots', 'pattern_color': '#4daf4a'},
+            # EXISTING MIXED RESIDENTIAL ZONE - Solid Fill: #fef787, Hatched Fill: #ff0009, Outline: #000000
+            "EXISTING MIXED RESIDENTIAL ZONE": {'fill': '#fef787', 'outline': '#000000', 'pattern': 'hatch', 'pattern_color': '#ff0009'},
+            "EXISTING_MIXED_RESIDENTIAL_ZONE": {'fill': '#fef787', 'outline': '#000000', 'pattern': 'hatch', 'pattern_color': '#ff0009'},
             
-            "EDUCATIONAL": {'fill': '#efb8ff', 'outline': '#BF93CC'},
+            # EXISTING PROTECTIVE AND UNDEVELOPED USE ZONE - Solid Fill: #8bc1ff, Outline: #000000
+            "EXISTING PROTECTIVE AND UNDEVELOPED USE ZONE": {'fill': '#8bc1ff', 'outline': '#000000'},
+            "EXISTING_PROTECTIVE_AND_UNDEVELOPED_USE_ZONE": {'fill': '#8bc1ff', 'outline': '#000000'},
+            "EXISTING PROTECTIVE AND UNDEVELOPED USE": {'fill': '#8bc1ff', 'outline': '#000000'},
             
-            "G1": {'fill': '#c2c2a0', 'outline': '#9B9B80'},
-            "G2": {'fill': '#c2a0b0', 'outline': '#9B808C'},
-            "G3": {'fill': '#eacddd', 'outline': '#BBA4B0'},
+            # EXISTING PUBLIC & SEMI PUBLIC ZONE - Solid Fill: #ee6966, Outline: #000000
+            "EXISTING PUBLIC & SEMI PUBLIC ZONE": {'fill': '#ee6966', 'outline': '#000000'},
+            "EXISTING_PUBLIC_&_SEMI_PUBLIC_ZONE": {'fill': '#ee6966', 'outline': '#000000'},
+            "EXISTING PUBLIC AND SEMI PUBLIC ZONE": {'fill': '#ee6966', 'outline': '#000000'},
+            "EXISTING_PUBLIC_AND_SEMI_PUBLIC_ZONE": {'fill': '#ee6966', 'outline': '#000000'},
             
-            # Govt and Semi Government - Cross Hatch Lines: ffa900, Outline: 000000, Solid Fill: ffe9be
-            "GOVT AND SEMI GOVERNMERNT": {'fill': '#ffe9be', 'outline': '#000000', 'pattern': 'cross_hatch', 'pattern_color': '#ffa900'},
-            "GOVT_AND_SEMI_GOVERNMERNT": {'fill': '#ffe9be', 'outline': '#000000', 'pattern': 'cross_hatch', 'pattern_color': '#ffa900'},
-            "GOVT AND SEMI GOVERNMENT": {'fill': '#ffe9be', 'outline': '#000000', 'pattern': 'cross_hatch', 'pattern_color': '#ffa900'},
+            # EXISTING RECREATIONAL/TOURISM ZONE - Solid Fill: #95ff21, Outline: #000000
+            "EXISTING RECREATIONAL/TOURISM ZONE": {'fill': '#95ff21', 'outline': '#000000'},
+            "EXISTING_RECREATIONAL/TOURISM_ZONE": {'fill': '#95ff21', 'outline': '#000000'},
+            "EXISTING RECREATIONAL TOURISM ZONE": {'fill': '#95ff21', 'outline': '#000000'},
+            "EXISTING_RECREATIONAL_TOURISM_ZONE": {'fill': '#95ff21', 'outline': '#000000'},
             
-            "GREEN AREAS": {'fill': '#9ad175', 'outline': '#7BA75E'},
-            "GREEN_AREAS": {'fill': '#9ad175', 'outline': '#7BA75E'},
+            # EXISTING RESIDENTIAL ZONE - Solid Fill: #fffbb7, Outline: #000000
+            "EXISTING RESIDENTIAL ZONE": {'fill': '#fffbb7', 'outline': '#000000'},
+            "EXISTING_RESIDENTIAL_ZONE": {'fill': '#fffbb7', 'outline': '#000000'},
             
-            "HEALTH SERVICES": {'fill': '#b8ffef', 'outline': '#93CCBF'},
-            "HEALTH_SERVICES": {'fill': '#b8ffef', 'outline': '#93CCBF'},
+            # EXISTING TRANSPORTATION AND COMMUNICATION - Solid Fill: #d5d5d5, Outline: #000000
+            "EXISTING TRANSPORTATION AND COMMUNICATION": {'fill': '#d5d5d5', 'outline': '#000000'},
+            "EXISTING_TRANSPORTATION_AND_COMMUNICATION": {'fill': '#d5d5d5', 'outline': '#000000'},
+            "EXISTING TRANSPORTATION & COMMUNICATION": {'fill': '#d5d5d5', 'outline': '#000000'},
             
-            # Heritage - Dotted Line Fill: 000000, Solid Fill: d0ffb8
-            "HERITAGE": {'fill': '#d0ffb8', 'outline': '#A6CC93', 'pattern': 'dotted', 'pattern_color': '#000000'},
+            # INDUSTRIAL ZONE - Solid Fill: #ea00ea, Outline: #000000
+            "INDUSTRIAL ZONE": {'fill': '#ea00ea', 'outline': '#000000'},
+            "INDUSTRIAL_ZONE": {'fill': '#ea00ea', 'outline': '#000000'},
             
-            "INDUSTRIAL": {'fill': '#d26def', 'outline': '#A856BF'},
+            # INFORMAL RESIDENTIAL ZONE - Solid Fill: #dbf400, Outline: #000000
+            "INFORMAL RESIDENTIAL ZONE": {'fill': '#dbf400', 'outline': '#000000'},
+            "INFORMAL_RESIDENTIAL_ZONE": {'fill': '#dbf400', 'outline': '#000000'},
             
-            # Mixed - Hatched Lines: 786848, Solid Fill: ffd37d
-            "MIXED": {'fill': '#ffd37d', 'outline': '#CCA964', 'pattern': 'hatch', 'pattern_color': '#786848'},
+            # PROPOSED COMMERCIAL ZONE - Solid Fill: #181679, Outline: #000000
+            "PROPOSED COMMERCIAL ZONE": {'fill': '#181679', 'outline': '#000000'},
+            "PROPOSED_COMMERCIAL_ZONE": {'fill': '#181679', 'outline': '#000000'},
             
-            "OTHERS": {'fill': '#f0f0f0', 'outline': '#C0C0C0'},
+            # PROPOSED MIXED COMMERCIAL ZONE - Solid Fill: #ffffff, Dotted Fill: #0e07ff, Outline: #000000
+            "PROPOSED MIXED COMMERCIAL ZONE": {'fill': '#ffffff', 'outline': '#000000', 'pattern': 'dotted', 'pattern_color': '#0e07ff'},
+            "PROPOSED_MIXED_COMMERCIAL_ZONE": {'fill': '#ffffff', 'outline': '#000000', 'pattern': 'dotted', 'pattern_color': '#0e07ff'},
             
-            # Public & Semi Public - Dashed Line Fill: 002673, Solid Fill: 7dabf2
-            "PUBLIC & SEMI PUBLIC": {'fill': '#7dabf2', 'outline': '#6389C2', 'pattern': 'dashed', 'pattern_color': '#002673'},
-            "PUBLIC___SEMI_PUBLIC": {'fill': '#7dabf2', 'outline': '#6389C2', 'pattern': 'dashed', 'pattern_color': '#002673'},
-            "PUBLIC AND SEMI PUBLIC": {'fill': '#7dabf2', 'outline': '#6389C2', 'pattern': 'dashed', 'pattern_color': '#002673'},
+            # PROPOSED MIXED INDUSTRIAL USE ZONE - Solid Fill: #ffffff, Dotted Fill: #76028e, Outline: #000000
+            "PROPOSED MIXED INDUSTRIAL USE ZONE": {'fill': '#ffffff', 'outline': '#000000', 'pattern': 'dotted', 'pattern_color': '#76028e'},
+            "PROPOSED_MIXED_INDUSTRIAL_USE_ZONE": {'fill': '#ffffff', 'outline': '#000000', 'pattern': 'dotted', 'pattern_color': '#76028e'},
             
-            # Public Utilities - Hatched Fill: f87100, Solid Fill: f2cb7d
-            "PUBLIC UTILITIES": {'fill': '#f2cb7d', 'outline': '#C2A264', 'pattern': 'hatch', 'pattern_color': '#f87100'},
-            "PUBLIC_UTILITIES": {'fill': '#f2cb7d', 'outline': '#C2A264', 'pattern': 'hatch', 'pattern_color': '#f87100'},
+            # PROPOSED MIXED RESIDENTIAL ZONE - Solid Fill: #fff000, Hatched Fill and Outline: #000000
+            "PROPOSED MIXED RESIDENTIAL ZONE": {'fill': '#fff000', 'outline': '#000000', 'pattern': 'hatch', 'pattern_color': '#000000'},
+            "PROPOSED_MIXED_RESIDENTIAL_ZONE": {'fill': '#fff000', 'outline': '#000000', 'pattern': 'hatch', 'pattern_color': '#000000'},
             
-            "RECREATIONAL": {'fill': '#b8b87d', 'outline': '#939364'},
+            # PROPOSED PROTECTIVE AND UNDEVELOPED USE ZONE - No Solid Fill, Hatched Fill: #ff0014, Outline: #000000
+            "PROPOSED PROTECTIVE AND UNDEVELOPED USE ZONE": {'fill': None, 'outline': '#000000', 'pattern': 'hatch', 'pattern_color': '#ff0014'},
+            "PROPOSED_PROTECTIVE_AND_UNDEVELOPED_USE_ZONE": {'fill': None, 'outline': '#000000', 'pattern': 'hatch', 'pattern_color': '#ff0014'},
+            "PROPOSED PROTECTIVE AND UNDEVELOPED USE": {'fill': None, 'outline': '#000000', 'pattern': 'hatch', 'pattern_color': '#ff0014'},
             
-            # Religious - Outline: ff00c4, Hatched Lines: ff00c4, Solid Fill: FFFFFF
-            "RELIGIOUS": {'fill': '#FFFFFF', 'outline': '#ff00c4', 'pattern': 'hatch', 'pattern_color': '#ff00c4'},
+            # PROPOSED PUBLIC & SEMI PUBLIC - Solid Fill: #ff0009, Outline: #000000
+            "PROPOSED PUBLIC & SEMI PUBLIC": {'fill': '#ff0009', 'outline': '#000000'},
+            "PROPOSED_PUBLIC_&_SEMI_PUBLIC": {'fill': '#ff0009', 'outline': '#000000'},
+            "PROPOSED PUBLIC AND SEMI PUBLIC": {'fill': '#ff0009', 'outline': '#000000'},
+            "PROPOSED_PUBLIC_AND_SEMI_PUBLIC": {'fill': '#ff0009', 'outline': '#000000'},
             
-            "RESIDENTIAL": {'fill': '#ffffb8', 'outline': '#CCCC93'},
+            # PROPOSED RECREATIONAL/TOURISM ZONE - Solid Fill: #ffffff, Dotted Fill: #4daf4a, Outline: #000000
+            "PROPOSED RECREATIONAL/TOURISM ZONE": {'fill': '#ffffff', 'outline': '#000000', 'pattern': 'dotted', 'pattern_color': '#4daf4a'},
+            "PROPOSED_RECREATIONAL/TOURISM_ZONE": {'fill': '#ffffff', 'outline': '#000000', 'pattern': 'dotted', 'pattern_color': '#4daf4a'},
+            "PROPOSED RECREATIONAL TOURISM ZONE": {'fill': '#ffffff', 'outline': '#000000', 'pattern': 'dotted', 'pattern_color': '#4daf4a'},
+            "PROPOSED_RECREATIONAL_TOURISM_ZONE": {'fill': '#ffffff', 'outline': '#000000', 'pattern': 'dotted', 'pattern_color': '#4daf4a'},
             
-            "RURAL": {'fill': '#730000', 'outline': '#5C0000'},
+            # PROPOSED RESIDENTIAL ZONE - Solid Fill: #fff000, Outline: #000000
+            "PROPOSED RESIDENTIAL ZONE": {'fill': '#fff000', 'outline': '#000000'},
+            "PROPOSED_RESIDENTIAL_ZONE": {'fill': '#fff000', 'outline': '#000000'},
             
-            # Specific Land Use - Outline: 000000, Hatched Lines: 000000, Solid Fill: FFFFFF
-            "SPECIFIC LAND USE": {'fill': '#FFFFFF', 'outline': '#000000', 'pattern': 'hatch', 'pattern_color': '#000000'},
-            "SPECIFIC_LAND_USE": {'fill': '#FFFFFF', 'outline': '#000000', 'pattern': 'hatch', 'pattern_color': '#000000'},
+            # PROPOSED TRANSPORTATION AND COMMUNICATION - Solid Fill: #acacac, Outline: #000000
+            "PROPOSED TRANSPORTATION AND COMMUNICATION": {'fill': '#acacac', 'outline': '#000000'},
+            "PROPOSED_TRANSPORTATION_AND_COMMUNICATION": {'fill': '#acacac', 'outline': '#000000'},
+            "PROPOSED TRANSPORTATION & COMMUNICATION": {'fill': '#acacac', 'outline': '#000000'},
             
-            "TRANSPORTATION": {'fill': '#cdcdcd', 'outline': '#A4A4A4'},
-            
-            # U1_2025 - Hatched Fill: aae2f4, Solid Fill: FFFFFF
-            "U1_2025": {'fill': '#FFFFFF', 'outline': '#CCCCCC', 'pattern': 'hatch', 'pattern_color': '#aae2f4'},
-            "U1 2025": {'fill': '#FFFFFF', 'outline': '#CCCCCC', 'pattern': 'hatch', 'pattern_color': '#aae2f4'},
-            
-            # U2 HIZ - Hatched Fill: 99993c, Solid Fill: FFFFFF
-            "U2 HIZ": {'fill': '#FFFFFF', 'outline': '#CCCCCC', 'pattern': 'hatch', 'pattern_color': '#99993c'},
-            "U2_HIZ": {'fill': '#FFFFFF', 'outline': '#CCCCCC', 'pattern': 'hatch', 'pattern_color': '#99993c'},
-            
-            # U2 LIZ - Hatched Fill: f2f27d, Solid Fill: FFFFFF
-            "U2 LIZ": {'fill': '#FFFFFF', 'outline': '#CCCCCC', 'pattern': 'hatch', 'pattern_color': '#f2f27d'},
-            "U2_LIZ": {'fill': '#FFFFFF', 'outline': '#CCCCCC', 'pattern': 'hatch', 'pattern_color': '#f2f27d'},
-            
-            # U3 HIZ - Hatched Fill: ff9b38, Solid Fill: FFFFFF
-            "U3 HIZ": {'fill': '#FFFFFF', 'outline': '#CCCCCC', 'pattern': 'hatch', 'pattern_color': '#ff9b38'},
-            "U3_HIZ": {'fill': '#FFFFFF', 'outline': '#CCCCCC', 'pattern': 'hatch', 'pattern_color': '#ff9b38'},
-            
-            # U3 LIZ - Hatched Fill: ffd27a, Solid Fill: FFFFFF
-            "U3 LIZ": {'fill': '#FFFFFF', 'outline': '#CCCCCC', 'pattern': 'hatch', 'pattern_color': '#ffd27a'},
-            "U3_LIZ": {'fill': '#FFFFFF', 'outline': '#CCCCCC', 'pattern': 'hatch', 'pattern_color': '#ffd27a'},
-            
-            "VACANT LAND": {'fill': '#b1bae6', 'outline': '#8E95B8'},
-            "VACANT_LAND": {'fill': '#b1bae6', 'outline': '#8E95B8'},
-            
-            "WATER BODIES": {'fill': '#caedf8', 'outline': '#A2BEC6'},
-            "WATER_BODIES": {'fill': '#caedf8', 'outline': '#A2BEC6'},
+            # ROADS - Solid Fill: #ffffff, Outline: #000000
+            "ROADS": {'fill': '#ffffff', 'outline': '#000000'},
+            "ROAD": {'fill': '#ffffff', 'outline': '#000000'},
         }
     
     def hex_to_rgb(self, hex_color):
@@ -188,9 +198,9 @@ class JaipurSeamlessTiles:
             return 1
     
     def load_geojson_files(self):
-        """Load all Jaipur GeoJSON files"""
+        """Load all Puducherry GeoJSON files"""
         print("\n" + "="*80)
-        print("LOADING JAIPUR GEOJSON DATA")
+        print("LOADING PUDUCHERRY GEOJSON DATA")
         print("="*80)
         
         geojson_files = sorted(self.data_dir.glob('*.geojson'))
@@ -217,6 +227,45 @@ class JaipurSeamlessTiles:
                 for feature in features:
                     try:
                         geom = shape(feature['geometry'])
+                        
+                        # Detect if coordinates need transformation (check first feature)
+                        if self.needs_transform is None:
+                            # Check if coordinates look like projected (large numbers)
+                            if geom.bounds[0] > 1000 or geom.bounds[1] > 1000:
+                                print(f"\n⚠️  Detected projected coordinates. Attempting transformation...")
+                                if HAS_PYPROJ:
+                                    # Try common UTM zones for India
+                                    for zone in [43, 44, 45]:  # Common UTM zones for India
+                                        try:
+                                            test_transformer = Transformer.from_crs(f'EPSG:326{zone}', 'EPSG:4326', always_xy=True)
+                                            test_point = test_transformer.transform(geom.bounds[0], geom.bounds[1])
+                                            # Check if result is reasonable lat/lon for India
+                                            if 6 < test_point[1] < 36 and 68 < test_point[0] < 98:
+                                                self.source_crs = f'EPSG:326{zone}'
+                                                self.transformer = test_transformer
+                                                self.needs_transform = True
+                                                print(f"✓ Detected CRS: {self.source_crs}")
+                                                break
+                                        except:
+                                            continue
+                                    if not self.needs_transform:
+                                        print("⚠️  Could not determine source CRS. Using coordinates as-is.")
+                                        self.needs_transform = False
+                                else:
+                                    self.needs_transform = False
+                            else:
+                                self.needs_transform = False
+                        
+                        # Transform geometry to WGS84 if needed
+                        if self.needs_transform:
+                            # Create a wrapper function for shapely.ops.transform
+                            def transform_func(x, y, z=None):
+                                result = self.transformer.transform(x, y)
+                                if z is not None:
+                                    return (result[0], result[1], z)
+                                return result
+                            geom = transform(transform_func, geom)
+                        
                         if not geom.is_valid:
                             geom = geom.buffer(0)
                         
@@ -228,8 +277,12 @@ class JaipurSeamlessTiles:
                         raw_category = (
                             props.get("LANDUSE_CATEGORY")
                             or props.get("LANDUSE_SUBCAT_LEVEL_1")
-                            or props.get("NAME")
+                            or props.get("CATEGORY")
+                            or props.get("SUB_CATEGO")
+                            or props.get("Name")
                             or props.get("name")
+                            or props.get("Label")
+                            or props.get("use")
                             or file_name
                         )
                         category_norm = self.normalize_category(str(raw_category)) or self.normalize_category(file_name) or file_name.upper()
@@ -291,9 +344,16 @@ class JaipurSeamlessTiles:
         min_y, max_y = int(min(ys)), int(max(ys))
         
         # Create polygon shape for clipping
-        poly_shape = Polygon(poly)
+        try:
+            poly_shape = Polygon(poly)
+            if not poly_shape.is_valid:
+                poly_shape = poly_shape.buffer(0)
+        except:
+            poly_shape = None
         
         if ptype == "hatch":
+            if poly_shape is None:
+                return
             spacing = max(5, (max_x - min_x) // 12)
             for i in range(min_x - max_y, max_x + max_y, spacing):
                 # Create full hatch line
@@ -322,6 +382,8 @@ class JaipurSeamlessTiles:
                     continue
         
         elif ptype == "cross_hatch":
+            if poly_shape is None:
+                return
             # Draw two sets of perpendicular hatch lines
             spacing = max(5, (max_x - min_x) // 12)
             # First set (diagonal from top-left to bottom-right)
@@ -372,6 +434,8 @@ class JaipurSeamlessTiles:
                     continue
         
         elif ptype == "dashed":
+            if poly_shape is None:
+                return
             spacing = max(5, (max_x - min_x) // 12)
             dash_length = 8
             gap_length = 4
@@ -414,6 +478,8 @@ class JaipurSeamlessTiles:
                     continue
         
         elif ptype == "dotted":
+            if poly_shape is None:
+                return
             spacing = max(5, (max_x - min_x) // 12)
             dot_spacing = 4
             dot_radius = 2
@@ -457,27 +523,29 @@ class JaipurSeamlessTiles:
             for y in range(min_y, max_y + 1, spacing):
                 for x in range(min_x, max_x + 1, spacing):
                     try:
-                        if poly_shape.contains(Point(x, y)):
+                        if poly_shape is not None and poly_shape.contains(Point(x, y)):
                             draw.ellipse([x-dot_radius, y-dot_radius, x+dot_radius, y+dot_radius], fill=pcolor)
                     except:
                         continue
     
     def render_polygon_with_holes(self, draw, polygon, tile_bounds, img_size, buffer_pixels,
-                                  buffered_size, fill_rgb, color_info, outline_width=1, lon_range=None, lat_range=None):
+                                  buffered_size, fill_rgb, color_info, outline_width=1):
         """
         Render polygon with interior rings (holes) properly.
-        Optimized: Draw directly when possible, use separate image only when necessary.
+        Create a mask where holes are transparent.
         """
-        # Pre-compute coordinate conversion factors if not provided
-        if lon_range is None:
-            lon_range = tile_bounds.east - tile_bounds.west
-        if lat_range is None:
-            lat_range = tile_bounds.north - tile_bounds.south
+        # Create a temporary image for this polygon with alpha channel
+        poly_img = Image.new('RGBA', (buffered_size, buffered_size), (0, 0, 0, 0))
+        poly_draw = ImageDraw.Draw(poly_img)
         
         # Convert exterior ring to pixel coordinates
+        # Use actual tile bounds for consistent alignment across tiles
         exterior_pixels = []
+        lon_range = tile_bounds.east - tile_bounds.west
+        lat_range = tile_bounds.north - tile_bounds.south
         for coord in polygon.exterior.coords:
             lon, lat = coord[0], coord[1]
+            # Convert to pixel coordinates using actual tile bounds
             px = ((lon - tile_bounds.west) / lon_range * img_size) + buffer_pixels
             py = ((tile_bounds.north - lat) / lat_range * img_size) + buffer_pixels
             exterior_pixels.append((int(px), int(py)))
@@ -485,42 +553,47 @@ class JaipurSeamlessTiles:
         if len(exterior_pixels) < 3:
             return
         
-        # If no holes, draw directly (faster) - but we need to return image for compositing
-        # So we still create the image but optimize the coordinate conversion
-        poly_img = Image.new('RGBA', (buffered_size, buffered_size), (0, 0, 0, 0))
-        poly_draw = ImageDraw.Draw(poly_img)
+        # Draw exterior ring with full opacity and black outline
+        fill_rgba = fill_rgb + (255,) if fill_rgb else None  # Add alpha channel
+        black_outline = (0, 0, 0, 255)  # Black outline
         
-        fill_rgba = fill_rgb + (255,) if fill_rgb else None
-        black_outline = (0, 0, 0, 255)
-        
+        # Check if pattern should be applied
         if 'pattern' in color_info:
-            pattern_color_rgb = color_info.get('pattern_color', (0, 0, 0))
+            # Apply pattern (dots, hatch, etc.)
+            pattern_color = self.hex_to_rgb(color_info['pattern_color'])
             self.create_pattern(poly_draw, exterior_pixels, fill_rgb, 
                              color_info['pattern'], 
-                             pattern_color_rgb,
+                             pattern_color,
                              buffered_size)
-        elif fill_rgba:
-            poly_draw.polygon(exterior_pixels, fill=fill_rgba)
+        else:
+            # Draw fill first, then outline on top for precise boundaries
+            if fill_rgba:
+                poly_draw.polygon(exterior_pixels, fill=fill_rgba)
         
+        # Draw black outline
         if len(exterior_pixels) > 1:
             closed_pixels = exterior_pixels + [exterior_pixels[0]]
             poly_draw.line(closed_pixels, fill=black_outline, width=outline_width)
         
-        # Draw interior rings (holes) as transparent
+        # Draw interior rings (holes) as transparent (black with full alpha = cut out)
         for interior in polygon.interiors:
             interior_pixels = []
             for coord in interior.coords:
                 lon, lat = coord[0], coord[1]
+                # Convert to pixel coordinates using actual tile bounds
                 px = ((lon - tile_bounds.west) / lon_range * img_size) + buffer_pixels
                 py = ((tile_bounds.north - lat) / lat_range * img_size) + buffer_pixels
                 interior_pixels.append((int(px), int(py)))
             
             if len(interior_pixels) >= 3:
+                # Draw hole as transparent (cut out from fill)
                 poly_draw.polygon(interior_pixels, fill=(0, 0, 0, 0))
+                # Draw hole outline
                 if len(interior_pixels) > 1:
                     closed_interior = interior_pixels + [interior_pixels[0]]
                     poly_draw.line(closed_interior, fill=black_outline, width=outline_width)
         
+        # Composite polygon onto main image
         return poly_img
     
     def render_tile_seamless(self, tile):
@@ -552,12 +625,7 @@ class JaipurSeamlessTiles:
         img_buffered = Image.new('RGBA', (buffered_size, buffered_size), (0, 0, 0, 0))
         draw = ImageDraw.Draw(img_buffered)
         
-        # Pre-compute coordinate conversion factors (used multiple times)
-        lon_range = tile_bounds.east - tile_bounds.west
-        lat_range = tile_bounds.north - tile_bounds.south
-        
-        # Use cached RGB color map for faster access
-        color_map = self._color_map_rgb
+        color_map = self.get_color_map()
         rendered_count = 0
         
         for feature_id in candidate_ids:
@@ -569,26 +637,69 @@ class JaipurSeamlessTiles:
                     continue
                 
                 category = feature_data['category']
-                color_info = color_map.get(category, {'fill': (255, 255, 255), 'outline': (204, 204, 204)})
+                color_info = color_map.get(category, {'fill': '#FFFFFF', 'outline': '#CCCCCC'})
                 
-                fill_rgb = color_info.get('fill')  # Already RGB tuple
+                fill_hex = color_info.get('fill')
+                fill_rgb = self.hex_to_rgb(fill_hex) if fill_hex else None
                 
                 if isinstance(geom, Polygon):
                     if geom.area < 1e-10:
                         continue
                     
-                    # Render polygon with holes (pass pre-computed ranges)
+                    # Render polygon with holes
                     poly_img = self.render_polygon_with_holes(
                         draw, geom, tile_bounds, img_size, buffer_pixels,
-                        buffered_size, fill_rgb, color_info, outline_width,
-                        lon_range, lat_range
+                        buffered_size, fill_rgb, color_info, outline_width
                     )
                     
                     if poly_img:
                         # Composite polygon image onto main image
                         img_buffered = Image.alpha_composite(img_buffered, poly_img)
                         
-                        # Patterns are already applied in render_polygon_with_holes
+                        # Apply patterns if specified
+                        if 'pattern' in color_info and fill_rgb is not None:
+                            # Get exterior ring coordinates for pattern
+                            exterior_pixels = []
+                            lon_range = tile_bounds.east - tile_bounds.west
+                            lat_range = tile_bounds.north - tile_bounds.south
+                            for coord in geom.exterior.coords:
+                                lon, lat = coord[0], coord[1]
+                                px = ((lon - tile_bounds.west) / lon_range * img_size) + buffer_pixels
+                                py = ((tile_bounds.north - lat) / lat_range * img_size) + buffer_pixels
+                                exterior_pixels.append((int(px), int(py)))
+                            
+                            if len(exterior_pixels) >= 3:
+                                pattern_color = self.hex_to_rgb(color_info.get('pattern_color', '#000000'))
+                                self.create_pattern(
+                                    draw, exterior_pixels, fill_rgb,
+                                    color_info['pattern'], pattern_color, buffered_size
+                                )
+                                # Redraw outline after pattern
+                                if len(exterior_pixels) > 1:
+                                    closed_pixels = exterior_pixels + [exterior_pixels[0]]
+                                    draw.line(closed_pixels, fill=(0, 0, 0), width=outline_width)
+                        elif 'pattern' in color_info and fill_rgb is None:
+                            # Pattern only, no fill
+                            exterior_pixels = []
+                            lon_range = tile_bounds.east - tile_bounds.west
+                            lat_range = tile_bounds.north - tile_bounds.south
+                            for coord in geom.exterior.coords:
+                                lon, lat = coord[0], coord[1]
+                                px = ((lon - tile_bounds.west) / lon_range * img_size) + buffer_pixels
+                                py = ((tile_bounds.north - lat) / lat_range * img_size) + buffer_pixels
+                                exterior_pixels.append((int(px), int(py)))
+                            
+                            if len(exterior_pixels) >= 3:
+                                pattern_color = self.hex_to_rgb(color_info.get('pattern_color', '#000000'))
+                                self.create_pattern(
+                                    draw, exterior_pixels, None,
+                                    color_info['pattern'], pattern_color, buffered_size
+                                )
+                                # Draw outline
+                                if len(exterior_pixels) > 1:
+                                    closed_pixels = exterior_pixels + [exterior_pixels[0]]
+                                    outline_color = self.hex_to_rgb(color_info.get('outline', '#000000'))
+                                    draw.line(closed_pixels, fill=outline_color, width=outline_width)
                     
                     rendered_count += 1
                 
@@ -599,20 +710,41 @@ class JaipurSeamlessTiles:
                         
                         poly_img = self.render_polygon_with_holes(
                             draw, poly, tile_bounds, img_size, buffer_pixels,
-                            buffered_size, fill_rgb, color_info, outline_width,
-                            lon_range, lat_range
+                            buffered_size, fill_rgb, color_info, outline_width
                         )
                         
                         if poly_img:
                             img_buffered = Image.alpha_composite(img_buffered, poly_img)
-                            # Patterns are already applied in render_polygon_with_holes
+                            
+                            # Apply patterns if specified
+                            if 'pattern' in color_info:
+                                exterior_pixels = []
+                                lon_range = tile_bounds.east - tile_bounds.west
+                                lat_range = tile_bounds.north - tile_bounds.south
+                                for coord in poly.exterior.coords:
+                                    lon, lat = coord[0], coord[1]
+                                    px = ((lon - tile_bounds.west) / lon_range * img_size) + buffer_pixels
+                                    py = ((tile_bounds.north - lat) / lat_range * img_size) + buffer_pixels
+                                    exterior_pixels.append((int(px), int(py)))
+                                
+                                if len(exterior_pixels) >= 3:
+                                    pattern_color = self.hex_to_rgb(color_info.get('pattern_color', '#000000'))
+                                    self.create_pattern(
+                                        draw, exterior_pixels, fill_rgb,
+                                        color_info['pattern'], pattern_color, buffered_size
+                                    )
+                                    if len(exterior_pixels) > 1:
+                                        closed_pixels = exterior_pixels + [exterior_pixels[0]]
+                                        draw.line(closed_pixels, fill=(0, 0, 0), width=outline_width)
                         
                         rendered_count += 1
                 
                 else:
-                    # Point or very small feature - render as dot (use pre-computed ranges)
+                    # Point or very small feature - render as dot
                     if hasattr(geom, 'x') and hasattr(geom, 'y'):
                         lon, lat = geom.x, geom.y
+                        lon_range = tile_bounds.east - tile_bounds.west
+                        lat_range = tile_bounds.north - tile_bounds.south
                         px = ((lon - tile_bounds.west) / lon_range * img_size) + buffer_pixels
                         py = ((tile_bounds.north - lat) / lat_range * img_size) + buffer_pixels
                         
@@ -639,9 +771,9 @@ class JaipurSeamlessTiles:
         return img
     
     def generate_tiles(self, min_zoom=7, max_zoom=18):
-        """Generate seamless tiles for Jaipur"""
+        """Generate seamless tiles for Puducherry"""
         print(f"\n{'='*80}")
-        print(f"GENERATING JAIPUR TILES (Zoom {min_zoom}-{max_zoom})")
+        print(f"GENERATING PUDUCHERRY TILES (Zoom {min_zoom}-{max_zoom})")
         print(f"Mode: SEAMLESS - NO TILE BOUNDARIES")
         print(f"{'='*80}")
         
@@ -677,7 +809,7 @@ class JaipurSeamlessTiles:
                     tile_dir.mkdir(parents=True, exist_ok=True)
                     
                     tile_path = tile_dir / f"{tile.y}.png"
-                    img.save(tile_path, 'PNG', optimize=False)  # optimize=False is faster
+                    img.save(tile_path, 'PNG', optimize=True)
                     rendered += 1
             
             zoom_elapsed = time.time() - zoom_start
@@ -693,7 +825,7 @@ class JaipurSeamlessTiles:
         print(f"{'='*80}\n")
     
     def generate_html_viewer(self):
-        """Generate viewer for Jaipur"""
+        """Generate viewer for Puducherry"""
         bounds = self.get_bounds()
         center_lon = (bounds[0] + bounds[2]) / 2
         center_lat = (bounds[1] + bounds[3]) / 2
@@ -702,7 +834,7 @@ class JaipurSeamlessTiles:
 <html>
 <head>
   <meta charset="utf-8" />
-  <title>Jaipur Master Plan - Seamless Tiles</title>
+  <title>Puducherry Master Plan - Seamless Tiles</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <style>
     body, html, #map {{ margin:0; padding:0; height:100%; }}
@@ -724,19 +856,19 @@ class JaipurSeamlessTiles:
       minZoom: 7,
       maxZoom: 18,
       opacity: 0.9,
-      attribution: 'Jaipur Master Plan'
+      attribution: 'Puducherry Master Plan'
     }}).addTo(map);
     
     const info = L.control({{position: 'topright'}});
     info.onAdd = function() {{
       this._div = L.DomUtil.create('div', 'info');
-      this._div.innerHTML = '<b>Jaipur Master Plan</b><br/>Seamless tiles - no boundaries<br/>Zoom: ' + map.getZoom();
+      this._div.innerHTML = '<b>Puducherry Master Plan</b><br/>Seamless tiles - no boundaries<br/>Zoom: ' + map.getZoom();
       return this._div;
     }};
     info.addTo(map);
     
     map.on('zoomend', function() {{
-      info._div.innerHTML = '<b>Jaipur Master Plan</b><br/>Seamless tiles - no boundaries<br/>Zoom: ' + map.getZoom();
+      info._div.innerHTML = '<b>Puducherry Master Plan</b><br/>Seamless tiles - no boundaries<br/>Zoom: ' + map.getZoom();
     }});
   </script>
 </body>
@@ -750,8 +882,8 @@ def main():
     import sys
     
     possible_paths = [
-        Path('data/rajasthan/jaipur/master_plan'),
-        Path('/Users/rohitboni/Downloads/All_files/project/1acre/geomapping_full/geomapping/data/rajasthan/jaipur/master_plan'),
+        Path('data/puducherry/master_plan'),
+        Path('/Users/rohitboni/Downloads/All_files/project/1acre/geomapping_full/geomapping/data/puducherry/master_plan'),
     ]
     
     data_dir = None
@@ -761,24 +893,24 @@ def main():
             break
     
     if data_dir is None:
-        print("Enter path to Jaipur master_plan directory:")
+        print("Enter path to Puducherry master_plan directory:")
         user_path = input("> ").strip()
         data_dir = Path(user_path)
         if not data_dir.exists():
             print(f"✗ Path not found: {data_dir}")
             sys.exit(1)
     
-    output_dir = Path('./jaipur_tiles_seamless_fast')
+    output_dir = Path('./puducherry_tiles_seamless')
     
     print("="*80)
-    print("JAIPUR MASTER PLAN - SEAMLESS TILE GENERATOR")
+    print("PUDUCHERRY MASTER PLAN - SEAMLESS TILE GENERATOR")
     print("✅ Properly handles polygon holes/interior rings")
     print("✅ Supports hatch, cross_hatch, dashed, dotted, and dots patterns")
     print("="*80)
     print(f"Input:  {data_dir}")
     print(f"Output: {output_dir}")
     
-    generator = JaipurSeamlessTiles(data_dir, output_dir)
+    generator = PuducherrySeamlessTiles(data_dir, output_dir)
     generator.load_geojson_files()
     
     if generator.feature_id_counter == 0:

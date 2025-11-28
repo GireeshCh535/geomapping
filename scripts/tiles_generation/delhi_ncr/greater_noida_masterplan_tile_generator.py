@@ -30,39 +30,89 @@ class GreaterNoidaSeamlessTiles:
         return value.upper()
     
     def get_color_map(self):
-        """Greater Noida color mapping - matches geotif_greater_noida.py"""
+        """Greater Noida color mapping - updated with new specifications"""
         def hex_to_rgb(hex_color):
             hex_color = hex_color.lstrip('#')
             return tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))
         
         return {
-            "FP": {'fill': '#FDE2CA', 'outline': '#CAB4A2'},
-            "6% KISAN ABADI": {'fill': '#CDAA66', 'outline': '#A48852'},
-            "BUILTUP HOUSING": {'fill': '#FFFF73', 'outline': '#CCCC5C'},
-            "BUILDER": {'fill': '#FFEBAF', 'outline': '#CCBC8C'},
-            "BUILTUP FLATS": {'fill': '#FFFF73', 'outline': '#CCCC5C'},
-            "COMMERCIAL": {'fill': '#FF0000', 'outline': '#CC0000'},
-            "GREEN": {'fill': '#AAFF00', 'outline': '#88CC00'},
-            "GREEN BELT": {'fill': '#9C9C9C', 'outline': '#7D7D7D'},
-            "GREEN_BELT": {'fill': '#9C9C9C', 'outline': '#7D7D7D'},
-            "GROUP HOUSING": {'fill': '#FFAA00', 'outline': '#CC8800'},
-            "MIXED USE": {'fill': '#FFAA00', 'outline': '#CC8800'},
-            "MIXED_USE": {'fill': '#FFAA00', 'outline': '#CC8800'},
-            "IT": {'fill': '#73DFFF', 'outline': '#5CB2CC'},
-            "INDUSTRY": {'fill': '#7A8EF5', 'outline': '#6271C4'},
-            "INSTITUTIONAL": {'fill': '#004DA8', 'outline': '#003D86'},
-            "INSTITUTION": {'fill': '#004DA8', 'outline': '#003D86'},
+            # FP
+            "FP": {'fill': '#fde2ca', 'outline': '#CAB4A2'},
+            
+            # 6% Kisan Abadi
+            "6% KISAN ABADI": {'fill': '#c2c24d', 'outline': '#9B9B3D'},
+            "6 PERCENT KISAN ABADI": {'fill': '#c2c24d', 'outline': '#9B9B3D'},
+            "SIXPERCENT KISAN ABADI": {'fill': '#c2c24d', 'outline': '#9B9B3D'},
+            
+            # BUILTUP HOUSING
+            "BUILTUP HOUSING": {'fill': '#ffff9e', 'outline': '#CCCC7E'},
+            "BUILTUP_HOUSING": {'fill': '#ffff9e', 'outline': '#CCCC7E'},
+            
+            # Builder
+            "BUILDER": {'fill': '#ffe0a6', 'outline': '#CCB385'},
+            
+            # Builtup Flats
+            "BUILTUP FLATS": {'fill': '#ffff9e', 'outline': '#CCCC7E'},
+            "BUILTUP_FLATS": {'fill': '#ffff9e', 'outline': '#CCCC7E'},
+            
+            # Commercial
+            "COMMERCIAL": {'fill': '#ff4d4d', 'outline': '#CC3D3D'},
+            
+            # Green
+            "GREEN": {'fill': '#88ff4d', 'outline': '#6DCC3D'},
+            
+            # Green Belt
+            "GREEN BELT": {'fill': '#689e4d', 'outline': '#537E3D'},
+            "GREEN_BELT": {'fill': '#689e4d', 'outline': '#537E3D'},
+            
+            # Group Housing
+            "GROUP HOUSING": {'fill': '#ffc44d', 'outline': '#CC9D3D'},
+            "GROUP_HOUSING": {'fill': '#ffc44d', 'outline': '#CC9D3D'},
+            "MIXED USE": {'fill': '#ffc44d', 'outline': '#CC9D3D'},
+            "MIXED_USE": {'fill': '#ffc44d', 'outline': '#CC9D3D'},
+            
+            # IT
+            "IT": {'fill': '#9ee9ff', 'outline': '#7EBACC'},
+            
+            # Industry
+            "INDUSTRY": {'fill': '#a3b0f9', 'outline': '#838DC7'},
+            
+            # Institutional
+            "INSTITUTIONAL": {'fill': '#4d81c2', 'outline': '#3D679B'},
+            "INSTITUTION": {'fill': '#4d81c2', 'outline': '#3D679B'},
+            
+            # Not Known
             "NOT KNOWN": {'fill': '#FFFFFF', 'outline': '#CCCCCC'},
-            "PARK": {'fill': '#4CE600', 'outline': '#3DB800'},
-            "RECREATIONAL GREEN": {'fill': '#A3FF73', 'outline': '#83CC5C'},
-            "RESIDENTIAL": {'fill': '#E6E600', 'outline': '#B8B800'},
-            "SPORTS": {'fill': '#9C9C9C', 'outline': '#7D7D7D', 'pattern': 'hatch', 'pattern_color': '#000000'},
-            "TRANSPORT": {'fill': '#A87000', 'outline': '#865A00'},
-            "UTILITY": {'fill': '#B2B2B2', 'outline': '#8F8F8F'},
-            "VILLAGE": {'fill': '#E64C00', 'outline': '#B83D00'},
-            "VILLAGE ABADI": {'fill': '#D7D79E', 'outline': '#B0B07E'},
-            "WATER BODY": {'fill': '#0070FF', 'outline': '#005ACC'},
-            "WATER BODIES": {'fill': '#0070FF', 'outline': '#005ACC'},
+            "NOT_KNOWN": {'fill': '#FFFFFF', 'outline': '#CCCCCC'},
+            
+            # Park
+            "PARK": {'fill': '#81ee4d', 'outline': '#67BE3D'},
+            
+            # Recreational Green
+            "RECREATIONAL GREEN": {'fill': '#c4ff4d', 'outline': '#9DCC3D'},
+            "RECREATIONAL_GREEN": {'fill': '#c4ff4d', 'outline': '#9DCC3D'},
+            
+            # Residential
+            "RESIDENTIAL": {'fill': '#f5f252', 'outline': '#C4C242'},
+            
+            # Sports - Solid Fill: FFFFFF, Hatched Fill: 000000
+            "SPORTS": {'fill': '#FFFFFF', 'outline': '#7D7D7D', 'pattern': 'hatch', 'pattern_color': '#000000'},
+            
+            # Transport
+            "TRANSPORT": {'fill': '#c29a4d', 'outline': '#9B7B3D'},
+            
+            # Utility
+            "UTILITY": {'fill': '#cacaca', 'outline': '#A2A2A2'},
+            
+            # Village Abadi
+            "VILLAGE ABADI": {'fill': '#ececca', 'outline': '#BDBDA2'},
+            "VILLAGE_ABADI": {'fill': '#ececca', 'outline': '#BDBDA2'},
+            "VILLAGE": {'fill': '#ececca', 'outline': '#BDBDA2'},
+            
+            # Water Body
+            "WATER BODY": {'fill': '#4d9aff', 'outline': '#3D7BCC'},
+            "WATER BODIES": {'fill': '#4d9aff', 'outline': '#3D7BCC'},
+            "WATER_BODY": {'fill': '#4d9aff', 'outline': '#3D7BCC'},
             "AIRPORT": {'fill': '#FF0000', 'outline': '#CC0000', 'pattern': 'airplane', 'pattern_color': '#FFFFFF'},
             "RAILWAY LINES": {'fill': '#000000', 'outline': '#000000'},
             "MASTER PLAN": {'fill': None, 'outline': '#6E6E6E'},
@@ -96,6 +146,8 @@ class GreaterNoidaSeamlessTiles:
     
     def hex_to_rgb(self, hex_color):
         """Convert hex to RGB"""
+        if hex_color is None:
+            return None
         hex_color = hex_color.lstrip('#')
         return tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))
     
@@ -233,10 +285,18 @@ class GreaterNoidaSeamlessTiles:
         min_x, max_x = int(min(xs)), int(max(xs))
         min_y, max_y = int(min(ys)), int(max(ys))
         
-        # Create polygon shape for clipping
-        poly_shape = Polygon(poly)
+        # Create polygon shape for clipping - ensure it's valid
+        try:
+            poly_shape = Polygon(poly)
+            if not poly_shape.is_valid:
+                poly_shape = poly_shape.buffer(0)
+        except:
+            # If polygon creation fails, use bounding box for dots
+            poly_shape = None
         
         if ptype == "hatch":
+            if poly_shape is None:
+                return  # Cannot clip hatch without valid polygon
             spacing = max(3, (max_x - min_x) // 15)
             for i in range(min_x - max_y, max_x + max_y, spacing):
                 # Create full hatch line
@@ -253,24 +313,37 @@ class GreaterNoidaSeamlessTiles:
                     clipped_pts = list(clipped.coords)
                     if len(clipped_pts) >= 2:
                         int_pts = [(int(x), int(y)) for x, y in clipped_pts]
-                        draw.line(int_pts, fill=pcolor, width=1)
+                        draw.line(int_pts, fill=pcolor, width=2)
                 elif clipped.geom_type == 'MultiLineString':
                     for line_seg in clipped.geoms:
                         clipped_pts = list(line_seg.coords)
                         if len(clipped_pts) >= 2:
                             int_pts = [(int(x), int(y)) for x, y in clipped_pts]
-                            draw.line(int_pts, fill=pcolor, width=1)
+                            draw.line(int_pts, fill=pcolor, width=2)
         elif ptype == "dots":
-            spacing = 6
+            spacing = 24
+            dot_radius = 3
+            
+            # Draw dots across the polygon area
             for y in range(min_y, max_y + 1, spacing):
                 for x in range(min_x, max_x + 1, spacing):
-                    if poly_shape.contains(Point(x, y)):
-                        draw.ellipse([x-1, y-1, x+1, y+1], fill=pcolor)
+                    # Check if point is inside polygon
+                    if poly_shape is not None:
+                        try:
+                            point = Point(x, y)
+                            if poly_shape.contains(point):
+                                draw.ellipse([x-dot_radius, y-dot_radius, x+dot_radius, y+dot_radius], fill=pcolor)
+                        except:
+                            # Fallback: draw dot if within bounding box
+                            draw.ellipse([x-dot_radius, y-dot_radius, x+dot_radius, y+dot_radius], fill=pcolor)
+                    else:
+                        # If polygon shape is None, draw dots in bounding box
+                        draw.ellipse([x-dot_radius, y-dot_radius, x+dot_radius, y+dot_radius], fill=pcolor)
         elif ptype == "airplane":
             spacing = 18
             for y in range(min_y, max_y + 1, spacing):
                 for x in range(min_x, max_x + 1, spacing):
-                    if poly_shape.contains(Point(x, y)):
+                    if poly_shape is not None and poly_shape.contains(Point(x, y)):
                         # Draw cross pattern (airplane marker)
                         draw.line([(x-3, y), (x+3, y)], fill=pcolor, width=1)
                         draw.line([(x, y-3), (x, y+3)], fill=pcolor, width=1)
@@ -304,10 +377,22 @@ class GreaterNoidaSeamlessTiles:
         
         # Draw exterior ring with full opacity and black outline
         black_outline = (0, 0, 0, 255)  # Black outline
-        # Draw fill first (if exists), then outline on top for precise boundaries
-        if fill_rgb:
-            fill_rgba = fill_rgb + (255,)  # Add alpha channel
-            poly_draw.polygon(exterior_pixels, fill=fill_rgba)
+        
+        # Check if pattern should be applied
+        if 'pattern' in color_info:
+            # Apply pattern (dots, hatch, etc.)
+            pattern_color = self.hex_to_rgb(color_info['pattern_color'])
+            self.create_pattern(poly_draw, exterior_pixels, fill_rgb, 
+                             color_info['pattern'], 
+                             pattern_color,
+                             buffered_size)
+        else:
+            # Draw fill first (if exists), then outline on top for precise boundaries
+            if fill_rgb:
+                fill_rgba = fill_rgb + (255,)  # Add alpha channel
+                poly_draw.polygon(exterior_pixels, fill=fill_rgba)
+        
+        # Draw black outline
         if len(exterior_pixels) > 1:
             closed_pixels = exterior_pixels + [exterior_pixels[0]]
             poly_draw.line(closed_pixels, fill=black_outline, width=outline_width)
@@ -439,7 +524,7 @@ class GreaterNoidaSeamlessTiles:
                         else:
                             # Simple polygon without holes - draw with black outline
                             black_outline = (0, 0, 0)  # Black outline
-                            if 'pattern' in color_info and fill_rgb:
+                            if 'pattern' in color_info:
                                 self.create_pattern(draw, int_pixels, fill_rgb, 
                                                  color_info['pattern'], 
                                                  self.hex_to_rgb(color_info['pattern_color']),
@@ -475,7 +560,7 @@ class GreaterNoidaSeamlessTiles:
                             
                             # Draw with black outline
                             black_outline = (0, 0, 0)  # Black outline
-                            if 'pattern' in color_info and fill_rgb:
+                            if 'pattern' in color_info:
                                 self.create_pattern(draw, enlarged_coords, fill_rgb,
                                                  color_info['pattern'],
                                                  self.hex_to_rgb(color_info['pattern_color']),

@@ -32,31 +32,64 @@ class NoidaSeamlessTiles:
     def get_color_map(self):
         """Noida color mapping - matches geotif_noida.py"""
         return {
+            # 5 % Abadi
             "5 % ABADI": {'fill': '#D7D79E', 'outline': '#B0B07E'},
             "5% ABADI": {'fill': '#D7D79E', 'outline': '#B0B07E'},
             "FIVE PERCENT ABADI": {'fill': '#D7D79E', 'outline': '#B0B07E'},
             "FIVE_PERCENT_ABADI": {'fill': '#D7D79E', 'outline': '#B0B07E'},
+            
+            # Commercial
             "COMMERCIAL": {'fill': '#FF0000', 'outline': '#CC0000'},
+            
+            # Farmhouse
             "FARMHOUSE": {'fill': '#FDB3FD', 'outline': '#CA8FCA'},
+            
+            # Green
             "GREEN": {'fill': '#4CE600', 'outline': '#3DB800'},
+            
+            # Group Housing
             "GROUP HOUSING": {'fill': '#FFAA00', 'outline': '#CC8800'},
             "GROUP_HOUSING": {'fill': '#FFAA00', 'outline': '#CC8800'},
+            
+            # Housing
             "HOUSING": {'fill': '#FFEBAF', 'outline': '#CCBC8C'},
-            "INDUSTRIAL": {'fill': '#6699CD', 'outline': '#527A9E'},
-            "INDUSTRY": {'fill': '#6699CD', 'outline': '#527A9E'},
+            
+            # Industrial
+            "INDUSTRIAL": {'fill': '#7a8ef5', 'outline': '#6271C4'},
+            "INDUSTRY": {'fill': '#7a8ef5', 'outline': '#6271C4'},
+            
+            # Institutional
             "INSTITUTIONAL": {'fill': '#004DA8', 'outline': '#003D86'},
+            
+            # Road
             "ROAD": {'fill': '#CCCCCC', 'outline': '#A3A3A3'},
             "ROADS": {'fill': '#CCCCCC', 'outline': '#A3A3A3'},
+            
+            # Recreational Green
             "RECREATIONAL GREEN": {'fill': '#55FF00', 'outline': '#44CC00'},
             "RECREATIONAL_GREEN": {'fill': '#55FF00', 'outline': '#44CC00'},
+            
+            # Residential
             "RESIDENTIAL": {'fill': '#FFFF00', 'outline': '#CCCC00'},
+            
+            # Sports
             "SPORTS": {'fill': '#FF0000', 'outline': '#CC0000'},
+            
+            # Transport
             "TRANSPORT": {'fill': '#A87000', 'outline': '#865A00'},
+            
+            # Utility
             "UTILITY": {'fill': '#9C9C9C', 'outline': '#7D7D7D'},
+            
+            # Village Abadi
             "VILLAGE ABADI": {'fill': '#D7D79E', 'outline': '#B0B07E'},
             "VILLAGE_ABADI": {'fill': '#D7D79E', 'outline': '#B0B07E'},
+            
+            # Water Body
             "WATER BODY": {'fill': '#0070FF', 'outline': '#005ACC'},
             "WATER_BODY": {'fill': '#0070FF', 'outline': '#005ACC'},
+            
+            # NA / Not Known
             "NA": {'fill': '#FFFFFF', 'outline': '#CCCCCC'},
             "NOT KNOWN": {'fill': '#FFFFFF', 'outline': '#CCCCCC'},
             "NOT_KNOWN": {'fill': '#FFFFFF', 'outline': '#CCCCCC'},
@@ -64,6 +97,8 @@ class NoidaSeamlessTiles:
     
     def hex_to_rgb(self, hex_color):
         """Convert hex to RGB"""
+        if hex_color is None:
+            return None
         hex_color = hex_color.lstrip('#')
         return tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))
     
@@ -233,10 +268,11 @@ class NoidaSeamlessTiles:
             return
         
         # Draw exterior ring with full opacity and black outline
-        fill_rgba = fill_rgb + (255,)  # Add alpha channel
         black_outline = (0, 0, 0, 255)  # Black outline
-        # Draw fill first, then outline on top for precise boundaries
-        poly_draw.polygon(exterior_pixels, fill=fill_rgba)
+        # Draw fill first (if exists), then outline on top for precise boundaries
+        if fill_rgb:
+            fill_rgba = fill_rgb + (255,)  # Add alpha channel
+            poly_draw.polygon(exterior_pixels, fill=fill_rgba)
         if len(exterior_pixels) > 1:
             closed_pixels = exterior_pixels + [exterior_pixels[0]]
             poly_draw.line(closed_pixels, fill=black_outline, width=outline_width)
@@ -318,8 +354,10 @@ class NoidaSeamlessTiles:
             # Try category first, then filename
             color_info = color_map.get(category, color_map.get(self.normalize_category(filename), {'fill': '#CCCCCC', 'outline': '#999999'}))
             
-            fill_rgb = self.hex_to_rgb(color_info['fill'])
-            outline_rgb = self.hex_to_rgb(color_info.get('outline', color_info['fill']))
+            fill_color = color_info.get('fill')
+            fill_rgb = self.hex_to_rgb(fill_color) if fill_color else None
+            outline_color = color_info.get('outline', fill_color or '#000000')
+            outline_rgb = self.hex_to_rgb(outline_color)
             
             # Handle geometry types
             if geom.geom_type == 'Polygon':
@@ -377,9 +415,14 @@ class NoidaSeamlessTiles:
                                     # Close the polygon by adding first point at end
                                     closed_pixels = int_pixels + [int_pixels[0]]
                                     draw.line(closed_pixels, fill=black_outline, width=outline_width)
-                            else:
+                            elif fill_rgb:
                                 # Draw fill first, then outline on top for precise boundaries
                                 draw.polygon(int_pixels, fill=fill_rgb)
+                                if len(int_pixels) > 1:
+                                    closed_pixels = int_pixels + [int_pixels[0]]
+                                    draw.line(closed_pixels, fill=black_outline, width=outline_width)
+                            else:
+                                # Outline only - draw black outline
                                 if len(int_pixels) > 1:
                                     closed_pixels = int_pixels + [int_pixels[0]]
                                     draw.line(closed_pixels, fill=black_outline, width=outline_width)
@@ -407,18 +450,24 @@ class NoidaSeamlessTiles:
                                 if len(enlarged_coords) > 1:
                                     closed_coords = enlarged_coords + [enlarged_coords[0]]
                                     draw.line(closed_coords, fill=black_outline, width=outline_width)
-                            else:
+                            elif fill_rgb:
                                 # Draw fill first, then outline on top
                                 draw.polygon(enlarged_coords, fill=fill_rgb)
                                 if len(enlarged_coords) > 1:
                                     closed_coords = enlarged_coords + [enlarged_coords[0]]
                                     draw.line(closed_coords, fill=black_outline, width=outline_width)
+                            else:
+                                # Outline only - draw black outline
+                                if len(enlarged_coords) > 1:
+                                    closed_coords = enlarged_coords + [enlarged_coords[0]]
+                                    draw.line(closed_coords, fill=black_outline, width=outline_width)
                             
-                            # Center dot with black outline
-                            dot_size = min_size // 2
-                            draw.ellipse([center_x - dot_size, center_y - dot_size,
-                                        center_x + dot_size, center_y + dot_size],
-                                       fill=fill_rgb, outline=(0, 0, 0), width=outline_width)
+                            # Center dot with black outline (only if fill exists)
+                            if fill_rgb:
+                                dot_size = min_size // 2
+                                draw.ellipse([center_x - dot_size, center_y - dot_size,
+                                            center_x + dot_size, center_y + dot_size],
+                                           fill=fill_rgb, outline=(0, 0, 0), width=outline_width)
                     
                     rendered_count += 1
                     

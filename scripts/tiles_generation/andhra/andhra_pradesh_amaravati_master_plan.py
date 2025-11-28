@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Amaravati Master Plan - ENHANCED DENSE COMPLETE TILES
-Every feature visible at every zoom level - Professional quality
+Amaravati Master Plan - SEAMLESS COMPLETE TILES
+Every feature visible at every zoom level - Transparent background
 """
 
 import json
@@ -10,10 +10,10 @@ import time
 from pathlib import Path
 from PIL import Image, ImageDraw
 import mercantile
-from shapely.geometry import shape, box
+from shapely.geometry import shape, box, Point, Polygon, LineString
 from rtree import index
 
-class AmaravatiEnhancedTiles:
+class AmaravatiSeamlessTiles:
     def __init__(self, data_dir, output_dir):
         self.data_dir = Path(data_dir)
         self.output_dir = Path(output_dir)
@@ -22,73 +22,175 @@ class AmaravatiEnhancedTiles:
         self.feature_id_counter = 0
         self.feature_lookup = {}
         
+    def normalize_category(self, value):
+        """Normalize category name"""
+        if not value:
+            return None
+        value = " ".join(str(value).replace("_", " ").split())
+        return value.upper()
+        
     def get_color_map(self):
-        """Complete color mapping with all Amaravati zones"""
+        """Amaravati color mapping"""
+        def hex_to_rgb(hex_color):
+            hex_color = hex_color.lstrip('#')
+            return tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))
+        
         return {
-            'Burial Ground': {'fill': '#E39E00', 'outline': '#B87E00'},
-            'C1 -Mixed use zone': {'fill': '#73B2FF', 'outline': '#5A8FCC'},
-            'C2- General commercial zone': {'fill': '#00C5FF', 'outline': '#009ECC'},
-            'C3-Neighbourhood centre zone': {'fill': '#00C5FF', 'outline': '#009ECC'},
-            'C4-Town centre zone': {'fill': '#00A9E6', 'outline': '#0087B8'},
-            'C5-Regional centre zone': {'fill': '#0070FF', 'outline': '#005ACC'},
-            'C6-Central business district zone': {'fill': '#005CE6', 'outline': '#004AB8'},
-            'Commercial Vacant': {'fill': '#C5E2FF', 'outline': '#9EBFE6'},
-            'I1-Business park zone': {'fill': '#FFBEE8', 'outline': '#CC98BA'},
-            'I2-Logistics zone': {'fill': '#FF73DF', 'outline': '#CC5CB2'},
-            'I3-Non polluting industry zone': {'fill': '#A900E6', 'outline': '#8700B8'},
-            'Not Available': {'fill': '#CCCCCC', 'outline': '#999999'},
-            'P1-Passive zone': {'fill': '#267300', 'outline': '#1D5C00'},
-            'P2-Active zone': {'fill': '#38A800', 'outline': '#2D8600'},
-            'P3-Protected zone': {'fill': '#BEE8FF', 'outline': '#98BAE6'},
-            'P3-Protected zone Hills': {'fill': '#4C7300', 'outline': '#3D5C00'},
+            # Burial Ground - Hatched Fill: d2d2d2, Solid Fill: FFFFFF
+            'BURIAL GROUND': {'fill': '#FFFFFF', 'outline': '#CCCCCC', 'pattern': 'hatch', 'pattern_color': '#d2d2d2'},
+            
+            # Commercial zones
+            'C1 MIXED USE ZONE': {'fill': '#68acff', 'outline': '#537A99'},
+            'C1 -MIXED USE ZONE': {'fill': '#68acff', 'outline': '#537A99'},
+            
+            # C2- General commercial zone - Solid Fill: 4ec6f1, Hatched Fill: 6b767a, Outline: 000000
+            'C2 GENERAL COMMERCIAL ZONE': {'fill': '#4ec6f1', 'outline': '#000000', 'pattern': 'hatch', 'pattern_color': '#6b767a'},
+            'C2- GENERAL COMMERCIAL ZONE': {'fill': '#4ec6f1', 'outline': '#000000', 'pattern': 'hatch', 'pattern_color': '#6b767a'},
+            
+            'C3 NEIGHBOURHOOD CENTRE ZONE': {'fill': '#53b5ff', 'outline': '#429199'},
+            'C3-NEIGHBOURHOOD CENTRE ZONE': {'fill': '#53b5ff', 'outline': '#429199'},
+            
+            'C4 TOWN CENTRE ZONE': {'fill': '#0594ff', 'outline': '#0476CC'},
+            'C4-TOWN CENTRE ZONE': {'fill': '#0594ff', 'outline': '#0476CC'},
+            
+            'C5 REGIONAL CENTRE ZONE': {'fill': '#007dda', 'outline': '#0064AE'},
+            'C5-REGIONAL CENTRE ZONE': {'fill': '#007dda', 'outline': '#0064AE'},
+            
+            'C6 CENTRAL BUSINESS DISTRICT ZONE': {'fill': '#0070c0', 'outline': '#005A99'},
+            'C6-CENTRAL BUSINESS DISTRICT ZONE': {'fill': '#0070c0', 'outline': '#005A99'},
+            
+            'COMMERCIAL VACANT': {'fill': '#bee8ff', 'outline': '#98BA99'},
+            
+            # Industrial zones
+            'I1 BUSINESS PARK ZONE': {'fill': '#fea8ff', 'outline': '#CA86CC'},
+            'I1-BUSINESS PARK ZONE': {'fill': '#fea8ff', 'outline': '#CA86CC'},
+            
+            'I2 LOGISTICS ZONE': {'fill': '#ff73df', 'outline': '#CC5CB2'},
+            'I2-LOGISTICS ZONE': {'fill': '#ff73df', 'outline': '#CC5CB2'},
+            
+            'I3 NON POLLUTING INDUSTRY ZONE': {'fill': '#a900e6', 'outline': '#8700B8'},
+            'I3-NON POLLUTING INDUSTRY ZONE': {'fill': '#a900e6', 'outline': '#8700B8'},
+            
+            # Not Available - Solid Fill: #b6b6b6, Outline: 000000
+            'NOT AVAILABLE': {'fill': '#b6b6b6', 'outline': '#000000'},
+            
+            # Protected zones
+            'P1 PASSIVE ZONE': {'fill': '#017f3f', 'outline': '#016632'},
+            'P1-PASSIVE ZONE': {'fill': '#017f3f', 'outline': '#016632'},
+            
+            'P2 ACTIVE ZONE': {'fill': '#00cd34', 'outline': '#00A42A'},
+            'P2-ACTIVE ZONE': {'fill': '#00cd34', 'outline': '#00A42A'},
+            
+            'P3 PROTECTED ZONE': {'fill': '#97dbf2', 'outline': '#79AFC2'},
+            'P3-PROTECTED ZONE': {'fill': '#97dbf2', 'outline': '#79AFC2'},
+            
+            'P3 PROTECTED ZONE HILLS': {'fill': '#4c7300', 'outline': '#3D5C00'},
+            'P3-PROTECTED ZONE HILLS': {'fill': '#4c7300', 'outline': '#3D5C00'},
+            
+            # PGN zones
             'PGN-G': {'fill': '#4C7300', 'outline': '#3D5C00'},
-            'PGN-V': {'fill': '#897044', 'outline': '#6D5A36'},
-            'R1-Village planning zone': {'fill': '#FFFFFF', 'outline': '#CCCCCC'},
-            'R3-Medium to high density zone': {'fill': '#F5CA7A', 'outline': '#C4A262'},
-            'R4-High density zone': {'fill': '#E69800', 'outline': '#B87A00'},
-            'RAA': {'fill': '#FFAA00', 'outline': '#CC8800'},
-            'Residential Vacant': {'fill': '#FFD37F', 'outline': '#CCA966'},
-            'S2-Education zone': {'fill': '#FF7F7F', 'outline': '#CC6666'},
-            'S3-Special zone': {'fill': '#D7B09E', 'outline': '#AC8D7E'},
-            'SC1a-Mixed Use': {'fill': '#0070FF', 'outline': '#005ACC'},
-            'SC1b - Mixed Use': {'fill': '#73B2FF', 'outline': '#5A8FCC'},
-            'SP1- Passive Zone': {'fill': '#267300', 'outline': '#1D5C00'},
-            'SP2- Active Zone': {'fill': '#38A800', 'outline': '#2D8600'},
-            'SP3-Protected Zone': {'fill': '#00C5FF', 'outline': '#009ECC'},
-            'SR2 Low Density Housing': {'fill': '#FFFFBE', 'outline': '#CCCC98'},
-            'SR4 - High Density Private': {'fill': '#FFAA00', 'outline': '#CC8800'},
-            'SS1 - Government Zone': {'fill': '#E60000', 'outline': '#B80000'},
-            'SS2a- Education Zone': {'fill': '#FF7F7F', 'outline': '#CC6666'},
-            'SS2b Cultural Zone': {'fill': '#C500FF', 'outline': '#9E00CC'},
-            'SS2c Health Zone': {'fill': '#D3FFBE', 'outline': '#A9CC98'},
-            'SS3 - Special Zone': {'fill': '#A83800', 'outline': '#862D00'},
-            'SU1-Reserve Zone': {'fill': '#E1E1E1', 'outline': '#B4B4B4'},
-            'SU2 - Road Network': {'fill': '#82817D', 'outline': '#686764'},
-            'U1-Reserve zone': {'fill': '#CCCCCC', 'outline': '#A3A3A3'},
-            'U2- Road Reserve Zone': {'fill': '#82817D', 'outline': '#686764'},
-            'U2- Road reserve zone': {'fill': '#82817D', 'outline': '#686764'},
+            'PGN-V': {'fill': '#b5966f', 'outline': '#917858'},
+            
+            # Residential zones
+            # R1-Village planning zone - Solid Fill: FFFFFF, Hatched Fill: 000000
+            'R1 VILLAGE PLANNING ZONE': {'fill': '#FFFFFF', 'outline': '#CCCCCC', 'pattern': 'hatch', 'pattern_color': '#000000'},
+            'R1-VILLAGE PLANNING ZONE': {'fill': '#FFFFFF', 'outline': '#CCCCCC', 'pattern': 'hatch', 'pattern_color': '#000000'},
+            
+            'R3 MEDIUM TO HIGH DENSITY ZONE': {'fill': '#ffd868', 'outline': '#CCAD53'},
+            'R3-MEDIUM TO HIGH DENSITY ZONE': {'fill': '#ffd868', 'outline': '#CCAD53'},
+            
+            'R4 HIGH DENSITY ZONE': {'fill': '#e69800', 'outline': '#B87A00'},
+            'R4-HIGH DENSITY ZONE': {'fill': '#e69800', 'outline': '#B87A00'},
+            
+            'RAA': {'fill': '#ffa900', 'outline': '#CC8700'},
+            
+            'RESIDENTIAL VACANT': {'fill': '#ffecb0', 'outline': '#CCBD8C'},
+            
+            # Special zones
+            'S2 EDUCATION ZONE': {'fill': '#ff7f7f', 'outline': '#CC6666'},
+            'S2-EDUCATION ZONE': {'fill': '#ff7f7f', 'outline': '#CC6666'},
+            
+            'S3 SPECIAL ZONE': {'fill': '#d7b09f', 'outline': '#AC8D7F'},
+            'S3-SPECIAL ZONE': {'fill': '#d7b09f', 'outline': '#AC8D7F'},
+            
+            # SC zones
+            'SC1A MIXED USE': {'fill': '#006fff', 'outline': '#0058CC'},
+            'SC1A-MIXED USE': {'fill': '#006fff', 'outline': '#0058CC'},
+            
+            'SC1B MIXED USE': {'fill': '#74b3ff', 'outline': '#5D8FCC'},
+            'SC1B - MIXED USE': {'fill': '#74b3ff', 'outline': '#5D8FCC'},
+            
+            # SP zones
+            'SP1 PASSIVE ZONE': {'fill': '#247400', 'outline': '#1D5C00'},
+            'SP1- PASSIVE ZONE': {'fill': '#247400', 'outline': '#1D5C00'},
+            
+            'SP2 ACTIVE ZONE': {'fill': '#37a800', 'outline': '#2C8600'},
+            'SP2- ACTIVE ZONE': {'fill': '#37a800', 'outline': '#2C8600'},
+            
+            'SP3 PROTECTED ZONE': {'fill': '#00c5ff', 'outline': '#009ECC'},
+            'SP3-PROTECTED ZONE': {'fill': '#00c5ff', 'outline': '#009ECC'},
+            
+            # SR zones
+            'SR2 LOW DENSITY HOUSING': {'fill': '#ffffbe', 'outline': '#CCCC98'},
+            
+            'SR4 HIGH DENSITY PRIVATE': {'fill': '#ffa900', 'outline': '#CC8700'},
+            'SR4 - HIGH DENSITY PRIVATE': {'fill': '#ffa900', 'outline': '#CC8700'},
+            
+            # SS zones
+            'SS1 GOVERNMENT ZONE': {'fill': '#e60000', 'outline': '#B80000'},
+            'SS1 - GOVERNMENT ZONE': {'fill': '#e60000', 'outline': '#B80000'},
+            
+            'SS2A EDUCATION ZONE': {'fill': '#ff7f7f', 'outline': '#CC6666'},
+            'SS2A- EDUCATION ZONE': {'fill': '#ff7f7f', 'outline': '#CC6666'},
+            
+            'SS2B CULTURAL ZONE': {'fill': '#a900e6', 'outline': '#8700B8'},
+            'SS2B CULTURAL ZONE': {'fill': '#a900e6', 'outline': '#8700B8'},
+            
+            'SS2C HEALTH ZONE': {'fill': '#d3ffbe', 'outline': '#A9CC98'},
+            'SS2C HEALTH ZONE': {'fill': '#d3ffbe', 'outline': '#A9CC98'},
+            
+            'SS3 SPECIAL ZONE': {'fill': '#a83700', 'outline': '#862C00'},
+            'SS3 - SPECIAL ZONE': {'fill': '#a83700', 'outline': '#862C00'},
+            
+            # SU zones
+            'SU1 RESERVE ZONE': {'fill': '#cdcdcd', 'outline': '#A4A4A4'},
+            'SU1-RESERVE ZONE': {'fill': '#cdcdcd', 'outline': '#A4A4A4'},
+            
+            # SU2 - Road Network - Solid Fill: cdcdcd, Outline: 000000
+            'SU2 ROAD NETWORK': {'fill': '#cdcdcd', 'outline': '#000000'},
+            'SU2 - ROAD NETWORK': {'fill': '#cdcdcd', 'outline': '#000000'},
+            
+            # U zones
+            'U1 RESERVE ZONE': {'fill': '#b2b2b2', 'outline': '#8F8F8F'},
+            'U1-RESERVE ZONE': {'fill': '#b2b2b2', 'outline': '#8F8F8F'},
+            
+            # U2- Road reserve zone - Solid Fill: FFFFFF, Outline: 000000
+            'U2 ROAD RESERVE ZONE': {'fill': '#FFFFFF', 'outline': '#000000'},
+            'U2- ROAD RESERVE ZONE': {'fill': '#FFFFFF', 'outline': '#000000'},
         }
     
     def hex_to_rgb(self, hex_color):
         """Convert hex to RGB"""
+        if hex_color is None:
+            return None
         hex_color = hex_color.lstrip('#')
         return tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))
     
     def get_zoom_scale(self, zoom):
-        """Get rendering scale based on zoom level for consistency"""
+        """Get rendering scale based on zoom level"""
         if zoom <= 10:
-            return 6  # Maximum detail at low zoom
+            return 6
         elif zoom <= 13:
             return 5
         elif zoom <= 16:
             return 4
         else:
-            return 3  # Still good detail at high zoom
+            return 3
     
     def get_min_feature_size(self, zoom, scale):
-        """Minimum feature size in pixels (after scaling)"""
+        """Minimum feature size in pixels"""
         if zoom <= 10:
-            return 4 * scale  # Large at overview
+            return 4 * scale
         elif zoom <= 13:
             return 3 * scale
         elif zoom <= 16:
@@ -96,10 +198,19 @@ class AmaravatiEnhancedTiles:
         else:
             return 1.5 * scale
     
+    def get_outline_width(self, zoom):
+        """Get outline width based on zoom level"""
+        if zoom <= 10:
+            return 2
+        elif zoom <= 13:
+            return 1
+        else:
+            return 1
+    
     def load_geojson_files(self):
-        """Load all GeoJSON with spatial indexing"""
+        """Load all Amaravati GeoJSON files"""
         print("\n" + "="*80)
-        print("LOADING GEOJSON DATA - ENHANCED MODE")
+        print("LOADING AMARAVATI GEOJSON DATA")
         print("="*80)
         
         geojson_files = sorted(self.data_dir.glob('*.geojson'))
@@ -111,10 +222,10 @@ class AmaravatiEnhancedTiles:
         load_start = time.time()
         
         for idx, geojson_file in enumerate(geojson_files, 1):
-            zone_name = geojson_file.stem
+            file_name = geojson_file.stem
             file_size = geojson_file.stat().st_size / 1024 / 1024
             
-            print(f"[{idx:2d}/{total_files}] {zone_name:<50} ({file_size:6.2f} MB)", end=" ", flush=True)
+            print(f"[{idx:2d}/{total_files}] {file_name:<50} ({file_size:6.2f} MB)", end=" ", flush=True)
             
             try:
                 with open(geojson_file, 'r', encoding='utf-8') as f:
@@ -133,13 +244,25 @@ class AmaravatiEnhancedTiles:
                             continue
                         
                         props = feature.get('properties', {})
-                        feature_zone = props.get('symbology', props.get('plot_categ', zone_name))
+                        # Try multiple property fields (matching Amaravati structure)
+                        raw_category = (
+                            props.get("symbology")
+                            or props.get("plot_categ")
+                            or props.get("ppt_full")
+                            or props.get("classtext")
+                            or props.get("class")
+                            or props.get("NAME")
+                            or props.get("name")
+                            or file_name
+                        )
+                        category_norm = self.normalize_category(str(raw_category)) or self.normalize_category(file_name) or file_name.upper()
                         
                         feature_data = {
                             'geometry': geom,
-                            'zone': feature_zone,
+                            'category': category_norm,
+                            'filename': file_name,
                             'properties': props,
-                            'area': geom.area  # Store area for size-based rendering
+                            'area': geom.area
                         }
                         
                         bounds = geom.bounds
@@ -148,7 +271,7 @@ class AmaravatiEnhancedTiles:
                         self.feature_id_counter += 1
                         loaded += 1
                         
-                    except Exception as e:
+                    except:
                         continue
                 
                 total_features += loaded
@@ -177,43 +300,183 @@ class AmaravatiEnhancedTiles:
         
         return (min_lon, min_lat, max_lon, max_lat)
     
-    def render_tile_enhanced(self, tile):
+    def create_pattern(self, draw, poly, base, ptype, pcolor, img_size):
+        """Create patterns: hatch, dots, or airplane - clipped to polygon boundary"""
+        if len(poly) < 3:
+            return
+        
+        # Draw base fill first
+        if base:
+            draw.polygon(poly, fill=base)
+        
+        xs, ys = zip(*poly)
+        min_x, max_x = int(min(xs)), int(max(xs))
+        min_y, max_y = int(min(ys)), int(max(ys))
+        
+        # Create polygon shape for clipping - ensure it's valid
+        try:
+            poly_shape = Polygon(poly)
+            if not poly_shape.is_valid:
+                poly_shape = poly_shape.buffer(0)
+        except:
+            # If polygon creation fails, use bounding box for dots
+            poly_shape = None
+        
+        if ptype == "hatch":
+            if poly_shape is None:
+                return  # Cannot clip hatch without valid polygon
+            spacing = max(3, (max_x - min_x) // 15)
+            for i in range(min_x - max_y, max_x + max_y, spacing):
+                # Create full hatch line
+                line_pts = [(x, x - i) for x in range(min_x - 10, max_x + 10) if min_y - 10 <= x - i <= max_y + 10]
+                if len(line_pts) < 2:
+                    continue
+                # Create LineString and clip to polygon
+                line = LineString(line_pts)
+                clipped = line.intersection(poly_shape)
+                if clipped.is_empty:
+                    continue
+                # Draw clipped line segments
+                if clipped.geom_type == 'LineString':
+                    clipped_pts = list(clipped.coords)
+                    if len(clipped_pts) >= 2:
+                        int_pts = [(int(x), int(y)) for x, y in clipped_pts]
+                        draw.line(int_pts, fill=pcolor, width=2)
+                elif clipped.geom_type == 'MultiLineString':
+                    for line_seg in clipped.geoms:
+                        clipped_pts = list(line_seg.coords)
+                        if len(clipped_pts) >= 2:
+                            int_pts = [(int(x), int(y)) for x, y in clipped_pts]
+                            draw.line(int_pts, fill=pcolor, width=2)
+        elif ptype == "dots":
+            spacing = 24
+            dot_radius = 3
+            
+            # Draw dots across the polygon area
+            for y in range(min_y, max_y + 1, spacing):
+                for x in range(min_x, max_x + 1, spacing):
+                    # Check if point is inside polygon
+                    if poly_shape is not None:
+                        try:
+                            point = Point(x, y)
+                            if poly_shape.contains(point):
+                                draw.ellipse([x-dot_radius, y-dot_radius, x+dot_radius, y+dot_radius], fill=pcolor)
+                        except:
+                            # Fallback: draw dot if within bounding box
+                            draw.ellipse([x-dot_radius, y-dot_radius, x+dot_radius, y+dot_radius], fill=pcolor)
+                    else:
+                        # If polygon shape is None, draw dots in bounding box
+                        draw.ellipse([x-dot_radius, y-dot_radius, x+dot_radius, y+dot_radius], fill=pcolor)
+        elif ptype == "airplane":
+            spacing = 18
+            for y in range(min_y, max_y + 1, spacing):
+                for x in range(min_x, max_x + 1, spacing):
+                    if poly_shape is not None and poly_shape.contains(Point(x, y)):
+                        # Draw cross pattern (airplane marker)
+                        draw.line([(x-3, y), (x+3, y)], fill=pcolor, width=1)
+                        draw.line([(x, y-3), (x, y+3)], fill=pcolor, width=1)
+                        draw.line([(x-2, y-2), (x+2, y+2)], fill=pcolor, width=1)
+                        draw.line([(x-2, y+2), (x+2, y-2)], fill=pcolor, width=1)
+    
+    def render_polygon_with_holes(self, draw, polygon, tile_bounds, img_size, buffer_pixels,
+                                  buffered_size, fill_rgb, color_info, outline_width=1):
         """
-        ENHANCED RENDERING: 
-        - All features visible at all zooms
-        - Zoom-adaptive scaling
-        - Smart minimum sizes
-        - Outline + fill for visibility
+        Render polygon with interior rings (holes) properly.
+        Create a mask where holes are transparent.
+        """
+        # Create a temporary image for this polygon with alpha channel
+        poly_img = Image.new('RGBA', (buffered_size, buffered_size), (0, 0, 0, 0))
+        poly_draw = ImageDraw.Draw(poly_img)
+        
+        # Convert exterior ring to pixel coordinates
+        # Use actual tile bounds for consistent alignment across tiles
+        exterior_pixels = []
+        lon_range = tile_bounds.east - tile_bounds.west
+        lat_range = tile_bounds.north - tile_bounds.south
+        for coord in polygon.exterior.coords:
+            lon, lat = coord[0], coord[1]
+            # Convert to pixel coordinates using actual tile bounds
+            px = ((lon - tile_bounds.west) / lon_range * img_size) + buffer_pixels
+            py = ((tile_bounds.north - lat) / lat_range * img_size) + buffer_pixels
+            exterior_pixels.append((int(px), int(py)))
+        
+        if len(exterior_pixels) < 3:
+            return
+        
+        # Draw exterior ring with full opacity and black outline
+        black_outline = (0, 0, 0, 255)  # Black outline
+        
+        # Check if pattern should be applied
+        if 'pattern' in color_info:
+            # Apply pattern (dots, hatch, etc.)
+            pattern_color = self.hex_to_rgb(color_info['pattern_color'])
+            self.create_pattern(poly_draw, exterior_pixels, fill_rgb, 
+                             color_info['pattern'], 
+                             pattern_color,
+                             buffered_size)
+        else:
+            # Draw fill first (if exists), then outline on top for precise boundaries
+            if fill_rgb:
+                fill_rgba = fill_rgb + (255,)  # Add alpha channel
+                poly_draw.polygon(exterior_pixels, fill=fill_rgba)
+        
+        # Draw black outline
+        if len(exterior_pixels) > 1:
+            closed_pixels = exterior_pixels + [exterior_pixels[0]]
+            poly_draw.line(closed_pixels, fill=black_outline, width=outline_width)
+        
+        # Draw interior rings (holes) as transparent (black with full alpha = cut out)
+        for interior in polygon.interiors:
+            interior_pixels = []
+            for coord in interior.coords:
+                lon, lat = coord[0], coord[1]
+                # Convert to pixel coordinates using actual tile bounds
+                px = ((lon - tile_bounds.west) / lon_range * img_size) + buffer_pixels
+                py = ((tile_bounds.north - lat) / lat_range * img_size) + buffer_pixels
+                interior_pixels.append((int(px), int(py)))
+            
+            if len(interior_pixels) >= 3:
+                # Draw hole as fully transparent (this cuts out the area)
+                poly_draw.polygon(interior_pixels, fill=(0, 0, 0, 0), outline=(0, 0, 0, 0))
+        
+        # Composite the polygon with holes onto the main image
+        draw._image.paste(poly_img, (0, 0), poly_img)
+    
+    def render_tile_seamless(self, tile):
+        """
+        SEAMLESS RENDERING for Amaravati:
+        - Buffer zone to prevent seams
+        - All features visible
+        - No clipping artifacts
         """
         z, x, y = tile.z, tile.x, tile.y
         
-        # Zoom-adaptive scale
         scale = self.get_zoom_scale(z)
         min_size = self.get_min_feature_size(z, scale)
+        outline_width = self.get_outline_width(z)
         img_size = self.tile_size * scale
         
-        # Render buffer to eliminate seams (5% buffer on each side)
-        buffer_ratio = 0.05
-        buffer_pixels = int(img_size * buffer_ratio)
-        buffered_size = img_size + (2 * buffer_pixels)
+        # Buffer zone
+        buffer_pixels = 4 * scale
+        buffered_size = img_size + (buffer_pixels * 2)
         
-        img = Image.new('RGBA', (buffered_size, buffered_size), (0, 0, 0, 0))
-        draw = ImageDraw.Draw(img)
+        img_buffered = Image.new('RGBA', (buffered_size, buffered_size), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(img_buffered)
         
         tile_bounds = mercantile.bounds(tile)
         
-        # Expand tile bounds by buffer ratio for seamless edges
-        width = tile_bounds.east - tile_bounds.west
-        height = tile_bounds.north - tile_bounds.south
-        buffered_west = tile_bounds.west - (width * buffer_ratio)
-        buffered_south = tile_bounds.south - (height * buffer_ratio)
-        buffered_east = tile_bounds.east + (width * buffer_ratio)
-        buffered_north = tile_bounds.north + (height * buffer_ratio)
+        # 2% buffer for seamless tiles
+        lon_buffer = (tile_bounds.east - tile_bounds.west) * 0.02
+        lat_buffer = (tile_bounds.north - tile_bounds.south) * 0.02
         
-        tile_bbox = box(buffered_west, buffered_south, buffered_east, buffered_north)
+        tile_bbox_buffered = box(
+            tile_bounds.west - lon_buffer, 
+            tile_bounds.south - lat_buffer,
+            tile_bounds.east + lon_buffer, 
+            tile_bounds.north + lat_buffer
+        )
         
-        # Get ALL features in buffered tile area
-        intersecting_ids = list(self.spatial_index.intersection(tile_bbox.bounds))
+        intersecting_ids = list(self.spatial_index.intersection(tile_bbox_buffered.bounds))
         
         if not intersecting_ids:
             return None
@@ -221,33 +484,28 @@ class AmaravatiEnhancedTiles:
         color_map = self.get_color_map()
         rendered_count = 0
         
-        # Sort by area (larger features first, small on top)
+        # Sort by area
         features_to_render = []
         for feature_id in intersecting_ids:
             feature_data = self.feature_lookup[feature_id]
-            if feature_data['geometry'].intersects(tile_bbox):
+            if feature_data['geometry'].intersects(tile_bbox_buffered):
                 features_to_render.append((feature_data['area'], feature_id, feature_data))
         
         features_to_render.sort(key=lambda x: x[0], reverse=True)
         
-        # Render ALL features
+        # Render all features
         for area, feature_id, feature_data in features_to_render:
             geom = feature_data['geometry']
-            zone = feature_data['zone']
+            category = feature_data['category']
+            filename = feature_data['filename']
             
-            # Get color with fallback
-            color_info = color_map.get(zone, {'fill': '#CCCCCC', 'outline': '#999999'})
-            fill_rgb = self.hex_to_rgb(color_info['fill'])
-            outline_rgb = self.hex_to_rgb(color_info.get('outline', color_info['fill']))
+            # Try category first, then filename
+            color_info = color_map.get(category, color_map.get(self.normalize_category(filename), {'fill': '#CCCCCC', 'outline': '#999999'}))
             
-            # Clip to tile
-            try:
-                clipped_geom = geom.intersection(tile_bbox)
-                if clipped_geom.is_empty:
-                    continue
-                geom = clipped_geom
-            except:
-                pass
+            fill_color = color_info.get('fill')
+            fill_rgb = self.hex_to_rgb(fill_color) if fill_color else None
+            outline_color = color_info.get('outline', fill_color or '#000000')
+            outline_rgb = self.hex_to_rgb(outline_color)
             
             # Handle geometry types
             if geom.geom_type == 'Polygon':
@@ -260,81 +518,127 @@ class AmaravatiEnhancedTiles:
             # Render each polygon
             for polygon in polygons:
                 try:
-                    # Convert to pixels using buffered bounds
+                    # Convert exterior ring to pixel coordinates
+                    # Use actual tile bounds for consistent alignment across tiles
                     pixel_coords = []
+                    lon_range = tile_bounds.east - tile_bounds.west
+                    lat_range = tile_bounds.north - tile_bounds.south
                     for coord in polygon.exterior.coords:
                         lon, lat = coord[0], coord[1]
-                        px = (lon - buffered_west) / (buffered_east - buffered_west) * buffered_size
-                        py = (buffered_north - lat) / (buffered_north - buffered_south) * buffered_size
+                        # Convert to pixel coordinates using actual tile bounds
+                        px = ((lon - tile_bounds.west) / lon_range * img_size) + buffer_pixels
+                        py = ((tile_bounds.north - lat) / lat_range * img_size) + buffer_pixels
                         pixel_coords.append((px, py))
                     
                     if len(pixel_coords) < 3:
                         continue
                     
-                    # Calculate feature size
                     xs = [p[0] for p in pixel_coords]
                     ys = [p[1] for p in pixel_coords]
                     width = max(xs) - min(xs)
                     height = max(ys) - min(ys)
                     feature_size = max(width, height)
                     
-                    # ENHANCED: Render with outline for visibility
+                    # Check if polygon has interior rings (holes)
+                    has_holes = len(polygon.interiors) > 0
+                    
                     if feature_size >= min_size:
-                        # Normal size - render with outline
-                        draw.polygon(pixel_coords, fill=fill_rgb, outline=outline_rgb, width=max(1, scale//2))
+                        # Normal rendering
+                        int_pixels = [(int(x), int(y)) for x, y in pixel_coords]
+                        
+                        if has_holes:
+                            # Render polygon with holes using mask
+                            self.render_polygon_with_holes(draw, polygon, tile_bounds, img_size, buffer_pixels,
+                                                          buffered_size, fill_rgb, color_info, outline_width)
+                        else:
+                            # Simple polygon without holes - draw with black outline
+                            black_outline = (0, 0, 0)  # Black outline
+                            if 'pattern' in color_info:
+                                self.create_pattern(draw, int_pixels, fill_rgb, 
+                                                 color_info['pattern'], 
+                                                 self.hex_to_rgb(color_info['pattern_color']),
+                                                 buffered_size)
+                                # Draw black outline after pattern - use line for precise boundaries
+                                if len(int_pixels) > 1:
+                                    # Close the polygon by adding first point at end
+                                    closed_pixels = int_pixels + [int_pixels[0]]
+                                    draw.line(closed_pixels, fill=black_outline, width=outline_width)
+                            elif fill_rgb:
+                                # Draw fill first, then outline on top for precise boundaries
+                                draw.polygon(int_pixels, fill=fill_rgb)
+                                if len(int_pixels) > 1:
+                                    closed_pixels = int_pixels + [int_pixels[0]]
+                                    draw.line(closed_pixels, fill=black_outline, width=outline_width)
+                            else:
+                                # Outline only - draw black outline
+                                if len(int_pixels) > 1:
+                                    closed_pixels = int_pixels + [int_pixels[0]]
+                                    draw.line(closed_pixels, fill=black_outline, width=outline_width)
                     else:
-                        # Small feature - enlarge around center
+                        # Enlarge small features (skip if has holes - too complex)
+                        if not has_holes:
                         center_x = sum(xs) / len(xs)
                         center_y = sum(ys) / len(ys)
                         
-                        # Scale polygon around center
                         scale_factor = min_size / max(feature_size, 0.1)
                         enlarged_coords = []
                         for px, py in pixel_coords:
                             new_x = center_x + (px - center_x) * scale_factor
                             new_y = center_y + (py - center_y) * scale_factor
-                            enlarged_coords.append((new_x, new_y))
-                        
-                        # Render enlarged
-                        draw.polygon(enlarged_coords, fill=fill_rgb, outline=outline_rgb, width=max(1, scale//2))
-                        
-                        # Add center dot for extra visibility
+                                enlarged_coords.append((int(new_x), int(new_y)))
+                            
+                            # Draw with black outline
+                            black_outline = (0, 0, 0)  # Black outline
+                            if 'pattern' in color_info:
+                                self.create_pattern(draw, enlarged_coords, fill_rgb,
+                                                 color_info['pattern'],
+                                                 self.hex_to_rgb(color_info['pattern_color']),
+                                                 buffered_size)
+                                # Draw black outline after pattern - use line for precise boundaries
+                                if len(enlarged_coords) > 1:
+                                    closed_coords = enlarged_coords + [enlarged_coords[0]]
+                                    draw.line(closed_coords, fill=black_outline, width=outline_width)
+                            elif fill_rgb:
+                                # Draw fill first, then outline on top
+                                draw.polygon(enlarged_coords, fill=fill_rgb)
+                                if len(enlarged_coords) > 1:
+                                    closed_coords = enlarged_coords + [enlarged_coords[0]]
+                                    draw.line(closed_coords, fill=black_outline, width=outline_width)
+                            else:
+                                # Outline only - draw black outline
+                                if len(enlarged_coords) > 1:
+                                    closed_coords = enlarged_coords + [enlarged_coords[0]]
+                                    draw.line(closed_coords, fill=black_outline, width=outline_width)
+                            
+                            # Center dot with black outline (only if fill exists)
+                            if fill_rgb:
                         dot_size = min_size // 2
                         draw.ellipse([center_x - dot_size, center_y - dot_size,
                                     center_x + dot_size, center_y + dot_size],
-                                   fill=fill_rgb)
+                                           fill=fill_rgb, outline=(0, 0, 0), width=outline_width)
                     
                     rendered_count += 1
                     
-                except Exception as e:
-                    # Fallback: render as dot at centroid
-                    try:
-                        centroid = polygon.centroid
-                        cx = (centroid.x - buffered_west) / (buffered_east - buffered_west) * buffered_size
-                        cy = (buffered_north - centroid.y) / (buffered_north - buffered_south) * buffered_size
-                        dot_size = min_size // 2
-                        draw.ellipse([cx - dot_size, cy - dot_size, cx + dot_size, cy + dot_size],
-                                   fill=fill_rgb, outline=outline_rgb)
-                        rendered_count += 1
                     except:
                         pass
         
         if rendered_count == 0:
             return None
         
-        # Crop to remove buffer and get seamless edges
-        img = img.crop((buffer_pixels, buffer_pixels, 
-                       buffer_pixels + img_size, buffer_pixels + img_size))
+        # Crop buffer
+        img = img_buffered.crop((buffer_pixels, buffer_pixels, 
+                                buffered_size - buffer_pixels, 
+                                buffered_size - buffer_pixels))
         
-        # High-quality downsample to final tile size
+        # Downsample
         img = img.resize((self.tile_size, self.tile_size), Image.LANCZOS)
         return img
     
     def generate_tiles(self, min_zoom=7, max_zoom=18):
-        """Generate enhanced complete tiles"""
+        """Generate seamless tiles for Amaravati"""
         print(f"\n{'='*80}")
-        print(f"GENERATING ENHANCED TILES (Zoom {min_zoom}-{max_zoom})")
-        print(f"Mode: ALL FEATURES VISIBLE AT ALL ZOOMS")
+        print(f"GENERATING AMARAVATI TILES (Zoom {min_zoom}-{max_zoom})")
+        print(f"Mode: SEAMLESS - NO TILE BOUNDARIES")
         print(f"{'='*80}")
         
         bounds = self.get_bounds()
@@ -362,7 +666,7 @@ class AmaravatiEnhancedTiles:
             rendered = 0
             
             for tile in tiles:
-                img = self.render_tile_enhanced(tile)
+                img = self.render_tile_seamless(tile)
                 
                 if img is not None:
                     tile_dir = zoom_dir / str(tile.x)
@@ -385,7 +689,7 @@ class AmaravatiEnhancedTiles:
         print(f"{'='*80}\n")
     
     def generate_html_viewer(self):
-        """Generate interactive viewer"""
+        """Generate viewer for Amaravati"""
         bounds = self.get_bounds()
         center_lon = (bounds[0] + bounds[2]) / 2
         center_lat = (bounds[1] + bounds[3]) / 2
@@ -394,7 +698,7 @@ class AmaravatiEnhancedTiles:
 <html>
 <head>
   <meta charset="utf-8" />
-  <title>Amaravati Master Plan - Enhanced Tiles</title>
+  <title>Amaravati Master Plan - Seamless Tiles</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <style>
     body, html, #map {{ margin:0; padding:0; height:100%; }}
@@ -407,13 +711,11 @@ class AmaravatiEnhancedTiles:
   <script>
     const map = L.map('map').setView([{center_lat:.6f}, {center_lon:.6f}], 12);
     
-    // Base layer
     L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{{z}}/{{y}}/{{x}}', {{
       attribution: 'Esri',
       maxZoom: 19
     }}).addTo(map);
     
-    // Amaravati tiles
     L.tileLayer('./{{z}}/{{x}}/{{y}}.png', {{
       minZoom: 7,
       maxZoom: 18,
@@ -421,17 +723,16 @@ class AmaravatiEnhancedTiles:
       attribution: 'Amaravati Master Plan'
     }}).addTo(map);
     
-    // Info box
     const info = L.control({{position: 'topright'}});
     info.onAdd = function() {{
       this._div = L.DomUtil.create('div', 'info');
-      this._div.innerHTML = '<b>Amaravati Master Plan</b><br/>All features visible at all zooms<br/>Zoom: ' + map.getZoom();
+      this._div.innerHTML = '<b>Amaravati Master Plan</b><br/>Seamless tiles - no boundaries<br/>Zoom: ' + map.getZoom();
       return this._div;
     }};
     info.addTo(map);
     
     map.on('zoomend', function() {{
-      info._div.innerHTML = '<b>Amaravati Master Plan</b><br/>All features visible at all zooms<br/>Zoom: ' + map.getZoom();
+      info._div.innerHTML = '<b>Amaravati Master Plan</b><br/>Seamless tiles - no boundaries<br/>Zoom: ' + map.getZoom();
     }});
   </script>
 </body>
@@ -444,7 +745,6 @@ class AmaravatiEnhancedTiles:
 def main():
     import sys
     
-    # Try common paths
     possible_paths = [
         Path('data/andhra_pradesh/amaravati/master_plan'),
         Path('/Users/rohitboni/Downloads/All_files/project/1acre/geomapping_full/geomapping/data/andhra_pradesh/amaravati/master_plan'),
@@ -457,23 +757,23 @@ def main():
             break
     
     if data_dir is None:
-        print("Enter path to master_plan directory:")
+        print("Enter path to Amaravati master_plan directory:")
         user_path = input("> ").strip()
         data_dir = Path(user_path)
         if not data_dir.exists():
             print(f"✗ Path not found: {data_dir}")
             sys.exit(1)
     
-    output_dir = Path('./amaravati_tiles')
+    output_dir = Path('./amaravati_tiles_seamless')
     
     print("="*80)
-    print("AMARAVATI MASTER PLAN - ENHANCED TILE GENERATOR")
-    print("All features visible at all zoom levels")
+    print("AMARAVATI MASTER PLAN - SEAMLESS TILE GENERATOR")
+    print("✅ Properly handles polygon holes/interior rings")
     print("="*80)
     print(f"Input:  {data_dir}")
     print(f"Output: {output_dir}")
     
-    generator = AmaravatiEnhancedTiles(data_dir, output_dir)
+    generator = AmaravatiSeamlessTiles(data_dir, output_dir)
     generator.load_geojson_files()
     
     if generator.feature_id_counter == 0:

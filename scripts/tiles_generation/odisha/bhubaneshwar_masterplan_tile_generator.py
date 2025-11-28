@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Jaipur Master Plan - SEAMLESS COMPLETE TILES
+Bhubaneshwar Master Plan - SEAMLESS COMPLETE TILES
 Every feature visible at every zoom level - Transparent background
 """
 
@@ -13,7 +13,7 @@ import mercantile
 from shapely.geometry import shape, box, Point, Polygon, LineString
 from rtree import index
 
-class JaipurSeamlessTiles:
+class BhubaneshwarSeamlessTiles:
     def __init__(self, data_dir, output_dir):
         self.data_dir = Path(data_dir)
         self.output_dir = Path(output_dir)
@@ -55,98 +55,53 @@ class JaipurSeamlessTiles:
             self._color_map_rgb[key] = rgb_value
     
     def get_color_map(self):
-        """Jaipur color mapping based on user specifications"""
+        """Bhubaneshwar color mapping based on user specifications"""
         return {
             # Simple solid fills
-            "AGRICULTURE LAND": {'fill': '#d0ffb8', 'outline': '#A6CC93'},
-            "AGRICULTURE_LAND": {'fill': '#d0ffb8', 'outline': '#A6CC93'},
+            "AGRICULTURE AND FOREST": {'fill': '#86b068', 'outline': '#6B8D53'},
+            "AGRICULTURE_AND_FOREST": {'fill': '#86b068', 'outline': '#6B8D53'},
+            "AGRICULTURE": {'fill': '#86b068', 'outline': '#6B8D53'},
+            "FOREST": {'fill': '#86b068', 'outline': '#6B8D53'},
             
-            "COMMERCIAL": {'fill': '#ff7d7d', 'outline': '#CC6464'},
+            "ENVIRONMENTALLY SENSITIVE": {'fill': '#FFD37F', 'outline': '#CCA964'},
+            "ENVIRONMENTALLY_SENSITIVE": {'fill': '#FFD37F', 'outline': '#CCA964'},
             
-            # Communication - Hatched Lines: c3c35a, Outline: E69800, Solid Fill: FFFFFF
-            "COMMUNICATION": {'fill': '#FFFFFF', 'outline': '#E69800', 'pattern': 'hatch', 'pattern_color': '#c3c35a'},
+            "INDUSTRIAL": {'fill': '#d27ced', 'outline': '#A862BA'},
             
-            # Eco-Sensitive Zone - Dots Colour: 4daf4a, Outline: 000000, Solid Fill: FFFFFF
-            "ECO-SENSITIVE ZONE": {'fill': '#FFFFFF', 'outline': '#000000', 'pattern': 'dots', 'pattern_color': '#4daf4a'},
-            "ECO_SENSITIVE__ZONE": {'fill': '#FFFFFF', 'outline': '#000000', 'pattern': 'dots', 'pattern_color': '#4daf4a'},
-            "ECO SENSITIVE ZONE": {'fill': '#FFFFFF', 'outline': '#000000', 'pattern': 'dots', 'pattern_color': '#4daf4a'},
+            # Open Space - Dotted Fill: e5b636, Solid Fill: c4ed70
+            "OPEN SPACE": {'fill': '#c4ed70', 'outline': '#9DBE59', 'pattern': 'dotted', 'pattern_color': '#e5b636'},
+            "OPEN_SPACE": {'fill': '#c4ed70', 'outline': '#9DBE59', 'pattern': 'dotted', 'pattern_color': '#e5b636'},
             
-            "EDUCATIONAL": {'fill': '#efb8ff', 'outline': '#BF93CC'},
+            "PUBLIC AND SEMI-PUBLIC": {'fill': '#f04848', 'outline': '#C03A3A'},
+            "PUBLIC_AND_SEMI-PUBLIC": {'fill': '#f04848', 'outline': '#C03A3A'},
+            "PUBLIC AND SEMI PUBLIC": {'fill': '#f04848', 'outline': '#C03A3A'},
+            "PUBLIC_AND_SEMI_PUBLIC": {'fill': '#f04848', 'outline': '#C03A3A'},
             
-            "G1": {'fill': '#c2c2a0', 'outline': '#9B9B80'},
-            "G2": {'fill': '#c2a0b0', 'outline': '#9B808C'},
-            "G3": {'fill': '#eacddd', 'outline': '#BBA4B0'},
+            "RESIDENTIAL": {'fill': '#ffff7f', 'outline': '#CCCC66'},
             
-            # Govt and Semi Government - Cross Hatch Lines: ffa900, Outline: 000000, Solid Fill: ffe9be
-            "GOVT AND SEMI GOVERNMERNT": {'fill': '#ffe9be', 'outline': '#000000', 'pattern': 'cross_hatch', 'pattern_color': '#ffa900'},
-            "GOVT_AND_SEMI_GOVERNMERNT": {'fill': '#ffe9be', 'outline': '#000000', 'pattern': 'cross_hatch', 'pattern_color': '#ffa900'},
-            "GOVT AND SEMI GOVERNMENT": {'fill': '#ffe9be', 'outline': '#000000', 'pattern': 'cross_hatch', 'pattern_color': '#ffa900'},
+            "RETAIL COMMERCIAL AND BUSINESS": {'fill': '#7eabee', 'outline': '#6589BF'},
+            "RETAIL_COMMERCIAL_AND_BUSINESS": {'fill': '#7eabee', 'outline': '#6589BF'},
+            "RETAIL COMMERCIAL": {'fill': '#7eabee', 'outline': '#6589BF'},
+            "RETAIL_COMMERCIAL": {'fill': '#7eabee', 'outline': '#6589BF'},
             
-            "GREEN AREAS": {'fill': '#9ad175', 'outline': '#7BA75E'},
-            "GREEN_AREAS": {'fill': '#9ad175', 'outline': '#7BA75E'},
+            "SPECIAL HERITAGE": {'fill': '#f2e09a', 'outline': '#C2B37B'},
+            "SPECIAL_HERITAGE": {'fill': '#f2e09a', 'outline': '#C2B37B'},
+            "HERITAGE": {'fill': '#f2e09a', 'outline': '#C2B37B'},
             
-            "HEALTH SERVICES": {'fill': '#b8ffef', 'outline': '#93CCBF'},
-            "HEALTH_SERVICES": {'fill': '#b8ffef', 'outline': '#93CCBF'},
+            "TRANSPORTATION": {'fill': '#bebdbb', 'outline': '#979695'},
             
-            # Heritage - Dotted Line Fill: 000000, Solid Fill: d0ffb8
-            "HERITAGE": {'fill': '#d0ffb8', 'outline': '#A6CC93', 'pattern': 'dotted', 'pattern_color': '#000000'},
+            "UTILITY AND SERVICES": {'fill': '#c29e9c', 'outline': '#9B7E7D'},
+            "UTILITY_AND_SERVICES": {'fill': '#c29e9c', 'outline': '#9B7E7D'},
+            "UTILITY": {'fill': '#c29e9c', 'outline': '#9B7E7D'},
+            "SERVICES": {'fill': '#c29e9c', 'outline': '#9B7E7D'},
             
-            "INDUSTRIAL": {'fill': '#d26def', 'outline': '#A856BF'},
+            "WATER BODIES": {'fill': '#a0f6ef', 'outline': '#80C5BF'},
+            "WATER_BODIES": {'fill': '#a0f6ef', 'outline': '#80C5BF'},
+            "WATER BODY": {'fill': '#a0f6ef', 'outline': '#80C5BF'},
             
-            # Mixed - Hatched Lines: 786848, Solid Fill: ffd37d
-            "MIXED": {'fill': '#ffd37d', 'outline': '#CCA964', 'pattern': 'hatch', 'pattern_color': '#786848'},
-            
-            "OTHERS": {'fill': '#f0f0f0', 'outline': '#C0C0C0'},
-            
-            # Public & Semi Public - Dashed Line Fill: 002673, Solid Fill: 7dabf2
-            "PUBLIC & SEMI PUBLIC": {'fill': '#7dabf2', 'outline': '#6389C2', 'pattern': 'dashed', 'pattern_color': '#002673'},
-            "PUBLIC___SEMI_PUBLIC": {'fill': '#7dabf2', 'outline': '#6389C2', 'pattern': 'dashed', 'pattern_color': '#002673'},
-            "PUBLIC AND SEMI PUBLIC": {'fill': '#7dabf2', 'outline': '#6389C2', 'pattern': 'dashed', 'pattern_color': '#002673'},
-            
-            # Public Utilities - Hatched Fill: f87100, Solid Fill: f2cb7d
-            "PUBLIC UTILITIES": {'fill': '#f2cb7d', 'outline': '#C2A264', 'pattern': 'hatch', 'pattern_color': '#f87100'},
-            "PUBLIC_UTILITIES": {'fill': '#f2cb7d', 'outline': '#C2A264', 'pattern': 'hatch', 'pattern_color': '#f87100'},
-            
-            "RECREATIONAL": {'fill': '#b8b87d', 'outline': '#939364'},
-            
-            # Religious - Outline: ff00c4, Hatched Lines: ff00c4, Solid Fill: FFFFFF
-            "RELIGIOUS": {'fill': '#FFFFFF', 'outline': '#ff00c4', 'pattern': 'hatch', 'pattern_color': '#ff00c4'},
-            
-            "RESIDENTIAL": {'fill': '#ffffb8', 'outline': '#CCCC93'},
-            
-            "RURAL": {'fill': '#730000', 'outline': '#5C0000'},
-            
-            # Specific Land Use - Outline: 000000, Hatched Lines: 000000, Solid Fill: FFFFFF
-            "SPECIFIC LAND USE": {'fill': '#FFFFFF', 'outline': '#000000', 'pattern': 'hatch', 'pattern_color': '#000000'},
-            "SPECIFIC_LAND_USE": {'fill': '#FFFFFF', 'outline': '#000000', 'pattern': 'hatch', 'pattern_color': '#000000'},
-            
-            "TRANSPORTATION": {'fill': '#cdcdcd', 'outline': '#A4A4A4'},
-            
-            # U1_2025 - Hatched Fill: aae2f4, Solid Fill: FFFFFF
-            "U1_2025": {'fill': '#FFFFFF', 'outline': '#CCCCCC', 'pattern': 'hatch', 'pattern_color': '#aae2f4'},
-            "U1 2025": {'fill': '#FFFFFF', 'outline': '#CCCCCC', 'pattern': 'hatch', 'pattern_color': '#aae2f4'},
-            
-            # U2 HIZ - Hatched Fill: 99993c, Solid Fill: FFFFFF
-            "U2 HIZ": {'fill': '#FFFFFF', 'outline': '#CCCCCC', 'pattern': 'hatch', 'pattern_color': '#99993c'},
-            "U2_HIZ": {'fill': '#FFFFFF', 'outline': '#CCCCCC', 'pattern': 'hatch', 'pattern_color': '#99993c'},
-            
-            # U2 LIZ - Hatched Fill: f2f27d, Solid Fill: FFFFFF
-            "U2 LIZ": {'fill': '#FFFFFF', 'outline': '#CCCCCC', 'pattern': 'hatch', 'pattern_color': '#f2f27d'},
-            "U2_LIZ": {'fill': '#FFFFFF', 'outline': '#CCCCCC', 'pattern': 'hatch', 'pattern_color': '#f2f27d'},
-            
-            # U3 HIZ - Hatched Fill: ff9b38, Solid Fill: FFFFFF
-            "U3 HIZ": {'fill': '#FFFFFF', 'outline': '#CCCCCC', 'pattern': 'hatch', 'pattern_color': '#ff9b38'},
-            "U3_HIZ": {'fill': '#FFFFFF', 'outline': '#CCCCCC', 'pattern': 'hatch', 'pattern_color': '#ff9b38'},
-            
-            # U3 LIZ - Hatched Fill: ffd27a, Solid Fill: FFFFFF
-            "U3 LIZ": {'fill': '#FFFFFF', 'outline': '#CCCCCC', 'pattern': 'hatch', 'pattern_color': '#ffd27a'},
-            "U3_LIZ": {'fill': '#FFFFFF', 'outline': '#CCCCCC', 'pattern': 'hatch', 'pattern_color': '#ffd27a'},
-            
-            "VACANT LAND": {'fill': '#b1bae6', 'outline': '#8E95B8'},
-            "VACANT_LAND": {'fill': '#b1bae6', 'outline': '#8E95B8'},
-            
-            "WATER BODIES": {'fill': '#caedf8', 'outline': '#A2BEC6'},
-            "WATER_BODIES": {'fill': '#caedf8', 'outline': '#A2BEC6'},
+            # Wholesale Commercial - Hatched Fill: 80a7d4, solid fill: FFFFFF
+            "WHOLESALE COMMERCIAL": {'fill': '#FFFFFF', 'outline': '#CCCCCC', 'pattern': 'hatch', 'pattern_color': '#80a7d4'},
+            "WHOLESALE_COMMERCIAL": {'fill': '#FFFFFF', 'outline': '#CCCCCC', 'pattern': 'hatch', 'pattern_color': '#80a7d4'},
         }
     
     def hex_to_rgb(self, hex_color):
@@ -188,9 +143,9 @@ class JaipurSeamlessTiles:
             return 1
     
     def load_geojson_files(self):
-        """Load all Jaipur GeoJSON files"""
+        """Load all Bhubaneshwar GeoJSON files"""
         print("\n" + "="*80)
-        print("LOADING JAIPUR GEOJSON DATA")
+        print("LOADING BHUBANESHWAR GEOJSON DATA")
         print("="*80)
         
         geojson_files = sorted(self.data_dir.glob('*.geojson'))
@@ -228,8 +183,12 @@ class JaipurSeamlessTiles:
                         raw_category = (
                             props.get("LANDUSE_CATEGORY")
                             or props.get("LANDUSE_SUBCAT_LEVEL_1")
-                            or props.get("NAME")
+                            or props.get("CATEGORY")
+                            or props.get("SUB_CATEGO")
+                            or props.get("Name")
                             or props.get("name")
+                            or props.get("Label")
+                            or props.get("use")
                             or file_name
                         )
                         category_norm = self.normalize_category(str(raw_category)) or self.normalize_category(file_name) or file_name.upper()
@@ -291,9 +250,16 @@ class JaipurSeamlessTiles:
         min_y, max_y = int(min(ys)), int(max(ys))
         
         # Create polygon shape for clipping
-        poly_shape = Polygon(poly)
+        try:
+            poly_shape = Polygon(poly)
+            if not poly_shape.is_valid:
+                poly_shape = poly_shape.buffer(0)
+        except:
+            poly_shape = None
         
         if ptype == "hatch":
+            if poly_shape is None:
+                return
             spacing = max(5, (max_x - min_x) // 12)
             for i in range(min_x - max_y, max_x + max_y, spacing):
                 # Create full hatch line
@@ -322,6 +288,8 @@ class JaipurSeamlessTiles:
                     continue
         
         elif ptype == "cross_hatch":
+            if poly_shape is None:
+                return
             # Draw two sets of perpendicular hatch lines
             spacing = max(5, (max_x - min_x) // 12)
             # First set (diagonal from top-left to bottom-right)
@@ -372,6 +340,8 @@ class JaipurSeamlessTiles:
                     continue
         
         elif ptype == "dashed":
+            if poly_shape is None:
+                return
             spacing = max(5, (max_x - min_x) // 12)
             dash_length = 8
             gap_length = 4
@@ -414,6 +384,8 @@ class JaipurSeamlessTiles:
                     continue
         
         elif ptype == "dotted":
+            if poly_shape is None:
+                return
             spacing = max(5, (max_x - min_x) // 12)
             dot_spacing = 4
             dot_radius = 2
@@ -457,7 +429,7 @@ class JaipurSeamlessTiles:
             for y in range(min_y, max_y + 1, spacing):
                 for x in range(min_x, max_x + 1, spacing):
                     try:
-                        if poly_shape.contains(Point(x, y)):
+                        if poly_shape is not None and poly_shape.contains(Point(x, y)):
                             draw.ellipse([x-dot_radius, y-dot_radius, x+dot_radius, y+dot_radius], fill=pcolor)
                     except:
                         continue
@@ -639,11 +611,14 @@ class JaipurSeamlessTiles:
         return img
     
     def generate_tiles(self, min_zoom=7, max_zoom=18):
-        """Generate seamless tiles for Jaipur"""
+        """Generate seamless tiles for Bhubaneshwar"""
         print(f"\n{'='*80}")
-        print(f"GENERATING JAIPUR TILES (Zoom {min_zoom}-{max_zoom})")
+        print(f"GENERATING BHUBANESHWAR TILES (Zoom {min_zoom}-{max_zoom})")
         print(f"Mode: SEAMLESS - NO TILE BOUNDARIES")
         print(f"{'='*80}")
+        
+        # Create output directory upfront
+        self.output_dir.mkdir(parents=True, exist_ok=True)
         
         bounds = self.get_bounds()
         print(f"Bounds: [{bounds[1]:.4f}, {bounds[0]:.4f}] to [{bounds[3]:.4f}, {bounds[2]:.4f}]\n")
@@ -693,7 +668,7 @@ class JaipurSeamlessTiles:
         print(f"{'='*80}\n")
     
     def generate_html_viewer(self):
-        """Generate viewer for Jaipur"""
+        """Generate viewer for Bhubaneshwar"""
         bounds = self.get_bounds()
         center_lon = (bounds[0] + bounds[2]) / 2
         center_lat = (bounds[1] + bounds[3]) / 2
@@ -702,7 +677,7 @@ class JaipurSeamlessTiles:
 <html>
 <head>
   <meta charset="utf-8" />
-  <title>Jaipur Master Plan - Seamless Tiles</title>
+  <title>Bhubaneshwar Master Plan - Seamless Tiles</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <style>
     body, html, #map {{ margin:0; padding:0; height:100%; }}
@@ -724,19 +699,19 @@ class JaipurSeamlessTiles:
       minZoom: 7,
       maxZoom: 18,
       opacity: 0.9,
-      attribution: 'Jaipur Master Plan'
+      attribution: 'Bhubaneshwar Master Plan'
     }}).addTo(map);
     
     const info = L.control({{position: 'topright'}});
     info.onAdd = function() {{
       this._div = L.DomUtil.create('div', 'info');
-      this._div.innerHTML = '<b>Jaipur Master Plan</b><br/>Seamless tiles - no boundaries<br/>Zoom: ' + map.getZoom();
+      this._div.innerHTML = '<b>Bhubaneshwar Master Plan</b><br/>Seamless tiles - no boundaries<br/>Zoom: ' + map.getZoom();
       return this._div;
     }};
     info.addTo(map);
     
     map.on('zoomend', function() {{
-      info._div.innerHTML = '<b>Jaipur Master Plan</b><br/>Seamless tiles - no boundaries<br/>Zoom: ' + map.getZoom();
+      info._div.innerHTML = '<b>Bhubaneshwar Master Plan</b><br/>Seamless tiles - no boundaries<br/>Zoom: ' + map.getZoom();
     }});
   </script>
 </body>
@@ -750,8 +725,8 @@ def main():
     import sys
     
     possible_paths = [
-        Path('data/rajasthan/jaipur/master_plan'),
-        Path('/Users/rohitboni/Downloads/All_files/project/1acre/geomapping_full/geomapping/data/rajasthan/jaipur/master_plan'),
+        Path('data/odisha/bhubaneshwar/master_plan'),
+        Path('/Users/rohitboni/Downloads/All_files/project/1acre/geomapping_full/geomapping/data/odisha/bhubaneshwar/master_plan'),
     ]
     
     data_dir = None
@@ -761,24 +736,24 @@ def main():
             break
     
     if data_dir is None:
-        print("Enter path to Jaipur master_plan directory:")
+        print("Enter path to Bhubaneshwar master_plan directory:")
         user_path = input("> ").strip()
         data_dir = Path(user_path)
         if not data_dir.exists():
             print(f"✗ Path not found: {data_dir}")
             sys.exit(1)
     
-    output_dir = Path('./jaipur_tiles_seamless_fast')
+    output_dir = Path('./bhubaneshwar_tiles_seamless_fast')
     
     print("="*80)
-    print("JAIPUR MASTER PLAN - SEAMLESS TILE GENERATOR")
+    print("BHUBANESHWAR MASTER PLAN - SEAMLESS TILE GENERATOR")
     print("✅ Properly handles polygon holes/interior rings")
     print("✅ Supports hatch, cross_hatch, dashed, dotted, and dots patterns")
     print("="*80)
     print(f"Input:  {data_dir}")
     print(f"Output: {output_dir}")
     
-    generator = JaipurSeamlessTiles(data_dir, output_dir)
+    generator = BhubaneshwarSeamlessTiles(data_dir, output_dir)
     generator.load_geojson_files()
     
     if generator.feature_id_counter == 0:

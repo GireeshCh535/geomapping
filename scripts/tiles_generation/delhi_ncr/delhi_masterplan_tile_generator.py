@@ -21,6 +21,9 @@ class DelhiSeamlessTiles:
         self.spatial_index = index.Index()
         self.feature_id_counter = 0
         self.feature_lookup = {}
+        # Pre-compute color map with RGB values for faster access
+        self._color_map_rgb = None
+        self._init_color_cache()
         
     def normalize_category(self, value):
         """Normalize category name"""
@@ -29,6 +32,28 @@ class DelhiSeamlessTiles:
         value = " ".join(str(value).replace("_", " ").split())
         return value.upper()
     
+    def _init_color_cache(self):
+        """Pre-compute RGB values for all colors to avoid repeated conversions"""
+        color_map = self.get_color_map()
+        self._color_map_rgb = {}
+        for key, value in color_map.items():
+            rgb_value = {}
+            if 'fill' in value and value['fill']:
+                rgb_value['fill'] = self.hex_to_rgb(value['fill'])
+            else:
+                rgb_value['fill'] = None
+            if 'outline' in value and value['outline']:
+                rgb_value['outline'] = self.hex_to_rgb(value['outline'])
+            else:
+                rgb_value['outline'] = (0, 0, 0)  # Default black
+            if 'pattern_color' in value and value['pattern_color']:
+                rgb_value['pattern_color'] = self.hex_to_rgb(value['pattern_color'])
+            # Copy other keys
+            for k, v in value.items():
+                if k not in ['fill', 'outline', 'pattern_color']:
+                    rgb_value[k] = v
+            self._color_map_rgb[key] = rgb_value
+    
     def get_color_map(self):
         """Delhi color mapping - matches geotif_delhi.py"""
         def hex_to_rgb(hex_color):
@@ -36,57 +61,145 @@ class DelhiSeamlessTiles:
             return tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))
         
         return {
-            "AGRICULTURE": {'fill': '#005CE6', 'outline': '#0044B3'},
+            # Agriculture
+            "AGRICULTURE": {'fill': '#9BE442', 'outline': '#7CB636'},
+            
+            # Air City
             "AIR CITY": {'fill': '#FFFFFF', 'outline': '#CCCCCC'},
+            
+            # City Park
             "CITY PARK": {'fill': '#4CE600', 'outline': '#3DB800'},
+            
+            # Cold Storage
             "COLD STORAGE": {'fill': '#FF0000', 'outline': '#CC0000'},
+            
+            # Community Centre
             "COMMUNITY CENTRE": {'fill': '#FF0000', 'outline': '#CC0000'},
+            
+            # Community Park
             "COMMUNITY PARK": {'fill': '#4CE600', 'outline': '#3DB800'},
+            
+            # Cultural Complex
             "CULTURAL COMPLEX": {'fill': '#005CE6', 'outline': '#0044B3'},
+            
+            # District Centre
             "DISTRICT CENTRE": {'fill': '#FF0000', 'outline': '#CC0000'},
+            
+            # Education And Research
             "EDUCATION AND RESEARCH": {'fill': '#005CE6', 'outline': '#0044B3'},
+            
+            # Electricity (Power House Sub Station)
             "ELECTRICITY (POWER HOUSE SUB STATION)": {'fill': '#FFFFFF', 'outline': '#CCCCCC'},
+            
+            # Foreign Mission
             "FOREIGN MISSION": {'fill': '#FFFF00', 'outline': '#CCCC00'},
+            
+            # General Business
             "GENERAL BUSINESS": {'fill': '#FF0000', 'outline': '#CC0000'},
+            
+            # Government Land
             "GOVERNMENT LAND": {'fill': '#FFFFFF', 'outline': '#CCCCCC'},
+            
+            # Government Office (fixing typo)
+            "GOVERNMENT OFFICE": {'fill': '#FFFFFF', 'outline': '#CCCCCC'},
             "GOVERNMET OFFICE": {'fill': '#FFFFFF', 'outline': '#CCCCCC'},
+            
+            # Historical Monuments
             "HISTORICAL MONUMENTS": {'fill': '#4CE600', 'outline': '#3DB800'},
+            
+            # Hospital
             "HOSPITAL": {'fill': '#005CE6', 'outline': '#0044B3'},
+            
+            # Hotel
             "HOTEL": {'fill': '#FF0000', 'outline': '#CC0000'},
+            
+            # Industry
             "INDUSTRY": {'fill': '#8400A8', 'outline': '#6A0086'},
+            
+            # Manufacturing Service And Repair Industry
             "MANUFACTURING SERVICE AND REPAIR INDUSTRY": {'fill': '#8400A8', 'outline': '#6A0086'},
+            
+            # Non Hierarchical Commercial Centre
             "NON HIERARCHIALCOMMERCIAL CENTRE": {'fill': '#FF0000', 'outline': '#CC0000'},
+            "NON HIERARCHICAL COMMERCIAL CENTRE": {'fill': '#FF0000', 'outline': '#CC0000'},
+            
+            # Park
             "PARK": {'fill': '#4CE600', 'outline': '#3DB800'},
+            
+            # Parliament House
             "PARLIAMENT HOUSE": {'fill': '#FFFFFF', 'outline': '#CCCCCC'},
+            
+            # Police
             "POLICE": {'fill': '#005CE6', 'outline': '#0044B3'},
+            
+            # Police Headquarters (fixing typo)
+            "POLICE HEADQUARTERS": {'fill': '#005CE6', 'outline': '#0044B3'},
             "POLICE HEADQUATER": {'fill': '#005CE6', 'outline': '#0044B3'},
+            
+            # President House
             "PRESIDENT HOUSE": {'fill': '#FFFFFF', 'outline': '#CCCCCC'},
+            
+            # Regional Park
             "REGIONAL PARK": {'fill': '#267300', 'outline': '#1D5C00'},
+            
+            # Religious
             "RELIGIOUS": {'fill': '#FFFFFF', 'outline': '#CCCCCC'},
+            
+            # Residential Area
             "RESIDENTIAL AREA": {'fill': '#FFFF00', 'outline': '#CCCC00'},
+            
+            # Sewerage (Treatment Plant)
             "SEWERAGE (TREATMENT PLANT)": {'fill': '#FFFFFF', 'outline': '#CCCCCC'},
+            
+            # Social Cultural
             "SOCIAL CULTURAL": {'fill': '#005CE6', 'outline': '#0044B3'},
+            
+            # Solid Waste (Sanitery Landfill)
             "SOLID WASTE (SANITERY LANDFILL)": {'fill': '#FFFFFF', 'outline': '#CCCCCC'},
+            
+            # Special Area
             "SPECIAL AREA": {'fill': '#7AF5CA', 'outline': '#62C4A2'},
+            
+            # Sports
             "SPORTS": {'fill': '#4CE600', 'outline': '#3DB800'},
             "SPORTS CENTRE": {'fill': '#4CE600', 'outline': '#3DB800'},
             "SPORTS FACILITIES": {'fill': '#4CE600', 'outline': '#3DB800'},
             "STADIUM": {'fill': '#4CE600', 'outline': '#3DB800'},
+            
+            # Terminal
             "TERMINAL": {'fill': '#FFFFFF', 'outline': '#CCCCCC'},
             "TERMINAL-RAIL": {'fill': '#FFFFFF', 'outline': '#CCCCCC'},
+            
+            # Transmission Centre
             "TRANSMISSION CENTRE": {'fill': '#005CE6', 'outline': '#0044B3'},
             "TRANSMISSION SITE": {'fill': '#005CE6', 'outline': '#0044B3'},
+            
+            # University Centre
             "UNIVERSITY CENTRE": {'fill': '#005CE6', 'outline': '#0044B3'},
-            "URBANISABLE AREA": {'fill': '#000000', 'outline': '#000000'},
+            
+            # Urbanisable Area
+            "URBANISABLE AREA": {'fill': '#FFC44D', 'outline': '#CC9D3D'},
+            
+            # Warehousing
             "WAREHOUSING": {'fill': '#FF0000', 'outline': '#CC0000'},
+            
+            # Waste Land
             "WASTE LAND": {'fill': '#7AF5CA', 'outline': '#62C4A2'},
+            
+            # Water Bodies
             "WATER BODIES": {'fill': '#73B2FF', 'outline': '#5C8FCC'},
+            
+            # Water Treatment Plant
             "WATER TREATMENT PLANT": {'fill': '#FFFFFF', 'outline': '#CCCCCC'},
+            
+            # Whole Sale
             "WHOLE SALE": {'fill': '#FF73DF', 'outline': '#CC5CB2'},
         }
     
     def hex_to_rgb(self, hex_color):
         """Convert hex to RGB"""
+        if hex_color is None:
+            return None
         hex_color = hex_color.lstrip('#')
         return tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))
     
@@ -230,23 +343,21 @@ class DelhiSeamlessTiles:
                     draw.line(pts, fill=pcolor, width=1)
     
     def render_polygon_with_holes(self, draw, polygon, tile_bounds, img_size, buffer_pixels,
-                                  buffered_size, fill_rgb, color_info, outline_width=1):
+                                  buffered_size, fill_rgb, color_info, outline_width=1, lon_range=None, lat_range=None):
         """
         Render polygon with interior rings (holes) properly.
-        Create a mask where holes are transparent.
+        Optimized: Draw directly when possible, use separate image only when necessary.
         """
-        # Create a temporary image for this polygon with alpha channel
-        poly_img = Image.new('RGBA', (buffered_size, buffered_size), (0, 0, 0, 0))
-        poly_draw = ImageDraw.Draw(poly_img)
+        # Pre-compute coordinate conversion factors if not provided
+        if lon_range is None:
+            lon_range = tile_bounds.east - tile_bounds.west
+        if lat_range is None:
+            lat_range = tile_bounds.north - tile_bounds.south
         
         # Convert exterior ring to pixel coordinates
-        # Use actual tile bounds for consistent alignment across tiles
         exterior_pixels = []
-        lon_range = tile_bounds.east - tile_bounds.west
-        lat_range = tile_bounds.north - tile_bounds.south
         for coord in polygon.exterior.coords:
             lon, lat = coord[0], coord[1]
-            # Convert to pixel coordinates using actual tile bounds
             px = ((lon - tile_bounds.west) / lon_range * img_size) + buffer_pixels
             py = ((tile_bounds.north - lat) / lat_range * img_size) + buffer_pixels
             exterior_pixels.append((int(px), int(py)))
@@ -254,31 +365,41 @@ class DelhiSeamlessTiles:
         if len(exterior_pixels) < 3:
             return
         
-        # Draw exterior ring with full opacity and black outline
-        black_outline = (0, 0, 0, 255)  # Black outline
-        # Draw fill first (if exists), then outline on top for precise boundaries
+        # If no holes, draw directly (faster)
+        if len(polygon.interiors) == 0:
+            black_outline = (0, 0, 0)
+            if fill_rgb:
+                draw.polygon(exterior_pixels, fill=fill_rgb)
+            if len(exterior_pixels) > 1:
+                closed_pixels = exterior_pixels + [exterior_pixels[0]]
+                draw.line(closed_pixels, fill=black_outline, width=outline_width)
+            return
+        
+        # For polygons with holes, use mask approach (slower but necessary)
+        poly_img = Image.new('RGBA', (buffered_size, buffered_size), (0, 0, 0, 0))
+        poly_draw = ImageDraw.Draw(poly_img)
+        
+        black_outline = (0, 0, 0, 255)
         if fill_rgb:
-            fill_rgba = fill_rgb + (255,)  # Add alpha channel
+            fill_rgba = fill_rgb + (255,)
             poly_draw.polygon(exterior_pixels, fill=fill_rgba)
         if len(exterior_pixels) > 1:
             closed_pixels = exterior_pixels + [exterior_pixels[0]]
             poly_draw.line(closed_pixels, fill=black_outline, width=outline_width)
         
-        # Draw interior rings (holes) as transparent (black with full alpha = cut out)
+        # Draw interior rings (holes) as transparent
         for interior in polygon.interiors:
             interior_pixels = []
             for coord in interior.coords:
                 lon, lat = coord[0], coord[1]
-                # Convert to pixel coordinates using actual tile bounds
                 px = ((lon - tile_bounds.west) / lon_range * img_size) + buffer_pixels
                 py = ((tile_bounds.north - lat) / lat_range * img_size) + buffer_pixels
                 interior_pixels.append((int(px), int(py)))
             
             if len(interior_pixels) >= 3:
-                # Draw hole as fully transparent (this cuts out the area)
-                poly_draw.polygon(interior_pixels, fill=(0, 0, 0, 0), outline=(0, 0, 0, 0))
+                poly_draw.polygon(interior_pixels, fill=(0, 0, 0, 0))
         
-        # Composite the polygon with holes onto the main image
+        # Composite onto main image
         draw._image.paste(poly_img, (0, 0), poly_img)
     
     def render_tile_seamless(self, tile):
@@ -320,31 +441,35 @@ class DelhiSeamlessTiles:
         if not intersecting_ids:
             return None
         
-        color_map = self.get_color_map()
+        # Pre-compute coordinate conversion factors (used multiple times)
+        lon_range = tile_bounds.east - tile_bounds.west
+        lat_range = tile_bounds.north - tile_bounds.south
+        
+        # Use cached RGB color map for faster access
+        color_map = self._color_map_rgb
         rendered_count = 0
         
-        # Sort by area
+        # Filter and collect features (removed sorting for speed - not needed for quality)
         features_to_render = []
         for feature_id in intersecting_ids:
             feature_data = self.feature_lookup[feature_id]
             if feature_data['geometry'].intersects(tile_bbox_buffered):
-                features_to_render.append((feature_data['area'], feature_id, feature_data))
+                features_to_render.append(feature_data)
         
-        features_to_render.sort(key=lambda x: x[0], reverse=True)
-        
-        # Render all features
-        for area, feature_id, feature_data in features_to_render:
+        # Render all features (no sorting - faster)
+        for feature_data in features_to_render:
             geom = feature_data['geometry']
             category = feature_data['category']
             filename = feature_data['filename']
             
-            # Try category first, then filename
-            color_info = color_map.get(category, color_map.get(self.normalize_category(filename), {'fill': '#CCCCCC', 'outline': '#999999'}))
+            # Try category first, then filename (use cached RGB values)
+            color_info = color_map.get(category)
+            if color_info is None:
+                norm_filename = self.normalize_category(filename)
+                color_info = color_map.get(norm_filename, {'fill': (204, 204, 204), 'outline': (153, 153, 153)})
             
-            fill_color = color_info.get('fill')
-            fill_rgb = self.hex_to_rgb(fill_color) if fill_color else None
-            outline_color = color_info.get('outline', fill_color or '#000000')
-            outline_rgb = self.hex_to_rgb(outline_color)
+            fill_rgb = color_info.get('fill')  # Already RGB tuple
+            outline_rgb = color_info.get('outline', (0, 0, 0))  # Already RGB tuple
             
             # Handle geometry types
             if geom.geom_type == 'Polygon':
@@ -357,11 +482,8 @@ class DelhiSeamlessTiles:
             # Render each polygon
             for polygon in polygons:
                 try:
-                    # Convert exterior ring to pixel coordinates
-                    # Use actual tile bounds for consistent alignment across tiles
+                    # Convert exterior ring to pixel coordinates (use pre-computed ranges)
                     pixel_coords = []
-                    lon_range = tile_bounds.east - tile_bounds.west
-                    lat_range = tile_bounds.north - tile_bounds.south
                     for coord in polygon.exterior.coords:
                         lon, lat = coord[0], coord[1]
                         # Convert to pixel coordinates using actual tile bounds
@@ -386,16 +508,18 @@ class DelhiSeamlessTiles:
                         int_pixels = [(int(x), int(y)) for x, y in pixel_coords]
                         
                         if has_holes:
-                            # Render polygon with holes using mask
+                            # Render polygon with holes using mask (pass pre-computed ranges)
                             self.render_polygon_with_holes(draw, polygon, tile_bounds, img_size, buffer_pixels,
-                                                          buffered_size, fill_rgb, color_info, outline_width)
+                                                          buffered_size, fill_rgb, color_info, outline_width,
+                                                          lon_range, lat_range)
                         else:
                             # Simple polygon without holes - draw with black outline
                             black_outline = (0, 0, 0)  # Black outline
                             if 'pattern' in color_info and fill_rgb:
+                                pattern_color_rgb = color_info.get('pattern_color', (0, 0, 0))
                                 self.create_pattern(draw, int_pixels, fill_rgb, 
                                                  color_info['pattern'], 
-                                                 self.hex_to_rgb(color_info['pattern_color']),
+                                                 pattern_color_rgb,
                                                  buffered_size)
                                 # Draw black outline after pattern - use line for precise boundaries
                                 if len(int_pixels) > 1:
@@ -429,9 +553,10 @@ class DelhiSeamlessTiles:
                             # Draw with black outline
                             black_outline = (0, 0, 0)  # Black outline
                             if 'pattern' in color_info and fill_rgb:
+                                pattern_color_rgb = color_info.get('pattern_color', (0, 0, 0))
                                 self.create_pattern(draw, enlarged_coords, fill_rgb,
                                                  color_info['pattern'],
-                                                 self.hex_to_rgb(color_info['pattern_color']),
+                                                 pattern_color_rgb,
                                                  buffered_size)
                                 # Draw black outline after pattern - use line for precise boundaries
                                 if len(enlarged_coords) > 1:
@@ -474,10 +599,10 @@ class DelhiSeamlessTiles:
         return img
     
     def generate_tiles(self, min_zoom=7, max_zoom=18):
-        """Generate seamless tiles for Delhi"""
+        """Generate seamless tiles for Delhi - OPTIMIZED VERSION"""
         print(f"\n{'='*80}")
         print(f"GENERATING DELHI TILES (Zoom {min_zoom}-{max_zoom})")
-        print(f"Mode: SEAMLESS - NO TILE BOUNDARIES")
+        print(f"Mode: SEAMLESS - NO TILE BOUNDARIES (OPTIMIZED)")
         print(f"{'='*80}")
         
         bounds = self.get_bounds()
@@ -510,9 +635,9 @@ class DelhiSeamlessTiles:
                 if img is not None:
                     tile_dir = zoom_dir / str(tile.x)
                     tile_dir.mkdir(parents=True, exist_ok=True)
-                    
                     tile_path = tile_dir / f"{tile.y}.png"
-                    img.save(tile_path, 'PNG', optimize=True)
+                    # optimize=False is faster for PNG saving
+                    img.save(tile_path, 'PNG', optimize=False)
                     rendered += 1
             
             zoom_elapsed = time.time() - zoom_start
@@ -603,7 +728,7 @@ def main():
             print(f"✗ Path not found: {data_dir}")
             sys.exit(1)
     
-    output_dir = Path('./delhi_tiles_seamless')
+    output_dir = Path('./delhi_tiles_seamless_fast')
     
     print("="*80)
     print("DELHI MASTER PLAN - SEAMLESS TILE GENERATOR")
