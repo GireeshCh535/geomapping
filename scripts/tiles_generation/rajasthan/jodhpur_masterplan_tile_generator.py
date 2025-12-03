@@ -21,6 +21,9 @@ class JodhpurSeamlessTiles:
         self.spatial_index = index.Index()
         self.feature_id_counter = 0
         self.feature_lookup = {}
+        # Pre-compute color map with RGB values for faster access
+        self._color_map_rgb = None
+        self._init_color_cache()
         
     def normalize_category(self, value):
         """Normalize category name"""
@@ -28,6 +31,28 @@ class JodhpurSeamlessTiles:
             return None
         value = " ".join(str(value).replace("_", " ").split())
         return value.upper()
+    
+    def _init_color_cache(self):
+        """Pre-compute RGB values for all colors to avoid repeated conversions"""
+        color_map = self.get_color_map()
+        self._color_map_rgb = {}
+        for key, value in color_map.items():
+            rgb_value = {}
+            if 'fill' in value and value['fill']:
+                rgb_value['fill'] = self.hex_to_rgb(value['fill'])
+            else:
+                rgb_value['fill'] = None
+            if 'outline' in value and value['outline']:
+                rgb_value['outline'] = self.hex_to_rgb(value['outline'])
+            else:
+                rgb_value['outline'] = (0, 0, 0)  # Default black
+            if 'pattern_color' in value and value['pattern_color']:
+                rgb_value['pattern_color'] = self.hex_to_rgb(value['pattern_color'])
+            # Copy other keys
+            for k, v in value.items():
+                if k not in ['fill', 'outline', 'pattern_color']:
+                    rgb_value[k] = v
+            self._color_map_rgb[key] = rgb_value
     
     def get_color_map(self):
         """Jodhpur color mapping based on user specifications"""
@@ -283,23 +308,21 @@ class JodhpurSeamlessTiles:
                         draw.line([(x-2, y+2), (x+2, y-2)], fill=pcolor, width=1)
     
     def render_polygon_with_holes(self, draw, polygon, tile_bounds, img_size, buffer_pixels,
-                                  buffered_size, fill_rgb, color_info, outline_width=1):
+                                  buffered_size, fill_rgb, color_info, outline_width=1, lon_range=None, lat_range=None):
         """
         Render polygon with interior rings (holes) properly.
-        Create a mask where holes are transparent.
+        Optimized: Draw directly when possible, use separate image only when necessary.
         """
-        # Create a temporary image for this polygon with alpha channel
-        poly_img = Image.new('RGBA', (buffered_size, buffered_size), (0, 0, 0, 0))
-        poly_draw = ImageDraw.Draw(poly_img)
+        # Pre-compute coordinate conversion factors if not provided
+        if lon_range is None:
+            lon_range = tile_bounds.east - tile_bounds.west
+        if lat_range is None:
+            lat_range = tile_bounds.north - tile_bounds.south
         
         # Convert exterior ring to pixel coordinates
-        # Use actual tile bounds for consistent alignment across tiles
         exterior_pixels = []
-        lon_range = tile_bounds.east - tile_bounds.west
-        lat_range = tile_bounds.north - tile_bounds.south
         for coord in polygon.exterior.coords:
             lon, lat = coord[0], coord[1]
-            # Convert to pixel coordinates using actual tile bounds
             px = ((lon - tile_bounds.west) / lon_range * img_size) + buffer_pixels
             py = ((tile_bounds.north - lat) / lat_range * img_size) + buffer_pixels
             exterior_pixels.append((int(px), int(py)))
@@ -307,12 +330,22 @@ class JodhpurSeamlessTiles:
         if len(exterior_pixels) < 3:
             return
         
-        # Draw exterior ring with full opacity and black outline
-        black_outline = (0, 0, 0, 255)  # Black outline
-        # Draw fill first (if exists), then outline on top for precise boundaries
-        if fill_rgb:
-            fill_rgba = fill_rgb + (255,)  # Add alpha channel
+        # Create separate image for compositing
+        poly_img = Image.new('RGBA', (buffered_size, buffered_size), (0, 0, 0, 0))
+        poly_draw = ImageDraw.Draw(poly_img)
+        
+        fill_rgba = fill_rgb + (255,) if fill_rgb else None
+        black_outline = (0, 0, 0, 255)
+        
+        if 'pattern' in color_info:
+            pattern_color_rgb = color_info.get('pattern_color', (0, 0, 0))
+            self.create_pattern(poly_draw, exterior_pixels, fill_rgb, 
+                             color_info['pattern'], 
+                             pattern_color_rgb,
+                             buffered_size)
+        elif fill_rgba:
             poly_draw.polygon(exterior_pixels, fill=fill_rgba)
+        
         if len(exterior_pixels) > 1:
             closed_pixels = exterior_pixels + [exterior_pixels[0]]
             poly_draw.line(closed_pixels, fill=black_outline, width=outline_width)
@@ -322,196 +355,119 @@ class JodhpurSeamlessTiles:
             interior_pixels = []
             for coord in interior.coords:
                 lon, lat = coord[0], coord[1]
-                # Convert to pixel coordinates using actual tile bounds
                 px = ((lon - tile_bounds.west) / lon_range * img_size) + buffer_pixels
                 py = ((tile_bounds.north - lat) / lat_range * img_size) + buffer_pixels
                 interior_pixels.append((int(px), int(py)))
             
             if len(interior_pixels) >= 3:
-                poly_draw.polygon(interior_pixels, fill=(0, 0, 0, 0), outline=(0, 0, 0, 0))
+                poly_draw.polygon(interior_pixels, fill=(0, 0, 0, 0))
+                if len(interior_pixels) > 1:
+                    closed_interior = interior_pixels + [interior_pixels[0]]
+                    poly_draw.line(closed_interior, fill=black_outline, width=outline_width)
         
-        # Composite the polygon with holes onto the main image
-        draw._image.paste(poly_img, (0, 0), poly_img)
+        return poly_img
     
     def render_tile_seamless(self, tile):
-        """
-        SEAMLESS RENDERING for Jodhpur:
-        - Buffer zone to prevent seams
-        - All features visible
-        - No clipping artifacts
-        """
-        z, x, y = tile.z, tile.x, tile.y
+        """Render a single tile with seamless boundaries"""
+        tile_bounds = mercantile.bounds(tile)
+        buffer_degrees = 0.01  # Buffer in degrees
+        buffered_bounds = box(
+            tile_bounds.west - buffer_degrees,
+            tile_bounds.south - buffer_degrees,
+            tile_bounds.east + buffer_degrees,
+            tile_bounds.north + buffer_degrees
+        )
         
-        scale = self.get_zoom_scale(z)
-        min_size = self.get_min_feature_size(z, scale)
-        outline_width = self.get_outline_width(z)
+        # Find features intersecting buffered tile area
+        candidate_ids = list(self.spatial_index.intersection(buffered_bounds.bounds))
+        
+        if not candidate_ids:
+            return None
+        
+        zoom = tile.z
+        scale = self.get_zoom_scale(zoom)
+        min_size = self.get_min_feature_size(zoom, scale)
+        outline_width = self.get_outline_width(zoom)
+        
+        # Create buffered image
         img_size = self.tile_size * scale
-        
-        # Buffer zone
-        buffer_pixels = 4 * scale
-        buffered_size = img_size + (buffer_pixels * 2)
-        
+        buffer_pixels = int(img_size * 0.1)
+        buffered_size = img_size + (2 * buffer_pixels)
         img_buffered = Image.new('RGBA', (buffered_size, buffered_size), (0, 0, 0, 0))
         draw = ImageDraw.Draw(img_buffered)
         
-        tile_bounds = mercantile.bounds(tile)
+        # Pre-compute coordinate conversion factors (used multiple times)
+        lon_range = tile_bounds.east - tile_bounds.west
+        lat_range = tile_bounds.north - tile_bounds.south
         
-        # 2% buffer for seamless tiles
-        lon_buffer = (tile_bounds.east - tile_bounds.west) * 0.02
-        lat_buffer = (tile_bounds.north - tile_bounds.south) * 0.02
-        
-        tile_bbox_buffered = box(
-            tile_bounds.west - lon_buffer, 
-            tile_bounds.south - lat_buffer,
-            tile_bounds.east + lon_buffer, 
-            tile_bounds.north + lat_buffer
-        )
-        
-        intersecting_ids = list(self.spatial_index.intersection(tile_bbox_buffered.bounds))
-        
-        if not intersecting_ids:
-            return None
-        
-        color_map = self.get_color_map()
+        # Use cached RGB color map for faster access
+        color_map = self._color_map_rgb
         rendered_count = 0
         
-        # Sort by area
-        features_to_render = []
-        for feature_id in intersecting_ids:
-            feature_data = self.feature_lookup[feature_id]
-            if feature_data['geometry'].intersects(tile_bbox_buffered):
-                features_to_render.append((feature_data['area'], feature_id, feature_data))
-        
-        features_to_render.sort(key=lambda x: x[0], reverse=True)
-        
-        # Render all features
-        for area, feature_id, feature_data in features_to_render:
-            geom = feature_data['geometry']
-            category = feature_data['category']
-            filename = feature_data['filename']
-            
-            # Try category first, then filename
-            color_info = color_map.get(category, color_map.get(self.normalize_category(filename), {'fill': '#CCCCCC', 'outline': '#999999'}))
-            
-            fill_color = color_info.get('fill')
-            fill_rgb = self.hex_to_rgb(fill_color) if fill_color else None
-            outline_color = color_info.get('outline', fill_color or '#000000')
-            outline_rgb = self.hex_to_rgb(outline_color)
-            
-            # Handle geometry types
-            if geom.geom_type == 'Polygon':
-                polygons = [geom]
-            elif geom.geom_type == 'MultiPolygon':
-                polygons = list(geom.geoms)
-            else:
-                continue
-            
-            # Render each polygon
-            for polygon in polygons:
-                try:
-                    # Convert exterior ring to pixel coordinates
-                    # Use actual tile bounds for consistent alignment across tiles
-                    pixel_coords = []
-                    lon_range = tile_bounds.east - tile_bounds.west
-                    lat_range = tile_bounds.north - tile_bounds.south
-                    for coord in polygon.exterior.coords:
-                        lon, lat = coord[0], coord[1]
-                        # Convert to pixel coordinates using actual tile bounds
-                        px = ((lon - tile_bounds.west) / lon_range * img_size) + buffer_pixels
-                        py = ((tile_bounds.north - lat) / lat_range * img_size) + buffer_pixels
-                        pixel_coords.append((px, py))
-                    
-                    if len(pixel_coords) < 3:
+        for feature_id in candidate_ids:
+            try:
+                feature_data = self.feature_lookup[feature_id]
+                geom = feature_data['geometry']
+                
+                if not geom.intersects(buffered_bounds):
+                    continue
+                
+                category = feature_data['category']
+                color_info = color_map.get(category, {'fill': (255, 255, 255), 'outline': (204, 204, 204)})
+                
+                fill_rgb = color_info.get('fill')  # Already RGB tuple
+                
+                if isinstance(geom, Polygon):
+                    if geom.area < 1e-10:
                         continue
                     
-                    xs = [p[0] for p in pixel_coords]
-                    ys = [p[1] for p in pixel_coords]
-                    width = max(xs) - min(xs)
-                    height = max(ys) - min(ys)
-                    feature_size = max(width, height)
+                    # Render polygon with holes (pass pre-computed ranges)
+                    poly_img = self.render_polygon_with_holes(
+                        draw, geom, tile_bounds, img_size, buffer_pixels,
+                        buffered_size, fill_rgb, color_info, outline_width,
+                        lon_range, lat_range
+                    )
                     
-                    # Check if polygon has interior rings (holes)
-                    has_holes = len(polygon.interiors) > 0
-                    
-                    if feature_size >= min_size:
-                        # Normal rendering
-                        int_pixels = [(int(x), int(y)) for x, y in pixel_coords]
-                        
-                        if has_holes:
-                            # Render polygon with holes using mask
-                            self.render_polygon_with_holes(draw, polygon, tile_bounds, img_size, buffer_pixels,
-                                                          buffered_size, fill_rgb, color_info, outline_width)
-                        else:
-                            # Simple polygon without holes - draw with black outline
-                            black_outline = (0, 0, 0)  # Black outline
-                            if 'pattern' in color_info and fill_rgb:
-                                self.create_pattern(draw, int_pixels, fill_rgb, 
-                                                 color_info['pattern'], 
-                                                 self.hex_to_rgb(color_info['pattern_color']),
-                                                 buffered_size)
-                                # Draw black outline after pattern - use line for precise boundaries
-                                if len(int_pixels) > 1:
-                                    # Close the polygon by adding first point at end
-                                    closed_pixels = int_pixels + [int_pixels[0]]
-                                    draw.line(closed_pixels, fill=black_outline, width=outline_width)
-                            elif fill_rgb:
-                                # Draw fill first, then outline on top for precise boundaries
-                                draw.polygon(int_pixels, fill=fill_rgb)
-                                if len(int_pixels) > 1:
-                                    closed_pixels = int_pixels + [int_pixels[0]]
-                                    draw.line(closed_pixels, fill=black_outline, width=outline_width)
-                            else:
-                                # Outline only - draw black outline
-                                if len(int_pixels) > 1:
-                                    closed_pixels = int_pixels + [int_pixels[0]]
-                                    draw.line(closed_pixels, fill=black_outline, width=outline_width)
-                    else:
-                        # Enlarge small features (skip if has holes - too complex)
-                        if not has_holes:
-                            center_x = sum(xs) / len(xs)
-                            center_y = sum(ys) / len(ys)
-                            
-                            scale_factor = min_size / max(feature_size, 0.1)
-                            enlarged_coords = []
-                            for px, py in pixel_coords:
-                                new_x = center_x + (px - center_x) * scale_factor
-                                new_y = center_y + (py - center_y) * scale_factor
-                                enlarged_coords.append((int(new_x), int(new_y)))
-                            
-                            # Draw with black outline
-                            black_outline = (0, 0, 0)  # Black outline
-                            if 'pattern' in color_info and fill_rgb:
-                                self.create_pattern(draw, enlarged_coords, fill_rgb,
-                                                 color_info['pattern'],
-                                                 self.hex_to_rgb(color_info['pattern_color']),
-                                                 buffered_size)
-                                # Draw black outline after pattern - use line for precise boundaries
-                                if len(enlarged_coords) > 1:
-                                    closed_coords = enlarged_coords + [enlarged_coords[0]]
-                                    draw.line(closed_coords, fill=black_outline, width=outline_width)
-                            elif fill_rgb:
-                                # Draw fill first, then outline on top
-                                draw.polygon(enlarged_coords, fill=fill_rgb)
-                                if len(enlarged_coords) > 1:
-                                    closed_coords = enlarged_coords + [enlarged_coords[0]]
-                                    draw.line(closed_coords, fill=black_outline, width=outline_width)
-                            else:
-                                # Outline only - draw black outline
-                                if len(enlarged_coords) > 1:
-                                    closed_coords = enlarged_coords + [enlarged_coords[0]]
-                                    draw.line(closed_coords, fill=black_outline, width=outline_width)
-                            
-                            # Center dot with black outline (only if fill exists)
-                            if fill_rgb:
-                                dot_size = min_size // 2
-                                draw.ellipse([center_x - dot_size, center_y - dot_size,
-                                            center_x + dot_size, center_y + dot_size],
-                                           fill=fill_rgb, outline=(0, 0, 0), width=outline_width)
+                    if poly_img:
+                        # Composite polygon image onto main image
+                        img_buffered = Image.alpha_composite(img_buffered, poly_img)
+                        # Patterns are already applied in render_polygon_with_holes
                     
                     rendered_count += 1
+                
+                elif hasattr(geom, 'geoms'):  # MultiPolygon
+                    for poly in geom.geoms:
+                        if poly.area < 1e-10:
+                            continue
+                        
+                        poly_img = self.render_polygon_with_holes(
+                            draw, poly, tile_bounds, img_size, buffer_pixels,
+                            buffered_size, fill_rgb, color_info, outline_width,
+                            lon_range, lat_range
+                        )
+                        
+                        if poly_img:
+                            img_buffered = Image.alpha_composite(img_buffered, poly_img)
+                            # Patterns are already applied in render_polygon_with_holes
+                        
+                        rendered_count += 1
+                
+                else:
+                    # Point or very small feature - render as dot (use pre-computed ranges)
+                    if hasattr(geom, 'x') and hasattr(geom, 'y'):
+                        lon, lat = geom.x, geom.y
+                        px = ((lon - tile_bounds.west) / lon_range * img_size) + buffer_pixels
+                        py = ((tile_bounds.north - lat) / lat_range * img_size) + buffer_pixels
+                        
+                        if fill_rgb:
+                            dot_size = max(2, min_size // 2)
+                            draw.ellipse([px - dot_size, py - dot_size,
+                                        px + dot_size, py + dot_size],
+                                       fill=fill_rgb, outline=(0, 0, 0), width=outline_width)
+                            rendered_count += 1
                     
-                except:
-                    pass
+            except:
+                pass
         
         if rendered_count == 0:
             return None
@@ -564,7 +520,7 @@ class JodhpurSeamlessTiles:
                     tile_dir.mkdir(parents=True, exist_ok=True)
                     
                     tile_path = tile_dir / f"{tile.y}.png"
-                    img.save(tile_path, 'PNG', optimize=True)
+                    img.save(tile_path, 'PNG', optimize=False)  # optimize=False is faster
                     rendered += 1
             
             zoom_elapsed = time.time() - zoom_start
@@ -655,7 +611,7 @@ def main():
             print(f"✗ Path not found: {data_dir}")
             sys.exit(1)
     
-    output_dir = Path('./jodhpur_tiles_seamless')
+    output_dir = Path('./jodhpur_tiles_seamless_fast')
     
     print("="*80)
     print("JODHPUR MASTER PLAN - SEAMLESS TILE GENERATOR")

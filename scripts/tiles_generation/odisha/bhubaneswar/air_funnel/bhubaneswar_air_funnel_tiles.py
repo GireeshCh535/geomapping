@@ -181,7 +181,7 @@ class BhubaneswarAirFunnelTileGenerator:
         
         # If no holes, draw directly (faster)
         if len(polygon.interiors) == 0:
-            fill_rgba = fill_rgb + (128,)  # 50% opacity
+            fill_rgba = fill_rgb + (255,)  # 100% opacity
             draw.polygon(exterior_pixels, fill=fill_rgba, outline=fill_rgba)
             return
         
@@ -189,7 +189,7 @@ class BhubaneswarAirFunnelTileGenerator:
         poly_img = Image.new('RGBA', (buffered_size, buffered_size), (0, 0, 0, 0))
         poly_draw = ImageDraw.Draw(poly_img)
         
-        fill_rgba = fill_rgb + (128,)  # 50% opacity
+        fill_rgba = fill_rgb + (255,)  # 100% opacity
         poly_draw.polygon(exterior_pixels, fill=fill_rgba, outline=fill_rgba)
         
         # Draw interior rings (holes) as transparent
@@ -298,8 +298,8 @@ class BhubaneswarAirFunnelTileGenerator:
                         self.render_polygon_with_holes(draw, polygon, tile_bounds, lon_buffer, lat_buffer, 
                                                       buffered_size, fill_rgb, lon_range_buffered, lat_range_buffered)
                     else:
-                        # Simple polygon without holes - 50% opacity (adjustable in viewer)
-                        fill_rgba = fill_rgb + (128,)
+                        # Simple polygon without holes - 100% opacity (fully opaque)
+                        fill_rgba = fill_rgb + (255,)
                         draw.polygon(int_pixels, fill=fill_rgba, outline=outline_rgb)
                 
                 except Exception as e:
@@ -644,7 +644,7 @@ def main():
     
     try:
         # Paths
-        data_path = project_root / "arifunnel" / "Bhubaneswar.geojson"
+        data_path = project_root / "data" / "odisha" / "bhubaneshwar" / "air_funnel_zones" / "Bhubaneswar.geojson"
         output_dir = project_root / "bhubaneswar_air_funnel_tiles"
         
         # Initialize generator

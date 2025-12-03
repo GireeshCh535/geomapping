@@ -158,8 +158,8 @@ class NoidaJewarAirFunnelTileGenerator:
         if len(exterior_pixels) < 3:
             return
         
-        # Draw exterior ring with 50% opacity (adjustable in viewer)
-        fill_rgba = fill_rgb + (128,)  # 50% opacity
+        # Draw exterior ring with 100% opacity (fully opaque)
+        fill_rgba = fill_rgb + (255,)  # 100% opacity
         poly_draw.polygon(exterior_pixels, fill=fill_rgba, outline=fill_rgba)
         
         # Draw interior rings (holes) as transparent
@@ -268,8 +268,8 @@ class NoidaJewarAirFunnelTileGenerator:
                         self.render_polygon_with_holes(draw, polygon, tile_bounds, lon_buffer, lat_buffer, 
                                                       buffered_size, fill_rgb)
                     else:
-                        # Simple polygon without holes - 50% opacity (adjustable in viewer)
-                        fill_rgba = fill_rgb + (128,)
+                        # Simple polygon without holes - 100% opacity (fully opaque)
+                        fill_rgba = fill_rgb + (255,)
                         draw.polygon(int_pixels, fill=fill_rgba, outline=outline_rgb)
                 
                 except Exception as e:
@@ -515,33 +515,6 @@ class NoidaJewarAirFunnelTileGenerator:
       <div class="legend-color" style="background-color: #A0A0A0;"></div>
       <span style="font-size: 10px;">339m</span>
     </div>
-  </div></div>
-      <span style="font-size: 10px;">NOC Required</span>
-    </div>
-    <div class="legend-item">
-      <div class="legend-color" style="background-color: #559B33;"></div>
-      <span style="font-size: 10px;">19m</span>
-    </div>
-    <div class="legend-item">
-      <div class="legend-color" style="background-color: #8B36A4;"></div>
-      <span style="font-size: 10px;">29m</span>
-    </div>
-    <div class="legend-item">
-      <div class="legend-color" style="background-color: #CF9D2C;"></div>
-      <span style="font-size: 10px;">39m</span>
-    </div>
-    <div class="legend-item">
-      <div class="legend-color" style="background-color: #3A6A99;"></div>
-      <span style="font-size: 10px;">49m</span>
-    </div>
-    <div class="legend-item">
-      <div class="legend-color" style="background-color: #AA8F9D;"></div>
-      <span style="font-size: 10px;">119m</span>
-    </div>
-    <div class="legend-item">
-      <div class="legend-color" style="background-color: #A0A0A0;"></div>
-      <span style="font-size: 10px;">149m</span>
-    </div>
   </div>
   <script src="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.js"></script>
   <script>
@@ -661,7 +634,7 @@ def main():
     
     try:
         # Paths
-        data_path = project_root / "arifunnel" / "Noida(Jewar).geojson"
+        data_path = project_root / "data" / "delhi-ncr" / "delhi-ncr" / "air_funnel_zones" / "Noida(Jewar).geojson"
         output_dir = project_root / "noida_jewar_air_funnel_tiles"
         
         # Initialize generator

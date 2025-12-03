@@ -222,3 +222,47 @@ docker-compose exec web python manage.py insert_masterplan_layer \
   --max-zoom 18 \
   --delete-existing
 
+# 21. Puducherry Masterplan
+docker-compose exec web python manage.py insert_masterplan_layer \
+  --city-slug "puducherry" \
+  --layer-name "Puducherry Masterplan" \
+  --layer-slug "puducherry_masterplan" \
+  --data-dir "data/puducherry/master_plan" \
+  --authority "Puducherry Planning Authority" \
+  --min-zoom 8 \
+  --max-zoom 18 \
+  --delete-existing
+
+# 22. Jaipur Masterplan
+docker-compose exec web python manage.py insert_masterplan_layer \
+  --city-slug "jaipur" \
+  --layer-name "Jaipur Masterplan" \
+  --layer-slug "jaipur_masterplan" \
+  --data-dir "data/rajasthan/jaipur/master_plan" \
+  --authority "Jaipur Development Authority" \
+  --min-zoom 8 \
+  --max-zoom 18 \
+  --delete-existing
+
+# 23. Chandigarh Masterplan
+docker-compose exec web python manage.py insert_masterplan_layer \
+  --city-slug "chandigarh" \
+  --layer-name "Chandigarh Masterplan" \
+  --layer-slug "chandigarh_masterplan" \
+  --data-dir "data/punjab/chandigarh/master_plan" \
+  --authority "Chandigarh Administration" \
+  --min-zoom 8 \
+  --max-zoom 18 \
+  --delete-existing
+
+# 24. Bhubaneswar Masterplan
+docker-compose exec web python manage.py insert_masterplan_layer \
+  --city-slug "bhubaneswar" \
+  --layer-name "Bhubaneswar Masterplan" \
+  --layer-slug "bhubaneswar_masterplan" \
+  --data-dir "data/odisha/bhubaneshwar/master_plan" \
+  --authority "Bhubaneswar Development Authority" \
+  --min-zoom 8 \
+  --max-zoom 18 \
+  --delete-existing
+

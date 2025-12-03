@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 """
-Puducherry Master Plan - SEAMLESS COMPLETE TILES
-Every feature visible at every zoom level - Transparent background
+Universal Master Plan Tile Generator
+Reads color mappings from legend.csv in the data directory
+Works for ANY city/region with proper legend.csv configuration
 """
 
 import json
-import os
+import csv
+import sys
 import time
 from pathlib import Path
 from PIL import Image, ImageDraw
@@ -13,6 +15,7 @@ import mercantile
 from shapely.geometry import shape, box, Point, Polygon, LineString
 from shapely.ops import transform
 from rtree import index
+
 try:
     from pyproj import Transformer
     HAS_PYPROJ = True
@@ -20,132 +23,134 @@ except ImportError:
     HAS_PYPROJ = False
     print("Warning: pyproj not available. Coordinate transformation disabled.")
 
-class PuducherrySeamlessTiles:
-    def __init__(self, data_dir, output_dir, source_crs=None):
+
+class UniversalMasterPlanTiles:
+    def __init__(self, data_dir, output_dir, legend_file='legend.csv'):
         """
-        Initialize Puducherry tile generator
+        Initialize Universal Tile Generator
         
         Args:
-            data_dir: Directory containing GeoJSON files
+            data_dir: Directory containing GeoJSON files and legend.csv
             output_dir: Output directory for tiles
-            source_crs: Source CRS of the GeoJSON data (None = auto-detect from file)
+            legend_file: Name of the legend CSV file (default: legend.csv)
         """
         self.data_dir = Path(data_dir)
         self.output_dir = Path(output_dir)
+        self.legend_file = self.data_dir / legend_file
         self.tile_size = 256
         self.spatial_index = index.Index()
         self.feature_id_counter = 0
         self.feature_lookup = {}
-        self.source_crs = source_crs
-        self.needs_transform = None  # Will be determined during loading
+        self.source_crs = None
+        self.needs_transform = None
         self.transformer = None
         
+        # Load color mappings from CSV
+        self.color_map = self._load_legend_csv()
+        
+        # Pre-compute RGB values for faster access
+        self._color_map_rgb = None
+        self._init_color_cache()
+        
+    def _load_legend_csv(self):
+        """
+        Load color mappings from legend.csv
+        
+        Expected CSV format:
+        category,fill_color,outline_color,pattern,pattern_color
+        Residential,#ffff00,#000000,,
+        Commercial,#ff0000,#000000,,
+        Green Belt,#ffffff,#000000,hatch,#00ff00
+        Heritage,#d0ffb8,#000000,dotted,#000000
+        """
+        if not self.legend_file.exists():
+            print(f"⚠️  Legend file not found: {self.legend_file}")
+            print("Creating default color map...")
+            return self._get_default_color_map()
+        
+        print(f"📖 Loading legend from: {self.legend_file}")
+        color_map = {}
+        
+        try:
+            with open(self.legend_file, 'r', encoding='utf-8') as f:
+                reader = csv.DictReader(f)
+                for row in reader:
+                    category = row.get('category', '').strip()
+                    if not category:
+                        continue
+                    
+                    # Normalize category (uppercase with spaces)
+                    category_norm = self.normalize_category(category)
+                    
+                    color_info = {}
+                    
+                    # Fill color (can be empty for pattern-only fills)
+                    fill = row.get('fill_color', '').strip()
+                    color_info['fill'] = fill if fill else None
+                    
+                    # Outline color (default to black if not specified)
+                    outline = row.get('outline_color', '').strip()
+                    color_info['outline'] = outline if outline else '#000000'
+                    
+                    # Pattern (hatch, dots, cross_hatch, dashed, dotted)
+                    pattern = row.get('pattern', '').strip().lower()
+                    if pattern:
+                        color_info['pattern'] = pattern
+                        pattern_color = row.get('pattern_color', '').strip()
+                        color_info['pattern_color'] = pattern_color if pattern_color else '#000000'
+                    
+                    color_map[category_norm] = color_info
+                    
+                    # Also add underscore version
+                    category_underscore = category_norm.replace(' ', '_')
+                    color_map[category_underscore] = color_info
+            
+            print(f"✓ Loaded {len(color_map) // 2} categories from legend")
+            return color_map
+            
+        except Exception as e:
+            print(f"⚠️  Error loading legend: {e}")
+            print("Using default color map...")
+            return self._get_default_color_map()
+    
+    def _get_default_color_map(self):
+        """Fallback color map if legend.csv is missing"""
+        return {
+            'DEFAULT': {'fill': '#CCCCCC', 'outline': '#999999'},
+            'RESIDENTIAL': {'fill': '#FFFF00', 'outline': '#000000'},
+            'COMMERCIAL': {'fill': '#FF0000', 'outline': '#000000'},
+            'INDUSTRIAL': {'fill': '#A900E6', 'outline': '#000000'},
+            'GREEN': {'fill': '#4CE600', 'outline': '#000000'},
+            'WATER': {'fill': '#73DFFF', 'outline': '#000000'},
+        }
+    
+    def _init_color_cache(self):
+        """Pre-compute RGB values for all colors to avoid repeated conversions"""
+        self._color_map_rgb = {}
+        for key, value in self.color_map.items():
+            rgb_value = {}
+            if 'fill' in value and value['fill']:
+                rgb_value['fill'] = self.hex_to_rgb(value['fill'])
+            else:
+                rgb_value['fill'] = None
+            if 'outline' in value and value['outline']:
+                rgb_value['outline'] = self.hex_to_rgb(value['outline'])
+            else:
+                rgb_value['outline'] = (0, 0, 0)
+            if 'pattern_color' in value and value['pattern_color']:
+                rgb_value['pattern_color'] = self.hex_to_rgb(value['pattern_color'])
+            # Copy other keys
+            for k, v in value.items():
+                if k not in ['fill', 'outline', 'pattern_color']:
+                    rgb_value[k] = v
+            self._color_map_rgb[key] = rgb_value
+    
     def normalize_category(self, value):
         """Normalize category name"""
         if not value:
             return None
         value = " ".join(str(value).replace("_", " ").split())
         return value.upper()
-    
-    def get_color_map(self):
-        """Puducherry color mapping based on user specifications"""
-        return {
-            # AGRICULTURAL ZONE - Solid Fill: #adffaf, Outline: #000000
-            "AGRICULTURAL ZONE": {'fill': '#adffaf', 'outline': '#000000'},
-            "AGRICULTURAL_ZONE": {'fill': '#adffaf', 'outline': '#000000'},
-            
-            # EXISTING COMMERCIAL ZONE - Solid Fill: #3d5fea, Outline: #000000
-            "EXISTING COMMERCIAL ZONE": {'fill': '#3d5fea', 'outline': '#000000'},
-            "EXISTING_COMMERCIAL_ZONE": {'fill': '#3d5fea', 'outline': '#000000'},
-            
-            # EXISTING MIXED COMMERCIAL ZONE - Solid Fill: #ffffff, Hatched Fill: #44b7ff, Outline: #000000
-            "EXISTING MIXED COMMERCIAL ZONE": {'fill': '#ffffff', 'outline': '#000000', 'pattern': 'hatch', 'pattern_color': '#44b7ff'},
-            "EXISTING_MIXED_COMMERCIAL_ZONE": {'fill': '#ffffff', 'outline': '#000000', 'pattern': 'hatch', 'pattern_color': '#44b7ff'},
-            
-            # EXISTING MIXED RESIDENTIAL ZONE - Solid Fill: #fef787, Hatched Fill: #ff0009, Outline: #000000
-            "EXISTING MIXED RESIDENTIAL ZONE": {'fill': '#fef787', 'outline': '#000000', 'pattern': 'hatch', 'pattern_color': '#ff0009'},
-            "EXISTING_MIXED_RESIDENTIAL_ZONE": {'fill': '#fef787', 'outline': '#000000', 'pattern': 'hatch', 'pattern_color': '#ff0009'},
-            
-            # EXISTING PROTECTIVE AND UNDEVELOPED USE ZONE - Solid Fill: #8bc1ff, Outline: #000000
-            "EXISTING PROTECTIVE AND UNDEVELOPED USE ZONE": {'fill': '#8bc1ff', 'outline': '#000000'},
-            "EXISTING_PROTECTIVE_AND_UNDEVELOPED_USE_ZONE": {'fill': '#8bc1ff', 'outline': '#000000'},
-            "EXISTING PROTECTIVE AND UNDEVELOPED USE": {'fill': '#8bc1ff', 'outline': '#000000'},
-            
-            # EXISTING PUBLIC & SEMI PUBLIC ZONE - Solid Fill: #ee6966, Outline: #000000
-            "EXISTING PUBLIC & SEMI PUBLIC ZONE": {'fill': '#ee6966', 'outline': '#000000'},
-            "EXISTING_PUBLIC_&_SEMI_PUBLIC_ZONE": {'fill': '#ee6966', 'outline': '#000000'},
-            "EXISTING PUBLIC AND SEMI PUBLIC ZONE": {'fill': '#ee6966', 'outline': '#000000'},
-            "EXISTING_PUBLIC_AND_SEMI_PUBLIC_ZONE": {'fill': '#ee6966', 'outline': '#000000'},
-            
-            # EXISTING RECREATIONAL/TOURISM ZONE - Solid Fill: #95ff21, Outline: #000000
-            "EXISTING RECREATIONAL/TOURISM ZONE": {'fill': '#95ff21', 'outline': '#000000'},
-            "EXISTING_RECREATIONAL/TOURISM_ZONE": {'fill': '#95ff21', 'outline': '#000000'},
-            "EXISTING RECREATIONAL TOURISM ZONE": {'fill': '#95ff21', 'outline': '#000000'},
-            "EXISTING_RECREATIONAL_TOURISM_ZONE": {'fill': '#95ff21', 'outline': '#000000'},
-            
-            # EXISTING RESIDENTIAL ZONE - Solid Fill: #fffbb7, Outline: #000000
-            "EXISTING RESIDENTIAL ZONE": {'fill': '#fffbb7', 'outline': '#000000'},
-            "EXISTING_RESIDENTIAL_ZONE": {'fill': '#fffbb7', 'outline': '#000000'},
-            
-            # EXISTING TRANSPORTATION AND COMMUNICATION - Solid Fill: #d5d5d5, Outline: #000000
-            "EXISTING TRANSPORTATION AND COMMUNICATION": {'fill': '#d5d5d5', 'outline': '#000000'},
-            "EXISTING_TRANSPORTATION_AND_COMMUNICATION": {'fill': '#d5d5d5', 'outline': '#000000'},
-            "EXISTING TRANSPORTATION & COMMUNICATION": {'fill': '#d5d5d5', 'outline': '#000000'},
-            
-            # INDUSTRIAL ZONE - Solid Fill: #ea00ea, Outline: #000000
-            "INDUSTRIAL ZONE": {'fill': '#ea00ea', 'outline': '#000000'},
-            "INDUSTRIAL_ZONE": {'fill': '#ea00ea', 'outline': '#000000'},
-            
-            # INFORMAL RESIDENTIAL ZONE - Solid Fill: #dbf400, Outline: #000000
-            "INFORMAL RESIDENTIAL ZONE": {'fill': '#dbf400', 'outline': '#000000'},
-            "INFORMAL_RESIDENTIAL_ZONE": {'fill': '#dbf400', 'outline': '#000000'},
-            
-            # PROPOSED COMMERCIAL ZONE - Solid Fill: #181679, Outline: #000000
-            "PROPOSED COMMERCIAL ZONE": {'fill': '#181679', 'outline': '#000000'},
-            "PROPOSED_COMMERCIAL_ZONE": {'fill': '#181679', 'outline': '#000000'},
-            
-            # PROPOSED MIXED COMMERCIAL ZONE - Solid Fill: #ffffff, Dotted Fill: #0e07ff, Outline: #000000
-            "PROPOSED MIXED COMMERCIAL ZONE": {'fill': '#ffffff', 'outline': '#000000', 'pattern': 'dotted', 'pattern_color': '#0e07ff'},
-            "PROPOSED_MIXED_COMMERCIAL_ZONE": {'fill': '#ffffff', 'outline': '#000000', 'pattern': 'dotted', 'pattern_color': '#0e07ff'},
-            
-            # PROPOSED MIXED INDUSTRIAL USE ZONE - Solid Fill: #ffffff, Dotted Fill: #76028e, Outline: #000000
-            "PROPOSED MIXED INDUSTRIAL USE ZONE": {'fill': '#ffffff', 'outline': '#000000', 'pattern': 'dotted', 'pattern_color': '#76028e'},
-            "PROPOSED_MIXED_INDUSTRIAL_USE_ZONE": {'fill': '#ffffff', 'outline': '#000000', 'pattern': 'dotted', 'pattern_color': '#76028e'},
-            
-            # PROPOSED MIXED RESIDENTIAL ZONE - Solid Fill: #fff000, Hatched Fill and Outline: #000000
-            "PROPOSED MIXED RESIDENTIAL ZONE": {'fill': '#fff000', 'outline': '#000000', 'pattern': 'hatch', 'pattern_color': '#000000'},
-            "PROPOSED_MIXED_RESIDENTIAL_ZONE": {'fill': '#fff000', 'outline': '#000000', 'pattern': 'hatch', 'pattern_color': '#000000'},
-            
-            # PROPOSED PROTECTIVE AND UNDEVELOPED USE ZONE - No Solid Fill, Hatched Fill: #ff0014, Outline: #000000
-            "PROPOSED PROTECTIVE AND UNDEVELOPED USE ZONE": {'fill': None, 'outline': '#000000', 'pattern': 'hatch', 'pattern_color': '#ff0014'},
-            "PROPOSED_PROTECTIVE_AND_UNDEVELOPED_USE_ZONE": {'fill': None, 'outline': '#000000', 'pattern': 'hatch', 'pattern_color': '#ff0014'},
-            "PROPOSED PROTECTIVE AND UNDEVELOPED USE": {'fill': None, 'outline': '#000000', 'pattern': 'hatch', 'pattern_color': '#ff0014'},
-            
-            # PROPOSED PUBLIC & SEMI PUBLIC - Solid Fill: #ff0009, Outline: #000000
-            "PROPOSED PUBLIC & SEMI PUBLIC": {'fill': '#ff0009', 'outline': '#000000'},
-            "PROPOSED_PUBLIC_&_SEMI_PUBLIC": {'fill': '#ff0009', 'outline': '#000000'},
-            "PROPOSED PUBLIC AND SEMI PUBLIC": {'fill': '#ff0009', 'outline': '#000000'},
-            "PROPOSED_PUBLIC_AND_SEMI_PUBLIC": {'fill': '#ff0009', 'outline': '#000000'},
-            
-            # PROPOSED RECREATIONAL/TOURISM ZONE - Solid Fill: #ffffff, Dotted Fill: #4daf4a, Outline: #000000
-            "PROPOSED RECREATIONAL/TOURISM ZONE": {'fill': '#ffffff', 'outline': '#000000', 'pattern': 'dotted', 'pattern_color': '#4daf4a'},
-            "PROPOSED_RECREATIONAL/TOURISM_ZONE": {'fill': '#ffffff', 'outline': '#000000', 'pattern': 'dotted', 'pattern_color': '#4daf4a'},
-            "PROPOSED RECREATIONAL TOURISM ZONE": {'fill': '#ffffff', 'outline': '#000000', 'pattern': 'dotted', 'pattern_color': '#4daf4a'},
-            "PROPOSED_RECREATIONAL_TOURISM_ZONE": {'fill': '#ffffff', 'outline': '#000000', 'pattern': 'dotted', 'pattern_color': '#4daf4a'},
-            
-            # PROPOSED RESIDENTIAL ZONE - Solid Fill: #fff000, Outline: #000000
-            "PROPOSED RESIDENTIAL ZONE": {'fill': '#fff000', 'outline': '#000000'},
-            "PROPOSED_RESIDENTIAL_ZONE": {'fill': '#fff000', 'outline': '#000000'},
-            
-            # PROPOSED TRANSPORTATION AND COMMUNICATION - Solid Fill: #acacac, Outline: #000000
-            "PROPOSED TRANSPORTATION AND COMMUNICATION": {'fill': '#acacac', 'outline': '#000000'},
-            "PROPOSED_TRANSPORTATION_AND_COMMUNICATION": {'fill': '#acacac', 'outline': '#000000'},
-            "PROPOSED TRANSPORTATION & COMMUNICATION": {'fill': '#acacac', 'outline': '#000000'},
-            
-            # ROADS - Solid Fill: #ffffff, Outline: #000000
-            "ROADS": {'fill': '#ffffff', 'outline': '#000000'},
-            "ROAD": {'fill': '#ffffff', 'outline': '#000000'},
-        }
     
     def hex_to_rgb(self, hex_color):
         """Convert hex to RGB"""
@@ -186,9 +191,9 @@ class PuducherrySeamlessTiles:
             return 1
     
     def load_geojson_files(self):
-        """Load all Puducherry GeoJSON files"""
+        """Load all GeoJSON files from data directory"""
         print("\n" + "="*80)
-        print("LOADING PUDUCHERRY GEOJSON DATA")
+        print("LOADING GEOJSON DATA")
         print("="*80)
         
         geojson_files = sorted(self.data_dir.glob('*.geojson'))
@@ -257,7 +262,6 @@ class PuducherrySeamlessTiles:
                         
                         # Transform geometry to WGS84 if needed
                         if self.needs_transform and self.transformer:
-                            # Create a wrapper function for shapely.ops.transform
                             def transform_func(x, y, z=None):
                                 result = self.transformer.transform(x, y)
                                 if z is not None:
@@ -280,8 +284,10 @@ class PuducherrySeamlessTiles:
                             or props.get("SUB_CATEGO")
                             or props.get("Name")
                             or props.get("name")
+                            or props.get("NAME")
                             or props.get("Label")
                             or props.get("use")
+                            or props.get("LAYER")
                             or file_name
                         )
                         category_norm = self.normalize_category(str(raw_category)) or self.normalize_category(file_name) or file_name.upper()
@@ -355,17 +361,14 @@ class PuducherrySeamlessTiles:
                 return
             spacing = max(5, (max_x - min_x) // 12)
             for i in range(min_x - max_y, max_x + max_y, spacing):
-                # Create full hatch line
                 line_pts = [(x, x - i) for x in range(min_x - 10, max_x + 10) if min_y - 10 <= x - i <= max_y + 10]
                 if len(line_pts) < 2:
                     continue
-                # Create LineString and clip to polygon
                 try:
                     line = LineString(line_pts)
                     clipped = line.intersection(poly_shape)
                     if clipped.is_empty:
                         continue
-                    # Draw clipped line segments
                     if clipped.geom_type == 'LineString':
                         clipped_pts = list(clipped.coords)
                         if len(clipped_pts) >= 2:
@@ -383,7 +386,6 @@ class PuducherrySeamlessTiles:
         elif ptype == "cross_hatch":
             if poly_shape is None:
                 return
-            # Draw two sets of perpendicular hatch lines
             spacing = max(5, (max_x - min_x) // 12)
             # First set (diagonal from top-left to bottom-right)
             for i in range(min_x - max_y, max_x + max_y, spacing):
@@ -450,7 +452,6 @@ class PuducherrySeamlessTiles:
                     if clipped.geom_type == 'LineString':
                         clipped_pts = list(clipped.coords)
                         if len(clipped_pts) >= 2:
-                            # Draw dashed line by creating segments
                             total_length = len(clipped_pts)
                             j = 0
                             while j < total_length - 1:
@@ -493,7 +494,6 @@ class PuducherrySeamlessTiles:
                         continue
                     if clipped.geom_type == 'LineString':
                         clipped_pts = list(clipped.coords)
-                        # Draw dots along the line
                         for j in range(0, len(clipped_pts), dot_spacing):
                             pt = clipped_pts[j]
                             try:
@@ -528,77 +528,62 @@ class PuducherrySeamlessTiles:
                         continue
     
     def render_polygon_with_holes(self, draw, polygon, tile_bounds, img_size, buffer_pixels,
-                                  buffered_size, fill_rgb, color_info, outline_width=1):
-        """
-        Render polygon with interior rings (holes) properly.
-        Create a mask where holes are transparent.
-        """
-        # Create a temporary image for this polygon with alpha channel
-        poly_img = Image.new('RGBA', (buffered_size, buffered_size), (0, 0, 0, 0))
-        poly_draw = ImageDraw.Draw(poly_img)
+                                  buffered_size, fill_rgb, color_info, outline_width=1, lon_range=None, lat_range=None):
+        """Render polygon with interior rings (holes) properly"""
+        if lon_range is None:
+            lon_range = tile_bounds.east - tile_bounds.west
+        if lat_range is None:
+            lat_range = tile_bounds.north - tile_bounds.south
         
-        # Convert exterior ring to pixel coordinates
-        # Use actual tile bounds for consistent alignment across tiles
         exterior_pixels = []
-        lon_range = tile_bounds.east - tile_bounds.west
-        lat_range = tile_bounds.north - tile_bounds.south
         for coord in polygon.exterior.coords:
             lon, lat = coord[0], coord[1]
-            # Convert to pixel coordinates using actual tile bounds
             px = ((lon - tile_bounds.west) / lon_range * img_size) + buffer_pixels
             py = ((tile_bounds.north - lat) / lat_range * img_size) + buffer_pixels
             exterior_pixels.append((int(px), int(py)))
         
         if len(exterior_pixels) < 3:
-            return
+            return None
         
-        # Draw exterior ring with full opacity and black outline
-        fill_rgba = fill_rgb + (255,) if fill_rgb else None  # Add alpha channel
-        black_outline = (0, 0, 0, 255)  # Black outline
+        poly_img = Image.new('RGBA', (buffered_size, buffered_size), (0, 0, 0, 0))
+        poly_draw = ImageDraw.Draw(poly_img)
         
-        # Check if pattern should be applied
+        fill_rgba = fill_rgb + (255,) if fill_rgb else None
+        black_outline = (0, 0, 0, 255)
+        
         if 'pattern' in color_info:
-            # Apply pattern (dots, hatch, etc.)
-            pattern_color = self.hex_to_rgb(color_info['pattern_color'])
+            pattern_color_rgb = color_info.get('pattern_color', (0, 0, 0))
             self.create_pattern(poly_draw, exterior_pixels, fill_rgb, 
                              color_info['pattern'], 
-                             pattern_color,
+                             pattern_color_rgb,
                              buffered_size)
-        else:
-            # Draw fill first, then outline on top for precise boundaries
-            if fill_rgba:
-                poly_draw.polygon(exterior_pixels, fill=fill_rgba)
+        elif fill_rgba:
+            poly_draw.polygon(exterior_pixels, fill=fill_rgba)
         
-        # Draw black outline
         if len(exterior_pixels) > 1:
             closed_pixels = exterior_pixels + [exterior_pixels[0]]
             poly_draw.line(closed_pixels, fill=black_outline, width=outline_width)
         
-        # Draw interior rings (holes) as transparent (black with full alpha = cut out)
         for interior in polygon.interiors:
             interior_pixels = []
             for coord in interior.coords:
                 lon, lat = coord[0], coord[1]
-                # Convert to pixel coordinates using actual tile bounds
                 px = ((lon - tile_bounds.west) / lon_range * img_size) + buffer_pixels
                 py = ((tile_bounds.north - lat) / lat_range * img_size) + buffer_pixels
                 interior_pixels.append((int(px), int(py)))
             
             if len(interior_pixels) >= 3:
-                # Draw hole as transparent (cut out from fill)
                 poly_draw.polygon(interior_pixels, fill=(0, 0, 0, 0))
-                # Draw hole outline
                 if len(interior_pixels) > 1:
                     closed_interior = interior_pixels + [interior_pixels[0]]
                     poly_draw.line(closed_interior, fill=black_outline, width=outline_width)
         
-        # Composite polygon onto main image
         return poly_img
     
     def render_tile_seamless(self, tile):
         """Render a single tile with seamless boundaries"""
         tile_bounds = mercantile.bounds(tile)
-        buffer_degrees = 0.01  # Buffer in degrees
+        buffer_degrees = 0.01
         buffered_bounds = box(
             tile_bounds.west - buffer_degrees,
             tile_bounds.south - buffer_degrees,
@@ -606,7 +591,6 @@ class PuducherrySeamlessTiles:
             tile_bounds.north + buffer_degrees
         )
         
-        # Find features intersecting buffered tile area
         candidate_ids = list(self.spatial_index.intersection(buffered_bounds.bounds))
         
         if not candidate_ids:
@@ -617,14 +601,16 @@ class PuducherrySeamlessTiles:
         min_size = self.get_min_feature_size(zoom, scale)
         outline_width = self.get_outline_width(zoom)
         
-        # Create buffered image
         img_size = self.tile_size * scale
         buffer_pixels = int(img_size * 0.1)
         buffered_size = img_size + (2 * buffer_pixels)
         img_buffered = Image.new('RGBA', (buffered_size, buffered_size), (0, 0, 0, 0))
         draw = ImageDraw.Draw(img_buffered)
         
-        color_map = self.get_color_map()
+        lon_range = tile_bounds.east - tile_bounds.west
+        lat_range = tile_bounds.north - tile_bounds.south
+        
+        color_map = self._color_map_rgb
         rendered_count = 0
         
         for feature_id in candidate_ids:
@@ -636,114 +622,44 @@ class PuducherrySeamlessTiles:
                     continue
                 
                 category = feature_data['category']
-                color_info = color_map.get(category, {'fill': '#FFFFFF', 'outline': '#CCCCCC'})
+                color_info = color_map.get(category, color_map.get('DEFAULT', {'fill': (204, 204, 204), 'outline': (153, 153, 153)}))
                 
-                fill_hex = color_info.get('fill')
-                fill_rgb = self.hex_to_rgb(fill_hex) if fill_hex else None
+                fill_rgb = color_info.get('fill')
                 
                 if isinstance(geom, Polygon):
                     if geom.area < 1e-10:
                         continue
                     
-                    # Render polygon with holes
                     poly_img = self.render_polygon_with_holes(
                         draw, geom, tile_bounds, img_size, buffer_pixels,
-                        buffered_size, fill_rgb, color_info, outline_width
+                        buffered_size, fill_rgb, color_info, outline_width,
+                        lon_range, lat_range
                     )
                     
                     if poly_img:
-                        # Composite polygon image onto main image
                         img_buffered = Image.alpha_composite(img_buffered, poly_img)
-                        
-                        # Apply patterns if specified
-                        if 'pattern' in color_info and fill_rgb is not None:
-                            # Get exterior ring coordinates for pattern
-                            exterior_pixels = []
-                            lon_range = tile_bounds.east - tile_bounds.west
-                            lat_range = tile_bounds.north - tile_bounds.south
-                            for coord in geom.exterior.coords:
-                                lon, lat = coord[0], coord[1]
-                                px = ((lon - tile_bounds.west) / lon_range * img_size) + buffer_pixels
-                                py = ((tile_bounds.north - lat) / lat_range * img_size) + buffer_pixels
-                                exterior_pixels.append((int(px), int(py)))
-                            
-                            if len(exterior_pixels) >= 3:
-                                pattern_color = self.hex_to_rgb(color_info.get('pattern_color', '#000000'))
-                                self.create_pattern(
-                                    draw, exterior_pixels, fill_rgb,
-                                    color_info['pattern'], pattern_color, buffered_size
-                                )
-                                # Redraw outline after pattern
-                                if len(exterior_pixels) > 1:
-                                    closed_pixels = exterior_pixels + [exterior_pixels[0]]
-                                    draw.line(closed_pixels, fill=(0, 0, 0), width=outline_width)
-                        elif 'pattern' in color_info and fill_rgb is None:
-                            # Pattern only, no fill
-                            exterior_pixels = []
-                            lon_range = tile_bounds.east - tile_bounds.west
-                            lat_range = tile_bounds.north - tile_bounds.south
-                            for coord in geom.exterior.coords:
-                                lon, lat = coord[0], coord[1]
-                                px = ((lon - tile_bounds.west) / lon_range * img_size) + buffer_pixels
-                                py = ((tile_bounds.north - lat) / lat_range * img_size) + buffer_pixels
-                                exterior_pixels.append((int(px), int(py)))
-                            
-                            if len(exterior_pixels) >= 3:
-                                pattern_color = self.hex_to_rgb(color_info.get('pattern_color', '#000000'))
-                                self.create_pattern(
-                                    draw, exterior_pixels, None,
-                                    color_info['pattern'], pattern_color, buffered_size
-                                )
-                                # Draw outline
-                                if len(exterior_pixels) > 1:
-                                    closed_pixels = exterior_pixels + [exterior_pixels[0]]
-                                    outline_color = self.hex_to_rgb(color_info.get('outline', '#000000'))
-                                    draw.line(closed_pixels, fill=outline_color, width=outline_width)
                     
                     rendered_count += 1
                 
-                elif hasattr(geom, 'geoms'):  # MultiPolygon
+                elif hasattr(geom, 'geoms'):
                     for poly in geom.geoms:
                         if poly.area < 1e-10:
                             continue
                         
                         poly_img = self.render_polygon_with_holes(
                             draw, poly, tile_bounds, img_size, buffer_pixels,
-                            buffered_size, fill_rgb, color_info, outline_width
+                            buffered_size, fill_rgb, color_info, outline_width,
+                            lon_range, lat_range
                         )
                         
                         if poly_img:
                             img_buffered = Image.alpha_composite(img_buffered, poly_img)
-                            
-                            # Apply patterns if specified
-                            if 'pattern' in color_info:
-                                exterior_pixels = []
-                                lon_range = tile_bounds.east - tile_bounds.west
-                                lat_range = tile_bounds.north - tile_bounds.south
-                                for coord in poly.exterior.coords:
-                                    lon, lat = coord[0], coord[1]
-                                    px = ((lon - tile_bounds.west) / lon_range * img_size) + buffer_pixels
-                                    py = ((tile_bounds.north - lat) / lat_range * img_size) + buffer_pixels
-                                    exterior_pixels.append((int(px), int(py)))
-                                
-                                if len(exterior_pixels) >= 3:
-                                    pattern_color = self.hex_to_rgb(color_info.get('pattern_color', '#000000'))
-                                    self.create_pattern(
-                                        draw, exterior_pixels, fill_rgb,
-                                        color_info['pattern'], pattern_color, buffered_size
-                                    )
-                                    if len(exterior_pixels) > 1:
-                                        closed_pixels = exterior_pixels + [exterior_pixels[0]]
-                                        draw.line(closed_pixels, fill=(0, 0, 0), width=outline_width)
                         
                         rendered_count += 1
                 
                 else:
-                    # Point or very small feature - render as dot
                     if hasattr(geom, 'x') and hasattr(geom, 'y'):
                         lon, lat = geom.x, geom.y
-                        lon_range = tile_bounds.east - tile_bounds.west
-                        lat_range = tile_bounds.north - tile_bounds.south
                         px = ((lon - tile_bounds.west) / lon_range * img_size) + buffer_pixels
                         py = ((tile_bounds.north - lat) / lat_range * img_size) + buffer_pixels
                         
@@ -760,24 +676,25 @@ class PuducherrySeamlessTiles:
         if rendered_count == 0:
             return None
         
-        # Crop buffer
         img = img_buffered.crop((buffer_pixels, buffer_pixels, 
                                 buffered_size - buffer_pixels, 
                                 buffered_size - buffer_pixels))
         
-        # Downsample
         img = img.resize((self.tile_size, self.tile_size), Image.LANCZOS)
         return img
     
     def generate_tiles(self, min_zoom=7, max_zoom=18):
-        """Generate seamless tiles for Puducherry"""
+        """Generate seamless tiles"""
         print(f"\n{'='*80}")
-        print(f"GENERATING PUDUCHERRY TILES (Zoom {min_zoom}-{max_zoom})")
+        print(f"GENERATING TILES (Zoom {min_zoom}-{max_zoom})")
         print(f"Mode: SEAMLESS - NO TILE BOUNDARIES")
         print(f"{'='*80}")
         
         bounds = self.get_bounds()
         print(f"Bounds: [{bounds[1]:.4f}, {bounds[0]:.4f}] to [{bounds[3]:.4f}, {bounds[2]:.4f}]\n")
+        
+        # Create output directory upfront
+        self.output_dir.mkdir(parents=True, exist_ok=True)
         
         total_tiles = 0
         overall_start = time.time()
@@ -808,7 +725,7 @@ class PuducherrySeamlessTiles:
                     tile_dir.mkdir(parents=True, exist_ok=True)
                     
                     tile_path = tile_dir / f"{tile.y}.png"
-                    img.save(tile_path, 'PNG', optimize=True)
+                    img.save(tile_path, 'PNG', optimize=False)
                     rendered += 1
             
             zoom_elapsed = time.time() - zoom_start
@@ -823,8 +740,8 @@ class PuducherrySeamlessTiles:
               f"({overall_elapsed/60:.1f} min)")
         print(f"{'='*80}\n")
     
-    def generate_html_viewer(self):
-        """Generate viewer for Puducherry"""
+    def generate_html_viewer(self, city_name="Master Plan"):
+        """Generate HTML viewer"""
         bounds = self.get_bounds()
         center_lon = (bounds[0] + bounds[2]) / 2
         center_lat = (bounds[1] + bounds[3]) / 2
@@ -833,7 +750,7 @@ class PuducherrySeamlessTiles:
 <html>
 <head>
   <meta charset="utf-8" />
-  <title>Puducherry Master Plan - Seamless Tiles</title>
+  <title>{city_name} - Seamless Tiles</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <style>
     body, html, #map {{ margin:0; padding:0; height:100%; }}
@@ -855,19 +772,19 @@ class PuducherrySeamlessTiles:
       minZoom: 7,
       maxZoom: 18,
       opacity: 0.9,
-      attribution: 'Puducherry Master Plan'
+      attribution: '{city_name}'
     }}).addTo(map);
     
     const info = L.control({{position: 'topright'}});
     info.onAdd = function() {{
       this._div = L.DomUtil.create('div', 'info');
-      this._div.innerHTML = '<b>Puducherry Master Plan</b><br/>Seamless tiles - no boundaries<br/>Zoom: ' + map.getZoom();
+      this._div.innerHTML = '<b>{city_name}</b><br/>Seamless tiles<br/>Zoom: ' + map.getZoom();
       return this._div;
     }};
     info.addTo(map);
     
     map.on('zoomend', function() {{
-      info._div.innerHTML = '<b>Puducherry Master Plan</b><br/>Seamless tiles - no boundaries<br/>Zoom: ' + map.getZoom();
+      info._div.innerHTML = '<b>{city_name}</b><br/>Seamless tiles<br/>Zoom: ' + map.getZoom();
     }});
   </script>
 </body>
@@ -878,38 +795,45 @@ class PuducherrySeamlessTiles:
 
 
 def main():
-    import sys
+    if len(sys.argv) < 2:
+        print("="*80)
+        print("UNIVERSAL MASTER PLAN TILE GENERATOR")
+        print("="*80)
+        print("\nUsage:")
+        print(f"  python {sys.argv[0]} <data_directory> [output_directory] [city_name]")
+        print("\nExample:")
+        print(f"  python {sys.argv[0]} data/rajasthan/udaipur/master_plan udaipur_tiles Udaipur")
+        print("\nRequired in data directory:")
+        print("  - *.geojson files (your GeoJSON data)")
+        print("  - legend.csv (color mapping configuration)")
+        print("\nlegend.csv format:")
+        print("  category,fill_color,outline_color,pattern,pattern_color")
+        print("  Residential,#ffff00,#000000,,")
+        print("  Green Belt,#ffffff,#000000,hatch,#00ff00")
+        print("\nSupported patterns: hatch, dots, cross_hatch, dashed, dotted")
+        print("="*80)
+        sys.exit(1)
     
-    possible_paths = [
-        Path('data/puducherry/master_plan'),
-        Path('/Users/rohitboni/Downloads/All_files/project/1acre/geomapping_full/geomapping/data/puducherry/master_plan'),
-    ]
+    data_dir = Path(sys.argv[1])
+    output_dir = Path(sys.argv[2]) if len(sys.argv) > 2 else Path(f"./{data_dir.name}_tiles")
+    city_name = sys.argv[3] if len(sys.argv) > 3 else data_dir.name.title()
     
-    data_dir = None
-    for path in possible_paths:
-        if path.exists():
-            data_dir = path
-            break
-    
-    if data_dir is None:
-        print("Enter path to Puducherry master_plan directory:")
-        user_path = input("> ").strip()
-        data_dir = Path(user_path)
-        if not data_dir.exists():
-            print(f"✗ Path not found: {data_dir}")
-            sys.exit(1)
-    
-    output_dir = Path('./puducherry_tiles_seamless')
+    if not data_dir.exists():
+        print(f"✗ Data directory not found: {data_dir}")
+        sys.exit(1)
     
     print("="*80)
-    print("PUDUCHERRY MASTER PLAN - SEAMLESS TILE GENERATOR")
-    print("✅ Properly handles polygon holes/interior rings")
-    print("✅ Supports hatch, cross_hatch, dashed, dotted, and dots patterns")
+    print("UNIVERSAL MASTER PLAN TILE GENERATOR")
+    print("✅ Handles polygon holes/interior rings")
+    print("✅ Supports all pattern types")
+    print("✅ Auto-detects CRS and transforms coordinates")
+    print("✅ Optimized for speed")
     print("="*80)
     print(f"Input:  {data_dir}")
     print(f"Output: {output_dir}")
+    print(f"City:   {city_name}")
     
-    generator = PuducherrySeamlessTiles(data_dir, output_dir)
+    generator = UniversalMasterPlanTiles(data_dir, output_dir)
     generator.load_geojson_files()
     
     if generator.feature_id_counter == 0:
@@ -917,7 +841,7 @@ def main():
         sys.exit(1)
     
     generator.generate_tiles(min_zoom=7, max_zoom=18)
-    generator.generate_html_viewer()
+    generator.generate_html_viewer(city_name)
     
     print(f"\n💡 To view: cd {output_dir} && python3 -m http.server 8001")
     print(f"   Then open: http://localhost:8001/\n")

@@ -156,8 +156,8 @@ class DiuAirFunnelTileGenerator:
         if len(exterior_pixels) < 3:
             return
         
-        # Draw exterior ring with 50% opacity (adjustable in viewer)
-        fill_rgba = fill_rgb + (128,)  # 50% opacity
+        # Draw exterior ring with 100% opacity (fully opaque)
+        fill_rgba = fill_rgb + (255,)  # 100% opacity
         poly_draw.polygon(exterior_pixels, fill=fill_rgba, outline=fill_rgba)
         
         # Draw interior rings (holes) as transparent
@@ -266,8 +266,8 @@ class DiuAirFunnelTileGenerator:
                         self.render_polygon_with_holes(draw, polygon, tile_bounds, lon_buffer, lat_buffer, 
                                                       buffered_size, fill_rgb)
                     else:
-                        # Simple polygon without holes - 50% opacity (adjustable in viewer)
-                        fill_rgba = fill_rgb + (128,)
+                        # Simple polygon without holes - 100% opacity (fully opaque)
+                        fill_rgba = fill_rgb + (255,)
                         draw.polygon(int_pixels, fill=fill_rgba, outline=outline_rgb)
                 
                 except Exception as e:
@@ -624,7 +624,7 @@ def main():
     
     try:
         # Paths
-        data_path = project_root / "arifunnel" / "Diu.geojson"
+        data_path = project_root / "data" / "dadra-nagar-haveli-daman-diu" / "daman-and-diu" / "air_funnel_zones" / "Diu.geojson"
         output_dir = project_root / "diu_air_funnel_tiles"
         
         # Initialize generator

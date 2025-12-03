@@ -61,3 +61,26 @@ aws s3 sync tirupati_air_funnel_tiles s3://gis-portal-layers/andhra-pradesh/tiru
 # 20. Warangal
 aws s3 sync warangal_air_funnel_tiles s3://gis-portal-layers/andhra-pradesh/warangal/warangal_air_funnel_zones/ --delete
 
+
+
+aws s3 sync amaravati_tiles_seamless s3://gis-portal-layers/andhra-pradesh/amaravati/amaravati_masterplan/ --delete
+
+aws s3 sync bhubaneshwar_tiles_seamless s3://gis-portal-layers/odisha/bhubaneswar/bhubaneswar_masterplan/ --delete
+
+aws s3 sync faridabad_tiles_seamless s3://gis-portal-layers/delhi/delhi-ncr/faridabad_masterplan/ --delete
+
+aws s3 sync noida_tiles_seamless s3://gis-portal-layers/delhi/delhi-ncr/noida_masterplan/ --delete
+
+aws s3 sync delhi_tiles_seamless s3://gis-portal-layers/delhi/delhi-ncr/delhi_masterplan/ --delete
+
+aws s3 sync greater_noida_tiles_seamless s3://gis-portal-layers/delhi/delhi-ncr/greater_noida_masterplan/ --delete
+
+aws s3 sync gurgaon_tiles_seamless s3://gis-portal-layers/delhi/delhi-ncr/gurugram_masterplan/ --delete
+
+aws s3 sync yamuna_expressway_tiles_seamless s3://gis-portal-layers/delhi/delhi-ncr/yamuna_expressway_masterplan/ --delete
+
+aws s3 sync chandigarh_tiles_seamless_fast s3://gis-portal-layers/punjab/chandigarh/chandigarh_masterplan/ --delete
+
+aws s3 sync jaipur_tiles_seamless_fast s3://gis-portal-layers/rajasthan/jaipur/jaipur_masterplan/ --delete
+
+aws s3 sync puducherry_tiles_seamless s3://gis-portal-layers/puducherry/puducherry/puducherry_masterplan/ --delete

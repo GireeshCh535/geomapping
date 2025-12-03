@@ -1,0 +1,22 @@
+category,fill_color,outline_color,pattern,pattern_color
+Residential,#ffff00,#000000,,
+Commercial,#ff0000,#000000,,
+Industrial,#a900e6,#000000,,
+Green Belt,#ffffff,#000000,hatch,#00ff00
+Heritage,#d0ffb8,#000000,dotted,#000000
+Mixed Use,#ffd37d,#000000,hatch,#786848
+Public & Semi Public,#7dabf2,#000000,dashed,#002673
+Public Utilities,#f2cb7d,#000000,hatch,#f87100
+Religious,#ffffff,#ff00c4,hatch,#ff00c4
+Eco-Sensitive Zone,#ffffff,#000000,dots,#4daf4a
+Transportation,#cdcdcd,#000000,,
+Water Bodies,#73dfff,#000000,,
+Agricultural Land,#d0ffb8,#000000,,
+Forest,#4cd700,#000000,,
+Educational,#efb8ff,#000000,,
+Health Services,#b8ffef,#000000,,
+Recreational,#b8b87d,#000000,,
+Special Area,#e6e600,#000000,,
+Rural,#730000,#000000,,
+Vacant Land,#b1bae6,#000000,,
+
