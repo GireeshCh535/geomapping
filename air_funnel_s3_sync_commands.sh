@@ -84,3 +84,31 @@ aws s3 sync chandigarh_tiles_seamless_fast s3://gis-portal-layers/punjab/chandig
 aws s3 sync jaipur_tiles_seamless_fast s3://gis-portal-layers/rajasthan/jaipur/jaipur_masterplan/ --delete
 
 aws s3 sync puducherry_tiles_seamless s3://gis-portal-layers/puducherry/puducherry/puducherry_masterplan/ --delete
+
+# Chhattisgarh Masterplans
+aws s3 sync jagdalpur_tiles_seamless s3://gis-portal-layers/chhatisgarh/jagdalpur/jagdalpur_masterplan/ --delete
+
+aws s3 sync raigarh_tiles_seamless s3://gis-portal-layers/chhatisgarh/raigarh/raigarh_masterplan/ --delete
+
+aws s3 sync rajnandgaon_tiles_seamless s3://gis-portal-layers/chhatisgarh/rajnandgaon/rajnandgaon_masterplan/ --delete
+
+aws s3 sync durg_bihlai_tiles_seamless s3://gis-portal-layers/chhatisgarh/durg-bhilai/durg_bhilai_masterplan/ --delete
+
+aws s3 sync mahasamund_tiles_seamless s3://gis-portal-layers/chhatisgarh/mahasamund/mahasamund_masterplan/ --delete
+
+aws s3 sync balodabazaar_tiles_seamless s3://gis-portal-layers/chhatisgarh/balodabazaar/balodabazaar_masterplan/ --delete
+
+aws s3 sync bhatapara_tiles_seamless s3://gis-portal-layers/chhatisgarh/bhatapara/bhatapara_masterplan/ --delete
+
+aws s3 sync arang_tiles_seamless s3://gis-portal-layers/chhatisgarh/arang/arang_masterplan/ --delete
+
+# Rajasthan Masterplans
+aws s3 sync jodhpur_tiles_seamless_fast s3://gis-portal-layers/rajasthan/jodhpur/jodhpur_masterplan/ --delete
+
+aws s3 sync udaipur_tiles_seamless s3://gis-portal-layers/rajasthan/udaipur/udaipur_masterplan/ --delete
+
+# Telangana Masterplans
+aws s3 sync hyderabad_tiles_seamless s3://gis-portal-layers/telangana/hyderabad/hyderabad_masterplan/ --delete
+
+# Andhra Pradesh Masterplans
+aws s3 sync visakhapatnam_tiles_seamless s3://gis-portal-layers/andhra-pradesh/visakhapatnam/visakhapatnam_masterplan/ --delete
