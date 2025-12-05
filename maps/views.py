@@ -1022,6 +1022,33 @@ class CoordinateSearchTestView(APIView):
             ).order_by('-area')  # Order by area (largest first)
             
             if not features.exists():
+                # Skip nearby search for layers that should only return exact matches
+                if layer.slug in ['gurugram_masterplan', 'delhi_masterplan', 'noida_masterplan', 'greater_noida_masterplan', 'faridabad_masterplan', 'amaravati_masterplan', 'bhubaneswar_masterplan']:
+                    return {
+                        'search_point': {
+                            'latitude': latitude,
+                            'longitude': longitude,
+                            'coordinates': [longitude, latitude],
+                            'wkt': f'POINT({longitude} {latitude})'
+                        },
+                        'found': False,
+                        'layer': {
+                            'slug': layer.slug,
+                            'name': layer.name,
+                            'city': layer.city.slug,
+                            'city_name': layer.city.name,
+                            'state': layer.city.state_ref.slug if layer.city.state_ref else '',
+                            'state_name': layer.city.state_ref.name if layer.city.state_ref else ''
+                        },
+                        'features': [],
+                        'nearby_features': [],
+                        'administrative_boundaries': {},
+                        'summary': 'No features found in the specified layer',
+                        'search_scope': 'layer_specific',
+                        'search_radius_meters': radius_meters,
+                        'status': 'no_data_found'
+                    }
+                
                 # If no exact intersection found, search for nearby features within 100m buffer
                 buffer_100m = search_point.buffer(0.0009)  # ~100m buffer (0.0009 degrees ≈ 100m)
                 
@@ -1543,6 +1570,94 @@ class CoordinateSearchTestView(APIView):
                 layer_name = properties.get('Layer Name', '')
                 return {
                     'data': layer_name
+                }
+            
+            # Special handling for gurugram_masterplan
+            if layer.slug == 'gurugram_masterplan' and containing_features:
+                # Return properties.LAYER
+                primary_feature = containing_features[0]
+                detailed_category = primary_feature.get('detailed_category', {})
+                properties = detailed_category.get('properties', {})
+                layer_value = properties.get('LAYER', '')
+                return {
+                    'data': layer_value
+                }
+            
+            # Special handling for delhi_masterplan
+            if layer.slug == 'delhi_masterplan' and containing_features:
+                # Return properties.NAME
+                primary_feature = containing_features[0]
+                detailed_category = primary_feature.get('detailed_category', {})
+                properties = detailed_category.get('properties', {})
+                name = properties.get('NAME', '')
+                return {
+                    'data': name
+                }
+            
+            # Special handling for noida_masterplan
+            if layer.slug == 'noida_masterplan' and containing_features:
+                # Return properties.ppt_full
+                primary_feature = containing_features[0]
+                detailed_category = primary_feature.get('detailed_category', {})
+                properties = detailed_category.get('properties', {})
+                ppt_full = properties.get('ppt_full', '')
+                return {
+                    'data': ppt_full
+                }
+            
+            # Special handling for greater_noida_masterplan
+            if layer.slug == 'greater_noida_masterplan' and containing_features:
+                # Return properties.ppt_full
+                primary_feature = containing_features[0]
+                detailed_category = primary_feature.get('detailed_category', {})
+                properties = detailed_category.get('properties', {})
+                ppt_full = properties.get('ppt_full', '')
+                return {
+                    'data': ppt_full
+                }
+            
+            # Special handling for yamuna_expressway_masterplan
+            if layer.slug == 'yamuna_expressway_masterplan' and containing_features:
+                # Return properties.layer
+                primary_feature = containing_features[0]
+                detailed_category = primary_feature.get('detailed_category', {})
+                properties = detailed_category.get('properties', {})
+                layer_value = properties.get('layer', '')
+                return {
+                    'data': layer_value
+                }
+            
+            # Special handling for faridabad_masterplan
+            if layer.slug == 'faridabad_masterplan' and containing_features:
+                # Return properties.LAYER
+                primary_feature = containing_features[0]
+                detailed_category = primary_feature.get('detailed_category', {})
+                properties = detailed_category.get('properties', {})
+                layer_value = properties.get('LAYER', '')
+                return {
+                    'data': layer_value
+                }
+            
+            # Special handling for amaravati_masterplan
+            if layer.slug == 'amaravati_masterplan' and containing_features:
+                # Return properties.symbology
+                primary_feature = containing_features[0]
+                detailed_category = primary_feature.get('detailed_category', {})
+                properties = detailed_category.get('properties', {})
+                symbology = properties.get('symbology', '')
+                return {
+                    'data': symbology
+                }
+            
+            # Special handling for bhubaneswar_masterplan
+            if layer.slug == 'bhubaneswar_masterplan' and containing_features:
+                # Return properties.LANDUSE
+                primary_feature = containing_features[0]
+                detailed_category = primary_feature.get('detailed_category', {})
+                properties = detailed_category.get('properties', {})
+                landuse = properties.get('LANDUSE', '')
+                return {
+                    'data': landuse
                 }
             
             # Generate summary
