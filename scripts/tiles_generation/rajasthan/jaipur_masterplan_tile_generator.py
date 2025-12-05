@@ -639,16 +639,17 @@ class JaipurSeamlessTiles:
         return img
     
     def generate_tiles(self, min_zoom=7, max_zoom=18):
-        """Generate seamless tiles for Jaipur"""
+        """Generate seamless tiles for Jaipur with resume capability"""
         print(f"\n{'='*80}")
         print(f"GENERATING JAIPUR TILES (Zoom {min_zoom}-{max_zoom})")
-        print(f"Mode: SEAMLESS - NO TILE BOUNDARIES")
+        print(f"Mode: SEAMLESS - NO TILE BOUNDARIES + RESUME SUPPORT")
         print(f"{'='*80}")
         
         bounds = self.get_bounds()
         print(f"Bounds: [{bounds[1]:.4f}, {bounds[0]:.4f}] to [{bounds[3]:.4f}, {bounds[2]:.4f}]\n")
         
         total_tiles = 0
+        total_skipped = 0
         overall_start = time.time()
         
         for zoom in range(min_zoom, max_zoom + 1):
@@ -663,33 +664,96 @@ class JaipurSeamlessTiles:
             scale = self.get_zoom_scale(zoom)
             min_size = self.get_min_feature_size(zoom, scale)
             
-            print(f"Zoom {zoom:2d} | {total_for_zoom:,} tiles | Scale: {scale}x | Min: {min_size:.1f}px", 
-                  end=" ", flush=True)
-            
+            # Check existing tiles for this zoom level
             zoom_dir = self.output_dir / str(zoom)
+            existing_count = 0
+            if zoom_dir.exists():
+                for tile in tiles:
+                    tile_path = zoom_dir / str(tile.x) / f"{tile.y}.png"
+                    if tile_path.exists():
+                        existing_count += 1
+            
+            print(f"\n{'─'*80}")
+            print(f"📍 ZOOM {zoom:2d} | Total: {total_for_zoom:,} tiles | Existing: {existing_count:,} | To Generate: {total_for_zoom - existing_count:,}")
+            print(f"   Scale: {scale}x | Min Feature Size: {min_size:.1f}px | Outline: {self.get_outline_width(zoom)}px")
+            print(f"{'─'*80}")
+            
+            if existing_count == total_for_zoom:
+                print(f"✓ All tiles already exist for zoom {zoom}. Skipping...")
+                total_skipped += existing_count
+                continue
+            
             rendered = 0
+            skipped = 0
+            tiles_processed = 0
             
             for tile in tiles:
+                tile_dir = zoom_dir / str(tile.x)
+                tile_path = tile_dir / f"{tile.y}.png"
+                
+                # RESUME: Skip if tile already exists
+                if tile_path.exists():
+                    skipped += 1
+                    tiles_processed += 1
+                    continue
+                
                 img = self.render_tile_seamless(tile)
                 
                 if img is not None:
-                    tile_dir = zoom_dir / str(tile.x)
                     tile_dir.mkdir(parents=True, exist_ok=True)
-                    
-                    tile_path = tile_dir / f"{tile.y}.png"
-                    img.save(tile_path, 'PNG', optimize=False)  # optimize=False is faster
+                    img.save(tile_path, 'PNG', optimize=False)
                     rendered += 1
+                
+                tiles_processed += 1
+                
+                # Progress update every 500 tiles
+                if tiles_processed % 500 == 0:
+                    elapsed = time.time() - zoom_start
+                    progress_pct = (tiles_processed / total_for_zoom) * 100
+                    speed = tiles_processed / elapsed if elapsed > 0 else 0
+                    remaining_tiles = total_for_zoom - tiles_processed
+                    eta_seconds = remaining_tiles / speed if speed > 0 else 0
+                    eta_min = eta_seconds / 60
+                    eta_hours = eta_min / 60
+                    
+                    if eta_hours >= 1:
+                        eta_str = f"{eta_hours:.1f}h"
+                    elif eta_min >= 1:
+                        eta_str = f"{eta_min:.1f}m"
+                    else:
+                        eta_str = f"{eta_seconds:.0f}s"
+                    
+                    elapsed_str = f"{elapsed/60:.1f}m" if elapsed >= 60 else f"{elapsed:.1f}s"
+                    
+                    print(f"   Progress: [{progress_pct:5.1f}%] {tiles_processed:,}/{total_for_zoom:,} | "
+                          f"New: {rendered:,} | Skip: {skipped:,} | "
+                          f"Speed: {speed:.2f} t/s | Elapsed: {elapsed_str} | ETA: {eta_str}", 
+                          flush=True)
             
             zoom_elapsed = time.time() - zoom_start
-            speed = rendered / zoom_elapsed if zoom_elapsed > 0 else 0
-            print(f"| ✓ {rendered:,} in {zoom_elapsed:.1f}s ({speed:.1f} t/s)")
+            speed = tiles_processed / zoom_elapsed if zoom_elapsed > 0 else 0
+            elapsed_str = f"{zoom_elapsed/3600:.1f}h" if zoom_elapsed >= 3600 else f"{zoom_elapsed/60:.1f}m" if zoom_elapsed >= 60 else f"{zoom_elapsed:.1f}s"
+            
+            print(f"\n✅ ZOOM {zoom} COMPLETE:")
+            print(f"   • Rendered: {rendered:,} new tiles")
+            print(f"   • Skipped:  {skipped:,} existing tiles")
+            print(f"   • Total:    {tiles_processed:,} tiles")
+            print(f"   • Time:     {elapsed_str} ({speed:.2f} t/s)")
             
             total_tiles += rendered
+            total_skipped += skipped
         
         overall_elapsed = time.time() - overall_start
+        elapsed_str = f"{overall_elapsed/3600:.1f}h" if overall_elapsed >= 3600 else f"{overall_elapsed/60:.1f}m" if overall_elapsed >= 60 else f"{overall_elapsed:.1f}s"
+        
         print(f"\n{'='*80}")
-        print(f"✓ COMPLETE: {total_tiles:,} tiles in {overall_elapsed:.1f}s "
-              f"({overall_elapsed/60:.1f} min)")
+        print(f"🎉 TILE GENERATION COMPLETE")
+        print(f"{'='*80}")
+        print(f"   Total Rendered:  {total_tiles:,} tiles")
+        print(f"   Total Skipped:   {total_skipped:,} tiles")
+        print(f"   Grand Total:     {total_tiles + total_skipped:,} tiles")
+        print(f"   Time Elapsed:    {elapsed_str}")
+        print(f"   Output:          {self.output_dir}")
         print(f"{'='*80}\n")
     
     def generate_html_viewer(self):
