@@ -1618,11 +1618,15 @@ class CoordinateSearchTestView(APIView):
             
             # Special handling for yamuna_expressway_masterplan
             if layer.slug == 'yamuna_expressway_masterplan' and containing_features:
-                # Return properties.layer
-                primary_feature = containing_features[0]
-                detailed_category = primary_feature.get('detailed_category', {})
-                properties = detailed_category.get('properties', {})
-                layer_value = properties.get('layer', '')
+                # Return properties.layer - search through all features to find one with non-empty layer
+                layer_value = ''
+                for feature in containing_features:
+                    detailed_category = feature.get('detailed_category', {})
+                    properties = detailed_category.get('properties', {})
+                    layer_val = properties.get('layer', '')
+                    if layer_val:  # If we find a non-empty layer value, use it
+                        layer_value = layer_val
+                        break
                 return {
                     'data': layer_value
                 }
