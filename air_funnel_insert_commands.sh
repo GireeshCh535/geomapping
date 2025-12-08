@@ -376,25 +376,14 @@ docker-compose exec web python manage.py insert_masterplan_layer \
   --max-zoom 18 \
   --delete-existing
 
-# 35. Hyderabad Masterplan (HMDA)
+# 35. Hyderabad Masterplan (Combined HMDA + HUDA)
 docker-compose exec web python manage.py insert_masterplan_layer \
   --city-slug "hyderabad" \
-  --layer-name "Hyderabad Masterplan (HMDA)" \
-  --layer-slug "hyderabad_masterplan_hmda" \
-  --data-dir "data/Telangana/Hyderabad/master_plan/HMDA" \
-  --authority "Hyderabad Metropolitan Development Authority" \
-  --min-zoom 8 \
-  --max-zoom 18 \
-  --delete-existing
-
-# 36. Hyderabad Masterplan (HUDA)
-docker-compose exec web python manage.py insert_masterplan_layer \
-  --city-slug "hyderabad" \
-  --layer-name "Hyderabad Masterplan (HUDA)" \
-  --layer-slug "hyderabad_masterplan_huda" \
-  --data-dir "data/Telangana/Hyderabad/master_plan/HUDA" \
-  --authority "Hyderabad Urban Development Authority" \
-  --min-zoom 8 \
+  --layer-name "Hyderabad Masterplan" \
+  --layer-slug "hyderabad_masterplan" \
+  --data-dir "data/Telangana/Hyderabad/master_plan" \
+  --authority "HMDA & HUDA" \
+  --min-zoom 7 \
   --max-zoom 18 \
   --delete-existing
 

@@ -1217,7 +1217,7 @@ class CoordinateSearchTestView(APIView):
                         'ahmedabad_air_funnel_zones',
                         'warangal_air_funnel_zones',
                         'nagpur_air_funnel_zones',
-                        'bhubaneshwar_air_funnel_zones',
+                        'bhubaneswar_air_funnel_zones',
                         'chennai_air_funnel_zones',
                         'delhi_air_funnel_zones',
                         'diu_air_funnel_zones',
