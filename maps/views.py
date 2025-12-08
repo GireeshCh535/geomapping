@@ -1023,7 +1023,7 @@ class CoordinateSearchTestView(APIView):
             
             if not features.exists():
                 # Skip nearby search for layers that should only return exact matches
-                if layer.slug in ['gurugram_masterplan', 'delhi_masterplan', 'noida_masterplan', 'greater_noida_masterplan', 'faridabad_masterplan', 'amaravati_masterplan', 'bhubaneswar_masterplan']:
+                if layer.slug in ['gurugram_masterplan', 'delhi_masterplan', 'noida_masterplan', 'greater_noida_masterplan', 'faridabad_masterplan', 'amaravati_masterplan', 'bhubaneswar_masterplan', 'puducherry_masterplan']:
                     return {
                         'search_point': {
                             'latitude': latitude,
@@ -1217,7 +1217,7 @@ class CoordinateSearchTestView(APIView):
                         'ahmedabad_air_funnel_zones',
                         'warangal_air_funnel_zones',
                         'nagpur_air_funnel_zones',
-                        'bhubaneswar_air_funnel_zones',
+                        'bhubaneshwar_air_funnel_zones',
                         'chennai_air_funnel_zones',
                         'delhi_air_funnel_zones',
                         'diu_air_funnel_zones',
@@ -1660,6 +1660,17 @@ class CoordinateSearchTestView(APIView):
                 detailed_category = primary_feature.get('detailed_category', {})
                 properties = detailed_category.get('properties', {})
                 landuse = properties.get('LANDUSE', '')
+                return {
+                    'data': landuse
+                }
+            
+            # Special handling for puducherry_masterplan
+            if layer.slug == 'puducherry_masterplan' and containing_features:
+                # Return properties.Landuse
+                primary_feature = containing_features[0]
+                detailed_category = primary_feature.get('detailed_category', {})
+                properties = detailed_category.get('properties', {})
+                landuse = properties.get('Landuse', '')
                 return {
                     'data': landuse
                 }
