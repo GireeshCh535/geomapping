@@ -1023,7 +1023,7 @@ class CoordinateSearchTestView(APIView):
             
             if not features.exists():
                 # Skip nearby search for layers that should only return exact matches
-                if layer.slug in ['gurugram_masterplan', 'delhi_masterplan', 'noida_masterplan', 'greater_noida_masterplan', 'faridabad_masterplan', 'amaravati_masterplan', 'bhubaneswar_masterplan', 'puducherry_masterplan']:
+                if layer.slug in ['gurugram_masterplan', 'delhi_masterplan', 'noida_masterplan', 'greater_noida_masterplan', 'faridabad_masterplan', 'amaravati_masterplan', 'bhubaneswar_masterplan', 'puducherry_masterplan', 'chandigarh_masterplan', 'rajnandgaon_masterplan', 'durg_bihlai_masterplan', 'jagdalpur_masterplan', 'arang_masterplan', 'mahasamund_masterplan', 'balodabazaar_masterplan', 'bhatapara_masterplan', 'raigarh_masterplan', 'udaipur_masterplan', 'jodhpur_masterplan']:
                     return {
                         'search_point': {
                             'latitude': latitude,
@@ -1217,7 +1217,7 @@ class CoordinateSearchTestView(APIView):
                         'ahmedabad_air_funnel_zones',
                         'warangal_air_funnel_zones',
                         'nagpur_air_funnel_zones',
-                        'bhubaneswar_air_funnel_zones',
+                        'bhubaneshwar_air_funnel_zones',
                         'chennai_air_funnel_zones',
                         'delhi_air_funnel_zones',
                         'diu_air_funnel_zones',
@@ -1518,7 +1518,7 @@ class CoordinateSearchTestView(APIView):
                 'ahmedabad_air_funnel_zones',
                 'warangal_air_funnel_zones',
                 'nagpur_air_funnel_zones',
-                'bhubaneswar_air_funnel_zones',
+                'bhubaneshwar_air_funnel_zones',
                 'chennai_air_funnel_zones',
                 'delhi_air_funnel_zones',
                 'diu_air_funnel_zones',
@@ -1673,6 +1673,125 @@ class CoordinateSearchTestView(APIView):
                 landuse = properties.get('Landuse', '')
                 return {
                     'data': landuse
+                }
+            
+            # Special handling for chandigarh_masterplan
+            if layer.slug == 'chandigarh_masterplan' and containing_features:
+                # Return properties.Name
+                primary_feature = containing_features[0]
+                detailed_category = primary_feature.get('detailed_category', {})
+                properties = detailed_category.get('properties', {})
+                name = properties.get('Name', '')
+                return {
+                    'data': name
+                }
+            
+            # Special handling for rajnandgaon_masterplan
+            if layer.slug == 'rajnandgaon_masterplan' and containing_features:
+                # Return properties.PROPOSED_T
+                primary_feature = containing_features[0]
+                detailed_category = primary_feature.get('detailed_category', {})
+                properties = detailed_category.get('properties', {})
+                proposed_t = properties.get('PROPOSED_T', '')
+                return {
+                    'data': proposed_t
+                }
+            
+            # Special handling for durg_bihlai_masterplan
+            if layer.slug == 'durg_bihlai_masterplan' and containing_features:
+                # Return zone_subcategory
+                primary_feature = containing_features[0]
+                zone_subcategory = primary_feature.get('zone_subcategory', '')
+                return {
+                    'data': zone_subcategory
+                }
+            
+            # Special handling for jagdalpur_masterplan
+            if layer.slug == 'jagdalpur_masterplan' and containing_features:
+                # Return properties.PLU_2021
+                primary_feature = containing_features[0]
+                detailed_category = primary_feature.get('detailed_category', {})
+                properties = detailed_category.get('properties', {})
+                plu_2021 = properties.get('PLU_2021', '')
+                return {
+                    'data': plu_2021
+                }
+            
+            # Special handling for arang_masterplan
+            if layer.slug == 'arang_masterplan' and containing_features:
+                # Return properties.ELU_PLU_UP
+                primary_feature = containing_features[0]
+                detailed_category = primary_feature.get('detailed_category', {})
+                properties = detailed_category.get('properties', {})
+                elu_plu_up = properties.get('ELU_PLU_UP', '')
+                return {
+                    'data': elu_plu_up
+                }
+            
+            # Special handling for mahasamund_masterplan
+            if layer.slug == 'mahasamund_masterplan' and containing_features:
+                # Return properties.PRO_LULC
+                primary_feature = containing_features[0]
+                detailed_category = primary_feature.get('detailed_category', {})
+                properties = detailed_category.get('properties', {})
+                pro_lulc = properties.get('PRO_LULC', '')
+                return {
+                    'data': pro_lulc
+                }
+            
+            # Special handling for balodabazaar_masterplan
+            if layer.slug == 'balodabazaar_masterplan' and containing_features:
+                # Return properties.PROPOSED_T
+                primary_feature = containing_features[0]
+                detailed_category = primary_feature.get('detailed_category', {})
+                properties = detailed_category.get('properties', {})
+                proposed_t = properties.get('PROPOSED_T', '')
+                return {
+                    'data': proposed_t
+                }
+            
+            # Special handling for bhatapara_masterplan
+            if layer.slug == 'bhatapara_masterplan' and containing_features:
+                # Return properties.PROPOSED_T
+                primary_feature = containing_features[0]
+                detailed_category = primary_feature.get('detailed_category', {})
+                properties = detailed_category.get('properties', {})
+                proposed_t = properties.get('PROPOSED_T', '')
+                return {
+                    'data': proposed_t
+                }
+            
+            # Special handling for raigarh_masterplan
+            if layer.slug == 'raigarh_masterplan' and containing_features:
+                # Return properties.OLD_DP_PLU
+                primary_feature = containing_features[0]
+                detailed_category = primary_feature.get('detailed_category', {})
+                properties = detailed_category.get('properties', {})
+                old_dp_plu = properties.get('OLD_DP_PLU', '')
+                return {
+                    'data': old_dp_plu
+                }
+            
+            # Special handling for udaipur_masterplan
+            if layer.slug == 'udaipur_masterplan' and containing_features:
+                # Return properties.LANDUSE_CA
+                primary_feature = containing_features[0]
+                detailed_category = primary_feature.get('detailed_category', {})
+                properties = detailed_category.get('properties', {})
+                landuse_ca = properties.get('LANDUSE_CA', '')
+                return {
+                    'data': landuse_ca
+                }
+            
+            # Special handling for jodhpur_masterplan
+            if layer.slug == 'jodhpur_masterplan' and containing_features:
+                # Return properties.FolderPath
+                primary_feature = containing_features[0]
+                detailed_category = primary_feature.get('detailed_category', {})
+                properties = detailed_category.get('properties', {})
+                folder_path = properties.get('FolderPath', '')
+                return {
+                    'data': folder_path
                 }
             
             # Generate summary
