@@ -1645,7 +1645,7 @@ class CoordinateSearchTestView(APIView):
                 properties = detailed_category.get('properties', {}) or {}
                 mon_name = properties.get('mon_name', '')
                 boundary_type = properties.get('boundary_type', '')
-                data_string = f"{mon_name} {boundary_type}".strip()
+                data_string = f"{mon_name}, {boundary_type}".strip()
                 return {
                     'data': data_string
                 }
