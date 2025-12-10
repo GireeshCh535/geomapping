@@ -1108,7 +1108,7 @@ class CoordinateSearchTestView(APIView):
             
             if not features.exists():
                 # Skip nearby search for layers that should only return exact matches
-                if layer.slug in ['gurugram_masterplan', 'delhi_masterplan', 'noida_masterplan', 'greater_noida_masterplan', 'faridabad_masterplan', 'amaravati_masterplan', 'bhubaneswar_masterplan', 'puducherry_masterplan', 'chandigarh_masterplan', 'rajnandgaon_masterplan', 'durg_bihlai_masterplan', 'jagdalpur_masterplan', 'arang_masterplan', 'mahasamund_masterplan', 'balodabazaar_masterplan', 'bhatapara_masterplan', 'raigarh_masterplan', 'udaipur_masterplan', 'jodhpur_masterplan']:
+                if layer.slug in ['gurugram_masterplan', 'delhi_masterplan', 'noida_masterplan', 'greater_noida_masterplan', 'faridabad_masterplan', 'amaravati_masterplan', 'bhubaneswar_masterplan', 'puducherry_masterplan', 'chandigarh_masterplan', 'rajnandgaon_masterplan', 'durg_bihlai_masterplan', 'jagdalpur_masterplan', 'arang_masterplan', 'mahasamund_masterplan', 'balodabazaar_masterplan', 'bhatapara_masterplan', 'raigarh_masterplan', 'udaipur_masterplan', 'jodhpur_masterplan', 'hyderabad_heritage_sites', 'bengaluru_heritage_sites']:
                     return {
                         'search_point': {
                             'latitude': latitude,
@@ -1636,6 +1636,18 @@ class CoordinateSearchTestView(APIView):
                 height_value = properties.get('Pemissible Height', '')
                 return {
                     'data': f"Permissible Height : {height_value}" if height_value else "Permissible Height : "
+                }
+
+            # Special handling for heritage site layers
+            if layer.slug in ['hyderabad_heritage_sites', 'bengaluru_heritage_sites'] and containing_features:
+                primary_feature = containing_features[0]
+                detailed_category = primary_feature.get('detailed_category', {})
+                properties = detailed_category.get('properties', {}) or {}
+                mon_name = properties.get('mon_name', '')
+                boundary_type = properties.get('boundary_type', '')
+                data_string = f"{mon_name} {boundary_type}".strip()
+                return {
+                    'data': data_string
                 }
             
             # Special handling for BMRDA boundary layers
