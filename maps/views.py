@@ -6,6 +6,7 @@ from rest_framework.decorators import action
 from rest_framework.permissions import AllowAny
 from django.conf import settings
 from django.core.cache import cache
+import hashlib
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from django.http import HttpResponseRedirect, HttpResponse
@@ -413,8 +414,28 @@ class CoordinateSearchTestView(APIView):
     - Geographic properties (area, color, etc.)
     - Administrative boundaries
     - Nearby features
+    
+    Optimized with:
+    - Redis caching for repeated queries
+    - Optimized spatial queries
+    - Reduced database round trips
     """
     permission_classes = [AllowAny]
+    
+    # Cache settings
+    CACHE_TTL = 300  # 5 minutes for successful results
+    CACHE_TTL_EMPTY = 60  # 1 minute for empty results
+    COORDINATE_PRECISION = 5  # Decimal places for cache key (roughly 1.1m precision)
+    
+    def _generate_cache_key(self, slug, lat, lng, radius):
+        """Generate cache key with coordinate precision rounding"""
+        # Round coordinates to reduce cache misses for nearby points
+        rounded_lat = round(lat, self.COORDINATE_PRECISION)
+        rounded_lng = round(lng, self.COORDINATE_PRECISION)
+        rounded_radius = int(radius)
+        
+        key_string = f"coord_search:{slug or 'global'}:{rounded_lat}:{rounded_lng}:{rounded_radius}"
+        return hashlib.md5(key_string.encode()).hexdigest()
     
     def get(self, request, city_slug=None):
         try:
@@ -459,6 +480,18 @@ class CoordinateSearchTestView(APIView):
                     'message': 'Radius must be between 0 and 10,000 meters'
                 }, status=400)
             
+            # Generate cache key
+            cache_key = self._generate_cache_key(city_slug, latitude, longitude, radius_meters)
+            
+            # Try cache first
+            cached_result = cache.get(cache_key)
+            if cached_result is not None:
+                cached_result['metadata']['from_cache'] = True
+                logger.debug(f"Cache HIT for coordinate search: {cache_key}")
+                return Response(cached_result)
+            
+            logger.debug(f"Cache MISS for coordinate search: {cache_key}")
+            
             # Create point geometry
             search_point = Point(longitude, latitude, srid=4326)
             
@@ -491,8 +524,18 @@ class CoordinateSearchTestView(APIView):
                 'search_radius_meters': radius_meters,
                 'total_features_found': len(result.get('features', [])),
                 'total_nearby_features': len(result.get('nearby_features', [])),
-                'api_version': '2.0'
+                'api_version': '2.0',
+                'from_cache': False
             }
+            
+            # Cache the result
+            # Use shorter TTL for empty results, longer for successful results
+            ttl = self.CACHE_TTL_EMPTY if not result.get('found') and not result.get('features') else self.CACHE_TTL
+            try:
+                cache.set(cache_key, result, ttl)
+                logger.debug(f"Cached result for {cache_key} with TTL {ttl}s")
+            except Exception as e:
+                logger.warning(f"Failed to cache result: {e}")
             
             return Response(result)
             
@@ -569,6 +612,7 @@ class CoordinateSearchTestView(APIView):
         """Search for features across all states and cities"""
         try:
             # Find all features that contain the point
+            # Optimized with field limiting and result cap
             features = GeoFeature.objects.filter(
                 layer__city__is_active=True,
                 layer__city__state_ref__is_active=True,
@@ -580,7 +624,15 @@ class CoordinateSearchTestView(APIView):
                 'layer__category', 
                 'layer__city', 
                 'layer__city__state_ref'
-            ).order_by('-area')
+            ).only(
+                'id', 'name', 'zone_category', 'zone_subcategory',
+                'plu_primary_code', 'plu_secondary_1', 'plot_category',
+                'symbology', 'area', 'properties', 'geometry',
+                'layer__id', 'layer__slug', 'layer__name', 'layer__description',
+                'layer__category__code', 'layer__category__name',
+                'layer__city__slug', 'layer__city__name',
+                'layer__city__state_ref__slug', 'layer__city__state_ref__name', 'layer__city__state_ref__code'
+            ).order_by('-area')[:20]  # Limit to top 20 features
             
             if not features.exists():
                 # Try nearby search across all cities if radius > 0
@@ -708,12 +760,23 @@ class CoordinateSearchTestView(APIView):
         search_buffer = point.buffer(0.0001)  # ~10m buffer
         
         # Query features that intersect with the buffered point
+        # Optimized with field limiting and result cap
         features = GeoFeature.objects.filter(
             layer__city=city,
             layer__is_processed=True,
             is_valid=True,
             geometry__intersects=search_buffer
-        ).select_related('layer', 'layer__category').order_by('-area')
+        ).select_related(
+            'layer', 'layer__category', 'layer__city', 'layer__city__state_ref'
+        ).only(
+            'id', 'name', 'zone_category', 'zone_subcategory',
+            'plu_primary_code', 'plu_secondary_1', 'plot_category',
+            'symbology', 'area', 'properties', 'geometry',
+            'layer__id', 'layer__slug', 'layer__name', 'layer__description',
+            'layer__category__code', 'layer__category__name',
+            'layer__city__slug', 'layer__city__name',
+            'layer__city__state_ref__slug', 'layer__city__state_ref__name'
+        ).order_by('-area')[:20]  # Limit to top 20 features
         
         for feature in features:
             feature_data = self._process_feature_data(feature)
@@ -769,12 +832,23 @@ class CoordinateSearchTestView(APIView):
         buffered_area.transform(4326)  # Back to WGS84
         
         # Find features that intersect with the buffer
+        # Optimized with field limiting and result cap
         features = GeoFeature.objects.filter(
             layer__city=city,
             layer__is_processed=True,
             is_valid=True,
             geometry__intersects=buffered_area
-        ).select_related('layer', 'layer__category')
+        ).select_related(
+            'layer', 'layer__category', 'layer__city', 'layer__city__state_ref'
+        ).only(
+            'id', 'name', 'zone_category', 'zone_subcategory',
+            'plu_primary_code', 'plu_secondary_1', 'plot_category',
+            'symbology', 'area', 'properties', 'geometry',
+            'layer__id', 'layer__slug', 'layer__name',
+            'layer__category__code', 'layer__category__name',
+            'layer__city__slug', 'layer__city__name',
+            'layer__city__state_ref__slug', 'layer__city__state_ref__name'
+        )[:10]  # Limit to 10 nearby features
         
         for feature in features:
             try:
@@ -1015,11 +1089,22 @@ class CoordinateSearchTestView(APIView):
             search_buffer = search_point.buffer(0.0001)  # ~10m buffer
             
             # Search for features in the specific layer that intersect with the point
+            # Optimized query with field limiting and result cap
             features = GeoFeature.objects.filter(
                 layer=layer,
                 is_valid=True,
                 geometry__intersects=search_buffer
-            ).order_by('-area')  # Order by area (largest first)
+            ).select_related(
+                'layer', 'layer__category', 'layer__city', 'layer__city__state_ref'
+            ).only(
+                'id', 'name', 'zone_category', 'zone_subcategory',
+                'plu_primary_code', 'plu_secondary_1', 'plot_category',
+                'symbology', 'area', 'properties', 'geometry',
+                'layer__id', 'layer__slug', 'layer__name', 'layer__description',
+                'layer__category__code', 'layer__category__name',
+                'layer__city__slug', 'layer__city__name',
+                'layer__city__state_ref__slug', 'layer__city__state_ref__name'
+            ).order_by('-area')[:20]  # Limit to top 20 features
             
             if not features.exists():
                 # Skip nearby search for layers that should only return exact matches
@@ -1056,9 +1141,19 @@ class CoordinateSearchTestView(APIView):
                     layer=layer,
                     is_valid=True,
                     geometry__intersects=buffer_100m
+                ).select_related(
+                    'layer', 'layer__category', 'layer__city', 'layer__city__state_ref'
+                ).only(
+                    'id', 'name', 'zone_category', 'zone_subcategory',
+                    'plu_primary_code', 'plu_secondary_1', 'plot_category',
+                    'symbology', 'area', 'properties', 'geometry',
+                    'layer__id', 'layer__slug', 'layer__name',
+                    'layer__category__code', 'layer__category__name',
+                    'layer__city__slug', 'layer__city__name',
+                    'layer__city__state_ref__slug', 'layer__city__state_ref__name'
                 ).annotate(
                     distance=Distance('geometry', search_point)
-                ).order_by('distance')
+                ).order_by('distance')[:10]  # Limit to closest 10
                 
                 if nearby_features.exists():
                     # Found nearby features within 100m, return the closest one

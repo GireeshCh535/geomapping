@@ -39,7 +39,7 @@ docker-compose exec web python manage.py insert_masterplan_layer \
   --layer-slug "bengaluru_fort_heritage" \
   --data-dir "heritage_sites/bengaluru" \
   --authority "Archaeological Survey of India" \
-  --min-zoom 9 \
+  --min-zoom 7 \
   --max-zoom 18 \
   --delete-existing
 ```
@@ -70,7 +70,7 @@ docker-compose exec web python manage.py insert_masterplan_layer \
   --layer-slug "bhoga_nandishwara_temple_heritage" \
   --data-dir "heritage_sites/bengaluru" \
   --authority "Archaeological Survey of India" \
-  --min-zoom 9 \
+  --min-zoom 7 \
   --max-zoom 18 \
   --delete-existing
 ```
@@ -101,7 +101,7 @@ docker-compose exec web python manage.py insert_masterplan_layer \
   --layer-slug "devanahalli_fort_heritage" \
   --data-dir "heritage_sites/bengaluru" \
   --authority "Archaeological Survey of India" \
-  --min-zoom 9 \
+  --min-zoom 7 \
   --max-zoom 18 \
   --delete-existing
 ```
@@ -132,7 +132,7 @@ docker-compose exec web python manage.py insert_masterplan_layer \
   --layer-slug "kolaramma_temple_heritage" \
   --data-dir "heritage_sites/bengaluru" \
   --authority "Archaeological Survey of India" \
-  --min-zoom 9 \
+  --min-zoom 7 \
   --max-zoom 18 \
   --delete-existing
 ```
@@ -163,7 +163,7 @@ docker-compose exec web python manage.py insert_masterplan_layer \
   --layer-slug "someswara_temple_heritage" \
   --data-dir "heritage_sites/bengaluru" \
   --authority "Archaeological Survey of India" \
-  --min-zoom 9 \
+  --min-zoom 7 \
   --max-zoom 18 \
   --delete-existing
 ```
@@ -194,7 +194,7 @@ docker-compose exec web python manage.py insert_masterplan_layer \
   --layer-slug "tippu_sultan_birth_palace_heritage" \
   --data-dir "heritage_sites/bengaluru" \
   --authority "Archaeological Survey of India" \
-  --min-zoom 9 \
+  --min-zoom 7 \
   --max-zoom 18 \
   --delete-existing
 ```
@@ -225,7 +225,7 @@ docker-compose exec web python manage.py insert_masterplan_layer \
   --layer-slug "tippu_sultan_palace_heritage" \
   --data-dir "heritage_sites/bengaluru" \
   --authority "Archaeological Survey of India" \
-  --min-zoom 9 \
+  --min-zoom 7 \
   --max-zoom 18 \
   --delete-existing
 ```
@@ -256,7 +256,7 @@ docker-compose exec web python manage.py insert_masterplan_layer \
   --layer-slug "hyderabad_ancient_mound_heritage" \
   --data-dir "heritage_sites/hyderabad" \
   --authority "Archaeological Survey of India" \
-  --min-zoom 9 \
+  --min-zoom 7 \
   --max-zoom 18 \
   --delete-existing
 ```
@@ -287,7 +287,7 @@ docker-compose exec web python manage.py insert_masterplan_layer \
   --layer-slug "hyderabad_charminar_heritage" \
   --data-dir "heritage_sites/hyderabad" \
   --authority "Archaeological Survey of India" \
-  --min-zoom 9 \
+  --min-zoom 7 \
   --max-zoom 18 \
   --delete-existing
 ```
@@ -318,7 +318,7 @@ docker-compose exec web python manage.py insert_masterplan_layer \
   --layer-slug "hyderabad_golconda_fort_heritage" \
   --data-dir "heritage_sites/hyderabad" \
   --authority "Archaeological Survey of India" \
-  --min-zoom 9 \
+  --min-zoom 7 \
   --max-zoom 18 \
   --delete-existing
 ```

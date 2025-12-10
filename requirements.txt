@@ -38,3 +38,9 @@ psutil==7.0.0
 matplotlib==3.10.6
 rtree==1.4.1
 tqdm==4.67.1
+
+django-redis==6.0.0
+redis==7.1.0
+django-db-connection-pool==1.2.6
+uvicorn==0.38.0
+gunicorn==23.0.0

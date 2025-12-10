@@ -11,7 +11,7 @@ import time
 from pathlib import Path
 from PIL import Image, ImageDraw
 import mercantile
-from shapely.geometry import shape, box, Polygon, MultiPolygon, Point
+from shapely.geometry import shape, box, Polygon, MultiPolygon
 from shapely.ops import transform
 from rtree import index
 
@@ -109,20 +109,31 @@ class UniversalHeritageTileGenerator:
         return transform(self.transformer.transform, geom)
     
     def load_geojson(self):
-        """Load heritage site GeoJSON file"""
+        """Load heritage site GeoJSON file or merge all .geojson files in a directory"""
         print(f"\n{'='*80}")
         print(f"LOADING HERITAGE SITE: {self.site_name}")
         print(f"{'='*80}")
-        print(f"File: {self.geojson_file.name}\n")
         
-        if not self.geojson_file.exists():
-            raise FileNotFoundError(f"GeoJSON file not found: {self.geojson_file}")
-        
-        with open(self.geojson_file, 'r', encoding='utf-8') as f:
-            data = json.load(f)
-        
-        features = data.get('features', [])
-        print(f"Found {len(features)} features")
+        if self.geojson_file.is_dir():
+            files = sorted(self.geojson_file.glob("*.geojson"))
+            if not files:
+                raise FileNotFoundError(f"No GeoJSON files found in directory: {self.geojson_file}")
+            print(f"Directory: {self.geojson_file} ({len(files)} files)")
+            features = []
+            for fpath in files:
+                with open(fpath, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                    feats = data.get('features', [])
+                    features.extend(feats)
+            print(f"Found {len(features)} features (merged from directory)")
+        else:
+            print(f"File: {self.geojson_file.name}\n")
+            if not self.geojson_file.exists():
+                raise FileNotFoundError(f"GeoJSON file not found: {self.geojson_file}")
+            with open(self.geojson_file, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            features = data.get('features', [])
+            print(f"Found {len(features)} features")
         
         # Detect CRS from first feature
         if features:
@@ -193,9 +204,30 @@ class UniversalHeritageTileGenerator:
         
         return (min_lon, min_lat, max_lon, max_lat)
     
+    def get_zoom_scale(self, zoom):
+        """Get rendering scale based on zoom level"""
+        if zoom <= 10:
+            return 6
+        elif zoom <= 13:
+            return 5
+        elif zoom <= 15:
+            return 4
+        else:
+            return 3
+    
+    def get_min_feature_size(self, zoom, scale):
+        """Get minimum feature size in pixels for filtering"""
+        base_sizes = {
+            7: 24, 8: 24, 9: 24, 10: 24,
+            11: 15, 12: 15, 13: 15,
+            14: 8, 15: 8, 16: 8,
+            17: 4.5, 18: 4.5
+        }
+        return base_sizes.get(zoom, 4)
+    
     def render_polygon_with_holes(self, draw, polygon, tile_bounds, img_size, buffer_pixels,
                                   buffered_size, fill_rgb, outline_rgb, boundary_type):
-        """Render polygon with interior rings (holes) properly - matches monument rendering"""
+        """Render polygon with interior rings (holes) properly - mirrors monument rendering"""
         lon_range = tile_bounds.east - tile_bounds.west
         lat_range = tile_bounds.north - tile_bounds.south
         
@@ -212,8 +244,7 @@ class UniversalHeritageTileGenerator:
         poly_img = Image.new('RGBA', (buffered_size, buffered_size), (0, 0, 0, 0))
         poly_draw = ImageDraw.Draw(poly_img)
         
-        # Semi-transparent fill for heritage zones (70% opacity)
-        fill_rgba = fill_rgb + (180,) if fill_rgb else None
+        fill_rgba = fill_rgb + (180,) if fill_rgb else None  # 70% opacity to match monument tiles
         outline_rgba = outline_rgb + (255,) if outline_rgb else (0, 0, 0, 255)
         
         if fill_rgba:
@@ -240,8 +271,9 @@ class UniversalHeritageTileGenerator:
         return poly_img
     
     def render_tile_seamless(self, tile):
-        """Render a single tile with seamless boundaries - matches monument rendering"""
+        """Render a single tile with seamless boundaries - match monument renderer"""
         tile_bounds = mercantile.bounds(tile)
+        
         buffer_degrees = 0.01
         buffered_bounds = box(
             tile_bounds.west - buffer_degrees,
@@ -255,7 +287,7 @@ class UniversalHeritageTileGenerator:
         if not candidate_ids:
             return None
         
-        # Render order: regulated (largest) -> prohibited -> protected (smallest, on top)
+        # Render order: regulated (largest) -> prohibited -> protected (smallest on top)
         ordered_features = []
         for feature_id in candidate_ids:
             feature_data = self.feature_lookup[feature_id]
@@ -264,17 +296,15 @@ class UniversalHeritageTileGenerator:
             if not geom.intersects(buffered_bounds):
                 continue
             
-            # Render order: regulated (3), prohibited (2), protected (1)
             order = {'regulated': 3, 'prohibited': 2, 'protected': 1}.get(feature_data['boundary_type'], 0)
             ordered_features.append((order, feature_id, feature_data))
         
         if not ordered_features:
             return None
         
-        # Sort by order (largest zones first)
         ordered_features.sort(key=lambda x: x[0], reverse=True)
         
-        scale = 4  # Use 4x scale for better quality (same as monuments)
+        scale = 4  # fixed to match monument renderer
         img_size = self.tile_size * scale
         buffer_pixels = int(img_size * 0.1)
         buffered_size = img_size + (2 * buffer_pixels)
@@ -313,15 +343,15 @@ class UniversalHeritageTileGenerator:
                     if poly_img:
                         img_buffered = Image.alpha_composite(img_buffered, poly_img)
         
-        # Crop and downsample
-        img = img_buffered.crop((buffer_pixels, buffer_pixels, 
-                                buffered_size - buffer_pixels, 
+        img = img_buffered.crop((buffer_pixels, buffer_pixels,
+                                buffered_size - buffer_pixels,
                                 buffered_size - buffer_pixels))
         
         img = img.resize((self.tile_size, self.tile_size), Image.LANCZOS)
+        
         return img
     
-    def generate_tiles(self, min_zoom=9, max_zoom=18):
+    def generate_tiles(self, min_zoom=7, max_zoom=18):
         """Generate seamless tiles for all zoom levels"""
         print(f"\n{'='*80}")
         print(f"GENERATING TILES (Zoom {min_zoom}-{max_zoom})")
@@ -344,7 +374,10 @@ class UniversalHeritageTileGenerator:
                 zooms=[zoom]
             ))
             
-            print(f"Zoom {zoom:2d} | {len(tiles):>5} tiles", end=" ", flush=True)
+            total_for_zoom = len(tiles)
+            
+            print(f"Zoom {zoom:2d} | {total_for_zoom:,} tiles | Scale: 4x | Min: 0.0px",
+                  end=" ", flush=True)
             
             zoom_dir = self.output_dir / str(zoom)
             rendered = 0
@@ -436,7 +469,7 @@ class UniversalHeritageTileGenerator:
                 type: 'raster',
                 tiles: ['http://localhost:8000/{{z}}/{{x}}/{{y}}.png'],
                 tileSize: 256,
-                minzoom: 9,
+                minzoom: 7,
                 maxzoom: 18
             }});
             
@@ -459,18 +492,28 @@ class UniversalHeritageTileGenerator:
 
 
 def main():
-    if len(sys.argv) < 4:
-        print("Usage: python universal_heritage_tile_generator.py <geojson_file> <output_dir> <site_name>")
+    if len(sys.argv) < 2:
+        print("Usage: python universal_heritage_tile_generator.py <geojson_file_or_directory> [site_name]")
         print("\nExample:")
         print('  python universal_heritage_tile_generator.py \\')
-        print('    "heritage_sites/bengaluru/Bengaluru Fort.geojson" \\')
-        print('    "heritage_tiles/bengaluru_fort" \\')
-        print('    "Bengaluru Fort"')
+        print('    "heritage_sites/bengaluru" \\')
+        print('    "Bengaluru Heritage Sites"')
         sys.exit(1)
     
     geojson_file = sys.argv[1]
-    output_dir = sys.argv[2]
-    site_name = sys.argv[3]
+    geo_path = Path(geojson_file)
+    site_name = sys.argv[2] if len(sys.argv) > 2 else geo_path.stem.replace('_', ' ')
+    
+    # Force output under heritage_tiles_updated/<city>/<site_slug>
+    parts_lower = [p.lower() for p in geo_path.parts]
+    if any("bengaluru" in p or "bangalore" in p for p in parts_lower):
+        city_folder = "bengaluru"
+    elif any("hyderabad" in p for p in parts_lower):
+        city_folder = "hyderabad"
+    else:
+        city_folder = "misc"
+    site_slug = geo_path.stem.lower().replace(' ', '_')
+    output_dir = Path("heritage_tiles_updated") / city_folder / site_slug
     
     try:
         generator = UniversalHeritageTileGenerator(geojson_file, output_dir, site_name)
@@ -480,7 +523,7 @@ def main():
             print("✗ No features loaded!")
             sys.exit(1)
         
-        generator.generate_tiles(min_zoom=9, max_zoom=18)
+        generator.generate_tiles(min_zoom=7, max_zoom=18)
         generator.generate_html_viewer()
         
         print(f"💡 To view tiles:")

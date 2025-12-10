@@ -115,14 +115,12 @@ Regulated,#36FF36,#36FF36,,
 ✅ **Polygon holes support** - Correctly handles interior rings
 ✅ **70% opacity** - Semi-transparent zones for base map visibility
 ✅ **CRS auto-detection** - Handles both WGS84 and Web Mercator
-✅ **4x supersampling** - Fixed scale for crisp, consistent edges
-✅ **Alpha compositing** - Professional-quality rendering
+✅ **Multi-scale rendering** - 3x-6x supersampling for crisp edges
 ✅ **Optimized performance** - Spatial indexing and caching
-✅ **Identical to monuments** - Same rendering engine as monument tiles
 
 ## Zoom Levels
 
-- **Min Zoom**: 9 (City view)
+- **Min Zoom**: 7 (Regional view)
 - **Max Zoom**: 18 (Building-level detail)
 
 ## Viewing Tiles Locally

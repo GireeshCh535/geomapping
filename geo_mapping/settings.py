@@ -107,22 +107,53 @@ DATABASES = {
         'HOST': os.getenv('DJANGO_DB_HOST', 'localhost'),
         # 'HOST': os.getenv('DJANGO_DB_HOST', 'db'),
         'PORT': os.getenv('DJANGO_DB_PORT', '5432'),
-        'CONN_MAX_AGE': 0,
+        'CONN_MAX_AGE': 600,  # Keep connections alive for 10 minutes (connection pooling)
+        'CONN_HEALTH_CHECKS': True,  # Django 4.1+: Check connection health
+        'OPTIONS': {
+            'connect_timeout': 10,
+        },
     }
 }
 
 # REDIS CACHE
-# CACHES = {
-#     'default': {
-#         'BACKEND': 'django_redis.cache.RedisCache',
-#         'LOCATION': os.getenv('REDIS_URL', 'redis://redis:6379/1'),
-#         'OPTIONS': {
-#             'CLIENT_CLASS': 'django_redis.client.DefaultClient',
-#             'COMPRESSOR': 'django_redis.compressors.zlib.ZlibCompressor',
-#             'IGNORE_EXCEPTIONS': True,
-#         }
-#     }
-# }
+# Get Redis URL from environment (docker-compose sets this)
+REDIS_URL = os.getenv('REDIS_URL', 'redis://redis:6379/1')
+
+CACHES = {
+    'default': {
+        'BACKEND': 'django_redis.cache.RedisCache',
+        'LOCATION': REDIS_URL,
+        'OPTIONS': {
+            'CLIENT_CLASS': 'django_redis.client.DefaultClient',
+            # Connection pool settings for better performance
+            'CONNECTION_POOL_KWARGS': {
+                'max_connections': 50,
+                'retry_on_timeout': True,
+            },
+            # Socket timeout settings
+            'SOCKET_CONNECT_TIMEOUT': 5,
+            'SOCKET_TIMEOUT': 5,
+            'COMPRESSOR': 'django_redis.compressors.zlib.ZlibCompressor',
+            'IGNORE_EXCEPTIONS': True,
+        },
+        'KEY_PREFIX': 'geomapping',
+        'TIMEOUT': 300,  # Default cache timeout: 5 minutes
+    },
+    # Separate cache for coordinate searches (optional, for isolation)
+    'coordinates': {
+        'BACKEND': 'django_redis.cache.RedisCache',
+        'LOCATION': REDIS_URL.replace('/1', '/2') if '/1' in REDIS_URL else REDIS_URL,
+        'OPTIONS': {
+            'CLIENT_CLASS': 'django_redis.client.DefaultClient',
+            'CONNECTION_POOL_KWARGS': {
+                'max_connections': 100,  # More connections for high-traffic endpoint
+                'retry_on_timeout': True,
+            },
+        },
+        'KEY_PREFIX': 'coord_search',
+        'TIMEOUT': 300,
+    }
+}
 
 # REST FRAMEWORK
 REST_FRAMEWORK = {
@@ -294,9 +325,14 @@ LOGGING = {
         },
         'maps.views': {
             'handlers': ['console'],
-            'level': 'INFO',
+            'level': 'INFO',  # Change to DEBUG to see cache hits/misses
             'propagate': True,
-        }
+        },
+        # Log slow database queries
+        'django.db.backends': {
+            'level': 'WARNING',  # Change to DEBUG to see all queries
+            'handlers': ['console'],
+        },
     },
 }
 
@@ -329,4 +365,19 @@ SPECTACULAR_SETTINGS = {
         {'name': 'tiles', 'description': 'Map tile serving endpoints'},
         {'name': 'hierarchy', 'description': 'Hierarchical data structure'},
     ],
+}
+
+# ============================================
+# COORDINATE SEARCH SPECIFIC SETTINGS
+# ============================================
+
+# Custom settings for coordinate search optimization
+COORDINATE_SEARCH_SETTINGS = {
+    'CACHE_TTL': 300,  # Cache results for 5 minutes
+    'CACHE_TTL_EMPTY': 60,  # Cache empty results for 1 minute
+    'COORDINATE_PRECISION': 5,  # Decimal places (5 = ~1.1m precision)
+    'MAX_CONTAINING_FEATURES': 20,  # Max features to return
+    'MAX_NEARBY_FEATURES': 10,
+    'DEFAULT_NEARBY_RADIUS_METERS': 100,
+    'MAX_NEARBY_RADIUS_METERS': 10000,
 }
