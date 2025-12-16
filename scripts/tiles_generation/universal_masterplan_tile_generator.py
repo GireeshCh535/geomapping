@@ -277,20 +277,24 @@ class UniversalMasterPlanTiles:
                         
                         props = feature.get('properties', {})
                         # Try multiple property fields for category
+                        # Skip "Placemark" as it's a generic placeholder - use filename instead
+                        name_value = props.get("Name") or props.get("name") or props.get("NAME")
+                        if name_value and str(name_value).strip().upper() == "PLACEMARK":
+                            name_value = None  # Skip Placemark, will fall back to filename
+        
                         raw_category = (
                             props.get("LANDUSE_CATEGORY")
                             or props.get("LANDUSE_SUBCAT_LEVEL_1")
                             or props.get("CATEGORY")
                             or props.get("SUB_CATEGO")
-                            or props.get("Name")
-                            or props.get("name")
-                            or props.get("NAME")
+                            or name_value
                             or props.get("Label")
                             or props.get("use")
+                            or props.get("use1")
                             or props.get("LAYER")
                             or file_name
                         )
-                        category_norm = self.normalize_category(str(raw_category)) or self.normalize_category(file_name) or file_name.upper()
+                        category_norm = self.normalize_category(str(raw_category)) if raw_category else self.normalize_category(file_name) or file_name.upper()
                         
                         feature_data = {
                             'geometry': geom,
