@@ -568,13 +568,17 @@ class HyderabadMasterPlanTiles:
             rendered = 0
             
             for tile in tiles:
+                tile_dir = zoom_dir / str(tile.x)
+                tile_path = tile_dir / f"{tile.y}.png"
+
+                # Skip if tile already exists on disk
+                if tile_path.exists():
+                    continue
+
                 img = self.render_tile_seamless(tile)
                 
                 if img is not None:
-                    tile_dir = zoom_dir / str(tile.x)
                     tile_dir.mkdir(parents=True, exist_ok=True)
-                    
-                    tile_path = tile_dir / f"{tile.y}.png"
                     img.save(tile_path, 'PNG', optimize=False)
                     rendered += 1
             
