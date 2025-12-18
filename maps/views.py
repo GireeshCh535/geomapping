@@ -1891,15 +1891,15 @@ class CoordinateSearchTestView(APIView):
                 }
             
             # Special handling for jodhpur_masterplan
-            # if layer.slug == 'jodhpur_masterplan' and containing_features:
-            #     # Return properties.FolderPath
-            #     primary_feature = containing_features[0]
-            #     detailed_category = primary_feature.get('detailed_category', {})
-            #     properties = detailed_category.get('properties', {})
-            #     folder_path = properties.get('FolderPath', '')
-            #     return {
-            #         'data': folder_path
-            #     }
+            if layer.slug == 'jodhpur_masterplan' and containing_features:
+                # Return properties.Name
+                primary_feature = containing_features[0]
+                detailed_category = primary_feature.get('detailed_category', {})
+                properties = detailed_category.get('properties', {})
+                name = properties.get('Name', '')
+                return {
+                    'data': name
+                }
             
             # Generate summary
             if containing_features:
