@@ -1814,15 +1814,15 @@ class CoordinateSearchTestView(APIView):
                 }
             
             # Special handling for jagdalpur_masterplan
-            # if layer.slug == 'jagdalpur_masterplan' and containing_features:
-            #     # Return properties.PLU_2021
-            #     primary_feature = containing_features[0]
-            #     detailed_category = primary_feature.get('detailed_category', {})
-            #     properties = detailed_category.get('properties', {})
-            #     plu_2021 = properties.get('PLU_2021', '')
-            #     return {
-            #         'data': plu_2021
-            #     }
+            if layer.slug == 'jagdalpur_masterplan' and containing_features:
+                # Return properties.PLU_2021
+                primary_feature = containing_features[0]
+                detailed_category = primary_feature.get('detailed_category', {})
+                properties = detailed_category.get('properties', {})
+                Name = properties.get('Name', '')
+                return {
+                    'data': Name
+                }
             
             # Special handling for arang_masterplan
             if layer.slug == 'arang_masterplan' and containing_features:
