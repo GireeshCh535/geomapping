@@ -457,6 +457,38 @@ class Command(BaseCommand):
                 # Extract properties
                 properties = feature_data.get('properties', {})
                 
+                # Extract area - try multiple possible keys (case-insensitive)
+                area_value = None
+                for key in ['Area', 'AREA', 'area', 'Shape_Area', 'SHAPE_AREA', 'shape_area']:
+                    if key in properties:
+                        area_value = self.safe_float(properties[key])
+                        if area_value is not None:
+                            break
+                
+                # If area not found in properties, calculate from geometry
+                if area_value is None and geometry:
+                    try:
+                        # Calculate area in square degrees (will be converted to proper units later)
+                        area_value = geometry.area
+                    except Exception:
+                        area_value = None
+                
+                # Extract shape_length - try multiple possible keys
+                shape_length_value = None
+                for key in ['Shape_Length', 'SHAPE_LENGTH', 'shape_length', 'Length', 'LENGTH']:
+                    if key in properties:
+                        shape_length_value = self.safe_float(properties[key])
+                        if shape_length_value is not None:
+                            break
+                
+                # Extract shape_area - try multiple possible keys
+                shape_area_value = None
+                for key in ['Shape_Area', 'SHAPE_AREA', 'shape_area', 'Area', 'AREA']:
+                    if key in properties:
+                        shape_area_value = self.safe_float(properties[key])
+                        if shape_area_value is not None:
+                            break
+                
                 # Create GeoFeature
                 geo_feature = GeoFeature.objects.create(
                     layer=self.layer,
@@ -466,12 +498,12 @@ class Command(BaseCommand):
                     zone_category=category.name,
                     zone_subcategory=file_path.stem,
                     
-                    # Store numeric fields
-                    area=self.safe_float(properties.get('Area')),
-                    shape_length=self.safe_float(properties.get('Shape_Length')),
-                    shape_area=self.safe_float(properties.get('Shape_Area')),
-                    objectid=self.safe_int(properties.get('OBJECTID', idx)),
-                    fid=self.safe_int(properties.get('FID', idx)),
+                    # Store numeric fields with improved extraction
+                    area=area_value,
+                    shape_length=shape_length_value,
+                    shape_area=shape_area_value,
+                    objectid=self.safe_int(properties.get('OBJECTID', properties.get('objectid', idx))),
+                    fid=self.safe_int(properties.get('FID', properties.get('fid', idx))),
                     
                     # Store all properties
                     properties=properties,
