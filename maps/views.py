@@ -1418,6 +1418,64 @@ class CoordinateSearchTestView(APIView):
                 feature_data = self._process_feature_data(feature)
                 containing_features.append(feature_data)
             
+            # Special handling for jagdalpur_masterplan - select correct feature when multiple overlap
+            if layer.slug == 'jagdalpur_masterplan' and containing_features:
+                # For jagdalpur, when multiple features overlap, find the correct one
+                # Data structure: properties.Name, properties.PLU_2021, zone_subcategory (filename)
+                # Strategy: Prioritize smaller, more specific zones (Commercial, Residential) 
+                # over larger infrastructure features (Roads)
+                best_feature = None
+                best_score = -1
+                
+                for feature_data in containing_features:
+                    detailed_category = feature_data.get('detailed_category', {})
+                    properties = detailed_category.get('properties', {}) or {}
+                    zone_subcategory = feature_data.get('zone_subcategory', '')
+                    plu_2021 = properties.get('PLU_2021', '')
+                    name = properties.get('Name', '')
+                    area = feature_data.get('area', {}).get('square_meters', 0)
+                    
+                    score = 0
+                    
+                    # Highest priority: All three match (Name, PLU_2021, zone_subcategory)
+                    # This ensures data consistency
+                    if name and plu_2021 and zone_subcategory:
+                        if name == plu_2021 == zone_subcategory:
+                            score += 15  # Perfect match - highest priority
+                        elif name == plu_2021:
+                            score += 10  # Name and PLU match
+                        elif name == zone_subcategory:
+                            score += 10  # Name and filename match
+                        elif plu_2021 == zone_subcategory:
+                            score += 10  # PLU and filename match
+                    
+                    # Critical: Prefer smaller areas (specific land use zones) over larger ones (roads)
+                    # Commercial/Residential zones are typically < 1 sq meter
+                    # Roads are typically > 50 sq meters
+                    if area > 0:
+                        if area < 0.5:
+                            score += 10  # Very small areas (specific zones like Commercial, Residential)
+                        elif area < 1:
+                            score += 8   # Small areas
+                        elif area < 10:
+                            score += 5   # Medium-small areas
+                        elif area < 50:
+                            score += 2   # Medium areas
+                        # Large areas (like roads > 50 sq meters) get no bonus
+                        # This ensures Commercial (0.237) beats Roads (220.55)
+                    
+                    # Prefer features with complete Name property
+                    if name:
+                        score += 1
+                    
+                    if score > best_score:
+                        best_score = score
+                        best_feature = feature_data
+                
+                # Reorder so the best feature is first
+                if best_feature and best_feature != containing_features[0]:
+                    containing_features.remove(best_feature)
+                    containing_features.insert(0, best_feature)
             
             # Special handling for bengaluru_strr layer
             if layer.slug == 'bengaluru_strr' and containing_features:
@@ -1815,13 +1873,17 @@ class CoordinateSearchTestView(APIView):
             
             # Special handling for jagdalpur_masterplan
             if layer.slug == 'jagdalpur_masterplan' and containing_features:
-                # Return properties.PLU_2021
+                # Return properties.Name (or PLU_2021 as fallback)
                 primary_feature = containing_features[0]
                 detailed_category = primary_feature.get('detailed_category', {})
-                properties = detailed_category.get('properties', {})
-                Name = properties.get('Name', '')
+                properties = detailed_category.get('properties', {}) or {}
+                name = properties.get('Name', '')
+                if not name:
+                    name = properties.get('PLU_2021', '')
+                if not name:
+                    name = primary_feature.get('zone_subcategory', '')
                 return {
-                    'data': Name
+                    'data': name
                 }
             
             # Special handling for arang_masterplan
