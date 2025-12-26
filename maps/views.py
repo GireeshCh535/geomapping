@@ -1085,15 +1085,21 @@ class CoordinateSearchTestView(APIView):
     def _search_in_layer(self, layer, search_point, latitude, longitude, radius_meters):
         """Search for features within a specific layer"""
         try:
-            # Use a small buffer around the point to handle LineStrings and other geometries
-            search_buffer = search_point.buffer(0.0001)  # ~10m buffer
+            # For jagdalpur_masterplan, use exact point containment (no buffer, no nearby search)
+            # For other layers, use a small buffer to handle LineStrings and other geometries
+            if layer.slug == 'jagdalpur_masterplan':
+                # Exact point containment check - no buffer, no nearby features
+                search_geometry = search_point
+            else:
+                # Use a small buffer around the point to handle LineStrings and other geometries
+                search_geometry = search_point.buffer(0.0001)  # ~10m buffer
             
             # Search for features in the specific layer that intersect with the point
             # Optimized query with field limiting and result cap
             features = GeoFeature.objects.filter(
                 layer=layer,
                 is_valid=True,
-                geometry__intersects=search_buffer
+                geometry__intersects=search_geometry
             ).select_related(
                 'layer', 'layer__category', 'layer__city', 'layer__city__state_ref'
             ).only(
@@ -1108,6 +1114,7 @@ class CoordinateSearchTestView(APIView):
             
             if not features.exists():
                 # Skip nearby search for layers that should only return exact matches
+                # For jagdalpur_masterplan, never search nearby - only exact coordinate match
                 if layer.slug in ['gurugram_masterplan', 'delhi_masterplan', 'noida_masterplan', 'greater_noida_masterplan', 'faridabad_masterplan', 'amaravati_masterplan', 'bhubaneswar_masterplan', 'puducherry_masterplan', 'chandigarh_masterplan', 'rajnandgaon_masterplan', 'durg_bihlai_masterplan', 'jagdalpur_masterplan', 'arang_masterplan', 'mahasamund_masterplan', 'balodabazaar_masterplan', 'bhatapara_masterplan', 'raigarh_masterplan', 'udaipur_masterplan', 'jodhpur_masterplan', 'hyderabad_heritage_sites', 'bengaluru_heritage_sites']:
                     return {
                         'search_point': {
@@ -1130,11 +1137,12 @@ class CoordinateSearchTestView(APIView):
                         'administrative_boundaries': {},
                         'summary': 'No features found in the specified layer',
                         'search_scope': 'layer_specific',
-                        'search_radius_meters': radius_meters,
+                        'search_radius_meters': 0 if layer.slug == 'jagdalpur_masterplan' else radius_meters,
                         'status': 'no_data_found'
                     }
                 
                 # If no exact intersection found, search for nearby features within 100m buffer
+                # Skip this for jagdalpur_masterplan - it should never reach here due to check above
                 buffer_100m = search_point.buffer(0.0009)  # ~100m buffer (0.0009 degrees ≈ 100m)
                 
                 nearby_features = GeoFeature.objects.filter(
@@ -1420,10 +1428,11 @@ class CoordinateSearchTestView(APIView):
             
             # Special handling for jagdalpur_masterplan - select correct feature when multiple overlap
             if layer.slug == 'jagdalpur_masterplan' and containing_features:
-                # For jagdalpur, when multiple features overlap, find the correct one
-                # Data structure: properties.Name, properties.PLU_2021, zone_subcategory (filename)
-                # Strategy: Prioritize smaller, more specific zones (Commercial, Residential) 
-                # over larger infrastructure features (Roads)
+                # For jagdalpur, when multiple features overlap, use properties.Name as source of truth
+                # All features should have consistent Name, PLU_2021, and zone_subcategory
+                # When multiple features overlap, prioritize by data consistency and area
+                # Roads are infrastructure that typically cover larger areas and should be prioritized
+                # when they overlap with smaller land-use zones
                 best_feature = None
                 best_score = -1
                 
@@ -1437,32 +1446,22 @@ class CoordinateSearchTestView(APIView):
                     
                     score = 0
                     
-                    # Highest priority: All three match (Name, PLU_2021, zone_subcategory)
-                    # This ensures data consistency
+                    # Check data consistency - all three should match
                     if name and plu_2021 and zone_subcategory:
                         if name == plu_2021 == zone_subcategory:
-                            score += 15  # Perfect match - highest priority
+                            score += 20  # Perfect consistency - highest priority
                         elif name == plu_2021:
-                            score += 10  # Name and PLU match
+                            score += 15  # Name and PLU match
                         elif name == zone_subcategory:
-                            score += 10  # Name and filename match
+                            score += 15  # Name and filename match
                         elif plu_2021 == zone_subcategory:
-                            score += 10  # PLU and filename match
+                            score += 15  # PLU and filename match
                     
-                    # Critical: Prefer smaller areas (specific land use zones) over larger ones (roads)
-                    # Commercial/Residential zones are typically < 1 sq meter
-                    # Roads are typically > 50 sq meters
-                    if area > 0:
-                        if area < 0.5:
-                            score += 10  # Very small areas (specific zones like Commercial, Residential)
-                        elif area < 1:
-                            score += 8   # Small areas
-                        elif area < 10:
-                            score += 5   # Medium-small areas
-                        elif area < 50:
-                            score += 2   # Medium areas
-                        # Large areas (like roads > 50 sq meters) get no bonus
-                        # This ensures Commercial (0.237) beats Roads (220.55)
+                    # For jagdalpur: Roads are infrastructure features that should be prioritized
+                    # when they overlap with smaller land-use zones (Commercial, Residential)
+                    # Roads typically have larger areas (> 50 sq meters)
+                    if name == 'Existing Roads' or plu_2021 == 'Existing Roads':
+                        score += 10  # Prioritize Roads when they overlap with other features
                     
                     # Prefer features with complete Name property
                     if name:
@@ -1873,15 +1872,23 @@ class CoordinateSearchTestView(APIView):
             
             # Special handling for jagdalpur_masterplan
             if layer.slug == 'jagdalpur_masterplan' and containing_features:
-                # Return properties.Name (or PLU_2021 as fallback)
+                # Return properties.Name as the primary source of truth
+                # The feature selection logic above ensures we have the correct feature first
                 primary_feature = containing_features[0]
                 detailed_category = primary_feature.get('detailed_category', {})
                 properties = detailed_category.get('properties', {}) or {}
+                
+                # Use properties.Name as primary source (most accurate)
                 name = properties.get('Name', '')
+                
+                # Fallback to PLU_2021 if Name is missing
                 if not name:
                     name = properties.get('PLU_2021', '')
+                
+                # Final fallback to zone_subcategory (filename)
                 if not name:
                     name = primary_feature.get('zone_subcategory', '')
+                
                 return {
                     'data': name
                 }
