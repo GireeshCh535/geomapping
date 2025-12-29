@@ -794,3 +794,299 @@ class ValidationLog(models.Model):
     
     def __str__(self):
         return f"{self.city.name} - {self.validation_type} - {'Valid' if self.is_valid else 'Invalid'}"
+
+# ================================
+# DEVELOPER LISTING MODELS
+# ================================
+
+class DeveloperListing(models.Model):
+    """
+    Store developer listing data (Land/Plot) from webhook
+    Stores all data from the backend API
+    """
+    
+    LISTING_TYPES = [
+        ('developerland', 'Developer Land'),
+        ('developerplot', 'Developer Plot'),
+    ]
+    
+    # Core identification
+    listing_type = models.CharField(max_length=20, choices=LISTING_TYPES)
+    backend_listing_id = models.IntegerField(help_text='ID from backend API')
+    
+    # Full listing data from webhook (JSON)
+    listing_data = models.JSONField(
+        default=dict,
+        help_text='Complete listing data from backend API'
+    )
+    
+    # Common fields extracted for easy querying
+    name = models.CharField(max_length=500, blank=True)
+    description = models.TextField(blank=True)
+    
+    # Location fields (if available in listing_data)
+    location = models.CharField(max_length=500, blank=True)
+    city = models.CharField(max_length=200, blank=True)
+    state = models.CharField(max_length=200, blank=True)
+    
+    # Status tracking
+    is_active = models.BooleanField(default=True)
+    last_webhook_event = models.CharField(max_length=50, blank=True)
+    
+    # Timestamps
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    backend_created_at = models.DateTimeField(null=True, blank=True)
+    backend_updated_at = models.DateTimeField(null=True, blank=True)
+    
+    class Meta:
+        db_table = 'developer_listings'
+        unique_together = ('listing_type', 'backend_listing_id')
+        indexes = [
+            models.Index(fields=['listing_type', 'backend_listing_id']),
+            models.Index(fields=['listing_type', 'is_active']),
+            models.Index(fields=['city', 'state']),
+            models.Index(fields=['created_at']),
+        ]
+    
+    def __str__(self):
+        return f"{self.get_listing_type_display()} - {self.backend_listing_id} - {self.name or 'Unnamed'}"
+    
+    def get_media_count(self):
+        """Get count of media files"""
+        return self.media_files.count()
+    
+    def get_tif_count(self):
+        """Get count of TIF files"""
+        return self.media_files.filter(is_tif=True).count()
+
+
+class DeveloperListingMedia(models.Model):
+    """
+    Store media files associated with developer listings
+    Includes images, videos, files, and TIF files
+    """
+    
+    MEDIA_TYPES = [
+        ('image', 'Image'),
+        ('video', 'Video'),
+        ('file', 'File'),
+    ]
+    
+    listing = models.ForeignKey(
+        DeveloperListing,
+        on_delete=models.CASCADE,
+        related_name='media_files'
+    )
+    
+    # Backend media ID
+    backend_media_id = models.IntegerField(help_text='ID from backend API')
+    
+    # Media type and category
+    media_type = models.CharField(max_length=20, choices=MEDIA_TYPES)
+    category = models.CharField(max_length=100, blank=True)
+    
+    # File information
+    file_name = models.CharField(max_length=500, blank=True)
+    file_url = models.URLField(max_length=1000, help_text='CloudFront URL')
+    s3_path = models.CharField(max_length=1000, blank=True, help_text='S3 key/path')
+    
+    # TIF-specific flags
+    is_tif = models.BooleanField(default=False, help_text='Is this a TIF/TIFF file?')
+    s3_tile_path = models.CharField(
+        max_length=1000,
+        blank=True,
+        help_text='S3 base path for tiles (e.g., developerland/123/filename.tif)'
+    )
+    
+    # Tile generation status
+    tiles_generated = models.BooleanField(default=False)
+    tiles_generation_started_at = models.DateTimeField(null=True, blank=True)
+    tiles_generation_completed_at = models.DateTimeField(null=True, blank=True)
+    tiles_generation_error = models.TextField(blank=True)
+    total_tiles_generated = models.IntegerField(default=0)
+    
+    # Full media data from webhook (JSON)
+    media_data = models.JSONField(
+        default=dict,
+        help_text='Complete media data from webhook'
+    )
+    
+    # Timestamps
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        db_table = 'developer_listing_media'
+        unique_together = ('listing', 'backend_media_id')
+        indexes = [
+            models.Index(fields=['listing', 'is_tif']),
+            models.Index(fields=['is_tif', 'tiles_generated']),
+            models.Index(fields=['tiles_generated']),
+            models.Index(fields=['created_at']),
+        ]
+    
+    def __str__(self):
+        return f"{self.listing} - {self.file_name or 'Media'} ({self.media_type})"
+
+
+class TIFMetadata(models.Model):
+    """
+    Store TIF file metadata including bounds, CRS, dimensions, etc.
+    Extracted during tile generation process
+    """
+    
+    media = models.OneToOneField(
+        DeveloperListingMedia,
+        on_delete=models.CASCADE,
+        related_name='tif_metadata'
+    )
+    
+    # Source TIF information
+    source_crs = models.CharField(
+        max_length=100,
+        blank=True,
+        help_text='Original CRS of TIF file (e.g., EPSG:4326)'
+    )
+    source_width = models.IntegerField(null=True, blank=True)
+    source_height = models.IntegerField(null=True, blank=True)
+    source_bands = models.IntegerField(null=True, blank=True)
+    
+    # Original bounds (in source CRS)
+    source_bounds_west = models.FloatField(null=True, blank=True)
+    source_bounds_south = models.FloatField(null=True, blank=True)
+    source_bounds_east = models.FloatField(null=True, blank=True)
+    source_bounds_north = models.FloatField(null=True, blank=True)
+    
+    # Reprojected bounds (WGS84/EPSG:4326)
+    reprojected_width = models.IntegerField(null=True, blank=True)
+    reprojected_height = models.IntegerField(null=True, blank=True)
+    bounds_west = models.FloatField(null=True, blank=True, help_text='WGS84 west')
+    bounds_south = models.FloatField(null=True, blank=True, help_text='WGS84 south')
+    bounds_east = models.FloatField(null=True, blank=True, help_text='WGS84 east')
+    bounds_north = models.FloatField(null=True, blank=True, help_text='WGS84 north')
+    
+    # Transform matrix (stored as JSON)
+    transform_matrix = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text='Affine transform matrix for reprojected data'
+    )
+    
+    # Tile generation configuration
+    min_zoom = models.IntegerField(default=8)
+    max_zoom = models.IntegerField(default=18)
+    tile_size = models.IntegerField(default=256)
+    
+    # Tile statistics
+    total_tiles_generated = models.IntegerField(default=0)
+    tiles_by_zoom = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text='Tile count per zoom level: {8: 100, 9: 200, ...}'
+    )
+    
+    # Processing metadata
+    processing_time_seconds = models.FloatField(null=True, blank=True)
+    file_size_bytes = models.BigIntegerField(null=True, blank=True)
+    
+    # Full TIF data/metadata (JSON)
+    tif_data = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text='Complete TIF metadata and data information'
+    )
+    
+    # Timestamps
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        db_table = 'tif_metadata'
+        indexes = [
+            models.Index(fields=['media']),
+            models.Index(fields=['bounds_west', 'bounds_south', 'bounds_east', 'bounds_north']),
+        ]
+    
+    def __str__(self):
+        return f"TIF Metadata - {self.media.file_name}"
+    
+    def get_bounds_dict(self):
+        """Get bounds as dictionary"""
+        return {
+            'west': self.bounds_west,
+            'south': self.bounds_south,
+            'east': self.bounds_east,
+            'north': self.bounds_north
+        }
+    
+    def get_source_bounds_dict(self):
+        """Get source bounds as dictionary"""
+        return {
+            'west': self.source_bounds_west,
+            'south': self.source_bounds_south,
+            'east': self.source_bounds_east,
+            'north': self.source_bounds_north
+        }
+
+
+class WebhookEvent(models.Model):
+    """
+    Store webhook events for audit trail and debugging
+    Stores complete webhook payload and processing results
+    """
+    
+    EVENT_TYPES = [
+        ('developer_listing_created', 'Developer Listing Created'),
+        ('developer_listing_updated', 'Developer Listing Updated'),
+        ('developer_listing_media_uploaded', 'Media Uploaded'),
+    ]
+    
+    # Event identification
+    event_type = models.CharField(max_length=50, choices=EVENT_TYPES)
+    action = models.CharField(max_length=50, blank=True, help_text='Action: created, updated, media_uploaded')
+    
+    # Listing information
+    listing_type = models.CharField(max_length=20)
+    listing_id = models.IntegerField()
+    
+    # Complete webhook payload (JSON)
+    payload = models.JSONField(
+        default=dict,
+        help_text='Complete webhook payload received'
+    )
+    
+    # Processing status
+    processed = models.BooleanField(default=False)
+    processed_at = models.DateTimeField(null=True, blank=True)
+    processing_error = models.TextField(blank=True)
+    
+    # Results
+    tiles_generated = models.IntegerField(default=0)
+    tif_files_processed = models.IntegerField(default=0)
+    processing_result = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text='Processing results and details'
+    )
+    
+    # Request metadata
+    request_headers = models.JSONField(default=dict, blank=True)
+    request_ip = models.GenericIPAddressField(null=True, blank=True)
+    
+    # Timestamps
+    received_at = models.DateTimeField(auto_now_add=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    
+    class Meta:
+        db_table = 'webhook_events'
+        ordering = ['-received_at']
+        indexes = [
+            models.Index(fields=['event_type', 'listing_type', 'listing_id']),
+            models.Index(fields=['processed', 'received_at']),
+            models.Index(fields=['listing_type', 'listing_id']),
+            models.Index(fields=['received_at']),
+        ]
+    
+    def __str__(self):
+        return f"Webhook Event - {self.event_type} - {self.listing_type} {self.listing_id} - {self.received_at}"

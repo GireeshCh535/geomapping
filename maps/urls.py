@@ -62,6 +62,10 @@ urlpatterns = [
     path('search-coords-test/',
          views.CoordinateSearchTestView.as_view(), name='global_coordinate_search_test'),
     
+    # Nearby layers API - Find all layers within 50km of coordinates or bounds
+    path('layers/nearby/',
+         views.NearbyLayersAPIView.as_view(), name='nearby_layers'),
+    
     # Layer bounds API - Get bounds for a specific layer based on actual data
     path('layers/<slug:state_slug>/<slug:city_slug>/<slug:layer_slug>/bounds/',
          views.LayerBoundsAPIView.as_view(), name='layer_bounds'),
@@ -73,5 +77,14 @@ urlpatterns = [
     # Layer bounds and zoom level API
     path('layers/<slug:state_slug>/<slug:city_slug>/<str:layer_slugs>/bounds-zoom/',
          views.LayerBoundsZoomAPIView.as_view(), name='layer_bounds_zoom'),
+    
+    # ================================
+    # DEVELOPER LISTING WEBHOOK & TILE GENERATION
+    # ================================
+    
+    # Webhook endpoint for developer listing media uploads
+    path('webhooks/developer-listing-media/',
+         views.DeveloperListingMediaWebhookView.as_view(),
+         name='developer-listing-media-webhook'),
     
 ]

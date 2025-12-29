@@ -381,3 +381,13 @@ COORDINATE_SEARCH_SETTINGS = {
     'DEFAULT_NEARBY_RADIUS_METERS': 100,
     'MAX_NEARBY_RADIUS_METERS': 10000,
 }
+
+# ============================================
+# DEVELOPER LISTING TILE GENERATION SETTINGS
+# ============================================
+
+# Backend API URL for fetching developer listing data
+DEVELOPER_BACKEND_API_URL = os.getenv(
+    'DEVELOPER_BACKEND_API_URL',
+    'http://be.staging.1acre.in'  # Default to staging, can be overridden via env var
+)

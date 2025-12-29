@@ -10,13 +10,14 @@ import hashlib
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from django.http import HttpResponseRedirect, HttpResponse
-from django.contrib.gis.geos import Point
+from django.contrib.gis.geos import Point, Polygon
 from django.contrib.gis.db.models.functions import Distance
 from drf_spectacular.utils import extend_schema, extend_schema_view, OpenApiParameter, OpenApiExample
 from .models import *
 from .serializers import *
 from .tile_path_service import TilePathService
 import logging
+import json
 import boto3
 import requests
 
@@ -1085,9 +1086,12 @@ class CoordinateSearchTestView(APIView):
     def _search_in_layer(self, layer, search_point, latitude, longitude, radius_meters):
         """Search for features within a specific layer"""
         try:
-            # For jagdalpur_masterplan, use exact point containment (no buffer, no nearby search)
+            # Check if this is a master plan layer (by checking if slug contains 'masterplan' or 'master_plan')
+            is_masterplan = 'masterplan' in layer.slug.lower() or 'master_plan' in layer.slug.lower()
+            
+            # For all master plan layers, use exact point containment (no buffer, no nearby search)
             # For other layers, use a small buffer to handle LineStrings and other geometries
-            if layer.slug == 'jagdalpur_masterplan':
+            if is_masterplan:
                 # Exact point containment check - no buffer, no nearby features
                 search_geometry = search_point
             else:
@@ -1114,8 +1118,10 @@ class CoordinateSearchTestView(APIView):
             
             if not features.exists():
                 # Skip nearby search for layers that should only return exact matches
-                # For jagdalpur_masterplan, never search nearby - only exact coordinate match
-                if layer.slug in ['gurugram_masterplan', 'delhi_masterplan', 'noida_masterplan', 'greater_noida_masterplan', 'faridabad_masterplan', 'amaravati_masterplan', 'bhubaneswar_masterplan', 'puducherry_masterplan', 'chandigarh_masterplan', 'rajnandgaon_masterplan', 'durg_bihlai_masterplan', 'jagdalpur_masterplan', 'arang_masterplan', 'mahasamund_masterplan', 'balodabazaar_masterplan', 'bhatapara_masterplan', 'raigarh_masterplan', 'udaipur_masterplan', 'jodhpur_masterplan', 'hyderabad_heritage_sites', 'bengaluru_heritage_sites']:
+                # For all master plan layers and heritage sites, never search nearby - only exact coordinate match
+                is_heritage_site = layer.slug in ['hyderabad_heritage_sites', 'bengaluru_heritage_sites']
+                
+                if is_masterplan or is_heritage_site:
                     return {
                         'search_point': {
                             'latitude': latitude,
@@ -1137,12 +1143,12 @@ class CoordinateSearchTestView(APIView):
                         'administrative_boundaries': {},
                         'summary': 'No features found in the specified layer',
                         'search_scope': 'layer_specific',
-                        'search_radius_meters': 0 if layer.slug == 'jagdalpur_masterplan' else radius_meters,
+                        'search_radius_meters': 0 if is_masterplan else radius_meters,
                         'status': 'no_data_found'
                     }
                 
                 # If no exact intersection found, search for nearby features within 100m buffer
-                # Skip this for jagdalpur_masterplan - it should never reach here due to check above
+                # Skip this for all master plan layers and heritage sites - they should never reach here due to check above
                 buffer_100m = search_point.buffer(0.0009)  # ~100m buffer (0.0009 degrees ≈ 100m)
                 
                 nearby_features = GeoFeature.objects.filter(
@@ -3245,6 +3251,358 @@ class S3DirectTileView(APIView):
 
 @extend_schema_view(
     get=extend_schema(
+        summary="Find layers near coordinates or bounds",
+        description="Find all layers that have features within 50km of given coordinates or bounding box. Returns layer information including state, city, category, and feature counts.",
+        tags=['layers', 'search'],
+        parameters=[
+            OpenApiParameter(
+                name='lat',
+                location=OpenApiParameter.QUERY,
+                required=False,
+                type=float,
+                description='Latitude coordinate (required if bounds not provided)'
+            ),
+            OpenApiParameter(
+                name='lng',
+                location=OpenApiParameter.QUERY,
+                required=False,
+                type=float,
+                description='Longitude coordinate (required if bounds not provided)'
+            ),
+            OpenApiParameter(
+                name='bounds',
+                location=OpenApiParameter.QUERY,
+                required=False,
+                type=str,
+                description='Bounding box as "west,south,east,north" (required if lat/lng not provided)'
+            ),
+            OpenApiParameter(
+                name='radius_km',
+                location=OpenApiParameter.QUERY,
+                required=False,
+                type=float,
+                description='Search radius in kilometers (default: 50)'
+            ),
+        ],
+        responses={
+            200: {
+                'description': 'Layers found successfully',
+                'examples': [
+                    {
+                        'application/json': {
+                            'success': True,
+                            'search_area': {
+                                'type': 'point',
+                                'center': {
+                                    'lat': 17.3850,
+                                    'lng': 78.4867
+                                },
+                                'radius_km': 50
+                            },
+                            'total_layers_found': 5,
+                            'layers': [
+                                {
+                                    'layer_id': 123,
+                                    'layer_slug': 'hyderabad_metro',
+                                    'layer_name': 'Hyderabad Metro',
+                                    'state': {
+                                        'slug': 'telangana',
+                                        'name': 'Telangana'
+                                    },
+                                    'city': {
+                                        'slug': 'hyderabad',
+                                        'name': 'Hyderabad'
+                                    },
+                                    'category': {
+                                        'code': 'INFRASTRUCTURE',
+                                        'name': 'Infrastructure'
+                                    },
+                                    'feature_count': 150,
+                                    'distance_km': 2.5,
+                                    'bounds': {
+                                        'west': 78.2673,
+                                        'south': 17.2345,
+                                        'east': 78.5678,
+                                        'north': 17.4567
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                ]
+            },
+            400: {
+                'description': 'Invalid request parameters',
+                'examples': [
+                    {
+                        'application/json': {
+                            'success': False,
+                            'error': 'Please provide either lat/lng coordinates or bounds parameter'
+                        }
+                    }
+                ]
+            }
+        }
+    )
+)
+class NearbyLayersAPIView(APIView):
+    """
+    API endpoint to find all layers within 50km of given coordinates or bounds.
+    
+    URL: /api/layers/nearby/?lat={latitude}&lng={longitude}
+    URL: /api/layers/nearby/?bounds={west,south,east,north}
+    
+    Returns all layers that have features within the specified radius (default 50km)
+    of the given point or bounding box.
+    
+    Examples:
+    - /api/layers/nearby/?lat=17.3850&lng=78.4867
+    - /api/layers/nearby/?lat=17.3850&lng=78.4867&radius_km=25
+    - /api/layers/nearby/?bounds=78.0,17.0,79.0,18.0
+    """
+    permission_classes = [AllowAny]
+    
+    def get(self, request):
+        try:
+            # Get query parameters
+            lat = request.GET.get('lat')
+            lng = request.GET.get('lng')
+            bounds_param = request.GET.get('bounds')
+            radius_km = float(request.GET.get('radius_km', 50))
+            
+            # Validate radius
+            if radius_km <= 0 or radius_km > 500:
+                return Response({
+                    'success': False,
+                    'error': 'radius_km must be between 0 and 500'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            # Determine search area - either from point or bounds
+            search_area = None
+            search_type = None
+            
+            if lat and lng:
+                # Point-based search
+                try:
+                    latitude = float(lat)
+                    longitude = float(lng)
+                except ValueError:
+                    return Response({
+                        'success': False,
+                        'error': 'Invalid coordinate format: lat and lng must be valid numbers'
+                    }, status=status.HTTP_400_BAD_REQUEST)
+                
+                # Validate coordinate ranges
+                if not (-90 <= latitude <= 90) or not (-180 <= longitude <= 180):
+                    return Response({
+                        'success': False,
+                        'error': 'Invalid coordinates: lat must be between -90 and 90, lng between -180 and 180'
+                    }, status=status.HTTP_400_BAD_REQUEST)
+                
+                # Create point and buffer (50km radius)
+                search_point = Point(longitude, latitude, srid=4326)
+                # Convert km to degrees (approximate: 1 degree ≈ 111 km)
+                radius_degrees = radius_km / 111.0
+                search_area = search_point.buffer(radius_degrees)
+                search_type = 'point'
+                search_center = {'lat': latitude, 'lng': longitude}
+                
+            elif bounds_param:
+                # Bounds-based search
+                try:
+                    bounds_coords = [float(x.strip()) for x in bounds_param.split(',')]
+                    if len(bounds_coords) != 4:
+                        raise ValueError("Bounds must have 4 coordinates")
+                    west, south, east, north = bounds_coords
+                except (ValueError, IndexError) as e:
+                    return Response({
+                        'success': False,
+                        'error': f'Invalid bounds format: {str(e)}. Expected format: west,south,east,north'
+                    }, status=status.HTTP_400_BAD_REQUEST)
+                
+                # Validate bounds
+                if not (-90 <= south <= 90) or not (-90 <= north <= 90) or \
+                   not (-180 <= west <= 180) or not (-180 <= east <= 180):
+                    return Response({
+                        'success': False,
+                        'error': 'Invalid bounds: coordinates out of valid range'
+                    }, status=status.HTTP_400_BAD_REQUEST)
+                
+                if west >= east or south >= north:
+                    return Response({
+                        'success': False,
+                        'error': 'Invalid bounds: west must be < east, south must be < north'
+                    }, status=status.HTTP_400_BAD_REQUEST)
+                
+                # Expand bounds by radius_km
+                # Convert km to degrees (approximate: 1 degree ≈ 111 km)
+                radius_degrees = radius_km / 111.0
+                expanded_west = west - radius_degrees
+                expanded_south = south - radius_degrees
+                expanded_east = east + radius_degrees
+                expanded_north = north + radius_degrees
+                
+                # Create polygon from expanded bounds
+                search_area = Polygon.from_bbox((
+                    expanded_west, expanded_south, expanded_east, expanded_north
+                ))
+                search_area.srid = 4326
+                search_type = 'bounds'
+                search_center = {
+                    'lat': (south + north) / 2,
+                    'lng': (west + east) / 2
+                }
+                original_bounds = {
+                    'west': west,
+                    'south': south,
+                    'east': east,
+                    'north': north
+                }
+            else:
+                return Response({
+                    'success': False,
+                    'error': 'Please provide either lat/lng coordinates or bounds parameter'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            # Find all layers that have features intersecting the search area
+            # First, get all unique layers that have features in the search area
+            layers_with_features = GeoFeature.objects.filter(
+                geometry__intersects=search_area,
+                is_valid=True,
+                layer__is_processed=True,
+                layer__city__is_active=True,
+                layer__city__state_ref__is_active=True
+            ).select_related(
+                'layer',
+                'layer__category',
+                'layer__city',
+                'layer__city__state_ref'
+            ).values(
+                'layer_id',
+                'layer__slug',
+                'layer__name',
+                'layer__description',
+                'layer__category__code',
+                'layer__category__name',
+                'layer__city__slug',
+                'layer__city__name',
+                'layer__city__state_ref__slug',
+                'layer__city__state_ref__name',
+                'layer__bbox_xmin',
+                'layer__bbox_ymin',
+                'layer__bbox_xmax',
+                'layer__bbox_ymax'
+            ).distinct()
+            
+            # Process results
+            layers_list = []
+            for layer_data in layers_with_features:
+                layer_id = layer_data['layer_id']
+                
+                # Get feature count for this layer within search area
+                feature_count = GeoFeature.objects.filter(
+                    layer_id=layer_id,
+                    geometry__intersects=search_area,
+                    is_valid=True
+                ).count()
+                
+                # Calculate distance from search center to layer center
+                if layer_data['layer__bbox_xmin'] and layer_data['layer__bbox_ymin'] and \
+                   layer_data['layer__bbox_xmax'] and layer_data['layer__bbox_ymax']:
+                    layer_center_lng = (layer_data['layer__bbox_xmin'] + layer_data['layer__bbox_xmax']) / 2
+                    layer_center_lat = (layer_data['layer__bbox_ymin'] + layer_data['layer__bbox_ymax']) / 2
+                    
+                    # Calculate distance in km (Haversine formula approximation)
+                    from math import radians, cos, sin, asin, sqrt
+                    lat1, lon1 = radians(search_center['lat']), radians(search_center['lng'])
+                    lat2, lon2 = radians(layer_center_lat), radians(layer_center_lng)
+                    dlat = lat2 - lat1
+                    dlon = lon2 - lon1
+                    a = sin(dlat/2)**2 + cos(lat1) * cos(lat2) * sin(dlon/2)**2
+                    c = 2 * asin(sqrt(a))
+                    distance_km = 6371 * c  # Earth radius in km
+                else:
+                    distance_km = None
+                    layer_center_lat = None
+                    layer_center_lng = None
+                
+                # Prepare layer bounds
+                layer_bounds = None
+                if layer_data['layer__bbox_xmin'] and layer_data['layer__bbox_ymin'] and \
+                   layer_data['layer__bbox_xmax'] and layer_data['layer__bbox_ymax']:
+                    layer_bounds = {
+                        'west': layer_data['layer__bbox_xmin'],
+                        'south': layer_data['layer__bbox_ymin'],
+                        'east': layer_data['layer__bbox_xmax'],
+                        'north': layer_data['layer__bbox_ymax']
+                    }
+                
+                layer_info = {
+                    'layer_id': layer_id,
+                    'layer_slug': layer_data['layer__slug'],
+                    'layer_name': layer_data['layer__name'],
+                    'layer_description': layer_data['layer__description'] or '',
+                    'state': {
+                        'slug': layer_data['layer__city__state_ref__slug'],
+                        'name': layer_data['layer__city__state_ref__name']
+                    },
+                    'city': {
+                        'slug': layer_data['layer__city__slug'],
+                        'name': layer_data['layer__city__name']
+                    },
+                    'category': {
+                        'code': layer_data['layer__category__code'],
+                        'name': layer_data['layer__category__name']
+                    } if layer_data['layer__category__code'] else None,
+                    'feature_count': feature_count,
+                    'distance_km': round(distance_km, 2) if distance_km is not None else None,
+                    'bounds': layer_bounds,
+                    'center': {
+                        'lat': layer_center_lat,
+                        'lng': layer_center_lng
+                    } if layer_center_lat and layer_center_lng else None
+                }
+                
+                layers_list.append(layer_info)
+            
+            # Sort by distance (closest first)
+            layers_list.sort(key=lambda x: x['distance_km'] if x['distance_km'] is not None else float('inf'))
+            
+            # Prepare response
+            response_data = {
+                'success': True,
+                'search_area': {
+                    'type': search_type,
+                    'radius_km': radius_km
+                }
+            }
+            
+            if search_type == 'point':
+                response_data['search_area']['center'] = search_center
+            else:
+                response_data['search_area']['center'] = search_center
+                response_data['search_area']['original_bounds'] = original_bounds
+                response_data['search_area']['expanded_bounds'] = {
+                    'west': expanded_west,
+                    'south': expanded_south,
+                    'east': expanded_east,
+                    'north': expanded_north
+                }
+            
+            response_data['total_layers_found'] = len(layers_list)
+            response_data['layers'] = layers_list
+            
+            return Response(response_data)
+            
+        except Exception as e:
+            logger.error(f"Error finding nearby layers: {str(e)}")
+            return Response({
+                'success': False,
+                'error': f'Error finding nearby layers: {str(e)}'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+@extend_schema_view(
+    get=extend_schema(
         summary="Get layer bounds",
         description="Retrieve the geographic bounds for a specific layer based on actual data",
         tags=['layers'],
@@ -4021,3 +4379,208 @@ class LayerBoundsZoomAPIView(APIView):
             zoom = 18
         
         return zoom
+
+
+class DeveloperListingMediaWebhookView(APIView):
+    """
+    Webhook endpoint to receive notifications when developer listing media files
+    are uploaded and need tile generation.
+    
+    This endpoint receives POST requests from the backend service when:
+    - DeveloperLand or DeveloperPlot is created/updated
+    - TIF files are uploaded/updated
+    
+    The service will:
+    1. Save webhook data to database
+    2. Download TIF files from CloudFront URLs
+    3. Generate map tiles from TIF files
+    4. Upload tiles to S3 at the specified path
+    5. Store TIF metadata and bounds
+    """
+    permission_classes = [AllowAny]  # Public endpoint (webhook)
+    
+    def post(self, request):
+        """Process webhook and generate tiles for TIF files"""
+        from .models import (
+            DeveloperListing, DeveloperListingMedia, WebhookEvent
+        )
+        from django.utils import timezone
+        
+        webhook_event = None
+        try:
+            data = request.data
+            
+            # Validate required fields
+            event_type = data.get('event_type')
+            listing_type = data.get('listing_type')
+            listing_id = data.get('listing_id')
+            tif_files = data.get('tif_files', [])
+            listing_data = data.get('listing_data', {})
+            media_items = data.get('media_items', [])
+            action = data.get('action', '')
+            
+            if not all([event_type, listing_type, listing_id]):
+                logger.warning(f"Webhook received with missing required fields: {data}")
+                return Response(
+                    {"error": "Missing required fields: event_type, listing_type, listing_id"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Validate event type
+            valid_event_types = [
+                'developer_listing_created',
+                'developer_listing_updated',
+                'developer_listing_media_uploaded'
+            ]
+            
+            if event_type not in valid_event_types:
+                logger.warning(f"Webhook received with unknown event_type: {event_type}")
+                return Response(
+                    {"error": f"Unknown event_type: {event_type}"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Save webhook event
+            webhook_event = WebhookEvent.objects.create(
+                event_type=event_type,
+                action=action,
+                listing_type=listing_type,
+                listing_id=listing_id,
+                payload=data,
+                request_headers=dict(request.headers),
+                request_ip=self._get_client_ip(request)
+            )
+            
+            logger.info(
+                f"Developer listing webhook received: "
+                f"event={event_type}, type={listing_type}, id={listing_id}, "
+                f"tif_count={len(tif_files)}"
+            )
+            
+            # Save/update listing data
+            listing, created = DeveloperListing.objects.update_or_create(
+                listing_type=listing_type,
+                backend_listing_id=listing_id,
+                defaults={
+                    'listing_data': listing_data,
+                    'name': listing_data.get('name', '') or listing_data.get('title', ''),
+                    'description': listing_data.get('description', ''),
+                    'location': listing_data.get('location', ''),
+                    'city': listing_data.get('city', '') or (listing_data.get('division', {}) or {}).get('name', ''),
+                    'state': listing_data.get('state', ''),
+                    'last_webhook_event': event_type,
+                    'backend_created_at': self._parse_datetime(listing_data.get('created_at')),
+                    'backend_updated_at': self._parse_datetime(listing_data.get('updated_at')),
+                }
+            )
+            
+            # Save/update media files
+            for media_item in media_items:
+                media_id = media_item.get('id')
+                if not media_id:
+                    continue
+                
+                DeveloperListingMedia.objects.update_or_create(
+                    listing=listing,
+                    backend_media_id=media_id,
+                    defaults={
+                        'media_type': media_item.get('media_type', 'file'),
+                        'category': media_item.get('category', ''),
+                        'file_name': media_item.get('file_name', ''),
+                        'file_url': media_item.get('url', ''),
+                        's3_path': media_item.get('s3_path', ''),
+                        'is_tif': media_item.get('is_tif', False),
+                        's3_tile_path': media_item.get('s3_tile_path', ''),
+                        'media_data': media_item,
+                    }
+                )
+            
+            # Process TIF files if any
+            if tif_files:
+                from .developer_listing_tile_service import DeveloperListingTileService
+                tile_service = DeveloperListingTileService()
+                
+                # Process webhook asynchronously (in background)
+                # For now, process synchronously - can be moved to Celery/background task later
+                result = tile_service.process_webhook(data, listing=listing, webhook_event=webhook_event)
+                
+                # Update webhook event with results
+                webhook_event.processed = True
+                webhook_event.processed_at = timezone.now()
+                webhook_event.tiles_generated = result.get('total_tiles_generated', 0)
+                webhook_event.tif_files_processed = result.get('tif_files_processed', 0)
+                webhook_event.processing_result = result
+                webhook_event.save()
+                
+                if result.get('success'):
+                    logger.info(
+                        f"Successfully processed webhook: "
+                        f"{result.get('total_tiles_generated', 0)} tiles generated"
+                    )
+                    return Response(
+                        {
+                            "status": "success",
+                            "message": f"Webhook processed for {listing_type} {listing_id}",
+                            "tiles_generated": result.get('total_tiles_generated', 0),
+                            "tif_files_processed": result.get('tif_files_processed', 0),
+                            "details": result
+                        },
+                        status=status.HTTP_200_OK
+                    )
+                else:
+                    webhook_event.processing_error = result.get('error', 'Unknown error')
+                    webhook_event.save()
+                    logger.error(f"Error processing tiles: {result.get('error')}")
+                    return Response(
+                        {
+                            "status": "error",
+                            "message": f"Error processing tiles: {result.get('error')}",
+                            "details": result
+                        },
+                        status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                    )
+            else:
+                # No TIF files to process - mark as processed
+                webhook_event.processed = True
+                webhook_event.processed_at = timezone.now()
+                webhook_event.save()
+                
+                logger.info(f"No TIF files to process for {listing_type} {listing_id}")
+                return Response(
+                    {
+                        "status": "success",
+                        "message": f"Webhook received for {listing_type} {listing_id}",
+                        "tiles_generated": 0,
+                        "note": "No TIF files found in webhook payload"
+                    },
+                    status=status.HTTP_200_OK
+                )
+                
+        except Exception as e:
+            logger.error(f"Error processing developer listing webhook: {e}", exc_info=True)
+            if webhook_event:
+                webhook_event.processing_error = str(e)
+                webhook_event.save()
+            return Response(
+                {
+                    "error": "Internal server error processing webhook",
+                    "details": str(e)
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+    
+    def _get_client_ip(self, request):
+        """Get client IP address from request"""
+        x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
+        if x_forwarded_for:
+            ip = x_forwarded_for.split(',')[0]
+        else:
+            ip = request.META.get('REMOTE_ADDR')
+        return ip
+    
+    def _parse_datetime(self, dt_string):
+        """Parse datetime string from backend"""
+        if not dt_string:
+            return None
+        from django.utils.dateparse import parse_datetime
+        return parse_datetime(dt_string)

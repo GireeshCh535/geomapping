@@ -49,6 +49,7 @@ services:
       - DJANGO_DB_USER=postgres
       - DJANGO_DB_PASSWORD=postgres
       - REDIS_URL=redis://redis:6379/1
+      - DEVELOPER_BACKEND_API_URL=${DEVELOPER_BACKEND_API_URL:-https://be.1acre.in}
     depends_on:
       - db
       - redis
