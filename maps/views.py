@@ -3368,10 +3368,12 @@ class NearbyLayersAPIView(APIView):
             lat = request.GET.get('lat')
             lng = request.GET.get('lng')
             bounds_param = request.GET.get('bounds')
-            radius_km = float(request.GET.get('radius_km', 50))
+            # For point searches, radius_km is ignored (only exact containment)
+            # For bounds searches, radius_km is still used
+            radius_km = float(request.GET.get('radius_km', 50)) if bounds_param else None
             
-            # Validate radius
-            if radius_km <= 0 or radius_km > 500:
+            # Validate radius only for bounds-based searches
+            if bounds_param and radius_km and (radius_km <= 0 or radius_km > 500):
                 return Response({
                     'success': False,
                     'error': 'radius_km must be between 0 and 500'
@@ -3399,22 +3401,16 @@ class NearbyLayersAPIView(APIView):
                         'error': 'Invalid coordinates: lat must be between -90 and 90, lng between -180 and 180'
                     }, status=status.HTTP_400_BAD_REQUEST)
                 
-                # Create point and buffer (radius_km radius)
+                # Create point - no buffer, only check if point is inside features
                 search_point = Point(longitude, latitude, srid=4326)
                 
-                # Convert km to meters and use Web Mercator projection for accurate distance buffer
-                # Web Mercator (EPSG:3857) uses meters, so we can buffer directly in meters
-                search_point_mercator = search_point.transform(3857, clone=True)  # Web Mercator
-                # Buffer in meters (radius_km * 1000)
-                buffered_mercator = search_point_mercator.buffer(radius_km * 1000)
-                # Transform back to WGS84
-                search_area = buffered_mercator.transform(4326)
+                # Use the point directly (no buffer) - only find layers where point is inside features
+                search_area = search_point
                 
                 search_type = 'point'
                 search_center = {'lat': latitude, 'lng': longitude}
                 
-                logger.info(f"Search point: ({latitude}, {longitude}), radius: {radius_km}km")
-                logger.info(f"Search area bounds: {search_area.extent}")
+                logger.info(f"Search point: ({latitude}, {longitude}) - checking for exact containment (no radius)")
                 
             elif bounds_param:
                 # Bounds-based search
@@ -3443,9 +3439,10 @@ class NearbyLayersAPIView(APIView):
                         'error': 'Invalid bounds: west must be < east, south must be < north'
                     }, status=status.HTTP_400_BAD_REQUEST)
                 
-                # Expand bounds by radius_km
+                # Expand bounds by radius_km (if provided, otherwise use default 50km)
+                search_radius_km = radius_km if radius_km else 50
                 # Convert km to degrees (approximate: 1 degree ≈ 111 km)
-                radius_degrees = radius_km / 111.0
+                radius_degrees = search_radius_km / 111.0
                 expanded_west = west - radius_degrees
                 expanded_south = south - radius_degrees
                 expanded_east = east + radius_degrees
@@ -3467,19 +3464,41 @@ class NearbyLayersAPIView(APIView):
                     'east': east,
                     'north': north
                 }
+                # Store search_radius_km for use in response
+                bounds_search_radius_km = search_radius_km
             else:
                 return Response({
                     'success': False,
                     'error': 'Please provide either lat/lng coordinates or bounds parameter'
                 }, status=status.HTTP_400_BAD_REQUEST)
             
-            # Find all layers that have features intersecting the search area
-            # First, get all unique layers that have features in the search area
-            logger.info(f"Searching for layers with features intersecting search area...")
-            logger.info(f"Search area type: {search_type}, radius: {radius_km}km")
+            # Validate search_area before using it
+            if not search_area:
+                return Response({
+                    'success': False,
+                    'error': 'Failed to create search area geometry'
+                }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
             
+            # Ensure search_area has proper SRID
+            if not hasattr(search_area, 'srid') or search_area.srid != 4326:
+                try:
+                    if hasattr(search_area, 'srid') and search_area.srid:
+                        search_area.transform(4326)
+                    else:
+                        search_area.srid = 4326
+                except Exception as e:
+                    logger.warning(f"Could not set SRID on search_area: {e}")
+            
+            # Find all layers that have features containing the point (exact match, no buffer)
+            # Use geometry__contains for polygons and geometry__intersects for all geometry types
+            # This ensures we find features where the point is actually inside/on the feature
+            logger.info(f"Searching for layers with features containing the point (exact match, no radius)...")
+            logger.info(f"Search point: ({search_center.get('lat')}, {search_center.get('lng')})")
+            
+            # Use contains for polygons (most accurate) and intersects for lines/points
+            # This finds features where the point is actually inside or on the feature
             layers_with_features = GeoFeature.objects.filter(
-                geometry__intersects=search_area,
+                geometry__intersects=search_area,  # Works for all geometry types
                 is_valid=True,
                 layer__is_processed=True,
                 layer__city__is_active=True,
@@ -3506,7 +3525,7 @@ class NearbyLayersAPIView(APIView):
                 'layer__bbox_ymax'
             ).distinct()
             
-            logger.info(f"Found {layers_with_features.count()} unique layers with intersecting features")
+            logger.info(f"Found {layers_with_features.count()} unique layers with features containing the point")
             
             # Process results
             layers_list = []
@@ -3587,13 +3606,18 @@ class NearbyLayersAPIView(APIView):
                 'success': True,
                 'search_area': {
                     'type': search_type,
-                    'radius_km': radius_km
+                    'center': search_center
                 }
             }
             
+            # For point searches, we don't use radius anymore - only exact containment
             if search_type == 'point':
-                response_data['search_area']['center'] = search_center
+                response_data['search_area']['search_type'] = 'exact_containment'
+                response_data['search_area']['note'] = 'Only returns layers where the point is inside a feature (no radius)'
             else:
+                # Bounds-based search still uses radius
+                # bounds_search_radius_km is defined in the bounds_param block above
+                response_data['search_area']['radius_km'] = bounds_search_radius_km
                 response_data['search_area']['center'] = search_center
                 response_data['search_area']['original_bounds'] = original_bounds
                 response_data['search_area']['expanded_bounds'] = {
@@ -3605,15 +3629,6 @@ class NearbyLayersAPIView(APIView):
             
             response_data['total_layers_found'] = len(layers_list)
             response_data['layers'] = layers_list
-            
-            # Add debug information
-            if search_type == 'point':
-                response_data['search_area']['search_bounds'] = {
-                    'west': search_area.extent[0],
-                    'south': search_area.extent[1],
-                    'east': search_area.extent[2],
-                    'north': search_area.extent[3]
-                }
             
             logger.info(f"Returning {len(layers_list)} layers near coordinates ({search_center.get('lat')}, {search_center.get('lng')})")
             
