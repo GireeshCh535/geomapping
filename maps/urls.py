@@ -17,7 +17,26 @@ router.register(r'features', views.GeoFeatureViewSet)
 
 urlpatterns = [
     
-    # Router URLs (REST API endpoints)
+    # ================================
+    # SPECIFIC PATHS (must come before router to avoid conflicts)
+    # ================================
+    
+    # Nearby layers API - Find all layers within 50km of coordinates or bounds
+    # MUST come before router.register(r'layers', ...) to avoid conflict
+    path('layers/nearby/',
+         views.NearbyLayersAPIView.as_view(), name='nearby_layers'),
+    
+    # Layer bounds API - Get bounds for a specific layer based on actual data
+    path('layers/<slug:state_slug>/<slug:city_slug>/<slug:layer_slug>/bounds/',
+         views.LayerBoundsAPIView.as_view(), name='layer_bounds'),
+    
+    # Layer bounds and zoom level API
+    path('layers/<slug:state_slug>/<slug:city_slug>/<str:layer_slugs>/bounds-zoom/',
+         views.LayerBoundsZoomAPIView.as_view(), name='layer_bounds_zoom'),
+    
+    # ================================
+    # ROUTER URLs (REST API endpoints)
+    # ================================
     path('', include(router.urls)),
     
     # ================================
@@ -62,21 +81,9 @@ urlpatterns = [
     path('search-coords-test/',
          views.CoordinateSearchTestView.as_view(), name='global_coordinate_search_test'),
     
-    # Nearby layers API - Find all layers within 50km of coordinates or bounds
-    path('layers/nearby/',
-         views.NearbyLayersAPIView.as_view(), name='nearby_layers'),
-    
-    # Layer bounds API - Get bounds for a specific layer based on actual data
-    path('layers/<slug:state_slug>/<slug:city_slug>/<slug:layer_slug>/bounds/',
-         views.LayerBoundsAPIView.as_view(), name='layer_bounds'),
-    
     # Layer-specific coordinate search API
     path('search-coords-by-layer/',
          views.LayerCoordinateSearchView.as_view(), name='layer_coordinate_search'),
-    
-    # Layer bounds and zoom level API
-    path('layers/<slug:state_slug>/<slug:city_slug>/<str:layer_slugs>/bounds-zoom/',
-         views.LayerBoundsZoomAPIView.as_view(), name='layer_bounds_zoom'),
     
     # ================================
     # DEVELOPER LISTING WEBHOOK & TILE GENERATION
