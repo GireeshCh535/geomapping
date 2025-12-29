@@ -3399,13 +3399,22 @@ class NearbyLayersAPIView(APIView):
                         'error': 'Invalid coordinates: lat must be between -90 and 90, lng between -180 and 180'
                     }, status=status.HTTP_400_BAD_REQUEST)
                 
-                # Create point and buffer (50km radius)
+                # Create point and buffer (radius_km radius)
                 search_point = Point(longitude, latitude, srid=4326)
-                # Convert km to degrees (approximate: 1 degree ≈ 111 km)
-                radius_degrees = radius_km / 111.0
-                search_area = search_point.buffer(radius_degrees)
+                
+                # Convert km to meters and use Web Mercator projection for accurate distance buffer
+                # Web Mercator (EPSG:3857) uses meters, so we can buffer directly in meters
+                search_point_mercator = search_point.transform(3857, clone=True)  # Web Mercator
+                # Buffer in meters (radius_km * 1000)
+                buffered_mercator = search_point_mercator.buffer(radius_km * 1000)
+                # Transform back to WGS84
+                search_area = buffered_mercator.transform(4326)
+                
                 search_type = 'point'
                 search_center = {'lat': latitude, 'lng': longitude}
+                
+                logger.info(f"Search point: ({latitude}, {longitude}), radius: {radius_km}km")
+                logger.info(f"Search area bounds: {search_area.extent}")
                 
             elif bounds_param:
                 # Bounds-based search
@@ -3466,6 +3475,9 @@ class NearbyLayersAPIView(APIView):
             
             # Find all layers that have features intersecting the search area
             # First, get all unique layers that have features in the search area
+            logger.info(f"Searching for layers with features intersecting search area...")
+            logger.info(f"Search area type: {search_type}, radius: {radius_km}km")
+            
             layers_with_features = GeoFeature.objects.filter(
                 geometry__intersects=search_area,
                 is_valid=True,
@@ -3493,6 +3505,8 @@ class NearbyLayersAPIView(APIView):
                 'layer__bbox_xmax',
                 'layer__bbox_ymax'
             ).distinct()
+            
+            logger.info(f"Found {layers_with_features.count()} unique layers with intersecting features")
             
             # Process results
             layers_list = []
@@ -3591,6 +3605,17 @@ class NearbyLayersAPIView(APIView):
             
             response_data['total_layers_found'] = len(layers_list)
             response_data['layers'] = layers_list
+            
+            # Add debug information
+            if search_type == 'point':
+                response_data['search_area']['search_bounds'] = {
+                    'west': search_area.extent[0],
+                    'south': search_area.extent[1],
+                    'east': search_area.extent[2],
+                    'north': search_area.extent[3]
+                }
+            
+            logger.info(f"Returning {len(layers_list)} layers near coordinates ({search_center.get('lat')}, {search_center.get('lng')})")
             
             return Response(response_data)
             
