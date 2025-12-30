@@ -126,6 +126,51 @@
         state: started
         enabled: yes
 
+    - name: Check Docker version and upgrade if needed
+      shell: |
+        # Check current Docker version
+        CURRENT_VERSION=$(docker version --format '{{.Server.Version}}' 2>/dev/null || echo "0.0.0")
+        echo "Current Docker version: $CURRENT_VERSION"
+        
+        # Get Docker API version
+        API_VERSION=$(docker version --format '{{.Server.APIVersion}}' 2>/dev/null || echo "0.0")
+        echo "Docker API version: $API_VERSION"
+        
+        # Check if upgrade is needed (API version < 1.44)
+        MAJOR=$(echo $API_VERSION | cut -d. -f1)
+        MINOR=$(echo $API_VERSION | cut -d. -f2)
+        
+        if [ "$MAJOR" -lt "1" ] || ([ "$MAJOR" -eq "1" ] && [ "$MINOR" -lt "44" ]); then
+          echo "UPGRADE_NEEDED"
+        else
+          echo "OK"
+        fi
+      register: docker_version_check
+      ignore_errors: yes
+
+    - name: Upgrade Docker to latest version
+      apt:
+        name:
+          - docker-ce
+          - docker-ce-cli
+          - containerd.io
+          - docker-buildx-plugin
+          - docker-compose-plugin
+        state: latest
+        update_cache: yes
+      when: docker_version_check.stdout is defined and 'UPGRADE_NEEDED' in docker_version_check.stdout
+
+    - name: Restart Docker service after upgrade
+      systemd:
+        name: docker
+        state: restarted
+      when: docker_version_check.stdout is defined and 'UPGRADE_NEEDED' in docker_version_check.stdout
+
+    - name: Wait for Docker to be ready after restart
+      pause:
+        seconds: 5
+      when: docker_version_check.stdout is defined and 'UPGRADE_NEEDED' in docker_version_check.stdout
+
     - name: Add ubuntu user to docker group
       user:
         name: ubuntu
