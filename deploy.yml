@@ -126,55 +126,50 @@
         state: started
         enabled: yes
 
-    - name: Check docker-compose version compatibility
+    - name: Check Docker version and upgrade if needed
       shell: |
-        # Check if docker-compose exists and its version
-        if command -v docker-compose >/dev/null 2>&1; then
-          COMPOSE_VERSION=$(docker-compose version --short 2>/dev/null || echo "unknown")
-          echo "Docker Compose version: $COMPOSE_VERSION"
-          
-          # Parse version (e.g., "2.24.5" or "v2.24.5")
-          VERSION_NUM=$(echo $COMPOSE_VERSION | sed 's/^v//')
-          MAJOR=$(echo $VERSION_NUM | cut -d. -f1)
-          MINOR=$(echo $VERSION_NUM | cut -d. -f2)
-          
-          # Check if version is < 2.30 (we want latest)
-          if [ "$MAJOR" -lt "2" ]; then
-            echo "UPGRADE_NEEDED"
-          elif [ "$MAJOR" = "2" ] && [ "$MINOR" -lt "30" ]; then
-            echo "UPGRADE_NEEDED"
-          else
-            echo "OK"
-          fi
+        # Check current Docker version
+        CURRENT_VERSION=$(docker version --format '{{.Server.Version}}' 2>/dev/null || echo "0.0.0")
+        echo "Current Docker version: $CURRENT_VERSION"
+        
+        # Get Docker API version
+        API_VERSION=$(docker version --format '{{.Server.APIVersion}}' 2>/dev/null || echo "0.0")
+        echo "Docker API version: $API_VERSION"
+        
+        # Check if upgrade is needed (API version < 1.44)
+        MAJOR=$(echo $API_VERSION | cut -d. -f1)
+        MINOR=$(echo $API_VERSION | cut -d. -f2)
+        
+        if [ "$MAJOR" -lt "1" ] || ([ "$MAJOR" -eq "1" ] && [ "$MINOR" -lt "44" ]); then
+          echo "UPGRADE_NEEDED"
         else
-          echo "NOT_INSTALLED"
+          echo "OK"
         fi
-      register: compose_version_check
-      changed_when: false
+      register: docker_version_check
       ignore_errors: yes
 
-    - name: Display docker-compose version check
-      debug:
-        msg: "Docker Compose check: {{ compose_version_check.stdout_lines | default([]) }}"
-      when: compose_version_check is defined
+    - name: Upgrade Docker to latest version
+      apt:
+        name:
+          - docker-ce
+          - docker-ce-cli
+          - containerd.io
+          - docker-buildx-plugin
+          - docker-compose-plugin
+        state: latest
+        update_cache: yes
+      when: docker_version_check.stdout is defined and 'UPGRADE_NEEDED' in docker_version_check.stdout
 
-    - name: Upgrade docker-compose to latest version
-      get_url:
-        url: "https://github.com/docker/compose/releases/download/v2.32.1/docker-compose-linux-x86_64"
-        dest: /usr/local/bin/docker-compose
-        mode: '0755'
-      when: compose_version_check.stdout is defined and ('UPGRADE_NEEDED' in compose_version_check.stdout or 'NOT_INSTALLED' in compose_version_check.stdout)
+    - name: Restart Docker service after upgrade
+      systemd:
+        name: docker
+        state: restarted
+      when: docker_version_check.stdout is defined and 'UPGRADE_NEEDED' in docker_version_check.stdout
 
-    - name: Verify docker-compose upgrade
-      shell: docker-compose version --short
-      register: compose_version_after
-      when: compose_version_check.stdout is defined and ('UPGRADE_NEEDED' in compose_version_check.stdout or 'NOT_INSTALLED' in compose_version_check.stdout)
-      changed_when: false
-
-    - name: Display upgraded docker-compose version
-      debug:
-        msg: "Docker Compose version after upgrade: {{ compose_version_after.stdout }}"
-      when: compose_version_after is defined and compose_version_after.stdout is defined
+    - name: Wait for Docker to be ready after restart
+      pause:
+        seconds: 5
+      when: docker_version_check.stdout is defined and 'UPGRADE_NEEDED' in docker_version_check.stdout
 
     - name: Add ubuntu user to docker group
       user:
