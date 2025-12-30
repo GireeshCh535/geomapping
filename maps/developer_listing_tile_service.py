@@ -166,7 +166,13 @@ class DeveloperListingTileService:
         tif_url = tif_file.get('url')
         file_name = tif_file.get('file_name', 'unknown.tif')
         media_id = tif_file.get('id')
-        s3_tile_path = tif_file.get('s3_tile_path', f"{s3_tile_base_path}/{file_name}")
+        
+        # Get S3 tile path - add developer_data prefix
+        s3_tile_path = tif_file.get('s3_tile_path', f"developer_data/{s3_tile_base_path}/{file_name}")
+        
+        # Ensure developer_data prefix
+        if not s3_tile_path.startswith('developer_data/'):
+            s3_tile_path = f"developer_data/{s3_tile_path}"
         
         logger.info(f"[TIF_PROCESS] ===== Processing TIF file =====")
         logger.info(f"[TIF_PROCESS] 📄 File: {file_name}")
