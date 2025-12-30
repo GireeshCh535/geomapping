@@ -275,10 +275,15 @@
       pause:
         seconds: 5
 
-    - name: Check if SSL certificate exists for our domain
-      stat:
-        path: "/etc/letsencrypt/live/{{ domain }}/fullchain.pem"
-      register: ssl_cert
+    - name: Check if SSL certificate exists for our domain (with sudo)
+      shell: |
+        if [ -f "/etc/letsencrypt/live/{{ domain }}/fullchain.pem" ]; then
+          echo "EXISTS"
+        else
+          echo "NOT_EXISTS"
+        fi
+      register: cert_check
+      changed_when: false
 
     - name: Check certificate expiry date if it exists
       shell: |
@@ -290,11 +295,15 @@
       register: cert_expiry
       ignore_errors: yes
 
+    - name: Set certificate exists flag
+      set_fact:
+        ssl_cert_exists: "{{ cert_check.stdout == 'EXISTS' }}"
+
     - name: Display SSL certificate status
       debug:
         msg: |
           SSL Certificate Status:
-          - Exists: {{ ssl_cert.stat.exists }}
+          - Exists: {{ ssl_cert_exists }}
           - Expiry: {{ cert_expiry.stdout if cert_expiry.stdout is defined else 'N/A' }}
           
           ⚠️ IMPORTANT: Certificate creation is DISABLED during deployment
@@ -304,6 +313,28 @@
           - To create certificate manually, run:
             sudo certbot certonly --standalone -d {{ domain }}
           - Wait for rate limit to expire before creating new certificates
+
+    - name: Debug - List letsencrypt directory contents
+      shell: |
+        echo "=== Checking /etc/letsencrypt/live/ ==="
+        ls -la /etc/letsencrypt/live/ 2>&1 || echo "Directory not accessible"
+        echo ""
+        echo "=== Checking for {{ domain }} directory ==="
+        ls -la /etc/letsencrypt/live/{{ domain }}/ 2>&1 || echo "Domain directory not found"
+        echo ""
+        echo "=== Checking certificate file ==="
+        ls -la /etc/letsencrypt/live/{{ domain }}/fullchain.pem 2>&1 || echo "Certificate file not found"
+        echo ""
+        echo "=== Certbot certificates ==="
+        certbot certificates 2>&1 || echo "Certbot command failed"
+      register: cert_debug
+      when: not ssl_cert_exists
+      ignore_errors: yes
+
+    - name: Display certificate debug info
+      debug:
+        msg: "{{ cert_debug.stdout }}"
+      when: not ssl_cert_exists and cert_debug.stdout is defined
 
     - name: Verify SSL certificate exists (fail if missing)
       fail:
@@ -315,8 +346,14 @@
           2. Use existing certificate from another location
           3. Create certificate manually: sudo certbot certonly --standalone -d {{ domain }}
           
+          To verify certificate exists, SSH to server and run:
+            sudo ls -la /etc/letsencrypt/live/{{ domain }}/
+            sudo certbot certificates
+          
+          Debug output above shows what was found in /etc/letsencrypt/live/
+          
           Deployment cannot proceed without a valid SSL certificate.
-      when: not ssl_cert.stat.exists
+      when: not ssl_cert_exists
 
     # ===================================
     # CERTIFICATE CREATION DISABLED - Rate limit protection
@@ -360,14 +397,22 @@
     #   when: certbot_result.rc != 0
     #   ignore_errors: yes
 
-    - name: Set up automatic SSL renewal cron job (if not exists)
-      cron:
-        name: "SSL certificate renewal"
-        job: "cd {{ project_dir }} && docker-compose stop nginx || true && sleep 5 && certbot renew --standalone --non-interactive --preferred-challenges http && cd {{ project_dir }} && docker-compose start nginx || true"
-        minute: "0"
-        hour: "3"
-        user: root
-      when: ssl_cert.stat.exists
+    # ===================================
+    # SSL RENEWAL CRON JOB DISABLED
+    # ===================================
+    # Certificate renewal is handled by Certbot's built-in renewal system
+    # No manual cron job setup needed - Certbot manages this automatically
+    # ===================================
+    
+    # - name: Set up automatic SSL renewal cron job (if not exists)
+    #   cron:
+    #     name: "SSL certificate renewal"
+    #     job: "cd {{ project_dir }} && docker-compose stop nginx || true && sleep 5 && certbot renew --standalone --non-interactive --preferred-challenges http && cd {{ project_dir }} && docker-compose start nginx || true"
+    #     minute: "0"
+    #     hour: "3"
+    #     user: root
+    #   when: ssl_cert_exists
+    #   NOTE: Certbot snap installation already sets up automatic renewal
 
     # ===================================
     # STEP 6: PREPARE NGINX CONFIGURATION
