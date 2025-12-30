@@ -17,8 +17,9 @@ DEBUG = os.getenv('DJANGO_DEBUG', 'True').lower() == 'true'
 ALLOWED_HOSTS = ['*']
 
 CSRF_TRUSTED_ORIGINS = [
-    'https://gis-map.1acre.in',
-    'http://gis-map.1acre.in',  # if you also use HTTP
+    'https://layers.1acre.in',
+    'http://layers.1acre.in',  # if you also use HTTP
+    'https://gis-map.1acre.in',  # Legacy domain (keep for backward compatibility)
     'https://lita-unsarcastic-serina.ngrok-free.dev',  # ngrok domain for testing
 ]
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
