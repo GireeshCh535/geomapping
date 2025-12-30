@@ -242,7 +242,10 @@
         line: "DEBUG = False"
 
     # ===================================
-    # STEP 5: SSL CERTIFICATE CREATION/RENEWAL
+    # STEP 5: SSL CERTIFICATE CHECK (NO CREATION)
+    # ===================================
+    # NOTE: Certificate creation is DISABLED to avoid Let's Encrypt rate limits
+    # Certificates must be created manually or via renewal cron job only
     # ===================================
     
     - name: Stop and disable host nginx to avoid port conflicts
@@ -272,20 +275,6 @@
       pause:
         seconds: 5
 
-    - name: Check if certbot is installed
-      command: which certbot
-      register: certbot_installed
-      ignore_errors: yes
-
-    - name: Install certbot and python3-certbot-nginx
-      apt:
-        name:
-          - certbot
-          - python3-certbot-nginx
-        state: present
-        update_cache: yes
-      when: certbot_installed.rc != 0
-
     - name: Check if SSL certificate exists for our domain
       stat:
         path: "/etc/letsencrypt/live/{{ domain }}/fullchain.pem"
@@ -307,66 +296,78 @@
           SSL Certificate Status:
           - Exists: {{ ssl_cert.stat.exists }}
           - Expiry: {{ cert_expiry.stdout if cert_expiry.stdout is defined else 'N/A' }}
+          
+          ⚠️ IMPORTANT: Certificate creation is DISABLED during deployment
+          - Using existing certificate at /etc/letsencrypt/live/{{ domain }}/
+          - Certificate will NOT be created/renewed during deployment
+          - Renewal is handled by cron job (if configured)
+          - To create certificate manually, run:
+            sudo certbot certonly --standalone -d {{ domain }}
+          - Wait for rate limit to expire before creating new certificates
 
-    - name: Remove old certificate to force new certificate generation
-      file:
-        path: "{{ item }}"
-        state: absent
-      loop:
-        - "/etc/letsencrypt/live/{{ domain }}"
-        - "/etc/letsencrypt/archive/{{ domain }}"
-        - "/etc/letsencrypt/renewal/{{ domain }}.conf"
-      ignore_errors: yes
-
-    - name: Create new SSL certificate using standalone mode
-      shell: |
-        # Use standalone mode since nginx is not running
-        # Always create a fresh certificate on every deployment
-        certbot certonly \
-          --standalone \
-          --non-interactive \
-          --agree-tos \
-          --email admin@1acre.in \
-          --preferred-challenges http \
-          -d {{ domain }} \
-          --expand
-      register: certbot_result
-      ignore_errors: yes
-
-    - name: Retry certificate creation if first attempt failed
-      shell: |
-        certbot certonly \
-          --standalone \
-          --non-interactive \
-          --agree-tos \
-          --email admin@1acre.in \
-          --preferred-challenges http \
-          -d {{ domain }}
-      when: certbot_result.rc != 0
-      ignore_errors: yes
-
-    - name: Verify SSL certificate was created/renewed
-      stat:
-        path: "/etc/letsencrypt/live/{{ domain }}/fullchain.pem"
-      register: ssl_cert_after
-
-    - name: Display SSL certificate creation result
-      debug:
+    - name: Verify SSL certificate exists (fail if missing)
+      fail:
         msg: |
-          {% if ssl_cert_after.stat.exists %}
-          ✅ SSL certificate successfully created/renewed for {{ domain }}
-          Certificate path: /etc/letsencrypt/live/{{ domain }}/fullchain.pem
-          {% else %}
-          ⚠️ SSL certificate creation may have failed. Please check manually.
-          {% endif %}
+          ❌ SSL certificate NOT FOUND at /etc/letsencrypt/live/{{ domain }}/fullchain.pem
+          
+          Certificate must exist before deployment. Options:
+          1. Wait for Let's Encrypt rate limit to expire (check: sudo certbot certificates)
+          2. Use existing certificate from another location
+          3. Create certificate manually: sudo certbot certonly --standalone -d {{ domain }}
+          
+          Deployment cannot proceed without a valid SSL certificate.
+      when: not ssl_cert.stat.exists
 
-    - name: Set up automatic SSL renewal cron job
+    # ===================================
+    # CERTIFICATE CREATION DISABLED - Rate limit protection
+    # ===================================
+    # The following steps are COMMENTED OUT to prevent hitting Let's Encrypt rate limits
+    # Uncomment only if you need to create certificates and rate limit has expired
+    # ===================================
+    
+    # - name: Remove old certificate to force new certificate generation
+    #   file:
+    #     path: "{{ item }}"
+    #     state: absent
+    #   loop:
+    #     - "/etc/letsencrypt/live/{{ domain }}"
+    #     - "/etc/letsencrypt/archive/{{ domain }}"
+    #     - "/etc/letsencrypt/renewal/{{ domain }}.conf"
+    #   ignore_errors: yes
+    #
+    # - name: Create new SSL certificate using standalone mode
+    #   shell: |
+    #     certbot certonly \
+    #       --standalone \
+    #       --non-interactive \
+    #       --agree-tos \
+    #       --email admin@1acre.in \
+    #       --preferred-challenges http \
+    #       -d {{ domain }} \
+    #       --expand
+    #   register: certbot_result
+    #   ignore_errors: yes
+    #
+    # - name: Retry certificate creation if first attempt failed
+    #   shell: |
+    #     certbot certonly \
+    #       --standalone \
+    #       --non-interactive \
+    #       --agree-tos \
+    #       --email admin@1acre.in \
+    #       --preferred-challenges http \
+    #       -d {{ domain }}
+    #   when: certbot_result.rc != 0
+    #   ignore_errors: yes
+
+    - name: Set up automatic SSL renewal cron job (if not exists)
       cron:
         name: "SSL certificate renewal"
         job: "cd {{ project_dir }} && docker-compose stop nginx || true && sleep 5 && certbot renew --standalone --non-interactive --preferred-challenges http && cd {{ project_dir }} && docker-compose start nginx || true"
         minute: "0"
         hour: "3"
         user: root
+      when: ssl_cert.stat.exists
 
     # ===================================
     # STEP 6: PREPARE NGINX CONFIGURATION
