@@ -1,5 +1,7 @@
 from django.shortcuts import get_object_or_404
 from django.db.models import Count, Q, Prefetch
+from django.db import connection, close_old_connections
+from django.core.exceptions import ImproperlyConfigured
 from django.utils import timezone
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
@@ -20,6 +22,8 @@ import logging
 import json
 import boto3
 import requests
+import psycopg2
+from psycopg2 import OperationalError, DatabaseError
 
 logger = logging.getLogger(__name__)
 
@@ -3017,6 +3021,16 @@ class CloudFrontTileView(APIView):
                 logger.warning(f"❌ Tile not found: {state_slug}/{city_slug}/{layer_slug}/{z}/{x}/{y}.{format_type}")
                 return self._return_error_tile(f"Tile not found: {state_slug}/{city_slug}/{layer_slug}/{z}/{x}/{y}.{format_type}")
             
+        except (OperationalError, DatabaseError) as e:
+            error_msg = str(e)
+            if "too many clients" in error_msg.lower():
+                logger.error(f"❌ Database connection pool exhausted: {error_msg}")
+                # Try to close old connections
+                close_old_connections()
+                return self._return_error_tile("Service temporarily unavailable. Please try again.")
+            else:
+                logger.error(f"❌ Database error serving tile: {error_msg}")
+                return self._return_error_tile(f"Database error: {error_msg}")
         except Exception as e:
             logger.error(f"Error serving tile: {str(e)}")
             return self._return_error_tile(f"Error serving tile: {str(e)}")
@@ -3184,6 +3198,16 @@ class S3DirectTileView(APIView):
                 logger.warning(f"❌ Tile not found in S3: {state_slug}/{city_slug}/{layer_slug}/{z}/{x}/{y}.{format_type}")
                 return self._return_error_tile(f"Tile not found: {state_slug}/{city_slug}/{layer_slug}/{z}/{x}/{y}.{format_type}")
             
+        except (OperationalError, DatabaseError) as e:
+            error_msg = str(e)
+            if "too many clients" in error_msg.lower():
+                logger.error(f"❌ Database connection pool exhausted: {error_msg}")
+                # Try to close old connections
+                close_old_connections()
+                return self._return_error_tile("Service temporarily unavailable. Please try again.")
+            else:
+                logger.error(f"❌ Database error serving S3 direct tile: {error_msg}")
+                return self._return_error_tile(f"Database error: {error_msg}")
         except Exception as e:
             logger.error(f"Error serving S3 direct tile: {str(e)}")
             return self._return_error_tile(f"Error serving tile: {str(e)}")
@@ -3222,17 +3246,47 @@ class S3DirectTileView(APIView):
             return None
     
     def _get_layer_by_hierarchy(self, state_slug, city_slug, layer_slug):
-        """Get layer by hierarchical path"""
-        try:
-            return DataLayer.objects.select_related('city', 'city__state_ref', 'category').get(
-                city__slug=city_slug,
-                city__state_ref__slug=state_slug,
-                slug=layer_slug,
-                city__is_active=True,
-                city__state_ref__is_active=True
-            )
-        except DataLayer.DoesNotExist:
-            return None
+        """Get layer by hierarchical path with connection error handling"""
+        max_retries = 3
+        retry_count = 0
+        
+        while retry_count < max_retries:
+            try:
+                # Close old connections before retry
+                if retry_count > 0:
+                    close_old_connections()
+                
+                return DataLayer.objects.select_related('city', 'city__state_ref', 'category').get(
+                    city__slug=city_slug,
+                    city__state_ref__slug=state_slug,
+                    slug=layer_slug,
+                    city__is_active=True,
+                    city__state_ref__is_active=True
+                )
+            except (OperationalError, DatabaseError) as e:
+                retry_count += 1
+                error_msg = str(e)
+                
+                # Check if it's a "too many clients" error
+                if "too many clients" in error_msg.lower():
+                    logger.warning(f"⚠️ Database connection pool exhausted (attempt {retry_count}/{max_retries}). Retrying...")
+                    if retry_count >= max_retries:
+                        logger.error(f"❌ Max retries reached for database connection. Error: {error_msg}")
+                        raise
+                    # Wait a bit before retrying
+                    import time
+                    time.sleep(0.1 * retry_count)  # Exponential backoff
+                else:
+                    # Other database errors - don't retry
+                    logger.error(f"❌ Database error: {error_msg}")
+                    raise
+            except DataLayer.DoesNotExist:
+                return None
+            except Exception as e:
+                logger.error(f"❌ Unexpected error in _get_layer_by_hierarchy: {str(e)}")
+                raise
+        
+        return None
     
     def _return_error_tile(self, error_message):
         """Return an error response"""
@@ -4438,6 +4492,8 @@ class DeveloperListingMediaWebhookView(APIView):
     5. Store TIF metadata and bounds
     """
     permission_classes = [AllowAny]  # Public endpoint (webhook)
+    authentication_classes = []  # No authentication required
+    http_method_names = ['post']  # Only allow POST requests
     
     def post(self, request):
         """Process webhook and generate tiles for TIF files"""
@@ -4445,6 +4501,11 @@ class DeveloperListingMediaWebhookView(APIView):
             DeveloperListing, DeveloperListingMedia, WebhookEvent
         )
         from django.utils import timezone
+        
+        logger.info(f"[WEBHOOK_RECEIVE] ===== Webhook POST request received =====")
+        logger.info(f"[WEBHOOK_RECEIVE] Request method: {request.method}")
+        logger.info(f"[WEBHOOK_RECEIVE] Content-Type: {request.content_type}")
+        logger.info(f"[WEBHOOK_RECEIVE] Headers: {dict(request.headers)}")
         
         webhook_event = None
         try:
@@ -4491,13 +4552,29 @@ class DeveloperListingMediaWebhookView(APIView):
                 request_ip=self._get_client_ip(request)
             )
             
-            logger.info(
-                f"Developer listing webhook received: "
-                f"event={event_type}, type={listing_type}, id={listing_id}, "
-                f"tif_count={len(tif_files)}"
-            )
+            logger.info(f"[WEBHOOK_RECEIVE] ===== Webhook received =====")
+            logger.info(f"[WEBHOOK_RECEIVE] 📥 Event: {event_type}")
+            logger.info(f"[WEBHOOK_RECEIVE] 📥 Action: {action}")
+            logger.info(f"[WEBHOOK_RECEIVE] 📥 Listing: {listing_type} ID={listing_id}")
+            logger.info(f"[WEBHOOK_RECEIVE] 📥 Media items: {len(media_items)}")
+            logger.info(f"[WEBHOOK_RECEIVE] 📥 TIF files: {len(tif_files)}")
+            logger.info(f"[WEBHOOK_RECEIVE] 📥 Webhook Event ID: {webhook_event.id}")
             
             # Save/update listing data
+            logger.info(f"[WEBHOOK_RECEIVE] 💾 Saving/updating DeveloperListing in database...")
+            
+            # Extract city from division list if available
+            city_name = ''
+            if listing_data.get('city'):
+                city_name = listing_data.get('city', '')
+            elif listing_data.get('division'):
+                # division is a list, get first item's name if exists
+                division = listing_data.get('division', [])
+                if isinstance(division, list) and len(division) > 0:
+                    city_name = division[0].get('name', '') if isinstance(division[0], dict) else ''
+                elif isinstance(division, dict):
+                    city_name = division.get('name', '')
+            
             listing, created = DeveloperListing.objects.update_or_create(
                 listing_type=listing_type,
                 backend_listing_id=listing_id,
@@ -4506,43 +4583,56 @@ class DeveloperListingMediaWebhookView(APIView):
                     'name': listing_data.get('name', '') or listing_data.get('title', ''),
                     'description': listing_data.get('description', ''),
                     'location': listing_data.get('location', ''),
-                    'city': listing_data.get('city', '') or (listing_data.get('division', {}) or {}).get('name', ''),
+                    'city': city_name,
                     'state': listing_data.get('state', ''),
                     'last_webhook_event': event_type,
                     'backend_created_at': self._parse_datetime(listing_data.get('created_at')),
                     'backend_updated_at': self._parse_datetime(listing_data.get('updated_at')),
                 }
             )
+            logger.info(f"[WEBHOOK_RECEIVE] ✅ DeveloperListing {'created' if created else 'updated'}: ID={listing.id}, Name={listing.name}")
             
             # Save/update media files
-            for media_item in media_items:
+            logger.info(f"[WEBHOOK_RECEIVE] 💾 Saving/updating {len(media_items)} media files...")
+            for idx, media_item in enumerate(media_items, 1):
                 media_id = media_item.get('id')
                 if not media_id:
+                    logger.warning(f"[WEBHOOK_RECEIVE] ⚠️  Media item {idx}: No ID found, skipping")
                     continue
                 
-                DeveloperListingMedia.objects.update_or_create(
+                is_tif = media_item.get('is_tif', False)
+                file_name = media_item.get('file_name', 'unknown')
+                logger.info(f"[WEBHOOK_RECEIVE] 📄 Media {idx}/{len(media_items)}: ID={media_id}, File={file_name}, TIF={is_tif}")
+                
+                media_obj, created = DeveloperListingMedia.objects.update_or_create(
                     listing=listing,
                     backend_media_id=media_id,
                     defaults={
                         'media_type': media_item.get('media_type', 'file'),
                         'category': media_item.get('category', ''),
-                        'file_name': media_item.get('file_name', ''),
+                        'file_name': file_name,
                         'file_url': media_item.get('url', ''),
                         's3_path': media_item.get('s3_path', ''),
-                        'is_tif': media_item.get('is_tif', False),
+                        'is_tif': is_tif,
                         's3_tile_path': media_item.get('s3_tile_path', ''),
                         'media_data': media_item,
                     }
                 )
+                logger.info(f"[WEBHOOK_RECEIVE] ✅ Media {'created' if created else 'updated'}: ID={media_obj.id}")
+            
+            logger.info(f"[WEBHOOK_RECEIVE] ✅ All media files saved")
             
             # Process TIF files if any
             if tif_files:
+                logger.info(f"[WEBHOOK_RECEIVE] 🗺️  Processing {len(tif_files)} TIF files for tile generation...")
                 from .developer_listing_tile_service import DeveloperListingTileService
                 tile_service = DeveloperListingTileService()
                 
+                logger.info(f"[WEBHOOK_RECEIVE] 🚀 Starting tile generation service...")
                 # Process webhook asynchronously (in background)
                 # For now, process synchronously - can be moved to Celery/background task later
                 result = tile_service.process_webhook(data, listing=listing, webhook_event=webhook_event)
+                logger.info(f"[WEBHOOK_RECEIVE] ✅ Tile generation completed: {result.get('total_tiles_generated', 0)} tiles")
                 
                 # Update webhook event with results
                 webhook_event.processed = True
@@ -4568,9 +4658,11 @@ class DeveloperListingMediaWebhookView(APIView):
                         status=status.HTTP_200_OK
                     )
                 else:
-                    webhook_event.processing_error = result.get('error', 'Unknown error')
+                    error_msg = result.get('error', 'Unknown error')
+                    logger.error(f"[WEBHOOK_RECEIVE] ❌ Error processing tiles: {error_msg}")
+                    webhook_event.processing_error = error_msg
                     webhook_event.save()
-                    logger.error(f"Error processing tiles: {result.get('error')}")
+                    logger.error(f"[WEBHOOK_RECEIVE] ===== Webhook processing failed =====")
                     return Response(
                         {
                             "status": "error",
@@ -4581,11 +4673,13 @@ class DeveloperListingMediaWebhookView(APIView):
                     )
             else:
                 # No TIF files to process - mark as processed
+                logger.info(f"[WEBHOOK_RECEIVE] ⚠️  No TIF files to process for {listing_type} {listing_id}")
+                logger.info(f"[WEBHOOK_RECEIVE] 💾 Marking webhook event as processed...")
                 webhook_event.processed = True
                 webhook_event.processed_at = timezone.now()
                 webhook_event.save()
-                
-                logger.info(f"No TIF files to process for {listing_type} {listing_id}")
+                logger.info(f"[WEBHOOK_RECEIVE] ✅ Webhook event marked as processed")
+                logger.info(f"[WEBHOOK_RECEIVE] ===== Webhook processing completed (no TIF files) =====")
                 return Response(
                     {
                         "status": "success",
@@ -4597,10 +4691,13 @@ class DeveloperListingMediaWebhookView(APIView):
                 )
                 
         except Exception as e:
-            logger.error(f"Error processing developer listing webhook: {e}", exc_info=True)
+            logger.error(f"[WEBHOOK_RECEIVE] ❌ Exception processing developer listing webhook: {e}", exc_info=True)
             if webhook_event:
+                logger.error(f"[WEBHOOK_RECEIVE] 💾 Saving error to webhook event...")
                 webhook_event.processing_error = str(e)
                 webhook_event.save()
+                logger.error(f"[WEBHOOK_RECEIVE] ✅ Error saved")
+            logger.error(f"[WEBHOOK_RECEIVE] ===== Webhook processing failed with exception =====")
             return Response(
                 {
                     "error": "Internal server error processing webhook",

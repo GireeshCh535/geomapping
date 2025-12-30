@@ -98,20 +98,29 @@ TEMPLATES = [
 
 WSGI_APPLICATION = "geo_mapping.wsgi.application"
 
-# DATABASE
+# DATABASE - Using django-db-connection-pool for high concurrency
+# This provides proper connection pooling for 1000+ concurrent users
 DATABASES = {
     'default': {
-        'ENGINE': 'django.contrib.gis.db.backends.postgis',
+        'ENGINE': 'dj_db_conn_pool.backends.postgis',
         'NAME': os.getenv('DJANGO_DB_NAME', 'geo_mapping_db'),
         'USER': os.getenv('DJANGO_DB_USER', 'postgres'),
         'PASSWORD': os.getenv('DJANGO_DB_PASSWORD', 'postgres'),
         'HOST': os.getenv('DJANGO_DB_HOST', 'localhost'),
         # 'HOST': os.getenv('DJANGO_DB_HOST', 'db'),
         'PORT': os.getenv('DJANGO_DB_PORT', '5432'),
-        'CONN_MAX_AGE': 600,  # Keep connections alive for 10 minutes (connection pooling)
+        'CONN_MAX_AGE': 0,  # Set to 0 when using connection pool
         'CONN_HEALTH_CHECKS': True,  # Django 4.1+: Check connection health
         'OPTIONS': {
             'connect_timeout': 10,
+        },
+        # Connection pool settings for high concurrency
+        'POOL_OPTIONS': {
+            'POOL_SIZE': 20,  # Number of connections per worker process
+            'MAX_OVERFLOW': 10,  # Additional connections beyond pool_size
+            'POOL_RECYCLE': 3600,  # Recycle connections after 1 hour
+            'POOL_PRE_PING': True,  # Verify connections before using
+            'ECHO': False,  # Set to True for SQL debugging
         },
     }
 }
