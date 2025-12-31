@@ -899,10 +899,10 @@ class TIFMetadataAdmin(AuditFieldsMixin, admin.ModelAdmin):
         if all([obj.bounds_west, obj.bounds_south, obj.bounds_east, obj.bounds_north]):
             return format_html(
                 '<span style="font-family: monospace; font-size: 0.9em;">'
-                '{:.4f}, {:.4f}<br/>{:.4f}, {:.4f}'
+                '{}, {}<br/>{}, {}'
                 '</span>',
-                obj.bounds_west, obj.bounds_north,
-                obj.bounds_east, obj.bounds_south
+                f"{obj.bounds_west:.4f}", f"{obj.bounds_north:.4f}",
+                f"{obj.bounds_east:.4f}", f"{obj.bounds_south:.4f}"
             )
         return "—"
     
@@ -943,17 +943,17 @@ class TIFMetadataAdmin(AuditFieldsMixin, admin.ModelAdmin):
             
             return format_html(
                 '<div style="padding: 10px; background: #f5f5f5; border: 1px solid #ddd;">'
-                '<strong>Center:</strong> {:.6f}, {:.6f}<br/>'
-                '<strong>West:</strong> {:.6f}<br/>'
-                '<strong>South:</strong> {:.6f}<br/>'
-                '<strong>East:</strong> {:.6f}<br/>'
-                '<strong>North:</strong> {:.6f}'
+                '<strong>Center:</strong> {}, {}<br/>'
+                '<strong>West:</strong> {}<br/>'
+                '<strong>South:</strong> {}<br/>'
+                '<strong>East:</strong> {}<br/>'
+                '<strong>North:</strong> {}'
                 '</div>',
-                center_lat, center_lng,
-                obj.bounds_west,
-                obj.bounds_south,
-                obj.bounds_east,
-                obj.bounds_north
+                f"{center_lat:.6f}", f"{center_lng:.6f}",
+                f"{obj.bounds_west:.6f}",
+                f"{obj.bounds_south:.6f}",
+                f"{obj.bounds_east:.6f}",
+                f"{obj.bounds_north:.6f}"
             )
         return "—"
     
