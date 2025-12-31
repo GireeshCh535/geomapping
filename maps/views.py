@@ -3256,13 +3256,15 @@ class S3DirectTileView(APIView):
                 if retry_count > 0:
                     close_old_connections()
                 
-            return DataLayer.objects.select_related('city', 'city__state_ref', 'category').get(
-                city__slug=city_slug,
-                city__state_ref__slug=state_slug,
-                slug=layer_slug,
-                city__is_active=True,
-                city__state_ref__is_active=True
-            )
+                return DataLayer.objects.select_related('city', 'city__state_ref', 'category').get(
+                    city__slug=city_slug,
+                    city__state_ref__slug=state_slug,
+                    slug=layer_slug,
+                    city__is_active=True,
+                    city__state_ref__is_active=True
+                )
+            except DataLayer.DoesNotExist:
+                return None
             except (OperationalError, DatabaseError) as e:
                 retry_count += 1
                 error_msg = str(e)
@@ -3280,13 +3282,11 @@ class S3DirectTileView(APIView):
                     # Other database errors - don't retry
                     logger.error(f"❌ Database error: {error_msg}")
                     raise
-        except DataLayer.DoesNotExist:
-                return None
             except Exception as e:
                 logger.error(f"❌ Unexpected error in _get_layer_by_hierarchy: {str(e)}")
                 raise
         
-            return None
+        return None
     
     def _return_error_tile(self, error_message):
         """Return an error response"""
