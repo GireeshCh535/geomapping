@@ -10,13 +10,17 @@ from .models import (
     CityLayerStyle,
     CityZoneMapping,
     DataLayer,
+    DeveloperListing,
+    DeveloperListingMedia,
     GeoFeature,
     LayerCategory,
     LayerGroup,
     PLUCodeMapping,
     State,
+    TIFMetadata,
     ValidationLog,
     VectorTileLayer,
+    WebhookEvent,
 )
 
 
@@ -591,6 +595,473 @@ class LayerGroupAdmin(AuditFieldsMixin, admin.ModelAdmin):
     list_filter = ("city", "category", "is_visible")
     autocomplete_fields = ("city", "category")
     prepopulated_fields = {"slug": ("name",)}
+
+
+# ================================
+# DEVELOPER LISTING ADMIN
+# ================================
+
+class DeveloperListingMediaInline(admin.TabularInline):
+    """Inline admin for media files"""
+    model = DeveloperListingMedia
+    extra = 0
+    readonly_fields = ("backend_media_id", "media_type", "file_name", "file_url", "is_tif", "tiles_generated", "total_tiles_generated")
+    fields = ("backend_media_id", "media_type", "category", "file_name", "is_tif", "tiles_generated", "total_tiles_generated")
+    can_delete = False
+    show_change_link = True
+
+
+@admin.register(DeveloperListing)
+class DeveloperListingAdmin(AuditFieldsMixin, admin.ModelAdmin):
+    list_display = (
+        "id",
+        "listing_type",
+        "backend_listing_id",
+        "name",
+        "city",
+        "state",
+        "is_active",
+        "media_count",
+        "tif_count",
+        "created_at",
+    )
+    search_fields = ("name", "description", "backend_listing_id", "city", "state", "location")
+    list_filter = ("listing_type", "is_active", "city", "state", "created_at")
+    readonly_fields = ("backend_listing_id", "listing_data_display", "media_count_display", "tif_count_display")
+    inlines = [DeveloperListingMediaInline]
+    
+    fieldsets = (
+        ("Basic Information", {
+            "fields": ("listing_type", "backend_listing_id", "name", "description")
+        }),
+        ("Location", {
+            "fields": ("location", "city", "state")
+        }),
+        ("Status", {
+            "fields": ("is_active", "last_webhook_event")
+        }),
+        ("Media Summary", {
+            "fields": ("media_count_display", "tif_count_display")
+        }),
+        ("Timestamps", {
+            "fields": ("backend_created_at", "backend_updated_at", "created_at", "updated_at")
+        }),
+        ("Raw Data", {
+            "fields": ("listing_data_display",),
+            "classes": ("collapse",)
+        }),
+    )
+    
+    @admin.display(description="Media Files")
+    def media_count(self, obj):
+        count = obj.get_media_count()
+        return format_html(
+            '<span style="color: #0066cc; font-weight: bold;">{}</span>',
+            count
+        )
+    
+    @admin.display(description="TIF Files")
+    def tif_count(self, obj):
+        count = obj.get_tif_count()
+        if count > 0:
+            return format_html(
+                '<span style="color: #009900; font-weight: bold;">{}</span>',
+                count
+            )
+        return count
+    
+    @admin.display(description="Media Files")
+    def media_count_display(self, obj):
+        if obj.pk:
+            total = obj.get_media_count()
+            tif = obj.get_tif_count()
+            return format_html(
+                '<div style="font-size: 1.1em;">'
+                '<strong>Total Media:</strong> <span style="color: #0066cc;">{}</span><br/>'
+                '<strong>TIF Files:</strong> <span style="color: #009900;">{}</span>'
+                '</div>',
+                total, tif
+            )
+        return "Save to see media count"
+    
+    @admin.display(description="TIF Files")
+    def tif_count_display(self, obj):
+        if obj.pk:
+            tif_media = obj.media_files.filter(is_tif=True)
+            generated = tif_media.filter(tiles_generated=True).count()
+            pending = tif_media.filter(tiles_generated=False).count()
+            
+            return format_html(
+                '<div style="font-size: 1.1em;">'
+                '<strong>Generated:</strong> <span style="color: #009900;">{}</span><br/>'
+                '<strong>Pending:</strong> <span style="color: #ff9900;">{}</span>'
+                '</div>',
+                generated, pending
+            )
+        return "Save to see TIF status"
+    
+    @admin.display(description="Listing Data (JSON)")
+    def listing_data_display(self, obj):
+        if not obj.listing_data:
+            return "—"
+        return format_html(
+            '<pre style="max-height: 400px; overflow-y: auto; background: #f5f5f5; padding: 10px; border: 1px solid #ddd;">{}</pre>',
+            json.dumps(obj.listing_data, indent=2)
+        )
+
+
+@admin.register(DeveloperListingMedia)
+class DeveloperListingMediaAdmin(AuditFieldsMixin, admin.ModelAdmin):
+    list_display = (
+        "id",
+        "listing_info",
+        "media_type",
+        "category",
+        "file_name_short",
+        "is_tif",
+        "tiles_status",
+        "total_tiles_generated",
+        "created_at",
+    )
+    search_fields = ("file_name", "listing__name", "listing__backend_listing_id", "category")
+    list_filter = ("media_type", "is_tif", "tiles_generated", "category", "created_at")
+    readonly_fields = (
+        "backend_media_id",
+        "file_url_link",
+        "s3_path",
+        "tiles_generated",
+        "total_tiles_generated",
+        "tiles_generation_started_at",
+        "tiles_generation_completed_at",
+        "media_data_display",
+    )
+    autocomplete_fields = ("listing",)
+    
+    fieldsets = (
+        ("Listing", {
+            "fields": ("listing", "backend_media_id")
+        }),
+        ("Media Information", {
+            "fields": ("media_type", "category", "file_name", "file_url_link", "s3_path")
+        }),
+        ("TIF & Tiles", {
+            "fields": (
+                "is_tif",
+                "s3_tile_path",
+                "tiles_generated",
+                "total_tiles_generated",
+                "tiles_generation_started_at",
+                "tiles_generation_completed_at",
+                "tiles_generation_error",
+            )
+        }),
+        ("Raw Data", {
+            "fields": ("media_data_display",),
+            "classes": ("collapse",)
+        }),
+    )
+    
+    @admin.display(description="Listing")
+    def listing_info(self, obj):
+        return format_html(
+            '<a href="{}">{} - {}</a>',
+            reverse("admin:maps_developerlisting_change", args=[obj.listing.pk]),
+            obj.listing.get_listing_type_display(),
+            obj.listing.backend_listing_id
+        )
+    
+    @admin.display(description="File Name")
+    def file_name_short(self, obj):
+        if obj.file_name:
+            name = obj.file_name[:50] + ('...' if len(obj.file_name) > 50 else '')
+            if obj.is_tif:
+                return format_html('<span style="color: #009900; font-weight: bold;">🗺️ {}</span>', name)
+            return name
+        return "—"
+    
+    @admin.display(description="Tiles Status")
+    def tiles_status(self, obj):
+        if not obj.is_tif:
+            return format_html('<span style="color: #999;">N/A</span>')
+        
+        if obj.tiles_generated:
+            return format_html('<span style="color: #009900; font-weight: bold;">✓ Generated</span>')
+        elif obj.tiles_generation_started_at:
+            return format_html('<span style="color: #ff9900;">⏳ In Progress</span>')
+        elif obj.tiles_generation_error:
+            return format_html('<span style="color: #cc0000;">✗ Error</span>')
+        else:
+            return format_html('<span style="color: #666;">⏸ Pending</span>')
+    
+    @admin.display(description="File URL")
+    def file_url_link(self, obj):
+        if obj.file_url:
+            return format_html(
+                '<a href="{}" target="_blank" style="color: #0066cc;">{}</a>',
+                obj.file_url,
+                obj.file_url[:80] + ('...' if len(obj.file_url) > 80 else '')
+            )
+        return "—"
+    
+    @admin.display(description="Media Data (JSON)")
+    def media_data_display(self, obj):
+        if not obj.media_data:
+            return "—"
+        return format_html(
+            '<pre style="max-height: 400px; overflow-y: auto; background: #f5f5f5; padding: 10px; border: 1px solid #ddd;">{}</pre>',
+            json.dumps(obj.media_data, indent=2)
+        )
+
+
+@admin.register(TIFMetadata)
+class TIFMetadataAdmin(AuditFieldsMixin, admin.ModelAdmin):
+    list_display = (
+        "id",
+        "media_file",
+        "source_crs",
+        "source_dimensions",
+        "bounds_display",
+        "zoom_range",
+        "total_tiles_generated",
+        "created_at",
+    )
+    search_fields = ("media__file_name", "source_crs")
+    list_filter = ("source_crs", "min_zoom", "max_zoom", "created_at")
+    readonly_fields = (
+        "source_info_display",
+        "reprojected_info_display",
+        "bounds_map_display",
+        "tiles_breakdown_display",
+        "transform_matrix_display",
+        "tif_data_display",
+    )
+    autocomplete_fields = ("media",)
+    
+    fieldsets = (
+        ("Media File", {
+            "fields": ("media",)
+        }),
+        ("Source TIF Information", {
+            "fields": ("source_info_display", "source_crs", "source_width", "source_height", "source_bands")
+        }),
+        ("Source Bounds", {
+            "fields": (
+                "source_bounds_west",
+                "source_bounds_south",
+                "source_bounds_east",
+                "source_bounds_north",
+            )
+        }),
+        ("Reprojected Information (WGS84)", {
+            "fields": ("reprojected_info_display", "reprojected_width", "reprojected_height")
+        }),
+        ("Reprojected Bounds (WGS84)", {
+            "fields": (
+                "bounds_west",
+                "bounds_south",
+                "bounds_east",
+                "bounds_north",
+                "bounds_map_display",
+            )
+        }),
+        ("Tile Configuration", {
+            "fields": ("min_zoom", "max_zoom", "tile_size")
+        }),
+        ("Tile Statistics", {
+            "fields": ("total_tiles_generated", "tiles_breakdown_display", "processing_time_seconds", "file_size_bytes")
+        }),
+        ("Transform Matrix", {
+            "fields": ("transform_matrix_display",),
+            "classes": ("collapse",)
+        }),
+        ("Raw TIF Data", {
+            "fields": ("tif_data_display",),
+            "classes": ("collapse",)
+        }),
+    )
+    
+    @admin.display(description="Media File")
+    def media_file(self, obj):
+        return format_html(
+            '<a href="{}">{}</a>',
+            reverse("admin:maps_developerlistingmedia_change", args=[obj.media.pk]),
+            obj.media.file_name or f"Media #{obj.media.backend_media_id}"
+        )
+    
+    @admin.display(description="Dimensions")
+    def source_dimensions(self, obj):
+        if obj.source_width and obj.source_height:
+            return f"{obj.source_width} × {obj.source_height}"
+        return "—"
+    
+    @admin.display(description="Bounds")
+    def bounds_display(self, obj):
+        if all([obj.bounds_west, obj.bounds_south, obj.bounds_east, obj.bounds_north]):
+            return format_html(
+                '<span style="font-family: monospace; font-size: 0.9em;">'
+                '{:.4f}, {:.4f}<br/>{:.4f}, {:.4f}'
+                '</span>',
+                obj.bounds_west, obj.bounds_north,
+                obj.bounds_east, obj.bounds_south
+            )
+        return "—"
+    
+    @admin.display(description="Zoom Range")
+    def zoom_range(self, obj):
+        return f"{obj.min_zoom} - {obj.max_zoom}"
+    
+    @admin.display(description="Source Information")
+    def source_info_display(self, obj):
+        return format_html(
+            '<div style="font-size: 1.1em; padding: 10px; background: #f5f5f5; border: 1px solid #ddd;">'
+            '<strong>CRS:</strong> <span style="color: #0066cc;">{}</span><br/>'
+            '<strong>Dimensions:</strong> {} × {} pixels<br/>'
+            '<strong>Bands:</strong> {}'
+            '</div>',
+            obj.source_crs or "Unknown",
+            obj.source_width or "?",
+            obj.source_height or "?",
+            obj.source_bands or "?"
+        )
+    
+    @admin.display(description="Reprojected Information")
+    def reprojected_info_display(self, obj):
+        return format_html(
+            '<div style="font-size: 1.1em; padding: 10px; background: #f5f5f5; border: 1px solid #ddd;">'
+            '<strong>CRS:</strong> <span style="color: #009900;">WGS84 (EPSG:4326)</span><br/>'
+            '<strong>Dimensions:</strong> {} × {} pixels'
+            '</div>',
+            obj.reprojected_width or "?",
+            obj.reprojected_height or "?"
+        )
+    
+    @admin.display(description="Bounds Map")
+    def bounds_map_display(self, obj):
+        if all([obj.bounds_west, obj.bounds_south, obj.bounds_east, obj.bounds_north]):
+            center_lat = (obj.bounds_south + obj.bounds_north) / 2
+            center_lng = (obj.bounds_west + obj.bounds_east) / 2
+            
+            return format_html(
+                '<div style="padding: 10px; background: #f5f5f5; border: 1px solid #ddd;">'
+                '<strong>Center:</strong> {:.6f}, {:.6f}<br/>'
+                '<strong>West:</strong> {:.6f}<br/>'
+                '<strong>South:</strong> {:.6f}<br/>'
+                '<strong>East:</strong> {:.6f}<br/>'
+                '<strong>North:</strong> {:.6f}'
+                '</div>',
+                center_lat, center_lng,
+                obj.bounds_west,
+                obj.bounds_south,
+                obj.bounds_east,
+                obj.bounds_north
+            )
+        return "—"
+    
+    @admin.display(description="Tiles by Zoom Level")
+    def tiles_breakdown_display(self, obj):
+        if not obj.tiles_by_zoom:
+            return "—"
+        
+        breakdown_html = '<div style="padding: 10px; background: #f5f5f5; border: 1px solid #ddd;">'
+        breakdown_html += f'<strong>Total: {obj.total_tiles_generated:,} tiles</strong><hr/>'
+        
+        for zoom, count in sorted(obj.tiles_by_zoom.items(), key=lambda x: int(x[0])):
+            breakdown_html += f'<div>Zoom {zoom}: {count:,} tiles</div>'
+        
+        breakdown_html += '</div>'
+        return format_html(breakdown_html)
+    
+    @admin.display(description="Transform Matrix")
+    def transform_matrix_display(self, obj):
+        if not obj.transform_matrix:
+            return "—"
+        return format_html(
+            '<pre style="max-height: 300px; overflow-y: auto; background: #f5f5f5; padding: 10px; border: 1px solid #ddd;">{}</pre>',
+            json.dumps(obj.transform_matrix, indent=2)
+        )
+    
+    @admin.display(description="TIF Data (JSON)")
+    def tif_data_display(self, obj):
+        if not obj.tif_data:
+            return "—"
+        return format_html(
+            '<pre style="max-height: 400px; overflow-y: auto; background: #f5f5f5; padding: 10px; border: 1px solid #ddd;">{}</pre>',
+            json.dumps(obj.tif_data, indent=2)
+        )
+
+
+@admin.register(WebhookEvent)
+class WebhookEventAdmin(AuditFieldsMixin, admin.ModelAdmin):
+    list_display = (
+        "id",
+        "event_type",
+        "listing_type",
+        "listing_id",
+        "processed",
+        "tiles_generated",
+        "tif_files_processed",
+        "received_at",
+    )
+    search_fields = ("event_type", "listing_type", "listing_id", "action")
+    list_filter = ("event_type", "listing_type", "processed", "received_at")
+    readonly_fields = (
+        "event_type",
+        "action",
+        "listing_type",
+        "listing_id",
+        "payload_display",
+        "processing_result_display",
+        "request_headers_display",
+        "received_at",
+        "processed_at",
+    )
+    
+    fieldsets = (
+        ("Event Information", {
+            "fields": ("event_type", "action", "listing_type", "listing_id", "received_at")
+        }),
+        ("Processing Status", {
+            "fields": ("processed", "processed_at", "tiles_generated", "tif_files_processed", "processing_error")
+        }),
+        ("Request Metadata", {
+            "fields": ("request_ip", "request_headers_display")
+        }),
+        ("Webhook Payload", {
+            "fields": ("payload_display",),
+            "classes": ("collapse",)
+        }),
+        ("Processing Result", {
+            "fields": ("processing_result_display",),
+            "classes": ("collapse",)
+        }),
+    )
+    
+    @admin.display(description="Webhook Payload (JSON)")
+    def payload_display(self, obj):
+        if not obj.payload:
+            return "—"
+        return format_html(
+            '<pre style="max-height: 500px; overflow-y: auto; background: #f5f5f5; padding: 10px; border: 1px solid #ddd; font-size: 0.9em;">{}</pre>',
+            json.dumps(obj.payload, indent=2)
+        )
+    
+    @admin.display(description="Processing Result (JSON)")
+    def processing_result_display(self, obj):
+        if not obj.processing_result:
+            return "—"
+        return format_html(
+            '<pre style="max-height: 400px; overflow-y: auto; background: #f5f5f5; padding: 10px; border: 1px solid #ddd; font-size: 0.9em;">{}</pre>',
+            json.dumps(obj.processing_result, indent=2)
+        )
+    
+    @admin.display(description="Request Headers (JSON)")
+    def request_headers_display(self, obj):
+        if not obj.request_headers:
+            return "—"
+        return format_html(
+            '<pre style="max-height: 300px; overflow-y: auto; background: #f5f5f5; padding: 10px; border: 1px solid #ddd; font-size: 0.9em;">{}</pre>',
+            json.dumps(obj.request_headers, indent=2)
+        )
 
 
 admin.site.site_header = "GIS Data Management"
