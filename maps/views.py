@@ -1980,6 +1980,28 @@ class CoordinateSearchTestView(APIView):
                     'data': name
                 }
             
+            # Special handling for jaipur_masterplan
+            if layer.slug == 'jaipur_masterplan' and containing_features:
+                # Return properties.REMARKS
+                primary_feature = containing_features[0]
+                detailed_category = primary_feature.get('detailed_category', {})
+                properties = detailed_category.get('properties', {})
+                remarks = properties.get('REMARKS', '')
+                return {
+                    'data': remarks
+                }
+            
+            # Special handling for visakhapatnam_master_plan
+            if layer.slug == 'visakhapatnam_master_plan' and containing_features:
+                # Return properties.Category
+                primary_feature = containing_features[0]
+                detailed_category = primary_feature.get('detailed_category', {})
+                properties = detailed_category.get('properties', {})
+                category = properties.get('Category', '')
+                return {
+                    'data': category
+                }
+            
             # Generate summary
             if containing_features:
                 primary_feature = containing_features[0]
