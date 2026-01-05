@@ -1536,9 +1536,17 @@ class CoordinateSearchTestView(APIView):
                 properties = detailed_category.get('properties', {})
 
                 name = properties.get('Name', '') or primary_feature.get('feature_name', '')
+                road_width = properties.get('Road Width (in feet)', '')
+                
+                # Build comma-separated string
+                data_parts = []
+                if name:
+                    data_parts.append(str(name))
+                if road_width:
+                    data_parts.append(f"Road Width (in feet) - {road_width}")
                 
                 return {
-                    'data': name if name else 'Masterplan Road'
+                    'data': ', '.join(data_parts) if data_parts else 'Masterplan Road'
                 }
             
             if layer.slug == 'hyderabad_metro' and containing_features:
