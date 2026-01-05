@@ -108,6 +108,11 @@ urlpatterns = [
          views.DeveloperListingDetailAPIView.as_view(),
          name='developer-listing-detail'),
     
+    # Get lightweight map data (bounds, zoom, S3 paths only)
+    path('developer-listings/<str:listing_type>/<int:listing_id>/map-data/',
+         views.DeveloperListingMapDataAPIView.as_view(),
+         name='developer-listing-map-data'),
+    
     # Get detailed information for a specific media file
     path('developer-listing-media/<int:media_id>/',
          views.DeveloperListingMediaDetailAPIView.as_view(),

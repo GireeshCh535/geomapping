@@ -5083,3 +5083,178 @@ class WebhookEventListAPIView(APIView):
                 },
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
+
+
+class DeveloperListingMapDataAPIView(APIView):
+    """
+    Lightweight API endpoint to get only map-related data for a developer listing.
+    Returns bounds, zoom level, and S3 tile paths - everything needed to display on map.
+    
+    GET /api/developer-listings/{listing_type}/{listing_id}/map-data/
+    
+    Returns:
+    - Bounds (west, south, east, north)
+    - Zoom levels (min, max, recommended)
+    - Center coordinates
+    - S3 tile paths for all TIF files
+    - Minimal listing info (name, location)
+    
+    Much lighter and faster than the full detail API.
+    """
+    permission_classes = [AllowAny]
+    
+    def get(self, request, listing_type, listing_id):
+        """Get map data for a developer listing"""
+        from .models import DeveloperListing, TIFMetadata, DeveloperListingMedia
+        
+        try:
+            # Validate listing_type
+            if listing_type not in ['developerland', 'developerplot']:
+                return Response(
+                    {'error': f'Invalid listing_type. Must be "developerland" or "developerplot"'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Get listing
+            try:
+                listing = DeveloperListing.objects.get(
+                    listing_type=listing_type,
+                    backend_listing_id=listing_id
+                )
+            except DeveloperListing.DoesNotExist:
+                return Response(
+                    {
+                        'error': f'Listing not found',
+                        'listing_type': listing_type,
+                        'listing_id': listing_id
+                    },
+                    status=status.HTTP_404_NOT_FOUND
+                )
+            
+            # Get all TIF metadata for this listing
+            tif_metadata_list = TIFMetadata.objects.filter(
+                media__listing=listing,
+                media__is_tif=True,
+                media__tiles_generated=True
+            ).select_related('media')
+            
+            if not tif_metadata_list.exists():
+                return Response(
+                    {
+                        'success': False,
+                        'error': 'No TIF files have been processed yet',
+                        'listing': {
+                            'id': listing.id,
+                            'listing_type': listing.listing_type,
+                            'backend_listing_id': listing.backend_listing_id,
+                            'name': listing.name
+                        }
+                    },
+                    status=status.HTTP_200_OK
+                )
+            
+            # Calculate combined bounds from all TIF files
+            west = min([tm.bounds_west for tm in tif_metadata_list if tm.bounds_west is not None])
+            south = min([tm.bounds_south for tm in tif_metadata_list if tm.bounds_south is not None])
+            east = max([tm.bounds_east for tm in tif_metadata_list if tm.bounds_east is not None])
+            north = max([tm.bounds_north for tm in tif_metadata_list if tm.bounds_north is not None])
+            
+            # Get zoom levels
+            min_zoom = min([tm.min_zoom for tm in tif_metadata_list])
+            max_zoom = max([tm.max_zoom for tm in tif_metadata_list])
+            
+            # Calculate recommended zoom based on area
+            width = east - west
+            height = north - south
+            area = width * height
+            
+            if area < 0.0001:
+                recommended_zoom = 17
+            elif area < 0.001:
+                recommended_zoom = 15
+            elif area < 0.01:
+                recommended_zoom = 13
+            elif area < 0.1:
+                recommended_zoom = 11
+            else:
+                recommended_zoom = 9
+            
+            # Ensure within bounds
+            recommended_zoom = max(min_zoom, min(recommended_zoom, max_zoom))
+            
+            # Calculate center
+            center_lat = (south + north) / 2
+            center_lng = (west + east) / 2
+            
+            # Get S3 tile paths and file info for each TIF
+            tif_files = []
+            for tif_meta in tif_metadata_list:
+                media = tif_meta.media
+                
+                # CloudFront URL template
+                cloudfront_domain = 'https://d3js84ohvqla36.cloudfront.net'
+                tile_url_template = f"{cloudfront_domain}/{media.s3_tile_path}/{{z}}/{{x}}/{{y}}.png"
+                
+                tif_files.append({
+                    'file_name': media.file_name,
+                    's3_tile_path': media.s3_tile_path,
+                    'tile_url_template': tile_url_template,
+                    'tiles_generated': media.total_tiles_generated,
+                    'bounds': {
+                        'west': tif_meta.bounds_west,
+                        'south': tif_meta.bounds_south,
+                        'east': tif_meta.bounds_east,
+                        'north': tif_meta.bounds_north
+                    }
+                })
+            
+            # Return lightweight response
+            return Response(
+                {
+                    'success': True,
+                    'listing': {
+                        'id': listing.id,
+                        'listing_type': listing.listing_type,
+                        'backend_listing_id': listing.backend_listing_id,
+                        'name': listing.name,
+                        'location': listing.location,
+                        'city': listing.city,
+                        'state': listing.state
+                    },
+                    'bounds': {
+                        'west': west,
+                        'south': south,
+                        'east': east,
+                        'north': north,
+                        'bbox': [west, south, east, north],
+                        'leaflet_bounds': [[south, west], [north, east]]
+                    },
+                    'center': {
+                        'lat': center_lat,
+                        'lng': center_lng,
+                        'coordinates': [center_lng, center_lat]
+                    },
+                    'zoom': {
+                        'min': min_zoom,
+                        'max': max_zoom,
+                        'default': recommended_zoom,
+                        'recommended': recommended_zoom
+                    },
+                    'tif_files': tif_files,
+                    'summary': {
+                        'total_tif_files': len(tif_files),
+                        'total_tiles': sum(tf['tiles_generated'] for tf in tif_files)
+                    }
+                },
+                status=status.HTTP_200_OK
+            )
+            
+        except Exception as e:
+            logger.error(f"Error retrieving map data: {e}", exc_info=True)
+            return Response(
+                {
+                    'error': 'Internal server error',
+                    'details': str(e)
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
