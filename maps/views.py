@@ -4743,3 +4743,343 @@ class DeveloperListingMediaWebhookView(APIView):
             return None
         from django.utils.dateparse import parse_datetime
         return parse_datetime(dt_string)
+
+
+class DeveloperListingDetailAPIView(APIView):
+    """
+    API endpoint to retrieve complete developer listing details
+    including media files, TIF metadata, and webhook events.
+    
+    GET /api/developer-listings/{listing_type}/{listing_id}/
+    
+    Returns:
+    - Complete listing data
+    - All media files with TIF metadata
+    - Tile generation status
+    - Recent webhook events
+    - Media and tile summaries
+    """
+    permission_classes = [AllowAny]  # Make public or add authentication as needed
+    
+    def get(self, request, listing_type, listing_id):
+        """Get complete details for a developer listing"""
+        from .models import DeveloperListing
+        from .serializers import DeveloperListingDetailSerializer
+        
+        try:
+            # Validate listing_type
+            if listing_type not in ['developerland', 'developerplot']:
+                return Response(
+                    {'error': f'Invalid listing_type. Must be "developerland" or "developerplot"'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Get listing
+            try:
+                listing = DeveloperListing.objects.prefetch_related(
+                    'media_files',
+                    'media_files__tif_metadata'
+                ).get(
+                    listing_type=listing_type,
+                    backend_listing_id=listing_id
+                )
+            except DeveloperListing.DoesNotExist:
+                return Response(
+                    {
+                        'error': f'Listing not found',
+                        'listing_type': listing_type,
+                        'listing_id': listing_id
+                    },
+                    status=status.HTTP_404_NOT_FOUND
+                )
+            
+            # Serialize and return
+            serializer = DeveloperListingDetailSerializer(listing)
+            
+            return Response(
+                {
+                    'success': True,
+                    'listing': serializer.data
+                },
+                status=status.HTTP_200_OK
+            )
+            
+        except Exception as e:
+            logger.error(f"Error retrieving developer listing details: {e}", exc_info=True)
+            return Response(
+                {
+                    'error': 'Internal server error',
+                    'details': str(e)
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+class DeveloperListingListAPIView(APIView):
+    """
+    API endpoint to list all developer listings with filtering
+    
+    GET /api/developer-listings/
+    
+    Query parameters:
+    - listing_type: Filter by type (developerland, developerplot)
+    - city: Filter by city name
+    - state: Filter by state name
+    - is_active: Filter by active status (true/false)
+    - has_tiles: Filter listings with TIF tiles (true/false)
+    - page: Page number (default: 1)
+    - page_size: Items per page (default: 20, max: 100)
+    """
+    permission_classes = [AllowAny]
+    
+    def get(self, request):
+        """List developer listings with filtering"""
+        from .models import DeveloperListing
+        from .serializers import DeveloperListingSerializer
+        
+        try:
+            # Get query parameters
+            listing_type = request.query_params.get('listing_type')
+            city = request.query_params.get('city')
+            state = request.query_params.get('state')
+            is_active = request.query_params.get('is_active')
+            has_tiles = request.query_params.get('has_tiles')
+            page = int(request.query_params.get('page', 1))
+            page_size = min(int(request.query_params.get('page_size', 20)), 100)
+            
+            # Build queryset
+            queryset = DeveloperListing.objects.prefetch_related('media_files').all()
+            
+            # Apply filters
+            if listing_type:
+                if listing_type not in ['developerland', 'developerplot']:
+                    return Response(
+                        {'error': 'Invalid listing_type. Must be "developerland" or "developerplot"'},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+                queryset = queryset.filter(listing_type=listing_type)
+            
+            if city:
+                queryset = queryset.filter(city__icontains=city)
+            
+            if state:
+                queryset = queryset.filter(state__icontains=state)
+            
+            if is_active is not None:
+                is_active_bool = is_active.lower() == 'true'
+                queryset = queryset.filter(is_active=is_active_bool)
+            
+            if has_tiles is not None:
+                has_tiles_bool = has_tiles.lower() == 'true'
+                if has_tiles_bool:
+                    # Filter listings that have at least one TIF with generated tiles
+                    queryset = queryset.filter(
+                        media_files__is_tif=True,
+                        media_files__tiles_generated=True
+                    ).distinct()
+                else:
+                    # Filter listings without any generated TIF tiles
+                    from django.db.models import Q
+                    queryset = queryset.exclude(
+                        media_files__is_tif=True,
+                        media_files__tiles_generated=True
+                    ).distinct()
+            
+            # Order by most recent
+            queryset = queryset.order_by('-created_at')
+            
+            # Pagination
+            total_count = queryset.count()
+            start = (page - 1) * page_size
+            end = start + page_size
+            listings = queryset[start:end]
+            
+            # Serialize
+            serializer = DeveloperListingSerializer(listings, many=True)
+            
+            return Response(
+                {
+                    'success': True,
+                    'pagination': {
+                        'page': page,
+                        'page_size': page_size,
+                        'total_count': total_count,
+                        'total_pages': (total_count + page_size - 1) // page_size,
+                        'has_next': end < total_count,
+                        'has_previous': page > 1
+                    },
+                    'filters': {
+                        'listing_type': listing_type,
+                        'city': city,
+                        'state': state,
+                        'is_active': is_active,
+                        'has_tiles': has_tiles
+                    },
+                    'listings': serializer.data
+                },
+                status=status.HTTP_200_OK
+            )
+            
+        except Exception as e:
+            logger.error(f"Error listing developer listings: {e}", exc_info=True)
+            return Response(
+                {
+                    'error': 'Internal server error',
+                    'details': str(e)
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+class DeveloperListingMediaDetailAPIView(APIView):
+    """
+    API endpoint to retrieve detailed information about a specific media file
+    including TIF metadata if applicable
+    
+    GET /api/developer-listing-media/{media_id}/
+    """
+    permission_classes = [AllowAny]
+    
+    def get(self, request, media_id):
+        """Get detailed information for a media file"""
+        from .models import DeveloperListingMedia
+        from .serializers import DeveloperListingMediaSerializer
+        
+        try:
+            # Get media
+            try:
+                media = DeveloperListingMedia.objects.select_related(
+                    'listing',
+                    'tif_metadata'
+                ).get(id=media_id)
+            except DeveloperListingMedia.DoesNotExist:
+                return Response(
+                    {'error': f'Media file not found with id {media_id}'},
+                    status=status.HTTP_404_NOT_FOUND
+                )
+            
+            # Serialize and return
+            serializer = DeveloperListingMediaSerializer(media)
+            
+            return Response(
+                {
+                    'success': True,
+                    'media': serializer.data,
+                    'listing': {
+                        'id': media.listing.id,
+                        'listing_type': media.listing.listing_type,
+                        'backend_listing_id': media.listing.backend_listing_id,
+                        'name': media.listing.name
+                    }
+                },
+                status=status.HTTP_200_OK
+            )
+            
+        except Exception as e:
+            logger.error(f"Error retrieving media details: {e}", exc_info=True)
+            return Response(
+                {
+                    'error': 'Internal server error',
+                    'details': str(e)
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+class WebhookEventListAPIView(APIView):
+    """
+    API endpoint to list webhook events with filtering
+    
+    GET /api/webhook-events/
+    
+    Query parameters:
+    - listing_type: Filter by listing type
+    - listing_id: Filter by listing ID
+    - event_type: Filter by event type
+    - processed: Filter by processed status (true/false)
+    - page: Page number (default: 1)
+    - page_size: Items per page (default: 20, max: 100)
+    """
+    permission_classes = [AllowAny]
+    
+    def get(self, request):
+        """List webhook events with filtering"""
+        from .models import WebhookEvent
+        from .serializers import WebhookEventSerializer
+        
+        try:
+            # Get query parameters
+            listing_type = request.query_params.get('listing_type')
+            listing_id = request.query_params.get('listing_id')
+            event_type = request.query_params.get('event_type')
+            processed = request.query_params.get('processed')
+            page = int(request.query_params.get('page', 1))
+            page_size = min(int(request.query_params.get('page_size', 20)), 100)
+            
+            # Build queryset
+            queryset = WebhookEvent.objects.all()
+            
+            # Apply filters
+            if listing_type:
+                queryset = queryset.filter(listing_type=listing_type)
+            
+            if listing_id:
+                try:
+                    listing_id_int = int(listing_id)
+                    queryset = queryset.filter(listing_id=listing_id_int)
+                except ValueError:
+                    return Response(
+                        {'error': 'Invalid listing_id. Must be an integer'},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+            
+            if event_type:
+                queryset = queryset.filter(event_type=event_type)
+            
+            if processed is not None:
+                processed_bool = processed.lower() == 'true'
+                queryset = queryset.filter(processed=processed_bool)
+            
+            # Order by most recent
+            queryset = queryset.order_by('-received_at')
+            
+            # Pagination
+            total_count = queryset.count()
+            start = (page - 1) * page_size
+            end = start + page_size
+            events = queryset[start:end]
+            
+            # Serialize
+            serializer = WebhookEventSerializer(events, many=True)
+            
+            return Response(
+                {
+                    'success': True,
+                    'pagination': {
+                        'page': page,
+                        'page_size': page_size,
+                        'total_count': total_count,
+                        'total_pages': (total_count + page_size - 1) // page_size,
+                        'has_next': end < total_count,
+                        'has_previous': page > 1
+                    },
+                    'filters': {
+                        'listing_type': listing_type,
+                        'listing_id': listing_id,
+                        'event_type': event_type,
+                        'processed': processed
+                    },
+                    'events': serializer.data
+                },
+                status=status.HTTP_200_OK
+            )
+            
+        except Exception as e:
+            logger.error(f"Error listing webhook events: {e}", exc_info=True)
+            return Response(
+                {
+                    'error': 'Internal server error',
+                    'details': str(e)
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )

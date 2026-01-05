@@ -306,3 +306,223 @@ class CityConfigDetailSerializer(serializers.Serializer):
     data_format = serializers.CharField()
     coordinate_precision = serializers.IntegerField()
     plu_mapping = serializers.DictField(required=False)
+
+
+# ================================
+# DEVELOPER LISTING SERIALIZERS
+# ================================
+
+class TIFMetadataSerializer(serializers.ModelSerializer):
+    """Serializer for TIF metadata"""
+    bounds = serializers.SerializerMethodField()
+    source_bounds = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = TIFMetadata
+        fields = [
+            'source_crs', 'source_width', 'source_height', 'source_bands',
+            'source_bounds', 'reprojected_width', 'reprojected_height',
+            'bounds', 'transform_matrix', 'min_zoom', 'max_zoom', 'tile_size',
+            'total_tiles_generated', 'tiles_by_zoom', 'processing_time_seconds',
+            'file_size_bytes', 'created_at', 'updated_at'
+        ]
+    
+    def get_bounds(self, obj):
+        """Get WGS84 bounds"""
+        return {
+            'west': obj.bounds_west,
+            'south': obj.bounds_south,
+            'east': obj.bounds_east,
+            'north': obj.bounds_north
+        }
+    
+    def get_source_bounds(self, obj):
+        """Get source CRS bounds"""
+        return {
+            'west': obj.source_bounds_west,
+            'south': obj.source_bounds_south,
+            'east': obj.source_bounds_east,
+            'north': obj.source_bounds_north
+        }
+
+
+class DeveloperListingMediaSerializer(serializers.ModelSerializer):
+    """Serializer for developer listing media"""
+    tif_metadata = TIFMetadataSerializer(read_only=True)
+    tile_url_template = serializers.SerializerMethodField()
+    tiles_status = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = DeveloperListingMedia
+        fields = [
+            'id', 'backend_media_id', 'media_type', 'category',
+            'file_name', 'file_url', 's3_path', 'is_tif', 's3_tile_path',
+            'tiles_generated', 'tiles_generation_started_at',
+            'tiles_generation_completed_at', 'tiles_generation_error',
+            'total_tiles_generated', 'media_data', 'tif_metadata',
+            'tile_url_template', 'tiles_status', 'created_at', 'updated_at'
+        ]
+    
+    def get_tile_url_template(self, obj):
+        """Get tile URL template for this media"""
+        if obj.is_tif and obj.tiles_generated and obj.s3_tile_path:
+            # CloudFront URL template
+            cloudfront_domain = 'https://d3js84ohvqla36.cloudfront.net'
+            return f"{cloudfront_domain}/{obj.s3_tile_path}/{{z}}/{{x}}/{{y}}.png"
+        return None
+    
+    def get_tiles_status(self, obj):
+        """Get human-readable tile status"""
+        if not obj.is_tif:
+            return 'not_applicable'
+        if obj.tiles_generated:
+            return 'completed'
+        elif obj.tiles_generation_started_at:
+            return 'in_progress'
+        elif obj.tiles_generation_error:
+            return 'error'
+        else:
+            return 'pending'
+
+
+class DeveloperListingMediaMinimalSerializer(serializers.ModelSerializer):
+    """Minimal serializer for media (without full metadata)"""
+    tiles_status = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = DeveloperListingMedia
+        fields = [
+            'id', 'backend_media_id', 'media_type', 'category',
+            'file_name', 'file_url', 'is_tif', 'tiles_generated',
+            'total_tiles_generated', 'tiles_status'
+        ]
+    
+    def get_tiles_status(self, obj):
+        """Get human-readable tile status"""
+        if not obj.is_tif:
+            return 'not_applicable'
+        if obj.tiles_generated:
+            return 'completed'
+        elif obj.tiles_generation_started_at:
+            return 'in_progress'
+        elif obj.tiles_generation_error:
+            return 'error'
+        else:
+            return 'pending'
+
+
+class WebhookEventSerializer(serializers.ModelSerializer):
+    """Serializer for webhook events"""
+    
+    class Meta:
+        model = WebhookEvent
+        fields = [
+            'id', 'event_type', 'action', 'listing_type', 'listing_id',
+            'payload', 'processed', 'processed_at', 'processing_error',
+            'tiles_generated', 'tif_files_processed', 'processing_result',
+            'request_ip', 'received_at', 'created_at'
+        ]
+
+
+class WebhookEventMinimalSerializer(serializers.ModelSerializer):
+    """Minimal serializer for webhook events (without full payload)"""
+    
+    class Meta:
+        model = WebhookEvent
+        fields = [
+            'id', 'event_type', 'action', 'processed', 'processed_at',
+            'tiles_generated', 'tif_files_processed', 'received_at'
+        ]
+
+
+class DeveloperListingSerializer(serializers.ModelSerializer):
+    """Serializer for developer listings"""
+    media_files = DeveloperListingMediaMinimalSerializer(many=True, read_only=True)
+    media_summary = serializers.SerializerMethodField()
+    tile_summary = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = DeveloperListing
+        fields = [
+            'id', 'listing_type', 'backend_listing_id', 'listing_data',
+            'name', 'description', 'location', 'city', 'state', 'is_active',
+            'last_webhook_event', 'backend_created_at', 'backend_updated_at',
+            'created_at', 'updated_at', 'media_files', 'media_summary',
+            'tile_summary'
+        ]
+    
+    def get_media_summary(self, obj):
+        """Get media file summary"""
+        media_files = obj.media_files.all()
+        return {
+            'total_media': media_files.count(),
+            'total_images': media_files.filter(media_type='image').count(),
+            'total_videos': media_files.filter(media_type='video').count(),
+            'total_files': media_files.filter(media_type='file').count(),
+            'total_tif_files': media_files.filter(is_tif=True).count(),
+        }
+    
+    def get_tile_summary(self, obj):
+        """Get tile generation summary"""
+        tif_media = obj.media_files.filter(is_tif=True)
+        tif_generated = tif_media.filter(tiles_generated=True)
+        
+        return {
+            'total_tif_files': tif_media.count(),
+            'tiles_generated': tif_generated.count(),
+            'tiles_pending': tif_media.filter(tiles_generated=False, tiles_generation_error='').count(),
+            'tiles_in_progress': tif_media.filter(tiles_generation_started_at__isnull=False, tiles_generated=False).count(),
+            'tiles_failed': tif_media.exclude(tiles_generation_error='').count(),
+            'total_tiles_count': sum(m.total_tiles_generated for m in tif_generated)
+        }
+
+
+class DeveloperListingDetailSerializer(serializers.ModelSerializer):
+    """Detailed serializer for developer listings (with full media details)"""
+    media_files = DeveloperListingMediaSerializer(many=True, read_only=True)
+    recent_webhook_events = serializers.SerializerMethodField()
+    media_summary = serializers.SerializerMethodField()
+    tile_summary = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = DeveloperListing
+        fields = [
+            'id', 'listing_type', 'backend_listing_id', 'listing_data',
+            'name', 'description', 'location', 'city', 'state', 'is_active',
+            'last_webhook_event', 'backend_created_at', 'backend_updated_at',
+            'created_at', 'updated_at', 'media_files', 'recent_webhook_events',
+            'media_summary', 'tile_summary'
+        ]
+    
+    def get_recent_webhook_events(self, obj):
+        """Get recent webhook events for this listing"""
+        events = WebhookEvent.objects.filter(
+            listing_type=obj.listing_type,
+            listing_id=obj.backend_listing_id
+        ).order_by('-received_at')[:10]
+        return WebhookEventMinimalSerializer(events, many=True).data
+    
+    def get_media_summary(self, obj):
+        """Get media file summary"""
+        media_files = obj.media_files.all()
+        return {
+            'total_media': media_files.count(),
+            'total_images': media_files.filter(media_type='image').count(),
+            'total_videos': media_files.filter(media_type='video').count(),
+            'total_files': media_files.filter(media_type='file').count(),
+            'total_tif_files': media_files.filter(is_tif=True).count(),
+        }
+    
+    def get_tile_summary(self, obj):
+        """Get tile generation summary"""
+        tif_media = obj.media_files.filter(is_tif=True)
+        tif_generated = tif_media.filter(tiles_generated=True)
+        
+        return {
+            'total_tif_files': tif_media.count(),
+            'tiles_generated': tif_generated.count(),
+            'tiles_pending': tif_media.filter(tiles_generated=False, tiles_generation_error='').count(),
+            'tiles_in_progress': tif_media.filter(tiles_generation_started_at__isnull=False, tiles_generated=False).count(),
+            'tiles_failed': tif_media.exclude(tiles_generation_error='').count(),
+            'total_tiles_count': sum(m.total_tiles_generated for m in tif_generated)
+        }

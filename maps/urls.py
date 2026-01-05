@@ -94,4 +94,28 @@ urlpatterns = [
          views.DeveloperListingMediaWebhookView.as_view(),
          name='developer-listing-media-webhook'),
     
+    # ================================
+    # DEVELOPER LISTING APIs (Public Access to Webhook Data)
+    # ================================
+    
+    # List all developer listings with filtering
+    path('developer-listings/',
+         views.DeveloperListingListAPIView.as_view(),
+         name='developer-listing-list'),
+    
+    # Get complete details for a specific developer listing
+    path('developer-listings/<str:listing_type>/<int:listing_id>/',
+         views.DeveloperListingDetailAPIView.as_view(),
+         name='developer-listing-detail'),
+    
+    # Get detailed information for a specific media file
+    path('developer-listing-media/<int:media_id>/',
+         views.DeveloperListingMediaDetailAPIView.as_view(),
+         name='developer-listing-media-detail'),
+    
+    # List webhook events with filtering
+    path('webhook-events/',
+         views.WebhookEventListAPIView.as_view(),
+         name='webhook-event-list'),
+    
 ]
