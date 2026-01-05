@@ -483,6 +483,10 @@ class DeveloperListingDetailSerializer(serializers.ModelSerializer):
     recent_webhook_events = serializers.SerializerMethodField()
     media_summary = serializers.SerializerMethodField()
     tile_summary = serializers.SerializerMethodField()
+    bounds = serializers.SerializerMethodField()
+    zoom_levels = serializers.SerializerMethodField()
+    center = serializers.SerializerMethodField()
+    data_layers = serializers.SerializerMethodField()
     
     class Meta:
         model = DeveloperListing
@@ -491,7 +495,8 @@ class DeveloperListingDetailSerializer(serializers.ModelSerializer):
             'name', 'description', 'location', 'city', 'state', 'is_active',
             'last_webhook_event', 'backend_created_at', 'backend_updated_at',
             'created_at', 'updated_at', 'media_files', 'recent_webhook_events',
-            'media_summary', 'tile_summary'
+            'media_summary', 'tile_summary', 'bounds', 'zoom_levels', 'center',
+            'data_layers'
         ]
     
     def get_recent_webhook_events(self, obj):
@@ -526,3 +531,166 @@ class DeveloperListingDetailSerializer(serializers.ModelSerializer):
             'tiles_failed': tif_media.exclude(tiles_generation_error='').count(),
             'total_tiles_count': sum(m.total_tiles_generated for m in tif_generated)
         }
+    
+    def get_bounds(self, obj):
+        """
+        Get combined bounds from all TIF files
+        Returns the bounding box that encompasses all TIF files in this listing
+        """
+        from maps.models import TIFMetadata
+        
+        # Get all TIF metadata for this listing
+        tif_metadata_list = TIFMetadata.objects.filter(
+            media__listing=obj,
+            media__is_tif=True,
+            media__tiles_generated=True
+        )
+        
+        if not tif_metadata_list.exists():
+            return None
+        
+        # Calculate combined bounds
+        west = min([tm.bounds_west for tm in tif_metadata_list if tm.bounds_west is not None], default=None)
+        south = min([tm.bounds_south for tm in tif_metadata_list if tm.bounds_south is not None], default=None)
+        east = max([tm.bounds_east for tm in tif_metadata_list if tm.bounds_east is not None], default=None)
+        north = max([tm.bounds_north for tm in tif_metadata_list if tm.bounds_north is not None], default=None)
+        
+        if all([west, south, east, north]):
+            return {
+                'west': west,
+                'south': south,
+                'east': east,
+                'north': north,
+                'bbox': [west, south, east, north],  # Format: [minLng, minLat, maxLng, maxLat]
+                'leaflet_bounds': [[south, west], [north, east]]  # Format for Leaflet: [[lat, lng], [lat, lng]]
+            }
+        
+        return None
+    
+    def get_zoom_levels(self, obj):
+        """
+        Get zoom level information from TIF files
+        Returns min/max zoom and calculated appropriate zoom level for viewing
+        """
+        from maps.models import TIFMetadata
+        
+        # Get all TIF metadata for this listing
+        tif_metadata_list = TIFMetadata.objects.filter(
+            media__listing=obj,
+            media__is_tif=True,
+            media__tiles_generated=True
+        )
+        
+        if not tif_metadata_list.exists():
+            return None
+        
+        # Get min/max zoom from TIF files (usually 8 and 18)
+        min_zoom = min([tm.min_zoom for tm in tif_metadata_list])
+        max_zoom = max([tm.max_zoom for tm in tif_metadata_list])
+        
+        # Calculate appropriate zoom level based on bounds
+        bounds = self.get_bounds(obj)
+        if bounds:
+            # Calculate appropriate zoom level based on area
+            # Simple heuristic: smaller area = higher zoom
+            width = bounds['east'] - bounds['west']
+            height = bounds['north'] - bounds['south']
+            area = width * height
+            
+            # Zoom level heuristic
+            if area < 0.0001:  # Very small area (< 11 sq km approx)
+                appropriate_zoom = 17
+            elif area < 0.001:  # Small area (< 110 sq km approx)
+                appropriate_zoom = 15
+            elif area < 0.01:  # Medium area (< 1,100 sq km approx)
+                appropriate_zoom = 13
+            elif area < 0.1:  # Large area (< 11,000 sq km approx)
+                appropriate_zoom = 11
+            else:
+                appropriate_zoom = 9
+            
+            # Ensure within bounds
+            appropriate_zoom = max(min_zoom, min(appropriate_zoom, max_zoom))
+        else:
+            appropriate_zoom = 13  # Default middle zoom
+        
+        return {
+            'min_zoom': min_zoom,
+            'max_zoom': max_zoom,
+            'default_zoom': appropriate_zoom,
+            'recommended_zoom': appropriate_zoom
+        }
+    
+    def get_center(self, obj):
+        """
+        Get center coordinates from bounds
+        Returns the center point of all TIF files
+        """
+        bounds = self.get_bounds(obj)
+        if bounds:
+            center_lat = (bounds['south'] + bounds['north']) / 2
+            center_lng = (bounds['west'] + bounds['east']) / 2
+            return {
+                'lat': center_lat,
+                'lng': center_lng,
+                'coordinates': [center_lng, center_lat]  # [lng, lat] for GeoJSON
+            }
+        return None
+    
+    def get_data_layers(self, obj):
+        """
+        Get DataLayer information for TIF files in this listing
+        Returns layer slugs and IDs for accessing via layer APIs
+        """
+        from maps.models import DataLayer, GeoFeature
+        
+        # Find data layers created for this listing's TIF files
+        # They have slug pattern: {listing_type}-{listing_id}-{filename}
+        slug_prefix = f"{obj.listing_type}-{obj.backend_listing_id}-"
+        
+        layers = DataLayer.objects.filter(
+            slug__startswith=slug_prefix,
+            category__code='DEVELOPER_LISTING'
+        ).select_related('city', 'category')
+        
+        if not layers.exists():
+            return []
+        
+        result = []
+        for layer in layers:
+            # Get the GeoFeature to access bounds polygon
+            feature = layer.geofeature_set.first()
+            
+            layer_info = {
+                'id': layer.id,
+                'name': layer.name,
+                'slug': layer.slug,
+                'city': {
+                    'name': layer.city.name,
+                    'slug': layer.city.slug
+                },
+                'category': {
+                    'code': layer.category.code,
+                    'name': layer.category.name
+                },
+                'bounds': {
+                    'west': layer.bbox_xmin,
+                    'south': layer.bbox_ymin,
+                    'east': layer.bbox_xmax,
+                    'north': layer.bbox_ymax
+                } if layer.bbox_xmin else None,
+                'geometry_type': layer.geometry_type,
+                'is_processed': layer.is_processed,
+                'tiles_generated': layer.tiles_generated,
+                'is_visible': layer.is_true,
+                'feature_count': layer.feature_count
+            }
+            
+            # Add feature properties if available
+            if feature and feature.properties:
+                layer_info['tile_url_template'] = feature.properties.get('tile_url_template')
+                layer_info['s3_tile_path'] = feature.properties.get('s3_tile_path')
+            
+            result.append(layer_info)
+        
+        return result
