@@ -131,9 +131,10 @@ class LayerCategory(models.Model):
         ('BURIAL', 'Burial/Cemetery'),
         ('RELIGIOUS', 'Religious'),
         ('CULTURAL', 'Cultural'),
+        ('DEVELOPER_LISTING', 'Developer Listing'),  # For developer land/plot TIF files
     ]
     
-    code = models.CharField(max_length=50, unique=True, choices=CATEGORY_TYPES)
+    code = models.CharField(max_length=50, unique=True)  # Removed choices to allow dynamic categories
     name = models.CharField(max_length=100)
     description = models.TextField(blank=True)
     

@@ -252,7 +252,7 @@ class DeveloperListingTileService:
                 # Save/update TIF metadata
                 if media and tif_metadata:
                     logger.info(f"[TIF_PROCESS] 💾 Saving TIF metadata to database...")
-                    TIFMetadata.objects.update_or_create(
+                    tif_meta_obj, _ = TIFMetadata.objects.update_or_create(
                         media=media,
                         defaults={
                             'source_crs': tif_metadata.get('source_crs', ''),
@@ -285,6 +285,16 @@ class DeveloperListingTileService:
                               f"east={tif_metadata.get('bounds', {}).get('east')}, "
                               f"south={tif_metadata.get('bounds', {}).get('south')}, "
                               f"north={tif_metadata.get('bounds', {}).get('north')}")
+                    
+                    # Create/Update DataLayer and GeoFeature for spatial querying
+                    logger.info(f"[TIF_PROCESS] 🗺️  Creating DataLayer and GeoFeature for spatial queries...")
+                    self._create_datalayer_and_geofeature(
+                        listing=listing,
+                        media=media,
+                        tif_metadata=tif_metadata,
+                        s3_tile_path=s3_tile_path
+                    )
+                    logger.info(f"[TIF_PROCESS] ✅ DataLayer and GeoFeature created")
                 
                 logger.info(f"[TIF_PROCESS] ✅ Successfully processed {file_name}")
                 logger.info(f"[TIF_PROCESS]    - Tiles generated: {tiles_generated}")
@@ -315,6 +325,173 @@ class DeveloperListingTileService:
                     'error': error_msg,
                     'file_name': file_name
                 }
+    
+    def _create_datalayer_and_geofeature(
+        self,
+        listing,
+        media,
+        tif_metadata: Dict,
+        s3_tile_path: str
+    ):
+        """
+        Create DataLayer and GeoFeature entries for a TIF file
+        This allows the TIF to be spatially queried like other layers
+        
+        Args:
+            listing: DeveloperListing instance
+            media: DeveloperListingMedia instance
+            tif_metadata: Dictionary with TIF metadata including bounds
+            s3_tile_path: S3 path for tiles
+        """
+        from .models import DataLayer, GeoFeature, City, LayerCategory, State
+        from django.contrib.gis.geos import Polygon
+        from django.utils.text import slugify
+        
+        try:
+            # Get bounds
+            bounds = tif_metadata.get('bounds', {})
+            west = bounds.get('west')
+            south = bounds.get('south')
+            east = bounds.get('east')
+            north = bounds.get('north')
+            
+            if not all([west, south, east, north]):
+                logger.warning(f"[DATALAYER] ⚠️  Invalid bounds, skipping DataLayer creation")
+                return
+            
+            # Get or create "Developer Listings" city
+            # Try to find existing city or create a generic one
+            city_name = listing.city or 'Developer Listings'
+            state_name = listing.state or 'Multiple States'
+            
+            # Get or create state
+            state, _ = State.objects.get_or_create(
+                name=state_name,
+                defaults={
+                    'slug': slugify(state_name),
+                    'code': state_name[:2].upper(),
+                    'center_lat': (south + north) / 2,
+                    'center_lng': (west + east) / 2,
+                    'default_zoom': 10
+                }
+            )
+            
+            # Get or create city
+            city, _ = City.objects.get_or_create(
+                name=city_name,
+                defaults={
+                    'slug': slugify(city_name),
+                    'state': state_name,
+                    'state_ref': state,
+                    'center_lat': (south + north) / 2,
+                    'center_lng': (west + east) / 2,
+                    'min_zoom': 8,
+                    'max_zoom': 18
+                }
+            )
+            
+            # Get or create "Developer Listing" category
+            category, _ = LayerCategory.objects.get_or_create(
+                code='DEVELOPER_LISTING',
+                defaults={
+                    'name': 'Developer Listing',
+                    'description': 'Site plans and maps from developer listings',
+                    'default_color': '#FF6B6B',
+                    'default_stroke': '#C92A2A',
+                    'default_opacity': 0.8,
+                    'display_order': 100
+                }
+            )
+            
+            # Create unique layer name and slug
+            layer_name = f"{listing.get_listing_type_display()} #{listing.backend_listing_id} - {media.file_name}"
+            layer_slug = f"{listing.listing_type}-{listing.backend_listing_id}-{slugify(media.file_name)}"
+            
+            # Create or update DataLayer
+            data_layer, created = DataLayer.objects.update_or_create(
+                city=city,
+                slug=layer_slug,
+                defaults={
+                    'name': layer_name,
+                    'category': category,
+                    'description': f"TIF site plan for {listing.name}",
+                    'original_filename': media.file_name,
+                    'file_format': 'GEOTIFF',
+                    'file_path': media.file_url,
+                    'geometry_type': 'POLYGON',
+                    'bbox_xmin': west,
+                    'bbox_ymin': south,
+                    'bbox_xmax': east,
+                    'bbox_ymax': north,
+                    'is_processed': True,
+                    'feature_count': 1,
+                    'tiles_generated': True,
+                    'is_true': True,  # Make visible by default
+                    'categorization_method': 'MANUAL',
+                    'data_source': f'Developer Listing {listing.listing_type} #{listing.backend_listing_id}',
+                }
+            )
+            
+            logger.info(f"[DATALAYER] {'✅ Created' if created else '🔄 Updated'} DataLayer: {layer_name}")
+            
+            # Create bounding box polygon
+            # Polygon format: ((west, south), (west, north), (east, north), (east, south), (west, south))
+            polygon = Polygon((
+                (west, south),
+                (west, north),
+                (east, north),
+                (east, south),
+                (west, south)
+            ), srid=4326)  # WGS84
+            
+            # Calculate area (approximate in square meters for display)
+            # For rough estimate: 1 degree latitude ≈ 111 km, 1 degree longitude varies
+            width_km = abs(east - west) * 111 * abs((south + north) / 2)  # Adjust for latitude
+            height_km = abs(north - south) * 111
+            area_sqkm = width_km * height_km
+            
+            # Create or update GeoFeature
+            geo_feature, created = GeoFeature.objects.update_or_create(
+                layer=data_layer,
+                defaults={
+                    'geometry': polygon,
+                    'name': listing.name or layer_name,
+                    'description': listing.description or f"Site plan boundary for {listing.name}",
+                    'zone_category': 'Developer Listing',
+                    'zone_subcategory': listing.get_listing_type_display(),
+                    'source_layer_name': media.file_name,
+                    'area': area_sqkm,
+                    'is_valid': True,
+                    'properties': {
+                        'listing_type': listing.listing_type,
+                        'listing_id': listing.backend_listing_id,
+                        'media_id': media.id,
+                        'backend_media_id': media.backend_media_id,
+                        'file_name': media.file_name,
+                        'file_url': media.file_url,
+                        's3_tile_path': s3_tile_path,
+                        'tile_url_template': f"https://d3js84ohvqla36.cloudfront.net/{s3_tile_path}/{{z}}/{{x}}/{{y}}.png",
+                        'tiles_generated': media.total_tiles_generated,
+                        'location': listing.location,
+                        'city': listing.city,
+                        'state': listing.state,
+                        'tif_metadata': {
+                            'source_crs': tif_metadata.get('source_crs'),
+                            'source_width': tif_metadata.get('source_width'),
+                            'source_height': tif_metadata.get('source_height'),
+                            'bounds': bounds
+                        }
+                    }
+                }
+            )
+            
+            logger.info(f"[DATALAYER] {'✅ Created' if created else '🔄 Updated'} GeoFeature with bounds polygon")
+            logger.info(f"[DATALAYER] 📍 Polygon: {polygon.wkt[:100]}...")
+            logger.info(f"[DATALAYER] 📊 Area: {area_sqkm:.2f} sq km")
+            logger.info(f"[DATALAYER] ✅ TIF now available for spatial queries!")
+            
+        except Exception as e:
+            logger.error(f"[DATALAYER] ❌ Error creating DataLayer/GeoFeature: {e}", exc_info=True)
     
     def _download_tif_file(self, url: str, temp_dir: str, file_name: str) -> Optional[str]:
         """Download TIF file from CloudFront URL"""
