@@ -1529,8 +1529,17 @@ class CoordinateSearchTestView(APIView):
                     'data': data_string
                 }
             
-            # REMOVED SPECIAL CASE: bengaluru_masterplan_roads now returns full structured response
-            # Use the default response format below for all road layers
+            # Special handling for bengaluru_masterplan_roads
+            if layer.slug == 'bengaluru_masterplan_roads' and containing_features:
+                primary_feature = containing_features[0]
+                detailed_category = primary_feature.get('detailed_category', {})
+                properties = detailed_category.get('properties', {})
+
+                name = properties.get('Name', '') or primary_feature.get('feature_name', '')
+                
+                return {
+                    'data': name if name else 'Masterplan Road'
+                }
             
             if layer.slug == 'hyderabad_metro' and containing_features:
                 primary_feature = containing_features[0]
