@@ -1535,18 +1535,21 @@ class CoordinateSearchTestView(APIView):
                 detailed_category = primary_feature.get('detailed_category', {})
                 properties = detailed_category.get('properties', {})
 
-                name = properties.get('Name', '') or primary_feature.get('feature_name', '')
-                road_width = properties.get('Road Width (in feet)', '')
+                name = str(properties.get('Name', '')) if properties.get('Name') else ''
+                road_width = str(properties.get('Road Width (in feet)', '')) if properties.get('Road Width (in feet)') else ''
                 
                 # Build comma-separated string
                 data_parts = []
                 if name:
-                    data_parts.append(str(name))
+                    data_parts.append(name)
                 if road_width:
                     data_parts.append(f"Road Width (in feet) - {road_width}")
                 
+                # Create the final string response
+                data_string = ', '.join(data_parts) if data_parts else 'Masterplan Road'
+                
                 return {
-                    'data': ', '.join(data_parts) if data_parts else 'Masterplan Road'
+                    'data': data_string
                 }
             
             if layer.slug == 'hyderabad_metro' and containing_features:
