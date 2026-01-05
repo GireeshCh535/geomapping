@@ -1536,14 +1536,21 @@ class CoordinateSearchTestView(APIView):
                 properties = detailed_category.get('properties', {})
 
                 name = str(properties.get('Name', '')) if properties.get('Name') else ''
-                road_width = str(properties.get('Road Width (in feet)', '')) if properties.get('Road Width (in feet)') else ''
+                
+                # Check for road width in both feet and meters
+                road_width_feet = properties.get('Road Width (in feet)')
+                road_width_meters = properties.get('Road Width (in meters)')
                 
                 # Build comma-separated string
                 data_parts = []
                 if name:
                     data_parts.append(name)
-                if road_width:
-                    data_parts.append(f"Road Width (in feet) - {road_width}")
+                
+                # Add road width with appropriate unit
+                if road_width_feet:
+                    data_parts.append(f"Road Width (in feet) - {str(road_width_feet)}")
+                elif road_width_meters:
+                    data_parts.append(f"Road Width (in meters) - {str(road_width_meters)}")
                 
                 # Create the final string response
                 data_string = ', '.join(data_parts) if data_parts else 'Masterplan Road'
