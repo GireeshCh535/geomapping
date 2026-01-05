@@ -1093,13 +1093,20 @@ class CoordinateSearchTestView(APIView):
             # Check if this is a master plan layer (by checking if slug contains 'masterplan' or 'master_plan')
             is_masterplan = 'masterplan' in layer.slug.lower() or 'master_plan' in layer.slug.lower()
             
-            # For all master plan layers, use exact point containment (no buffer, no nearby search)
-            # For other layers, use a small buffer to handle LineStrings and other geometries
-            if is_masterplan:
-                # Exact point containment check - no buffer, no nearby features
+            # Check if this is a roads/linear layer
+            is_road_layer = any(keyword in layer.slug.lower() for keyword in ['road', 'highway', 'metro', 'railway', 'rail', 'line'])
+            
+            # For road/linear layers, always use a buffer for meaningful results
+            # For polygon master plan layers, use exact point containment
+            # For other layers, use a small buffer to handle various geometries
+            if is_road_layer:
+                # Roads are LineStrings - use a 10m buffer to find nearby roads
+                search_geometry = search_point.buffer(0.00001)  # ~1m buffer
+            elif is_masterplan:
+                # Polygon-based master plans (land use zones) - exact point containment
                 search_geometry = search_point
             else:
-                # Use a small buffer around the point to handle LineStrings and other geometries
+                # Other layers - use a small buffer
                 search_geometry = search_point.buffer(0.0001)  # ~10m buffer
             
             # Search for features in the specific layer that intersect with the point
@@ -1122,10 +1129,12 @@ class CoordinateSearchTestView(APIView):
             
             if not features.exists():
                 # Skip nearby search for layers that should only return exact matches
-                # For all master plan layers and heritage sites, never search nearby - only exact coordinate match
+                # For polygon-based master plan layers and heritage sites, never search nearby - only exact coordinate match
+                # But for road layers, we already used a buffer above, so if no results, truly nothing nearby
+                is_polygon_masterplan = is_masterplan and not is_road_layer
                 is_heritage_site = layer.slug in ['hyderabad_heritage_sites', 'bengaluru_heritage_sites']
                 
-                if is_masterplan or is_heritage_site:
+                if is_polygon_masterplan or is_heritage_site:
                     return {
                         'search_point': {
                             'latitude': latitude,
@@ -1520,27 +1529,9 @@ class CoordinateSearchTestView(APIView):
                     'data': data_string
                 }
             
-            if layer.slug == 'bengaluru_masterplan_roads' and containing_features:
-                primary_feature = containing_features[0]
-                detailed_category = primary_feature.get('detailed_category', {})
-                properties = detailed_category.get('properties', {})
-
-                name = properties.get('Name', '') or primary_feature.get('feature_name', '')
-                road_width = properties.get('Road Width (in feet)', '')
-
-                if name and road_width:
-                    data_string = f"{name}, Road Width (in feet) : {road_width}"
-                elif name:
-                    data_string = name
-                elif road_width:
-                    data_string = f"Road Width (in feet) : {road_width}"
-                else:
-                    data_string = 'Masterplan Road'
-
-                return {
-                    'data': data_string
-                }
-
+            # REMOVED SPECIAL CASE: bengaluru_masterplan_roads now returns full structured response
+            # Use the default response format below for all road layers
+            
             if layer.slug == 'hyderabad_metro' and containing_features:
                 primary_feature = containing_features[0]
                 detailed_category = primary_feature.get('detailed_category', {})
