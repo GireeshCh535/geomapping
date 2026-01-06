@@ -5210,7 +5210,7 @@ class DeveloperListingMapDataAPIView(APIView):
                 media = tif_meta.media
                 
                 # CloudFront URL template
-                cloudfront_domain = 'https://d3js84ohvqla36.cloudfront.net'
+                cloudfront_domain = 'https://d17yosovmfjm4.cloudfront.net'
                 tile_url_template = f"{cloudfront_domain}/{media.s3_tile_path}/{{z}}/{{x}}/{{y}}.png"
                 
                 tif_files.append({
