@@ -85,6 +85,10 @@ urlpatterns = [
     path('search-coords-by-layer/',
          views.LayerCoordinateSearchView.as_view(), name='layer_coordinate_search'),
     
+    # Hyderabad HMDA Boundary Check API
+    path('check-hmda-boundary/',
+         views.HyderabadHMDABoundaryCheckAPIView.as_view(), name='check_hmda_boundary'),
+    
     # ================================
     # DEVELOPER LISTING WEBHOOK & TILE GENERATION
     # ================================

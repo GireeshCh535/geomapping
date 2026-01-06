@@ -5103,6 +5103,210 @@ class WebhookEventListAPIView(APIView):
             )
 
 
+@extend_schema(
+    summary="Check if point is inside Hyderabad HMDA Extended Area",
+    description="Check whether a given coordinate point is inside the Hyderabad HMDA Extended Area boundary. Returns true if inside, false if outside.",
+    parameters=[
+        OpenApiParameter(
+            name='lat',
+            type=float,
+            location=OpenApiParameter.QUERY,
+            required=True,
+            description='Latitude of the point to check'
+        ),
+        OpenApiParameter(
+            name='lng',
+            type=float,
+            location=OpenApiParameter.QUERY,
+            required=True,
+            description='Longitude of the point to check'
+        )
+    ],
+    responses={
+        200: extend_schema(
+            description="Successfully checked point location",
+            examples=[
+                OpenApiExample(
+                    'Point Inside Boundary',
+                    value={
+                        "success": True,
+                        "is_inside": True,
+                        "message": "Point is inside Hyderabad HMDA Extended Area",
+                        "point": {
+                            "latitude": 17.3850,
+                            "longitude": 78.4867,
+                            "coordinates": [78.4867, 17.3850]
+                        },
+                        "layer": {
+                            "slug": "hyderabad_hmda_extended_area",
+                            "name": "Hyderabad HMDA Extended Area",
+                            "city": "hyderabad",
+                            "state": "telangana"
+                        }
+                    }
+                ),
+                OpenApiExample(
+                    'Point Outside Boundary',
+                    value={
+                        "success": True,
+                        "is_inside": False,
+                        "message": "Point is outside Hyderabad HMDA Extended Area",
+                        "point": {
+                            "latitude": 12.9716,
+                            "longitude": 77.5946,
+                            "coordinates": [77.5946, 12.9716]
+                        },
+                        "layer": {
+                            "slug": "hyderabad_hmda_extended_area",
+                            "name": "Hyderabad HMDA Extended Area",
+                            "city": "hyderabad",
+                            "state": "telangana"
+                        }
+                    }
+                )
+            ]
+        ),
+        400: extend_schema(
+            description="Invalid request parameters",
+            examples=[
+                OpenApiExample(
+                    'Missing Parameters',
+                    value={
+                        "success": False,
+                        "error": "Missing required parameters: lat and lng"
+                    }
+                ),
+                OpenApiExample(
+                    'Invalid Coordinates',
+                    value={
+                        "success": False,
+                        "error": "Invalid coordinates: lat must be between -90 and 90, lng between -180 and 180"
+                    }
+                )
+            ]
+        ),
+        404: extend_schema(
+            description="Layer not found",
+            examples=[
+                OpenApiExample(
+                    'Layer Not Found',
+                    value={
+                        "success": False,
+                        "error": "Hyderabad HMDA Extended Area layer not found"
+                    }
+                )
+            ]
+        )
+    },
+    tags=['boundary-check']
+)
+class HyderabadHMDABoundaryCheckAPIView(APIView):
+    """
+    API endpoint to check if a point is inside the Hyderabad HMDA Extended Area boundary.
+    
+    URL: /api/check-hmda-boundary/?lat={latitude}&lng={longitude}
+    
+    Returns:
+    - is_inside: boolean - true if point is inside boundary, false if outside
+    - message: descriptive message
+    - point: coordinates that were checked
+    - layer: information about the HMDA boundary layer
+    
+    Example:
+    - /api/check-hmda-boundary/?lat=17.3850&lng=78.4867
+    """
+    permission_classes = [AllowAny]
+    
+    def get(self, request):
+        """Check if point is inside Hyderabad HMDA Extended Area"""
+        try:
+            # Get query parameters
+            lat = request.GET.get('lat')
+            lng = request.GET.get('lng')
+            
+            # Validate required parameters
+            if not lat or not lng:
+                return Response({
+                    'success': False,
+                    'error': 'Missing required parameters: lat and lng'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            # Validate and convert coordinates
+            try:
+                latitude = float(lat)
+                longitude = float(lng)
+            except ValueError:
+                return Response({
+                    'success': False,
+                    'error': 'Invalid coordinate format: lat and lng must be valid numbers'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            # Validate coordinate ranges
+            if not (-90 <= latitude <= 90) or not (-180 <= longitude <= 180):
+                return Response({
+                    'success': False,
+                    'error': 'Invalid coordinates: lat must be between -90 and 90, lng between -180 and 180'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            # Get the Hyderabad HMDA Extended Area layer
+            try:
+                layer = DataLayer.objects.select_related('city', 'city__state_ref').get(
+                    slug='hyderabad_hmda_extended_area',
+                    is_processed=True
+                )
+            except DataLayer.DoesNotExist:
+                return Response({
+                    'success': False,
+                    'error': 'Hyderabad HMDA Extended Area layer not found'
+                }, status=status.HTTP_404_NOT_FOUND)
+            
+            # Create point geometry
+            search_point = Point(longitude, latitude, srid=4326)
+            
+            # Check if point is inside any feature of the HMDA boundary layer
+            # Use contains for exact boundary check (no buffer)
+            is_inside = GeoFeature.objects.filter(
+                layer=layer,
+                is_valid=True,
+                geometry__contains=search_point
+            ).exists()
+            
+            # Prepare response
+            response_data = {
+                'success': True,
+                'is_inside': is_inside,
+                'message': f"Point is {'inside' if is_inside else 'outside'} Hyderabad HMDA Extended Area",
+                'point': {
+                    'latitude': latitude,
+                    'longitude': longitude,
+                    'coordinates': [longitude, latitude]
+                },
+                'layer': {
+                    'slug': layer.slug,
+                    'name': layer.name,
+                    'city': layer.city.slug,
+                    'city_name': layer.city.name,
+                    'state': layer.city.state_ref.slug if layer.city.state_ref else None,
+                    'state_name': layer.city.state_ref.name if layer.city.state_ref else None
+                }
+            }
+            
+            logger.info(
+                f"HMDA Boundary Check: Point ({latitude}, {longitude}) is "
+                f"{'inside' if is_inside else 'outside'} boundary"
+            )
+            
+            return Response(response_data, status=status.HTTP_200_OK)
+            
+        except Exception as e:
+            logger.error(f"Error in HyderabadHMDABoundaryCheckAPIView: {e}", exc_info=True)
+            return Response({
+                'success': False,
+                'error': 'Internal server error',
+                'details': str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
 class DeveloperListingMapDataAPIView(APIView):
     """
     Lightweight API endpoint to get only map-related data for a developer listing.
