@@ -37,7 +37,7 @@ DEFAULT_VIEW_SETTINGS = {
 class HyderabadMetroTileGenerator:
     def __init__(self):
         # Paths to the analyzed metro data
-        self.metro_lines_path = project_root / "data" / "Telangana" / "Hyderabad" / "metro-lines" / "Hyd_metro_lines_ph_1&2_Final.geojson"
+        self.metro_lines_path = project_root / "data" / "Telangana" / "Hyderabad" / "metro-lines" / "Hyd_metro_lines_ph_1&2_Final(Updated).geojson"
         self.output_dir = project_root / "hyderabad_metro_tiles"
         
         # Create output directory
