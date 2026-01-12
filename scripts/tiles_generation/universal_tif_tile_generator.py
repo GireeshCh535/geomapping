@@ -235,15 +235,7 @@ class UniversalTIFTileGenerator:
     
     def generate_tiles_for_zoom(self, zoom, min_tile, max_tile):
         """Generate all tiles for a specific zoom level using multi-threading"""
-        # Reduce workers for higher zoom levels to prevent memory issues
-        if zoom >= 15:
-            workers = max(2, self.max_workers // 2)
-        elif zoom >= 13:
-            workers = max(4, self.max_workers // 2)
-        else:
-            workers = self.max_workers
-        
-        logger.info(f"Processing zoom level {zoom} with {workers} workers")
+        logger.info(f"Processing zoom level {zoom} with {self.max_workers} workers")
         
         zoom_dir = self.output_dir / str(zoom)
         zoom_dir.mkdir(exist_ok=True)
@@ -263,39 +255,31 @@ class UniversalTIFTileGenerator:
         
         logger.info(f"Generated {len(tile_tasks)} tile tasks for zoom {zoom}")
         
-        # Process tiles in batches to reduce memory pressure
-        batch_size = 50 if zoom >= 14 else 100
-        
         # Process tiles in parallel using ThreadPoolExecutor
         if tile_tasks:
-            # Process in batches
-            for batch_start in range(0, len(tile_tasks), batch_size):
-                batch_end = min(batch_start + batch_size, len(tile_tasks))
-                batch = tile_tasks[batch_start:batch_end]
+            with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+                # Submit all tasks
+                future_to_tile = {
+                    executor.submit(self.generate_single_tile, zoom, x, y, tile_path): (x, y, tile_path)
+                    for x, y, tile_path in tile_tasks
+                }
                 
-                with ThreadPoolExecutor(max_workers=workers) as executor:
-                    # Submit batch tasks
-                    future_to_tile = {
-                        executor.submit(self.generate_single_tile, zoom, x, y, tile_path): (x, y, tile_path)
-                        for x, y, tile_path in batch
-                    }
-                    
-                    # Process completed tasks
-                    for future in future_to_tile:
-                        x, y, tile_path = future_to_tile[future]
-                        try:
-                            success = future.result()
-                            if success:
-                                tiles_generated += 1
-                            else:
-                                tiles_skipped += 1
-                        except Exception as e:
-                            logger.error(f"Error generating tile {zoom}/{x}/{y}: {e}")
+                # Process completed tasks
+                for future in future_to_tile:
+                    x, y, tile_path = future_to_tile[future]
+                    try:
+                        success = future.result()
+                        if success:
+                            tiles_generated += 1
+                        else:
                             tiles_skipped += 1
-                        
-                        # Log progress every 50 tiles
-                        if (tiles_generated + tiles_skipped) % 50 == 0:
-                            logger.info(f"Zoom {zoom}: Generated {tiles_generated}, Skipped {tiles_skipped}")
+                    except Exception as e:
+                        logger.error(f"Error generating tile {zoom}/{x}/{y}: {e}")
+                        tiles_skipped += 1
+                    
+                    # Log progress every 100 tiles
+                    if (tiles_generated + tiles_skipped) % 100 == 0:
+                        logger.info(f"Zoom {zoom}: Generated {tiles_generated}, Skipped {tiles_skipped}")
         
         logger.info(f"Zoom {zoom} completed: {tiles_generated} generated, {tiles_skipped} skipped")
         return tiles_generated
@@ -363,7 +347,7 @@ class UniversalTIFTileGenerator:
             return False
     
     def render_data_to_tile(self, tile_bounds, draw):
-        """Render WGS84 data to a tile using optimized numpy array operations"""
+        """Render WGS84 data to a tile using pixel-by-pixel approach for maximum quality"""
         try:
             # Check if tile bounds intersect with data bounds
             if (tile_bounds.east < self.wgs84_bounds['west'] or 
@@ -375,117 +359,32 @@ class UniversalTIFTileGenerator:
             # Get data dimensions
             height, width = self.wgs84_data_r.shape
             
-            # Create coordinate arrays for the tile (256x256)
-            tile_x_coords = np.arange(256)
-            tile_y_coords = np.arange(256)
-            
-            # Convert tile pixel coordinates to WGS84 coordinates using vectorization
-            lon_coords = tile_bounds.west + (tile_bounds.east - tile_bounds.west) * tile_x_coords / 256.0
-            lat_coords = tile_bounds.north - (tile_bounds.north - tile_bounds.south) * tile_y_coords / 256.0
-            
-            # Create meshgrid for all tile pixels
-            lon_grid, lat_grid = np.meshgrid(lon_coords, lat_coords)
-            
-            # Convert WGS84 coordinates to data pixel coordinates using vectorized operation
-            from rasterio.transform import rowcol
-            
-            # Flatten grids for processing
-            lon_flat = lon_grid.flatten()
-            lat_flat = lat_grid.flatten()
-            
-            # Convert to data coordinates (vectorized)
-            rows, cols = rowcol(self.wgs84_transform, lon_flat, lat_flat)
-            rows = np.array(rows, dtype=np.int32)
-            cols = np.array(cols, dtype=np.int32)
-            
-            # Reshape back to tile dimensions
-            rows = rows.reshape(256, 256)
-            cols = cols.reshape(256, 256)
-            
-            # Create mask for valid coordinates
-            valid_mask = (cols >= 0) & (cols < width) & (rows >= 0) & (rows < height)
-            
-            # Extract RGB values using advanced indexing (much faster)
-            r_values = np.zeros((256, 256), dtype=np.uint8)
-            g_values = np.zeros((256, 256), dtype=np.uint8)
-            b_values = np.zeros((256, 256), dtype=np.uint8)
-            a_values = np.zeros((256, 256), dtype=np.uint8)
-            
-            # Use numpy advanced indexing for valid pixels
-            valid_rows = rows[valid_mask]
-            valid_cols = cols[valid_mask]
-            
-            r_values[valid_mask] = self.wgs84_data_r[valid_rows, valid_cols].astype(np.uint8)
-            g_values[valid_mask] = self.wgs84_data_g[valid_rows, valid_cols].astype(np.uint8)
-            b_values[valid_mask] = self.wgs84_data_b[valid_rows, valid_cols].astype(np.uint8)
-            a_values[valid_mask] = self.wgs84_data_a[valid_rows, valid_cols].astype(np.uint8)
-            
-            # Create RGBA image array
-            rgba_array = np.zeros((256, 256, 4), dtype=np.uint8)
-            rgba_array[:, :, 0] = r_values
-            rgba_array[:, :, 1] = g_values
-            rgba_array[:, :, 2] = b_values
-            rgba_array[:, :, 3] = a_values
-            
-            # Convert to PIL Image and composite onto existing image
-            tile_img = Image.fromarray(rgba_array, 'RGBA')
-            
-            # Composite onto the existing image (which starts transparent)
-            # This is more efficient than drawing point by point
-            img_array = np.array(draw._image, dtype=np.uint8)
-            if img_array.shape[2] == 4:  # RGBA
-                # Alpha composite
-                alpha = rgba_array[:, :, 3:4] / 255.0
-                img_array[:, :, :3] = (img_array[:, :, :3] * (1 - alpha) + 
-                                      rgba_array[:, :, :3] * alpha).astype(np.uint8)
-                img_array[:, :, 3] = np.maximum(img_array[:, :, 3], rgba_array[:, :, 3])
-                draw._image = Image.fromarray(img_array, 'RGBA')
-            else:
-                # Fallback: draw the image directly
-                draw._image = Image.alpha_composite(draw._image, tile_img)
+            # Sample points in the tile (every pixel for high quality)
+            for tile_y in range(0, 256, 1):
+                for tile_x in range(0, 256, 1):
+                    # Convert tile pixel to WGS84 coordinates
+                    lon = tile_bounds.west + (tile_bounds.east - tile_bounds.west) * tile_x / 256
+                    lat = tile_bounds.north - (tile_bounds.north - tile_bounds.south) * tile_y / 256
+                    
+                    # Convert WGS84 coordinates to data pixel coordinates
+                    data_x, data_y = self.wgs84_to_data_pixel(lon, lat, width, height)
+                    
+                    if 0 <= data_x < width and 0 <= data_y < height:
+                        r = int(self.wgs84_data_r[data_y, data_x])
+                        g = int(self.wgs84_data_g[data_y, data_x])
+                        b = int(self.wgs84_data_b[data_y, data_x])
+                        a = int(self.wgs84_data_a[data_y, data_x])
+                        
+                        # Only draw pixels that are not transparent
+                        if a > 0:
+                            # Use the actual RGB values from the GeoTIFF
+                            rgb_color = (r, g, b)
+                            
+                            # Draw the pixel
+                            draw.point((tile_x, tile_y), fill=rgb_color)
         
         except Exception as e:
             logger.error(f"Error rendering data to tile: {e}")
-            # Fallback to point-by-point rendering if vectorized approach fails
-            try:
-                self._render_data_to_tile_fallback(tile_bounds, draw)
-            except Exception as e2:
-                logger.error(f"Fallback rendering also failed: {e2}")
-    
-    def _render_data_to_tile_fallback(self, tile_bounds, draw):
-        """Fallback point-by-point rendering if vectorized approach fails"""
-        # Check if tile bounds intersect with data bounds
-        if (tile_bounds.east < self.wgs84_bounds['west'] or 
-            tile_bounds.west > self.wgs84_bounds['east'] or 
-            tile_bounds.south > self.wgs84_bounds['north'] or 
-            tile_bounds.north < self.wgs84_bounds['south']):
-            return
-        
-        # Get data dimensions
-        height, width = self.wgs84_data_r.shape
-        
-        # Sample every 2nd pixel for fallback to reduce memory
-        step = 2
-        for tile_y in range(0, 256, step):
-            for tile_x in range(0, 256, step):
-                # Convert tile pixel to WGS84 coordinates
-                lon = tile_bounds.west + (tile_bounds.east - tile_bounds.west) * tile_x / 256
-                lat = tile_bounds.north - (tile_bounds.north - tile_bounds.south) * tile_y / 256
-                
-                # Convert WGS84 coordinates to data pixel coordinates
-                data_x, data_y = self.wgs84_to_data_pixel(lon, lat, width, height)
-                
-                if 0 <= data_x < width and 0 <= data_y < height:
-                    r = int(self.wgs84_data_r[data_y, data_x])
-                    g = int(self.wgs84_data_g[data_y, data_x])
-                    b = int(self.wgs84_data_b[data_y, data_x])
-                    a = int(self.wgs84_data_a[data_y, data_x])
-                    
-                    # Only draw pixels that are not transparent
-                    if a > 0:
-                        rgb_color = (r, g, b)
-                        # Draw a small rectangle instead of point for better coverage
-                        draw.rectangle([tile_x, tile_y, tile_x + step - 1, tile_y + step - 1], fill=rgb_color)
     
     def wgs84_to_data_pixel(self, lon, lat, width, height):
         """Convert WGS84 coordinates to data pixel coordinates"""
