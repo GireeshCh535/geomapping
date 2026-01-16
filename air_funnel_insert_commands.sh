@@ -398,3 +398,149 @@ docker-compose exec web python manage.py insert_masterplan_layer \
   --max-zoom 18 \
   --delete-existing
 
+#!/bin/bash
+# Commands to insert masterplan layers for all new locations
+# Data files are organized in data/ directories
+
+# 1. Thiruvananthapuram (Kerala)
+docker-compose exec web python manage.py insert_masterplan_layer \
+  --city-slug "thiruvananthapuram" \
+  --layer-name "Thiruvananthapuram Masterplan" \
+  --layer-slug "thiruvananthapuram_masterplan" \
+  --data-dir "data/kerala/thiruvananthapuram/masterplan" \
+  --authority "Thiruvananthapuram Development Authority" \
+  --min-zoom 8 \
+  --max-zoom 18 \
+  --delete-existing
+
+# 2. BIAPPA (Karnataka) - Inserted as layer under Bengaluru
+docker-compose exec web python manage.py insert_masterplan_layer \
+  --city-slug "bengaluru" \
+  --layer-name "BIAPPA Masterplan" \
+  --layer-slug "biappa_masterplan" \
+  --data-dir "data/karnataka/biappa/masterplan" \
+  --authority "Bangalore International Airport Planning Area Authority" \
+  --min-zoom 8 \
+  --max-zoom 18 \
+  --delete-existing
+
+# 3. Thrissur (Karnataka)
+docker-compose exec web python manage.py insert_masterplan_layer \
+  --city-slug "thrissur" \
+  --layer-name "Thrissur Masterplan" \
+  --layer-slug "thrissur_masterplan" \
+  --data-dir "data/karnataka/thrissur/masterplan" \
+  --authority "Thrissur Development Authority" \
+  --min-zoom 8 \
+  --max-zoom 18 \
+  --delete-existing
+
+# 4. Bhiwadi (Delhi NCR)
+docker-compose exec web python manage.py insert_masterplan_layer \
+  --city-slug "delhi-ncr" \
+  --layer-name "Bhiwadi Masterplan" \
+  --layer-slug "bhiwadi_masterplan" \
+  --data-dir "data/delhi/delhi_ncr/bhiwadi/masterplan" \
+  --authority "Bhiwadi Development Authority" \
+  --min-zoom 8 \
+  --max-zoom 18 \
+  --delete-existing
+
+# 5. Hodal (Delhi NCR)
+docker-compose exec web python manage.py insert_masterplan_layer \
+  --city-slug "delhi-ncr" \
+  --layer-name "Hodal Masterplan" \
+  --layer-slug "hodal_masterplan" \
+  --data-dir "data/delhi/delhi_ncr/hodal/masterplan" \
+  --authority "Hodal Development Authority" \
+  --min-zoom 8 \
+  --max-zoom 18 \
+  --delete-existing
+
+# 6. Jhajjar (Delhi NCR)
+docker-compose exec web python manage.py insert_masterplan_layer \
+  --city-slug "delhi-ncr" \
+  --layer-name "Jhajjar Masterplan" \
+  --layer-slug "jhajjar_masterplan" \
+  --data-dir "data/delhi/delhi_ncr/jhajjar/masterplan" \
+  --authority "Jhajjar Development Authority" \
+  --min-zoom 8 \
+  --max-zoom 18 \
+  --delete-existing
+
+# 7. Meerut (Delhi NCR)
+docker-compose exec web python manage.py insert_masterplan_layer \
+  --city-slug "delhi-ncr" \
+  --layer-name "Meerut Masterplan" \
+  --layer-slug "meerut_masterplan" \
+  --data-dir "data/delhi/delhi_ncr/meerut/masterplan" \
+  --authority "Meerut Development Authority" \
+  --min-zoom 8 \
+  --max-zoom 18 \
+  --delete-existing
+
+# 8. Nuh (Delhi NCR)
+docker-compose exec web python manage.py insert_masterplan_layer \
+  --city-slug "delhi-ncr" \
+  --layer-name "Nuh Masterplan" \
+  --layer-slug "nuh_masterplan" \
+  --data-dir "data/delhi/delhi_ncr/nuh/masterplan" \
+  --authority "Nuh Development Authority" \
+  --min-zoom 8 \
+  --max-zoom 18 \
+  --delete-existing
+
+# 9. Rewari (Delhi NCR)
+docker-compose exec web python manage.py insert_masterplan_layer \
+  --city-slug "delhi-ncr" \
+  --layer-name "Rewari Masterplan" \
+  --layer-slug "rewari_masterplan" \
+  --data-dir "data/delhi/delhi_ncr/rewari/masterplan" \
+  --authority "Rewari Development Authority" \
+  --min-zoom 8 \
+  --max-zoom 18 \
+  --delete-existing
+
+# 10. Gohana (Delhi NCR)
+docker-compose exec web python manage.py insert_masterplan_layer \
+  --city-slug "delhi-ncr" \
+  --layer-name "Gohana Masterplan" \
+  --layer-slug "gohana_masterplan" \
+  --data-dir "data/delhi/delhi_ncr/gohana/masterplan" \
+  --authority "Gohana Development Authority" \
+  --min-zoom 8 \
+  --max-zoom 18 \
+  --delete-existing
+
+# 11. Itanagar (Arunachal Pradesh)
+docker-compose exec web python manage.py insert_masterplan_layer \
+  --city-slug "itanagar" \
+  --layer-name "Itanagar Masterplan" \
+  --layer-slug "itanagar_masterplan" \
+  --data-dir "data/arunachal-pradesh/itanagar/itanagar/masterplan" \
+  --authority "Itanagar Development Authority" \
+  --min-zoom 8 \
+  --max-zoom 18 \
+  --delete-existing
+
+# 12. Port Blair (Andaman and Nicobar Islands)
+docker-compose exec web python manage.py insert_masterplan_layer \
+  --city-slug "port-blair" \
+  --layer-name "Port Blair Masterplan" \
+  --layer-slug "port_blair_masterplan" \
+  --data-dir "data/andaman-and-nicobar-islands/port-blair/port_blair/masterplan" \
+  --authority "Port Blair Development Authority" \
+  --min-zoom 8 \
+  --max-zoom 18 \
+  --delete-existing
+
+# 13. Alwar (Delhi NCR)
+docker-compose exec web python manage.py insert_masterplan_layer \
+  --city-slug "delhi-ncr" \
+  --layer-name "Alwar Masterplan" \
+  --layer-slug "alwar_masterplan" \
+  --data-dir "data/delhi/delhi_ncr/alwar/masterplan" \
+  --authority "Alwar Development Authority" \
+  --min-zoom 8 \
+  --max-zoom 18 \
+  --delete-existing
