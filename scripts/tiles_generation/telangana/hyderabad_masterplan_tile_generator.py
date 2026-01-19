@@ -9,12 +9,14 @@ import json
 import csv
 import sys
 import time
+import os
 from pathlib import Path
 from PIL import Image, ImageDraw
 import mercantile
 from shapely.geometry import shape, box, Point, Polygon, LineString
 from shapely.ops import transform
 from rtree import index
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 try:
     from pyproj import Transformer
@@ -24,7 +26,7 @@ except ImportError:
 
 
 class HyderabadMasterPlanTiles:
-    def __init__(self, data_dir, output_dir):
+    def __init__(self, data_dir, output_dir, max_workers=None):
         """Initialize Hyderabad tile generator - handles HMDA and HUDA subdirectories"""
         self.data_dir = Path(data_dir)
         self.output_dir = Path(output_dir)
@@ -35,6 +37,12 @@ class HyderabadMasterPlanTiles:
         self.source_crs = None
         self.needs_transform = None
         self.transformer = None
+        
+        # Parallel processing
+        if max_workers is None:
+            # Use 80% of available CPUs, but cap at reasonable number
+            max_workers = max(1, int(os.cpu_count() * 0.8))
+        self.max_workers = max_workers
         
         # Load color mappings from both HMDA and HUDA legend files
         self.color_map = {}
@@ -431,10 +439,27 @@ class HyderabadMasterPlanTiles:
         
         return poly_img
     
+    def get_buffer_degrees(self, zoom):
+        """Get adaptive buffer size based on zoom level"""
+        # At high zoom levels, tiles are very small, so buffer should be proportional
+        # Zoom 7: ~0.7 degrees per tile
+        # Zoom 17: ~0.0003 degrees per tile  
+        # Zoom 18: ~0.00015 degrees per tile
+        if zoom <= 10:
+            return 0.01  # ~1.4% of tile size
+        elif zoom <= 13:
+            return 0.005  # ~0.7% of tile size
+        elif zoom <= 16:
+            return 0.001  # ~0.3% of tile size
+        else:
+            # For zoom 17-18, use much smaller buffer
+            return 0.0003  # ~0.2% of tile size at zoom 17
+    
     def render_tile_seamless(self, tile):
         """Render a single tile with seamless boundaries"""
         tile_bounds = mercantile.bounds(tile)
-        buffer_degrees = 0.01
+        zoom = tile.z
+        buffer_degrees = self.get_buffer_degrees(zoom)
         buffered_bounds = box(
             tile_bounds.west - buffer_degrees,
             tile_bounds.south - buffer_degrees,
@@ -447,7 +472,7 @@ class HyderabadMasterPlanTiles:
         if not candidate_ids:
             return None
         
-        zoom = tile.z
+        # zoom already set above
         scale = self.get_zoom_scale(zoom)
         min_size = self.get_min_feature_size(zoom, scale)
         outline_width = self.get_outline_width(zoom)
@@ -534,11 +559,29 @@ class HyderabadMasterPlanTiles:
         img = img.resize((self.tile_size, self.tile_size), Image.LANCZOS)
         return img
     
+    def generate_single_tile(self, tile, zoom_dir):
+        """Generate a single tile - used for parallel processing"""
+        tile_dir = zoom_dir / str(tile.x)
+        tile_path = tile_dir / f"{tile.y}.png"
+        
+        # Skip if tile already exists on disk
+        if tile_path.exists():
+            return False
+        
+        img = self.render_tile_seamless(tile)
+        
+        if img is not None:
+            tile_dir.mkdir(parents=True, exist_ok=True)
+            img.save(tile_path, 'PNG', optimize=False)
+            return True
+        return False
+    
     def generate_tiles(self, min_zoom=7, max_zoom=18):
-        """Generate seamless tiles"""
+        """Generate seamless tiles with parallel processing"""
         print(f"\n{'='*80}")
         print(f"GENERATING HYDERABAD TILES (Zoom {min_zoom}-{max_zoom})")
         print(f"Mode: SEAMLESS - NO TILE BOUNDARIES")
+        print(f"Parallel workers: {self.max_workers}")
         print(f"{'='*80}")
         
         bounds = self.get_bounds()
@@ -561,30 +604,48 @@ class HyderabadMasterPlanTiles:
             scale = self.get_zoom_scale(zoom)
             min_size = self.get_min_feature_size(zoom, scale)
             
-            print(f"Zoom {zoom:2d} | {total_for_zoom:,} tiles | Scale: {scale}x | Min: {min_size:.1f}px", 
+            print(f"Zoom {zoom:2d} | {total_for_zoom:,} tiles | Scale: {scale}x | Min: {min_size:.1f}px | Workers: {self.max_workers}", 
                   end=" ", flush=True)
             
             zoom_dir = self.output_dir / str(zoom)
             rendered = 0
+            skipped = 0
             
-            for tile in tiles:
-                tile_dir = zoom_dir / str(tile.x)
-                tile_path = tile_dir / f"{tile.y}.png"
-
-                # Skip if tile already exists on disk
-                if tile_path.exists():
-                    continue
-
-                img = self.render_tile_seamless(tile)
+            # Process tiles in parallel
+            with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+                # Submit all tile generation tasks
+                future_to_tile = {
+                    executor.submit(self.generate_single_tile, tile, zoom_dir): tile
+                    for tile in tiles
+                }
                 
-                if img is not None:
-                    tile_dir.mkdir(parents=True, exist_ok=True)
-                    img.save(tile_path, 'PNG', optimize=False)
-                    rendered += 1
+                # Process completed tasks
+                completed = 0
+                for future in as_completed(future_to_tile):
+                    completed += 1
+                    try:
+                        success = future.result()
+                        if success:
+                            rendered += 1
+                        else:
+                            skipped += 1
+                    except Exception as e:
+                        skipped += 1
+                        # Only print errors occasionally to avoid spam
+                        if skipped % 1000 == 0:
+                            print(f"\n⚠️  Error in tile generation (zoom {zoom}): {e}")
+                    
+                    # Progress update every 1000 tiles or at completion
+                    if completed % 1000 == 0 or completed == total_for_zoom:
+                        elapsed = time.time() - zoom_start
+                        rate = completed / elapsed if elapsed > 0 else 0
+                        print(f"\rZoom {zoom:2d} | Progress: {completed:,}/{total_for_zoom:,} | "
+                              f"Rendered: {rendered:,} | Rate: {rate:.1f} t/s", end="", flush=True)
             
             zoom_elapsed = time.time() - zoom_start
             speed = rendered / zoom_elapsed if zoom_elapsed > 0 else 0
-            print(f"| ✓ {rendered:,} in {zoom_elapsed:.1f}s ({speed:.1f} t/s)")
+            print(f"\rZoom {zoom:2d} | {total_for_zoom:,} tiles | Scale: {scale}x | "
+                  f"✓ {rendered:,} rendered, {skipped:,} skipped in {zoom_elapsed:.1f}s ({speed:.1f} t/s)")
             
             total_tiles += rendered
         
