@@ -567,15 +567,15 @@ class HyderabadMasterPlanTiles:
         
         # Skip if tile already exists on disk
         if tile_path.exists():
-            return False
+            return 'exists'
         
         img = self.render_tile_seamless(tile)
         
         if img is not None:
             tile_dir.mkdir(parents=True, exist_ok=True)
             img.save(tile_path, 'PNG', optimize=False)
-            return True
-        return False
+            return 'rendered'
+        return 'empty'  # No features in tile
     
     def generate_tiles(self, min_zoom=7, max_zoom=18):
         """Generate seamless tiles with parallel processing"""
@@ -610,7 +610,9 @@ class HyderabadMasterPlanTiles:
             
             zoom_dir = self.output_dir / str(zoom)
             rendered = 0
-            skipped = 0
+            skipped_exists = 0
+            skipped_empty = 0
+            errors = 0
             
             # Process tiles in parallel
             with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
@@ -625,15 +627,17 @@ class HyderabadMasterPlanTiles:
                 for future in as_completed(future_to_tile):
                     completed += 1
                     try:
-                        success = future.result()
-                        if success:
+                        result = future.result()
+                        if result == 'rendered':
                             rendered += 1
-                        else:
-                            skipped += 1
+                        elif result == 'exists':
+                            skipped_exists += 1
+                        elif result == 'empty':
+                            skipped_empty += 1
                     except Exception as e:
-                        skipped += 1
-                        # Only print errors occasionally to avoid spam
-                        if skipped % 1000 == 0:
+                        errors += 1
+                        # Print first few errors, then occasionally
+                        if errors <= 5 or errors % 1000 == 0:
                             print(f"\n⚠️  Error in tile generation (zoom {zoom}): {e}")
                     
                     # Progress update every 1000 tiles or at completion
@@ -641,12 +645,15 @@ class HyderabadMasterPlanTiles:
                         elapsed = time.time() - zoom_start
                         rate = completed / elapsed if elapsed > 0 else 0
                         print(f"\rZoom {zoom:2d} | Progress: {completed:,}/{total_for_zoom:,} | "
-                              f"Rendered: {rendered:,} | Rate: {rate:.1f} t/s", end="", flush=True)
+                              f"Rendered: {rendered:,} | Exists: {skipped_exists:,} | Empty: {skipped_empty:,} | "
+                              f"Errors: {errors:,} | Rate: {rate:.1f} t/s", end="", flush=True)
             
             zoom_elapsed = time.time() - zoom_start
             speed = rendered / zoom_elapsed if zoom_elapsed > 0 else 0
+            total_skipped = skipped_exists + skipped_empty
             print(f"\rZoom {zoom:2d} | {total_for_zoom:,} tiles | Scale: {scale}x | "
-                  f"✓ {rendered:,} rendered, {skipped:,} skipped in {zoom_elapsed:.1f}s ({speed:.1f} t/s)")
+                  f"✓ {rendered:,} rendered, {skipped_exists:,} existed, {skipped_empty:,} empty, "
+                  f"{errors:,} errors in {zoom_elapsed:.1f}s ({speed:.1f} t/s)")
             
             total_tiles += rendered
         
