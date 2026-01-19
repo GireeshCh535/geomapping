@@ -40,8 +40,9 @@ class HyderabadMasterPlanTiles:
         
         # Parallel processing
         if max_workers is None:
-            # Use 80% of available CPUs, but cap at reasonable number
-            max_workers = max(1, int(os.cpu_count() * 0.8))
+            # Use 60% of available CPUs
+            cpu_count = os.cpu_count() or 80
+            max_workers = max(1, int(cpu_count * 0.6))
         self.max_workers = max_workers
         
         # Load color mappings from both HMDA and HUDA legend files
