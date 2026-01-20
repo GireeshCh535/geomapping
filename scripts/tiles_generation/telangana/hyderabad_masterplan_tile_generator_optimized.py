@@ -11,6 +11,7 @@ import csv
 import sys
 import time
 import os
+import threading
 from pathlib import Path
 from PIL import Image, ImageDraw
 import mercantile
@@ -41,10 +42,10 @@ class HyderabadMasterPlanTilesOptimized:
         
         # Parallel processing
         if max_workers is None:
-            # Start conservative: use 8 workers to avoid Shapely/PIL thread-safety issues
-            # Can increase if stable
+            # With lock serialization, we can use more workers for I/O parallelism
+            # Geometry operations are serialized, but file I/O can be parallel
             cpu_count = os.cpu_count() or 80
-            max_workers = min(8, max(1, int(cpu_count * 0.1)))
+            max_workers = min(16, max(1, int(cpu_count * 0.2)))
         self.max_workers = max_workers
         
         # Load color mappings from both HMDA and HUDA legend files
@@ -54,6 +55,9 @@ class HyderabadMasterPlanTilesOptimized:
         # Pre-compute RGB values
         self._color_map_rgb = None
         self._init_color_cache()
+        
+        # Global lock for geometry operations (Shapely/PIL thread-safety)
+        self._render_lock = threading.Lock()
     
     def _load_legends(self):
         """Load legend.csv from both HMDA and HUDA subdirectories"""
@@ -461,6 +465,12 @@ class HyderabadMasterPlanTilesOptimized:
     
     def render_tile_seamless(self, tile):
         """Render a single tile with seamless boundaries"""
+        # Serialize all geometry operations to avoid thread-safety issues
+        with self._render_lock:
+            return self._render_tile_seamless_internal(tile)
+    
+    def _render_tile_seamless_internal(self, tile):
+        """Internal rendering method - called with lock held"""
         tile_bounds = mercantile.bounds(tile)
         zoom = tile.z
         buffer_degrees = self.get_buffer_degrees(zoom)
