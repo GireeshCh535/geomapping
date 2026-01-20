@@ -11,6 +11,7 @@ import sys
 import time
 import os
 from pathlib import Path
+from queue import Queue
 from PIL import Image, ImageDraw
 import mercantile
 from shapely.geometry import shape, box, Point, Polygon, LineString
@@ -575,22 +576,28 @@ class HyderabadMasterPlanTiles:
         img = img.resize((self.tile_size, self.tile_size), Image.LANCZOS)
         return img
     
-    def generate_single_tile(self, tile, zoom_dir):
-        """Generate a single tile - used for parallel processing"""
+    def render_tile_only(self, tile):
+        """Render a tile without saving - producer"""
+        # Check if tile already exists
+        zoom_dir = self.output_dir / str(tile.z)
         tile_dir = zoom_dir / str(tile.x)
         tile_path = tile_dir / f"{tile.y}.png"
         
-        # Skip if tile already exists on disk
         if tile_path.exists():
-            return 'exists'
+            return ('exists', None, None)
         
         img = self.render_tile_seamless(tile)
         
         if img is not None:
-            tile_dir.mkdir(parents=True, exist_ok=True)
-            img.save(tile_path, 'PNG', optimize=False)
-            return 'rendered'
-        return 'empty'  # No features in tile
+            return ('rendered', tile_path, img)
+        return ('empty', None, None)
+    
+    def save_tile(self, tile_path, img):
+        """Save a rendered tile to disk - consumer"""
+        tile_dir = tile_path.parent
+        tile_dir.mkdir(parents=True, exist_ok=True)
+        img.save(tile_path, 'PNG', optimize=False)
+        return True
     
     def generate_tiles(self, min_zoom=7, max_zoom=18):
         """Generate seamless tiles with parallel processing"""
@@ -620,7 +627,11 @@ class HyderabadMasterPlanTiles:
             scale = self.get_zoom_scale(zoom)
             min_size = self.get_min_feature_size(zoom, scale)
             
-            print(f"Zoom {zoom:2d} | {total_for_zoom:,} tiles | Scale: {scale}x | Min: {min_size:.1f}px | Workers: {self.max_workers}", 
+            # Calculate worker split
+            render_workers = max(1, int(self.max_workers * 0.7))
+            save_workers = max(1, self.max_workers - render_workers)
+            print(f"Zoom {zoom:2d} | {total_for_zoom:,} tiles | Scale: {scale}x | Min: {min_size:.1f}px | "
+                  f"Workers: {self.max_workers} (Render: {render_workers}, Save: {save_workers})", 
                   end=" ", flush=True)
             
             zoom_dir = self.output_dir / str(zoom)
@@ -629,39 +640,92 @@ class HyderabadMasterPlanTiles:
             skipped_empty = 0
             errors = 0
             
-            # Process tiles in parallel
-            with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
-                # Submit all tile generation tasks
-                future_to_tile = {
-                    executor.submit(self.generate_single_tile, tile, zoom_dir): tile
-                    for tile in tiles
-                }
-                
-                # Process completed tasks
-                completed = 0
-                for future in as_completed(future_to_tile):
-                    completed += 1
+            # Queue for passing rendered images from renderers to savers
+            render_queue = Queue(maxsize=self.max_workers * 2)  # Buffer for rendered tiles
+            
+            # Separate thread pools: renderers (CPU-bound) and savers (I/O-bound)
+            # Use 70% for rendering, 30% for saving
+            render_workers = max(1, int(self.max_workers * 0.7))
+            save_workers = max(1, self.max_workers - render_workers)
+            
+            def save_worker():
+                """Consumer: save tiles from queue"""
+                saved_count = 0
+                error_count = 0
+                while True:
                     try:
-                        result = future.result()
-                        if result == 'rendered':
-                            rendered += 1
-                        elif result == 'exists':
-                            skipped_exists += 1
-                        elif result == 'empty':
-                            skipped_empty += 1
-                    except Exception as e:
-                        errors += 1
-                        # Print first few errors, then occasionally
-                        if errors <= 5 or errors % 1000 == 0:
-                            print(f"\n⚠️  Error in tile generation (zoom {zoom}): {e}")
+                        item = render_queue.get(timeout=5)
+                        if item is None:  # Sentinel to stop
+                            render_queue.task_done()
+                            break
+                        
+                        status, tile_path, img = item
+                        if status == 'rendered' and tile_path and img:
+                            try:
+                                self.save_tile(tile_path, img)
+                                saved_count += 1
+                            except Exception as e:
+                                error_count += 1
+                                if error_count <= 5:
+                                    print(f"\n⚠️  Error saving tile {tile_path}: {e}")
+                        render_queue.task_done()
+                    except:
+                        # Timeout - check if rendering is done
+                        continue
+                return saved_count
+            
+            # Start save workers
+            with ThreadPoolExecutor(max_workers=save_workers) as save_executor:
+                save_futures = [save_executor.submit(save_worker) for _ in range(save_workers)]
+                
+                # Process tiles: render in parallel, queue results for saving
+                with ThreadPoolExecutor(max_workers=render_workers) as render_executor:
+                    # Submit all rendering tasks
+                    render_futures = {
+                        render_executor.submit(self.render_tile_only, tile): tile
+                        for tile in tiles
+                    }
                     
-                    # Progress update every 1000 tiles or at completion
-                    if completed % 1000 == 0 or completed == total_for_zoom:
-                        elapsed = time.time() - zoom_start
-                        rate = completed / elapsed if elapsed > 0 else 0
-                        print(f"\rZoom {zoom:2d} | Progress: {completed:,}/{total_for_zoom:,} | "
-                              f"Rendered: {rendered:,} | Exists: {skipped_exists:,} | Empty: {skipped_empty:,} | "
-                              f"Errors: {errors:,} | Rate: {rate:.1f} t/s", end="", flush=True)
+                    # Process completed rendering tasks
+                    completed = 0
+                    for future in as_completed(render_futures):
+                        completed += 1
+                        try:
+                            status, tile_path, img = future.result()
+                            
+                            if status == 'rendered':
+                                # Queue for saving (blocking if queue is full)
+                                render_queue.put((status, tile_path, img))
+                                rendered += 1
+                            elif status == 'exists':
+                                skipped_exists += 1
+                            elif status == 'empty':
+                                skipped_empty += 1
+                        except Exception as e:
+                            errors += 1
+                            # Print first few errors, then occasionally
+                            if errors <= 5 or errors % 1000 == 0:
+                                print(f"\n⚠️  Error in tile rendering (zoom {zoom}): {e}")
+                        
+                        # Progress update every 1000 tiles or at completion
+                        if completed % 1000 == 0 or completed == total_for_zoom:
+                            elapsed = time.time() - zoom_start
+                            rate = completed / elapsed if elapsed > 0 else 0
+                            queue_size = render_queue.qsize()
+                            print(f"\rZoom {zoom:2d} | Progress: {completed:,}/{total_for_zoom:,} | "
+                                  f"Rendered: {rendered:,} | Exists: {skipped_exists:,} | Empty: {skipped_empty:,} | "
+                                  f"Queue: {queue_size} | Errors: {errors:,} | Rate: {rate:.1f} t/s", end="", flush=True)
+                
+                # Signal save workers to stop after all rendering is done
+                for _ in range(save_workers):
+                    render_queue.put(None)
+                
+                # Wait for all saves to complete
+                render_queue.join()
+                
+                # Wait for save workers to finish
+                for save_future in save_futures:
+                    save_future.result()
             
             zoom_elapsed = time.time() - zoom_start
             speed = rendered / zoom_elapsed if zoom_elapsed > 0 else 0
