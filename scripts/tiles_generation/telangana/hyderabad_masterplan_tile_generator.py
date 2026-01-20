@@ -262,7 +262,10 @@ class HyderabadMasterPlanTiles:
                         self.feature_id_counter += 1
                         loaded += 1
                         
-                    except:
+                    except Exception as e:
+                        # Only log first few errors per file to avoid spam
+                        if idx <= 3 and loaded == 0:
+                            print(f"\n⚠️  Error loading feature from {file_name}: {e}")
                         continue
                 
                 total_features += loaded
@@ -490,11 +493,23 @@ class HyderabadMasterPlanTiles:
         color_map = self._color_map_rgb
         rendered_count = 0
         
+        # Pre-filter candidates: check bounds intersection first (faster than geometry intersection)
+        tile_box = box(tile_bounds.west, tile_bounds.south, tile_bounds.east, tile_bounds.north)
+        
         for feature_id in candidate_ids:
             try:
                 feature_data = self.feature_lookup[feature_id]
                 geom = feature_data['geometry']
                 
+                # Fast bounds check first
+                geom_bounds = geom.bounds
+                if (geom_bounds[2] < buffered_bounds.bounds[0] or  # geom max_x < tile min_x
+                    geom_bounds[0] > buffered_bounds.bounds[2] or  # geom min_x > tile max_x
+                    geom_bounds[3] < buffered_bounds.bounds[1] or  # geom max_y < tile min_y
+                    geom_bounds[1] > buffered_bounds.bounds[3]):    # geom min_y > tile max_y
+                    continue
+                
+                # Then precise geometry intersection check
                 if not geom.intersects(buffered_bounds):
                     continue
                 
