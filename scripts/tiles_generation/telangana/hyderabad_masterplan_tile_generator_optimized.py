@@ -11,7 +11,6 @@ import csv
 import sys
 import time
 import os
-import threading
 from pathlib import Path
 from PIL import Image, ImageDraw
 import mercantile
@@ -42,9 +41,10 @@ class HyderabadMasterPlanTilesOptimized:
         
         # Parallel processing
         if max_workers is None:
-            # Use 60% of available CPUs, but cap at 32 for stability
+            # Start conservative: use 8 workers to avoid Shapely/PIL thread-safety issues
+            # Can increase if stable
             cpu_count = os.cpu_count() or 80
-            max_workers = min(32, max(1, int(cpu_count * 0.6)))
+            max_workers = min(8, max(1, int(cpu_count * 0.1)))
         self.max_workers = max_workers
         
         # Load color mappings from both HMDA and HUDA legend files
@@ -54,9 +54,6 @@ class HyderabadMasterPlanTilesOptimized:
         # Pre-compute RGB values
         self._color_map_rgb = None
         self._init_color_cache()
-        
-        # Thread safety: lock for geometry access (though Shapely should be thread-safe for reads)
-        self._geometry_lock = threading.Lock()
     
     def _load_legends(self):
         """Load legend.csv from both HMDA and HUDA subdirectories"""
@@ -501,49 +498,34 @@ class HyderabadMasterPlanTilesOptimized:
         rendered_count = 0
         
         # Fast bounds pre-filtering
-        # Create a local copy of candidate features to avoid concurrent access issues
-        features_to_render = []
-        
-        with self._geometry_lock:
-            for feature_id in candidate_ids:
-                try:
-                    feature_data = self.feature_lookup[feature_id]
-                    # Get bounds and category while holding lock
-                    geom = feature_data['geometry']
-                    geom_bounds = geom.bounds
-                    category = feature_data['category']
-                    
-                    # Fast bounds check
-                    if (geom_bounds[2] < buffered_bounds.bounds[0] or
-                        geom_bounds[0] > buffered_bounds.bounds[2] or
-                        geom_bounds[3] < buffered_bounds.bounds[1] or
-                        geom_bounds[1] > buffered_bounds.bounds[3]):
-                        continue
-                    
-                    # Store feature data for rendering (geometry access is read-only)
-                    features_to_render.append({
-                        'geometry': geom,
-                        'category': category,
-                        'bounds': geom_bounds
-                    })
-                except Exception as e:
-                    # Skip problematic features
-                    continue
-        
-        # Now render features (geometry operations are read-only, should be thread-safe)
-        for feat_data in features_to_render:
+        # Process features directly but carefully to avoid thread-safety issues
+        for feature_id in candidate_ids:
             try:
-                geom = feat_data['geometry']
+                feature_data = self.feature_lookup[feature_id]
+                geom = feature_data['geometry']
+                
+                # Fast bounds check first (read-only, should be thread-safe)
+                geom_bounds = geom.bounds
+                if (geom_bounds[2] < buffered_bounds.bounds[0] or
+                    geom_bounds[0] > buffered_bounds.bounds[2] or
+                    geom_bounds[3] < buffered_bounds.bounds[1] or
+                    geom_bounds[1] > buffered_bounds.bounds[3]):
+                    continue
+                
+                # Precise geometry intersection check (read-only)
+                if not geom.intersects(buffered_bounds):
+                    continue
+                
+                category = feature_data['category']
                 
                 # Precise geometry intersection check
                 if not geom.intersects(buffered_bounds):
                     continue
                 
-                category = feat_data['category']
                 color_info = color_map.get(category, color_map.get('DEFAULT', {'fill': (204, 204, 204), 'outline': (153, 153, 153)}))
-                
                 fill_rgb = color_info.get('fill')
                 
+                # Work with geometry (all operations are read-only)
                 if isinstance(geom, Polygon):
                     if geom.area < 1e-10:
                         continue
@@ -604,19 +586,23 @@ class HyderabadMasterPlanTilesOptimized:
     
     def generate_single_tile(self, tile, zoom_dir):
         """Generate a single tile - used for parallel processing"""
-        tile_dir = zoom_dir / str(tile.x)
-        tile_path = tile_dir / f"{tile.y}.png"
-        
-        if tile_path.exists():
-            return 'exists'
-        
-        img = self.render_tile_seamless(tile)
-        
-        if img is not None:
-            tile_dir.mkdir(parents=True, exist_ok=True)
-            img.save(tile_path, 'PNG', optimize=False)
-            return 'rendered'
-        return 'empty'
+        try:
+            tile_dir = zoom_dir / str(tile.x)
+            tile_path = tile_dir / f"{tile.y}.png"
+            
+            if tile_path.exists():
+                return 'exists'
+            
+            img = self.render_tile_seamless(tile)
+            
+            if img is not None:
+                tile_dir.mkdir(parents=True, exist_ok=True)
+                img.save(tile_path, 'PNG', optimize=False)
+                return 'rendered'
+            return 'empty'
+        except Exception as e:
+            # Return error indicator
+            return f'error:{str(e)[:50]}'
     
     def generate_tiles(self, min_zoom=7, max_zoom=15):
         """Generate seamless tiles with parallel processing"""
@@ -665,13 +651,17 @@ class HyderabadMasterPlanTilesOptimized:
                 for future in as_completed(future_to_tile):
                     completed += 1
                     try:
-                        result = future.result()
+                        result = future.result(timeout=300)  # 5 min timeout per tile
                         if result == 'rendered':
                             rendered += 1
                         elif result == 'exists':
                             skipped_exists += 1
                         elif result == 'empty':
                             skipped_empty += 1
+                        elif result and result.startswith('error:'):
+                            errors += 1
+                            if errors <= 5:
+                                print(f"\n⚠️  Error in tile generation (zoom {zoom}): {result}")
                     except Exception as e:
                         errors += 1
                         if errors <= 5 or errors % 1000 == 0:
