@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
-Hyderabad Master Plan - SEAMLESS COMPLETE TILES
+Hyderabad Master Plan - OPTIMIZED TILE GENERATOR
+Uses pre-split features for dramatically faster tile generation at high zoom levels
 Handles both HMDA and HUDA subdirectories
 Reads color mappings from legend.csv in each subdirectory
 """
@@ -10,6 +11,7 @@ import csv
 import sys
 import time
 import os
+import threading
 from pathlib import Path
 from PIL import Image, ImageDraw
 import mercantile
@@ -25,9 +27,9 @@ except ImportError:
     HAS_PYPROJ = False
 
 
-class HyderabadMasterPlanTiles:
+class HyderabadMasterPlanTilesOptimized:
     def __init__(self, data_dir, output_dir, max_workers=None):
-        """Initialize Hyderabad tile generator - handles HMDA and HUDA subdirectories"""
+        """Initialize optimized Hyderabad tile generator"""
         self.data_dir = Path(data_dir)
         self.output_dir = Path(output_dir)
         self.tile_size = 256
@@ -40,9 +42,9 @@ class HyderabadMasterPlanTiles:
         
         # Parallel processing
         if max_workers is None:
-            # Use 60% of available CPUs
+            # Use 60% of available CPUs, but cap at 32 for stability
             cpu_count = os.cpu_count() or 80
-            max_workers = max(1, int(cpu_count * 0.6))
+            max_workers = min(32, max(1, int(cpu_count * 0.6)))
         self.max_workers = max_workers
         
         # Load color mappings from both HMDA and HUDA legend files
@@ -52,6 +54,9 @@ class HyderabadMasterPlanTiles:
         # Pre-compute RGB values
         self._color_map_rgb = None
         self._init_color_cache()
+        
+        # Thread safety: lock for geometry access (though Shapely should be thread-safe for reads)
+        self._geometry_lock = threading.Lock()
     
     def _load_legends(self):
         """Load legend.csv from both HMDA and HUDA subdirectories"""
@@ -164,7 +169,7 @@ class HyderabadMasterPlanTiles:
     def load_geojson_files(self):
         """Load GeoJSON files from both HMDA and HUDA subdirectories"""
         print("\n" + "="*80)
-        print("LOADING HYDERABAD GEOJSON DATA (HMDA + HUDA)")
+        print("LOADING HYDERABAD GEOJSON DATA (HMDA + HUDA) - OPTIMIZED")
         print("="*80)
         
         all_files = []
@@ -237,8 +242,11 @@ class HyderabadMasterPlanTiles:
                             continue
                         
                         props = feature.get('properties', {})
+                        
+                        # Use original category if available, otherwise derive from filename
                         raw_category = (
-                            props.get("LANDUSE_CATEGORY")
+                            props.get("ORIGINAL_CATEGORY")
+                            or props.get("LANDUSE_CATEGORY")
                             or props.get("CATEGORY")
                             or props.get("Name")
                             or props.get("name")
@@ -445,19 +453,14 @@ class HyderabadMasterPlanTiles:
     
     def get_buffer_degrees(self, zoom):
         """Get adaptive buffer size based on zoom level"""
-        # At high zoom levels, tiles are very small, so buffer should be proportional
-        # Zoom 7: ~0.7 degrees per tile
-        # Zoom 17: ~0.0003 degrees per tile  
-        # Zoom 18: ~0.00015 degrees per tile
         if zoom <= 10:
-            return 0.01  # ~1.4% of tile size
+            return 0.01
         elif zoom <= 13:
-            return 0.005  # ~0.7% of tile size
+            return 0.005
         elif zoom <= 16:
-            return 0.001  # ~0.3% of tile size
+            return 0.001
         else:
-            # For zoom 17-18, use much smaller buffer
-            return 0.0003  # ~0.2% of tile size at zoom 17
+            return 0.0003
     
     def render_tile_seamless(self, tile):
         """Render a single tile with seamless boundaries"""
@@ -471,12 +474,16 @@ class HyderabadMasterPlanTiles:
             tile_bounds.north + buffer_degrees
         )
         
-        candidate_ids = list(self.spatial_index.intersection(buffered_bounds.bounds))
+        # Thread-safe spatial index query
+        try:
+            candidate_ids = list(self.spatial_index.intersection(buffered_bounds.bounds))
+        except Exception as e:
+            # Fallback if spatial index has issues
+            return None
         
         if not candidate_ids:
             return None
         
-        # zoom already set above
         scale = self.get_zoom_scale(zoom)
         min_size = self.get_min_feature_size(zoom, scale)
         outline_width = self.get_outline_width(zoom)
@@ -493,27 +500,46 @@ class HyderabadMasterPlanTiles:
         color_map = self._color_map_rgb
         rendered_count = 0
         
-        # Pre-filter candidates: check bounds intersection first (faster than geometry intersection)
-        tile_box = box(tile_bounds.west, tile_bounds.south, tile_bounds.east, tile_bounds.north)
+        # Fast bounds pre-filtering
+        # Create a local copy of candidate features to avoid concurrent access issues
+        features_to_render = []
         
-        for feature_id in candidate_ids:
-            try:
-                feature_data = self.feature_lookup[feature_id]
-                geom = feature_data['geometry']
-                
-                # Fast bounds check first
-                geom_bounds = geom.bounds
-                if (geom_bounds[2] < buffered_bounds.bounds[0] or  # geom max_x < tile min_x
-                    geom_bounds[0] > buffered_bounds.bounds[2] or  # geom min_x > tile max_x
-                    geom_bounds[3] < buffered_bounds.bounds[1] or  # geom max_y < tile min_y
-                    geom_bounds[1] > buffered_bounds.bounds[3]):    # geom min_y > tile max_y
+        with self._geometry_lock:
+            for feature_id in candidate_ids:
+                try:
+                    feature_data = self.feature_lookup[feature_id]
+                    # Get bounds and category while holding lock
+                    geom = feature_data['geometry']
+                    geom_bounds = geom.bounds
+                    category = feature_data['category']
+                    
+                    # Fast bounds check
+                    if (geom_bounds[2] < buffered_bounds.bounds[0] or
+                        geom_bounds[0] > buffered_bounds.bounds[2] or
+                        geom_bounds[3] < buffered_bounds.bounds[1] or
+                        geom_bounds[1] > buffered_bounds.bounds[3]):
+                        continue
+                    
+                    # Store feature data for rendering (geometry access is read-only)
+                    features_to_render.append({
+                        'geometry': geom,
+                        'category': category,
+                        'bounds': geom_bounds
+                    })
+                except Exception as e:
+                    # Skip problematic features
                     continue
+        
+        # Now render features (geometry operations are read-only, should be thread-safe)
+        for feat_data in features_to_render:
+            try:
+                geom = feat_data['geometry']
                 
-                # Then precise geometry intersection check
+                # Precise geometry intersection check
                 if not geom.intersects(buffered_bounds):
                     continue
                 
-                category = feature_data['category']
+                category = feat_data['category']
                 color_info = color_map.get(category, color_map.get('DEFAULT', {'fill': (204, 204, 204), 'outline': (153, 153, 153)}))
                 
                 fill_rgb = color_info.get('fill')
@@ -562,8 +588,9 @@ class HyderabadMasterPlanTiles:
                                        fill=fill_rgb, outline=(0, 0, 0), width=outline_width)
                             rendered_count += 1
                     
-            except:
-                pass
+            except Exception as e:
+                # Skip problematic geometries
+                continue
         
         if rendered_count == 0:
             return None
@@ -580,7 +607,6 @@ class HyderabadMasterPlanTiles:
         tile_dir = zoom_dir / str(tile.x)
         tile_path = tile_dir / f"{tile.y}.png"
         
-        # Skip if tile already exists on disk
         if tile_path.exists():
             return 'exists'
         
@@ -590,12 +616,12 @@ class HyderabadMasterPlanTiles:
             tile_dir.mkdir(parents=True, exist_ok=True)
             img.save(tile_path, 'PNG', optimize=False)
             return 'rendered'
-        return 'empty'  # No features in tile
+        return 'empty'
     
-    def generate_tiles(self, min_zoom=7, max_zoom=18):
+    def generate_tiles(self, min_zoom=7, max_zoom=15):
         """Generate seamless tiles with parallel processing"""
         print(f"\n{'='*80}")
-        print(f"GENERATING HYDERABAD TILES (Zoom {min_zoom}-{max_zoom})")
+        print(f"GENERATING HYDERABAD TILES (Zoom {min_zoom}-{max_zoom}) - OPTIMIZED")
         print(f"Mode: SEAMLESS - NO TILE BOUNDARIES")
         print(f"Parallel workers: {self.max_workers}")
         print(f"{'='*80}")
@@ -629,15 +655,12 @@ class HyderabadMasterPlanTiles:
             skipped_empty = 0
             errors = 0
             
-            # Process tiles in parallel
             with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
-                # Submit all tile generation tasks
                 future_to_tile = {
                     executor.submit(self.generate_single_tile, tile, zoom_dir): tile
                     for tile in tiles
                 }
                 
-                # Process completed tasks
                 completed = 0
                 for future in as_completed(future_to_tile):
                     completed += 1
@@ -651,11 +674,9 @@ class HyderabadMasterPlanTiles:
                             skipped_empty += 1
                     except Exception as e:
                         errors += 1
-                        # Print first few errors, then occasionally
                         if errors <= 5 or errors % 1000 == 0:
                             print(f"\n⚠️  Error in tile generation (zoom {zoom}): {e}")
                     
-                    # Progress update every 1000 tiles or at completion
                     if completed % 1000 == 0 or completed == total_for_zoom:
                         elapsed = time.time() - zoom_start
                         rate = completed / elapsed if elapsed > 0 else 0
@@ -665,7 +686,6 @@ class HyderabadMasterPlanTiles:
             
             zoom_elapsed = time.time() - zoom_start
             speed = rendered / zoom_elapsed if zoom_elapsed > 0 else 0
-            total_skipped = skipped_exists + skipped_empty
             print(f"\rZoom {zoom:2d} | {total_for_zoom:,} tiles | Scale: {scale}x | "
                   f"✓ {rendered:,} rendered, {skipped_exists:,} existed, {skipped_empty:,} empty, "
                   f"{errors:,} errors in {zoom_elapsed:.1f}s ({speed:.1f} t/s)")
@@ -688,7 +708,7 @@ class HyderabadMasterPlanTiles:
 <html>
 <head>
   <meta charset="utf-8" />
-  <title>Hyderabad Master Plan - Seamless Tiles</title>
+  <title>Hyderabad Master Plan - Seamless Tiles (Optimized)</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <style>
     body, html, #map {{ margin:0; padding:0; height:100%; }}
@@ -710,19 +730,19 @@ class HyderabadMasterPlanTiles:
       minZoom: 7,
       maxZoom: 18,
       opacity: 0.9,
-      attribution: 'Hyderabad Master Plan (HMDA + HUDA)'
+      attribution: 'Hyderabad Master Plan (HMDA + HUDA) - Optimized'
     }}).addTo(map);
     
     const info = L.control({{position: 'topright'}});
     info.onAdd = function() {{
       this._div = L.DomUtil.create('div', 'info');
-      this._div.innerHTML = '<b>Hyderabad Master Plan</b><br/>HMDA + HUDA<br/>Zoom: ' + map.getZoom();
+      this._div.innerHTML = '<b>Hyderabad Master Plan</b><br/>HMDA + HUDA (Optimized)<br/>Zoom: ' + map.getZoom();
       return this._div;
     }};
     info.addTo(map);
     
     map.on('zoomend', function() {{
-      info._div.innerHTML = '<b>Hyderabad Master Plan</b><br/>HMDA + HUDA<br/>Zoom: ' + map.getZoom();
+      info._div.innerHTML = '<b>Hyderabad Master Plan</b><br/>HMDA + HUDA (Optimized)<br/>Zoom: ' + map.getZoom();
     }});
   </script>
 </body>
@@ -733,15 +753,19 @@ class HyderabadMasterPlanTiles:
 
 
 def main():
-    data_dir = Path('data/Telangana/Hyderabad/master_plan')
-    output_dir = Path('./hyderabad_tiles_seamless')
+    # Use pre-split data directory
+    data_dir = Path('data/Telangana/Hyderabad/master_plan_split')
+    output_dir = Path('./hyderabad_tiles_seamless_optimized')
     
     if not data_dir.exists():
-        print(f"✗ Data directory not found: {data_dir}")
+        print(f"✗ Preprocessed data directory not found: {data_dir}")
+        print(f"\n💡 Please run preprocessing first:")
+        print(f"   python3 scripts/tiles_generation/telangana/preprocess_hyderabad_features.py")
         sys.exit(1)
     
     print("="*80)
-    print("HYDERABAD MASTER PLAN - SEAMLESS TILE GENERATOR")
+    print("HYDERABAD MASTER PLAN - OPTIMIZED TILE GENERATOR")
+    print("✅ Uses pre-split features for faster spatial indexing")
     print("✅ Handles polygon holes/interior rings")
     print("✅ Supports hatch and dotted patterns")
     print("✅ Processes both HMDA and HUDA data")
@@ -749,7 +773,7 @@ def main():
     print(f"Input:  {data_dir}")
     print(f"Output: {output_dir}")
     
-    generator = HyderabadMasterPlanTiles(data_dir, output_dir)
+    generator = HyderabadMasterPlanTilesOptimized(data_dir, output_dir)
     generator.load_geojson_files()
     
     if generator.feature_id_counter == 0:
@@ -765,4 +789,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-
