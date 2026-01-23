@@ -1370,7 +1370,10 @@ class CoordinateSearchTestView(APIView):
             'lucknow_masterplan', 'srinagar_masterplan', 'guwahati_masterplan','dadra_and_nagar_haveli_masterplan',
             "kannur_masterplan", 'kollam_masterplan', 'kozhikode_masterplan', "derabassi_masterplan", 'banur_masterplan', 'mullanpur_masterplan', 'kharar_masterplan',
             'sonipat_kundli_masterplan', 'arogya_dham_badsa_masterplan', 'palwal_masterplan', 'prithla_masterplan', 'loni_masterplan', 'bhagpat_baraut_khekra_masterplan', 'modinagar_masterplan', 'kharkhauda_masterplan', 'ghaziabad_masterplan',
-            'pinjore_kalka_masterplan', 'panchkula_extension_1_masterplan', 'panchkula_masterplan', 'dharuhera_masterplan', 'zirakpur_masterplan', 'sonipat_masterplan', 'new_raipur_masterplan']:
+            'pinjore_kalka_masterplan', 'panchkula_extension_1_masterplan', 'panchkula_masterplan', 'dharuhera_masterplan', 'zirakpur_masterplan', 'sonipat_masterplan', 'new_raipur_masterplan',
+            'biappa_masterplan', 'port_blair_masterplan', 'itanagar_masterplan', 'thiruvananthapuram_masterplan', 'thrissur_masterplan',
+            'nuh_masterplan', 'jhajjar_masterplan', 'meerut_masterplan', 'hodal_masterplan', 'rewari_masterplan',
+            'gohana_masterplan', 'bhiwadi_masterplan', 'alwar_masterplan']:
                         # Return just the layer name as plain string
                         return {
                             'data': layer.slug,
@@ -1745,7 +1748,10 @@ class CoordinateSearchTestView(APIView):
             'lucknow_masterplan', 'srinagar_masterplan', 'guwahati_masterplan','dadra_and_nagar_haveli_masterplan',
             "kannur_masterplan", 'kollam_masterplan', 'kozhikode_masterplan', "derabassi_masterplan", 'banur_masterplan', 'mullanpur_masterplan', 'kharar_masterplan',
             'sonipat_kundli_masterplan', 'arogya_dham_badsa_masterplan', 'palwal_masterplan', 'prithla_masterplan', 'loni_masterplan', 'bhagpat_baraut_khekra_masterplan', 'modinagar_masterplan', 'kharkhauda_masterplan', 'ghaziabad_masterplan',
-            'pinjore_kalka_masterplan', 'panchkula_extension_1_masterplan', 'panchkula_masterplan', 'dharuhera_masterplan', 'zirakpur_masterplan', 'panchkula_extension_1_masterplan', 'sonipat_masterplan', 'new_raipur_masterplan'] and containing_features:
+            'pinjore_kalka_masterplan', 'panchkula_extension_1_masterplan', 'panchkula_masterplan', 'dharuhera_masterplan', 'zirakpur_masterplan', 'panchkula_extension_1_masterplan', 'sonipat_masterplan', 'new_raipur_masterplan',
+            'biappa_masterplan', 'port_blair_masterplan', 'itanagar_masterplan', 'thiruvananthapuram_masterplan', 'thrissur_masterplan',
+            'nuh_masterplan', 'jhajjar_masterplan', 'meerut_masterplan', 'hodal_masterplan', 'rewari_masterplan',
+            'gohana_masterplan', 'bhiwadi_masterplan', 'alwar_masterplan'] and containing_features:
                 # Return just the layer name as plain string
                 return {
                     'data': layer.slug,
