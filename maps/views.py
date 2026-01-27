@@ -3049,7 +3049,7 @@ class CloudFrontTileView(APIView):
                 logger.warning(f"❌ Layer not found: {state_slug}/{city_slug}/{layer_slug}")
                 return self._return_error_tile(f"Layer not found: {state_slug}/{city_slug}/{layer_slug}")
             
-            logger.info(f"🔍 Serving tile: {state_slug}/{city_slug}/{layer_slug}/{z}/{x}/{y}.{format_type}")
+            logger.debug(f"🔍 Serving tile: {state_slug}/{city_slug}/{layer_slug}/{z}/{x}/{y}.{format_type}")
             
             # Try multiple sources in order of preference
             tile_data = self._get_tile_with_fallback(state_slug, city_slug, layer_slug, z, x, y, format_type, layer)
@@ -3061,10 +3061,10 @@ class CloudFrontTileView(APIView):
                 response['Cache-Control'] = 'no-cache, no-store, must-revalidate'
                 response['Pragma'] = 'no-cache'
                 response['Expires'] = '0'
-                logger.info(f"✅ Successfully served tile: {state_slug}/{city_slug}/{layer_slug}/{z}/{x}/{y}.{format_type}")
+                logger.debug(f"✅ Successfully served tile: {state_slug}/{city_slug}/{layer_slug}/{z}/{x}/{y}.{format_type}")
                 return response
             else:
-                logger.warning(f"❌ Tile not found: {state_slug}/{city_slug}/{layer_slug}/{z}/{x}/{y}.{format_type}")
+                logger.debug(f"❌ Tile not found: {state_slug}/{city_slug}/{layer_slug}/{z}/{x}/{y}.{format_type}")
                 return self._return_error_tile(f"Tile not found: {state_slug}/{city_slug}/{layer_slug}/{z}/{x}/{y}.{format_type}")
             
         except (OperationalError, DatabaseError) as e:
@@ -3097,7 +3097,7 @@ class CloudFrontTileView(APIView):
         logger.debug(f"🔍 Trying CloudFront: {cloudfront_url}")
         tile_data = self._fetch_url(cloudfront_url)
         if tile_data:
-            logger.info(f"✅ Served from CloudFront: {cloudfront_url}")
+            logger.debug(f"✅ Served from CloudFront: {cloudfront_url}")
             return tile_data
         
         # 2. Try S3 Direct (fallback)
@@ -3108,7 +3108,7 @@ class CloudFrontTileView(APIView):
         logger.debug(f"🔍 Trying S3 Direct: {s3_url}")
         tile_data = self._fetch_url(s3_url)
         if tile_data:
-            logger.info(f"✅ Served from S3: {s3_url}")
+            logger.debug(f"✅ Served from S3: {s3_url}")
             return tile_data
         
         # 3. Generate on-demand (optional - can be disabled for performance)
@@ -3116,10 +3116,10 @@ class CloudFrontTileView(APIView):
             logger.debug(f"🔍 Trying on-demand generation for {z}/{x}/{y}.{format_type}")
             tile_data = self._generate_tile_on_demand(layer, z, x, y, format_type)
             if tile_data:
-                logger.info(f"✅ Generated on-demand: {z}/{x}/{y}.{format_type}")
+                logger.debug(f"✅ Generated on-demand: {z}/{x}/{y}.{format_type}")
                 return tile_data
         
-        logger.warning(f"❌ Tile not found from any source: {state_slug}/{city_slug}/{layer_slug}/{z}/{x}/{y}.{format_type}")
+        logger.debug(f"❌ Tile not found from any source: {state_slug}/{city_slug}/{layer_slug}/{z}/{x}/{y}.{format_type}")
         return None
     
     def _fetch_url(self, url, timeout=5):
@@ -3165,7 +3165,11 @@ class CloudFrontTileView(APIView):
     def _return_error_tile(self, error_message):
         """Return an error response"""
         try:
-            logger.warning(f"❌ Returning error tile: {error_message}")
+            # Only log actual errors, not routine "tile not found" messages
+            if "Tile not found" not in error_message:
+                logger.warning(f"❌ Returning error tile: {error_message}")
+            else:
+                logger.debug(f"❌ Returning error tile: {error_message}")
             return Response({
                 'error': error_message,
                 'status': 'error'
@@ -3224,7 +3228,7 @@ class S3DirectTileView(APIView):
                 logger.warning(f"❌ Layer not found: {state_slug}/{city_slug}/{layer_slug}")
                 return self._return_error_tile(f"Layer not found: {state_slug}/{city_slug}/{layer_slug}")
             
-            logger.info(f"🔍 Serving S3 direct tile: {state_slug}/{city_slug}/{layer_slug}/{z}/{x}/{y}.{format_type}")
+            logger.debug(f"🔍 Serving S3 direct tile: {state_slug}/{city_slug}/{layer_slug}/{z}/{x}/{y}.{format_type}")
             
             # Get tile directly from S3
             tile_data = self._get_tile_from_s3(state_slug, city_slug, layer_slug, z, x, y, format_type)
@@ -3238,10 +3242,10 @@ class S3DirectTileView(APIView):
                 response['Pragma'] = 'no-cache'
                 response['Expires'] = '0'
                 response['Access-Control-Allow-Origin'] = '*'
-                logger.info(f"✅ Successfully served S3 direct tile: {state_slug}/{city_slug}/{layer_slug}/{z}/{x}/{y}.{format_type}")
+                logger.debug(f"✅ Successfully served S3 direct tile: {state_slug}/{city_slug}/{layer_slug}/{z}/{x}/{y}.{format_type}")
                 return response
             else:
-                logger.warning(f"❌ Tile not found in S3: {state_slug}/{city_slug}/{layer_slug}/{z}/{x}/{y}.{format_type}")
+                logger.debug(f"❌ Tile not found in S3: {state_slug}/{city_slug}/{layer_slug}/{z}/{x}/{y}.{format_type}")
                 return self._return_error_tile(f"Tile not found: {state_slug}/{city_slug}/{layer_slug}/{z}/{x}/{y}.{format_type}")
             
         except (OperationalError, DatabaseError) as e:
@@ -3278,10 +3282,10 @@ class S3DirectTileView(APIView):
             tile_data = response['Body'].read()
             
             if tile_data:
-                logger.info(f"✅ Successfully fetched from S3: s3://{self.bucket_name}/{s3_key}")
+                logger.debug(f"✅ Successfully fetched from S3: s3://{self.bucket_name}/{s3_key}")
                 return tile_data
             else:
-                logger.warning(f"❌ Empty tile data from S3: s3://{self.bucket_name}/{s3_key}")
+                logger.debug(f"❌ Empty tile data from S3: s3://{self.bucket_name}/{s3_key}")
                 return None
                 
         except self.s3_client.exceptions.NoSuchKey:
@@ -3337,7 +3341,11 @@ class S3DirectTileView(APIView):
     def _return_error_tile(self, error_message):
         """Return an error response"""
         try:
-            logger.warning(f"❌ Returning error tile: {error_message}")
+            # Only log actual errors, not routine "tile not found" messages
+            if "Tile not found" not in error_message:
+                logger.warning(f"❌ Returning error tile: {error_message}")
+            else:
+                logger.debug(f"❌ Returning error tile: {error_message}")
             return Response({
                 'error': error_message,
                 'status': 'error'
