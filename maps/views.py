@@ -3026,6 +3026,10 @@ class CloudFrontTileView(APIView):
     This API tries CloudFront first, then S3 direct, then local generation as fallback.
     """
     
+    # Class-level cache to track recently logged layer warnings (to reduce log spam)
+    _layer_warning_cache = {}
+    _layer_warning_cache_timeout = 300  # Log same layer warning at most once per 5 minutes
+    
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.tile_path_service = TilePathService()
@@ -3046,7 +3050,28 @@ class CloudFrontTileView(APIView):
             # Get layer information
             layer = self._get_layer_by_hierarchy(state_slug, city_slug, layer_slug)
             if not layer:
-                logger.warning(f"❌ Layer not found: {state_slug}/{city_slug}/{layer_slug}")
+                # Only log layer not found warnings occasionally to reduce log spam
+                layer_key = f"{state_slug}/{city_slug}/{layer_slug}"
+                import time
+                current_time = time.time()
+                
+                # Check if we've logged this layer recently
+                last_logged = self._layer_warning_cache.get(layer_key, 0)
+                if current_time - last_logged > self._layer_warning_cache_timeout:
+                    logger.warning(f"❌ Layer not found: {layer_key} (will suppress similar warnings for 5 minutes)")
+                    self._layer_warning_cache[layer_key] = current_time
+                    # Clean up old entries periodically (keep cache size manageable)
+                    if len(self._layer_warning_cache) > 1000:
+                        # Remove entries older than 1 hour
+                        cutoff_time = current_time - 3600
+                        self._layer_warning_cache = {
+                            k: v for k, v in self._layer_warning_cache.items()
+                            if v > cutoff_time
+                        }
+                else:
+                    # Log at debug level for subsequent requests
+                    logger.debug(f"❌ Layer not found (suppressed): {layer_key}")
+                
                 return self._return_error_tile(f"Layer not found: {state_slug}/{city_slug}/{layer_slug}")
             
             logger.debug(f"🔍 Serving tile: {state_slug}/{city_slug}/{layer_slug}/{z}/{x}/{y}.{format_type}")
@@ -3165,11 +3190,18 @@ class CloudFrontTileView(APIView):
     def _return_error_tile(self, error_message):
         """Return an error response"""
         try:
-            # Only log actual errors, not routine "tile not found" messages
-            if "Tile not found" not in error_message:
-                logger.warning(f"❌ Returning error tile: {error_message}")
+            # Suppress logging for routine missing tile/layer errors to reduce log spam
+            # These are normal in tile serving - not every tile coordinate has data
+            if "Tile not found" in error_message or "Layer not found" in error_message:
+                # Already logged at appropriate level above, don't log again here
+                logger.debug(f"Returning 404 for: {error_message[:100]}")
+            elif "Invalid tile coordinates" in error_message:
+                # Invalid coordinates are worth logging but not as warning
+                logger.info(f"Invalid tile coordinates requested")
             else:
-                logger.debug(f"❌ Returning error tile: {error_message}")
+                # Only log actual errors as warnings
+                logger.warning(f"❌ Returning error tile: {error_message}")
+            
             return Response({
                 'error': error_message,
                 'status': 'error'
@@ -3182,6 +3214,16 @@ class CloudFrontTileView(APIView):
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 class S3DirectTileView(APIView):
+    """
+    S3 Direct Tile Serving API
+    
+    Serves tiles directly from S3 with hierarchical URL structure.
+    Similar to CloudFrontTileView but uses S3 direct access.
+    """
+    
+    # Class-level cache to track recently logged layer warnings (to reduce log spam)
+    _layer_warning_cache = {}
+    _layer_warning_cache_timeout = 300  # Log same layer warning at most once per 5 minutes
     """
     S3 Direct Tile Serving API
     
@@ -3225,7 +3267,28 @@ class S3DirectTileView(APIView):
             # Get layer information
             layer = self._get_layer_by_hierarchy(state_slug, city_slug, layer_slug)
             if not layer:
-                logger.warning(f"❌ Layer not found: {state_slug}/{city_slug}/{layer_slug}")
+                # Only log layer not found warnings occasionally to reduce log spam
+                layer_key = f"{state_slug}/{city_slug}/{layer_slug}"
+                import time
+                current_time = time.time()
+                
+                # Check if we've logged this layer recently
+                last_logged = self._layer_warning_cache.get(layer_key, 0)
+                if current_time - last_logged > self._layer_warning_cache_timeout:
+                    logger.warning(f"❌ Layer not found: {layer_key} (will suppress similar warnings for 5 minutes)")
+                    self._layer_warning_cache[layer_key] = current_time
+                    # Clean up old entries periodically (keep cache size manageable)
+                    if len(self._layer_warning_cache) > 1000:
+                        # Remove entries older than 1 hour
+                        cutoff_time = current_time - 3600
+                        self._layer_warning_cache = {
+                            k: v for k, v in self._layer_warning_cache.items()
+                            if v > cutoff_time
+                        }
+                else:
+                    # Log at debug level for subsequent requests
+                    logger.debug(f"❌ Layer not found (suppressed): {layer_key}")
+                
                 return self._return_error_tile(f"Layer not found: {state_slug}/{city_slug}/{layer_slug}")
             
             logger.debug(f"🔍 Serving S3 direct tile: {state_slug}/{city_slug}/{layer_slug}/{z}/{x}/{y}.{format_type}")
@@ -3333,19 +3396,26 @@ class S3DirectTileView(APIView):
                     logger.error(f"❌ Database error: {error_msg}")
                     raise
             except Exception as e:
-                logger.error(f"❌ Unexpected error in _get_layer_by_hierarchy: {str(e)}")
-                raise
+                    logger.error(f"❌ Unexpected error in _get_layer_by_hierarchy: {str(e)}")
+                    raise
         
         return None
     
     def _return_error_tile(self, error_message):
         """Return an error response"""
         try:
-            # Only log actual errors, not routine "tile not found" messages
-            if "Tile not found" not in error_message:
-                logger.warning(f"❌ Returning error tile: {error_message}")
+            # Suppress logging for routine missing tile/layer errors to reduce log spam
+            # These are normal in tile serving - not every tile coordinate has data
+            if "Tile not found" in error_message or "Layer not found" in error_message:
+                # Already logged at appropriate level above, don't log again here
+                logger.debug(f"Returning 404 for: {error_message[:100]}")
+            elif "Invalid tile coordinates" in error_message:
+                # Invalid coordinates are worth logging but not as warning
+                logger.info(f"Invalid tile coordinates requested")
             else:
-                logger.debug(f"❌ Returning error tile: {error_message}")
+                # Only log actual errors as warnings
+                logger.warning(f"❌ Returning error tile: {error_message}")
+            
             return Response({
                 'error': error_message,
                 'status': 'error'

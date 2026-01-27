@@ -326,6 +326,19 @@ LOGGING = {
             'level': 'INFO',
             'propagate': True,
         },
+        # Suppress 404 warnings for tile endpoints (normal in tile serving)
+        # Missing tiles are expected - not every coordinate has data
+        'django.request': {
+            'handlers': ['console', 'file'],
+            'level': 'ERROR',  # Only log errors, not 404 warnings
+            'propagate': False,
+        },
+        # Suppress general Django 404 warnings (they're logged by our views at appropriate levels)
+        'django.server': {
+            'handlers': ['console'],
+            'level': 'ERROR',  # Only log errors, suppress 404 warnings
+            'propagate': False,
+        },
         'maps.tile_generation': {
             'handlers': ['console'],
             'level': 'INFO',
