@@ -138,6 +138,55 @@ class DeveloperListingTileService:
                 'error': str(e)
             }
     
+    def _delete_s3_tiles(self, s3_tile_path: str) -> int:
+        """
+        Delete all tiles from S3 for a given tile path prefix
+        
+        Args:
+            s3_tile_path: S3 path prefix (e.g., 'developer_data/land/123/map.tif')
+            
+        Returns:
+            Number of files deleted
+        """
+        try:
+            logger.info(f"[S3_CLEANUP] 🗑️  Deleting old tiles from S3: {s3_tile_path}")
+            
+            # Ensure path ends with / for prefix matching
+            prefix = s3_tile_path.rstrip('/') + '/'
+            
+            paginator = self.s3_client.get_paginator('list_objects_v2')
+            pages = paginator.paginate(Bucket=self.bucket_name, Prefix=prefix)
+            
+            objects_to_delete = []
+            for page in pages:
+                if 'Contents' in page:
+                    for obj in page['Contents']:
+                        objects_to_delete.append({'Key': obj['Key']})
+            
+            if not objects_to_delete:
+                logger.info(f"[S3_CLEANUP] ℹ️  No existing tiles found at {prefix}")
+                return 0
+            
+            # Delete in batches of 1000 (S3 limit)
+            deleted_count = 0
+            for i in range(0, len(objects_to_delete), 1000):
+                batch = objects_to_delete[i:i+1000]
+                response = self.s3_client.delete_objects(
+                    Bucket=self.bucket_name,
+                    Delete={'Objects': batch}
+                )
+                deleted_count += len(response.get('Deleted', []))
+            
+            logger.info(f"[S3_CLEANUP] ✅ Deleted {deleted_count} old tiles from {prefix}")
+            return deleted_count
+            
+        except ClientError as e:
+            logger.error(f"[S3_CLEANUP] ❌ Error deleting S3 tiles: {e}")
+            return 0
+        except Exception as e:
+            logger.error(f"[S3_CLEANUP] ❌ Unexpected error deleting S3 tiles: {e}", exc_info=True)
+            return 0
+    
     def process_tif_file(
         self,
         tif_file: Dict,
@@ -181,14 +230,40 @@ class DeveloperListingTileService:
         
         # Get media record
         media = None
+        old_s3_tile_path = None
         if listing and media_id:
             try:
                 media = DeveloperListingMedia.objects.get(
                     listing=listing,
                     backend_media_id=media_id
                 )
+                # Check if media has an old tile path that's different
+                if media.s3_tile_path and media.s3_tile_path != s3_tile_path:
+                    old_s3_tile_path = media.s3_tile_path
+                    logger.info(f"[TIF_PROCESS] 🔄 Media has different old tile path: {old_s3_tile_path}")
             except DeveloperListingMedia.DoesNotExist:
                 logger.warning(f"Media record not found: {media_id}")
+        
+        # Delete old tiles before generating new ones
+        # This handles cases where:
+        # 1. Media is updated/recreated (same backend_media_id, potentially different file/path)
+        # 2. File is deleted and recreated
+        logger.info(f"[TIF_PROCESS] 🗑️  Cleaning up old tiles before generating new ones...")
+        
+        # Delete tiles from new path (in case it exists from a previous failed/partial upload)
+        deleted_new = self._delete_s3_tiles(s3_tile_path)
+        
+        # Delete tiles from old path if different
+        deleted_old = 0
+        if old_s3_tile_path and old_s3_tile_path != s3_tile_path:
+            deleted_old = self._delete_s3_tiles(old_s3_tile_path)
+            logger.info(f"[TIF_PROCESS] 🗑️  Deleted {deleted_old} tiles from old path: {old_s3_tile_path}")
+        
+        total_deleted = deleted_new + deleted_old
+        if total_deleted > 0:
+            logger.info(f"[TIF_PROCESS] ✅ Cleanup complete: {total_deleted} old tiles deleted")
+        else:
+            logger.info(f"[TIF_PROCESS] ℹ️  No old tiles found to delete (first time processing)")
         
         start_time = time.time()
         

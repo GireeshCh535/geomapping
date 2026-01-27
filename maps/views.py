@@ -4640,15 +4640,53 @@ class DeveloperListingMediaWebhookView(APIView):
             
             # Save/update media files
             logger.info(f"[WEBHOOK_RECEIVE] 💾 Saving/updating {len(media_items)} media files...")
+            
+            # Track media IDs from webhook payload
+            webhook_media_ids = set()
+            
+            # Import tile service for cleanup (only if needed)
+            tile_service_for_cleanup = None
+            
             for idx, media_item in enumerate(media_items, 1):
                 media_id = media_item.get('id')
                 if not media_id:
                     logger.warning(f"[WEBHOOK_RECEIVE] ⚠️  Media item {idx}: No ID found, skipping")
                     continue
                 
+                webhook_media_ids.add(media_id)
+                
                 is_tif = media_item.get('is_tif', False)
                 file_name = media_item.get('file_name', 'unknown')
+                new_s3_tile_path = media_item.get('s3_tile_path', '')
+                
                 logger.info(f"[WEBHOOK_RECEIVE] 📄 Media {idx}/{len(media_items)}: ID={media_id}, File={file_name}, TIF={is_tif}")
+                
+                # Check if media already exists and has a different tile path
+                # This handles the case where a media is deleted and recreated with same ID but different file/path
+                old_media = None
+                old_s3_tile_path = None
+                try:
+                    old_media = DeveloperListingMedia.objects.get(
+                        listing=listing,
+                        backend_media_id=media_id
+                    )
+                    old_s3_tile_path = old_media.s3_tile_path
+                    
+                    # If it's a TIF file and the tile path changed, delete old tiles
+                    if is_tif and old_s3_tile_path and old_s3_tile_path != new_s3_tile_path:
+                        logger.info(f"[WEBHOOK_RECEIVE] 🔄 Media tile path changed: {old_s3_tile_path} → {new_s3_tile_path}")
+                        logger.info(f"[WEBHOOK_RECEIVE] 🗑️  Deleting old tiles before updating media...")
+                        
+                        if not tile_service_for_cleanup:
+                            from .developer_listing_tile_service import DeveloperListingTileService
+                            tile_service_for_cleanup = DeveloperListingTileService()
+                        
+                        deleted_tiles = tile_service_for_cleanup._delete_s3_tiles(old_s3_tile_path)
+                        logger.info(f"[WEBHOOK_RECEIVE] ✅ Deleted {deleted_tiles} old tiles from {old_s3_tile_path}")
+                        
+                except DeveloperListingMedia.DoesNotExist:
+                    # New media, no cleanup needed
+                    pass
                 
                 media_obj, created = DeveloperListingMedia.objects.update_or_create(
                     listing=listing,
@@ -4660,11 +4698,36 @@ class DeveloperListingMediaWebhookView(APIView):
                         'file_url': media_item.get('url', ''),
                         's3_path': media_item.get('s3_path', ''),
                         'is_tif': is_tif,
-                        's3_tile_path': media_item.get('s3_tile_path', ''),
+                        's3_tile_path': new_s3_tile_path,
                         'media_data': media_item,
                     }
                 )
                 logger.info(f"[WEBHOOK_RECEIVE] ✅ Media {'created' if created else 'updated'}: ID={media_obj.id}")
+            
+            # Handle deleted media: if action is 'updated', delete media records (and their tiles) 
+            # that exist in DB but are not in the webhook payload
+            if action in ['updated', 'media_uploaded'] and webhook_media_ids:
+                existing_media = DeveloperListingMedia.objects.filter(listing=listing)
+                deleted_count = 0
+                
+                for existing_media_obj in existing_media:
+                    if existing_media_obj.backend_media_id not in webhook_media_ids:
+                        # This media was deleted from the backend
+                        logger.info(f"[WEBHOOK_RECEIVE] 🗑️  Media deleted: ID={existing_media_obj.backend_media_id}, File={existing_media_obj.file_name}")
+                        
+                        # Delete tiles from S3 if it's a TIF file
+                        if existing_media_obj.is_tif and existing_media_obj.s3_tile_path:
+                            from .developer_listing_tile_service import DeveloperListingTileService
+                            tile_service = DeveloperListingTileService()
+                            deleted_tiles = tile_service._delete_s3_tiles(existing_media_obj.s3_tile_path)
+                            logger.info(f"[WEBHOOK_RECEIVE] 🗑️  Deleted {deleted_tiles} tiles from S3 for deleted media")
+                        
+                        # Delete the media record
+                        existing_media_obj.delete()
+                        deleted_count += 1
+                
+                if deleted_count > 0:
+                    logger.info(f"[WEBHOOK_RECEIVE] ✅ Cleaned up {deleted_count} deleted media records and their tiles")
             
             logger.info(f"[WEBHOOK_RECEIVE] ✅ All media files saved")
             
