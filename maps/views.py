@@ -4585,7 +4585,9 @@ class DeveloperListingMediaWebhookView(APIView):
             valid_event_types = [
                 'developer_listing_created',
                 'developer_listing_updated',
-                'developer_listing_media_uploaded'
+                'developer_listing_media_uploaded',
+                'developer_listing_media_deleted',
+                'developer_listing_listing_deleted'
             ]
             
             if event_type not in valid_event_types:
@@ -4594,6 +4596,15 @@ class DeveloperListingMediaWebhookView(APIView):
                     {"error": f"Unknown event_type: {event_type}"},
                     status=status.HTTP_400_BAD_REQUEST
                 )
+            
+            # Handle deletion events early (before saving listing/media)
+            if action == 'listing_deleted':
+                logger.info(f"[WEBHOOK_RECEIVE] 🗑️  Listing deletion event received")
+                return self._handle_listing_deletion(webhook_event, listing_type, listing_id, data)
+            
+            if action == 'media_deleted':
+                logger.info(f"[WEBHOOK_RECEIVE] 🗑️  Media deletion event received")
+                return self._handle_media_deletion(webhook_event, listing_type, listing_id, data, media_items)
             
             # Save webhook event
             webhook_event = WebhookEvent.objects.create(
@@ -4819,6 +4830,241 @@ class DeveloperListingMediaWebhookView(APIView):
                 {
                     "error": "Internal server error processing webhook",
                     "details": str(e)
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+    
+    def _handle_listing_deletion(self, webhook_event, listing_type, listing_id, data):
+        """
+        Handle listing deletion webhook
+        Deletes all tiles and removes listing from database
+        """
+        from django.utils import timezone
+        from .models import DeveloperListing, DeveloperListingMedia
+        from .developer_listing_tile_service import DeveloperListingTileService
+        
+        logger.info(f"[WEBHOOK_DELETE] ===== Processing listing deletion =====")
+        logger.info(f"[WEBHOOK_DELETE] Listing: {listing_type} ID={listing_id}")
+        
+        try:
+            # Find the listing
+            try:
+                listing = DeveloperListing.objects.get(
+                    listing_type=listing_type,
+                    backend_listing_id=listing_id
+                )
+            except DeveloperListing.DoesNotExist:
+                logger.warning(f"[WEBHOOK_DELETE] ⚠️  Listing not found: {listing_type} {listing_id}")
+                # Mark as processed even if not found (might have been deleted already)
+                webhook_event.processed = True
+                webhook_event.processed_at = timezone.now()
+                webhook_event.processing_result = {'note': 'Listing not found in database'}
+                webhook_event.save()
+                return Response(
+                    {
+                        "status": "success",
+                        "message": f"Listing {listing_type} {listing_id} not found (may have been deleted already)",
+                        "tiles_deleted": 0
+                    },
+                    status=status.HTTP_200_OK
+                )
+            
+            # Get all media for this listing
+            all_media = DeveloperListingMedia.objects.filter(listing=listing)
+            total_tiles_deleted = 0
+            
+            # Delete tiles for each TIF media file
+            tile_service = DeveloperListingTileService()
+            for media in all_media:
+                if media.is_tif and media.s3_tile_path:
+                    logger.info(f"[WEBHOOK_DELETE] 🗑️  Deleting tiles for media: {media.file_name}")
+                    deleted_count = tile_service._delete_s3_tiles(media.s3_tile_path)
+                    total_tiles_deleted += deleted_count
+                    logger.info(f"[WEBHOOK_DELETE] ✅ Deleted {deleted_count} tiles for {media.file_name}")
+            
+            # Delete all media records (CASCADE will handle this, but we do it explicitly for logging)
+            media_count = all_media.count()
+            all_media.delete()
+            logger.info(f"[WEBHOOK_DELETE] ✅ Deleted {media_count} media records")
+            
+            # Delete the listing record
+            listing.delete()
+            logger.info(f"[WEBHOOK_DELETE] ✅ Deleted listing record")
+            
+            # Mark webhook as processed
+            webhook_event.processed = True
+            webhook_event.processed_at = timezone.now()
+            webhook_event.tiles_generated = 0  # No tiles generated, but we track deletions
+            webhook_event.processing_result = {
+                'tiles_deleted': total_tiles_deleted,
+                'media_records_deleted': media_count,
+                'listing_deleted': True
+            }
+            webhook_event.save()
+            
+            logger.info(f"[WEBHOOK_DELETE] ✅ Listing deletion completed")
+            logger.info(f"[WEBHOOK_DELETE]    - Tiles deleted: {total_tiles_deleted}")
+            logger.info(f"[WEBHOOK_DELETE]    - Media records deleted: {media_count}")
+            logger.info(f"[WEBHOOK_DELETE] ===== Listing deletion processing completed =====")
+            
+            return Response(
+                {
+                    "status": "success",
+                    "message": f"Listing {listing_type} {listing_id} deleted successfully",
+                    "tiles_deleted": total_tiles_deleted,
+                    "media_records_deleted": media_count
+                },
+                status=status.HTTP_200_OK
+            )
+            
+        except Exception as e:
+            logger.error(f"[WEBHOOK_DELETE] ❌ Error processing listing deletion: {e}", exc_info=True)
+            webhook_event.processing_error = str(e)
+            webhook_event.save()
+            return Response(
+                {
+                    "status": "error",
+                    "message": f"Error processing listing deletion: {str(e)}"
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+    
+    def _handle_media_deletion(self, webhook_event, listing_type, listing_id, data, media_items):
+        """
+        Handle media deletion webhook
+        Deletes tiles for deleted media and removes media records from database
+        """
+        from django.utils import timezone
+        from .models import DeveloperListing, DeveloperListingMedia
+        from .developer_listing_tile_service import DeveloperListingTileService
+        
+        logger.info(f"[WEBHOOK_DELETE] ===== Processing media deletion =====")
+        logger.info(f"[WEBHOOK_DELETE] Listing: {listing_type} ID={listing_id}")
+        logger.info(f"[WEBHOOK_DELETE] Media items in payload: {len(media_items)}")
+        
+        try:
+            # Find the listing
+            try:
+                listing = DeveloperListing.objects.get(
+                    listing_type=listing_type,
+                    backend_listing_id=listing_id
+                )
+            except DeveloperListing.DoesNotExist:
+                logger.warning(f"[WEBHOOK_DELETE] ⚠️  Listing not found: {listing_type} {listing_id}")
+                webhook_event.processed = True
+                webhook_event.processed_at = timezone.now()
+                webhook_event.processing_result = {'note': 'Listing not found in database'}
+                webhook_event.save()
+                return Response(
+                    {
+                        "status": "success",
+                        "message": f"Listing {listing_type} {listing_id} not found",
+                        "tiles_deleted": 0
+                    },
+                    status=status.HTTP_200_OK
+                )
+            
+            # Find deleted media items (those marked with 'deleted': true)
+            deleted_media_items = [m for m in media_items if m.get('deleted', False)]
+            logger.info(f"[WEBHOOK_DELETE] Found {len(deleted_media_items)} deleted media items")
+            
+            total_tiles_deleted = 0
+            deleted_media_count = 0
+            
+            tile_service = DeveloperListingTileService()
+            
+            # Process each deleted media item
+            for deleted_media in deleted_media_items:
+                media_id = deleted_media.get('id')
+                file_name = deleted_media.get('file_name', 'unknown')
+                s3_tile_path = deleted_media.get('s3_tile_path', '')
+                is_tif = deleted_media.get('is_tif', False)
+                
+                logger.info(f"[WEBHOOK_DELETE] 🗑️  Processing deleted media: ID={media_id}, File={file_name}, TIF={is_tif}")
+                
+                # Delete tiles from S3 if it's a TIF file
+                if is_tif and s3_tile_path:
+                    logger.info(f"[WEBHOOK_DELETE] 🗑️  Deleting tiles from S3: {s3_tile_path}")
+                    deleted_count = tile_service._delete_s3_tiles(s3_tile_path)
+                    total_tiles_deleted += deleted_count
+                    logger.info(f"[WEBHOOK_DELETE] ✅ Deleted {deleted_count} tiles for {file_name}")
+                elif is_tif:
+                    logger.warning(f"[WEBHOOK_DELETE] ⚠️  TIF file {file_name} has no s3_tile_path, skipping tile deletion")
+                
+                # Delete the media record from database
+                try:
+                    media_obj = DeveloperListingMedia.objects.get(
+                        listing=listing,
+                        backend_media_id=media_id
+                    )
+                    media_obj.delete()
+                    deleted_media_count += 1
+                    logger.info(f"[WEBHOOK_DELETE] ✅ Deleted media record: ID={media_id}")
+                except DeveloperListingMedia.DoesNotExist:
+                    logger.warning(f"[WEBHOOK_DELETE] ⚠️  Media record not found: ID={media_id} (may have been deleted already)")
+            
+            # Update remaining media items (those not deleted)
+            remaining_media_items = [m for m in media_items if not m.get('deleted', False)]
+            logger.info(f"[WEBHOOK_DELETE] Updating {len(remaining_media_items)} remaining media items...")
+            
+            for media_item in remaining_media_items:
+                media_id = media_item.get('id')
+                if not media_id:
+                    continue
+                
+                DeveloperListingMedia.objects.update_or_create(
+                    listing=listing,
+                    backend_media_id=media_id,
+                    defaults={
+                        'media_type': media_item.get('media_type', 'file'),
+                        'category': media_item.get('category', ''),
+                        'file_name': media_item.get('file_name', ''),
+                        'file_url': media_item.get('url', ''),
+                        's3_path': media_item.get('s3_path', ''),
+                        'is_tif': media_item.get('is_tif', False),
+                        's3_tile_path': media_item.get('s3_tile_path', ''),
+                        'media_data': media_item,
+                    }
+                )
+            
+            logger.info(f"[WEBHOOK_DELETE] ✅ Updated remaining media items")
+            
+            # Mark webhook as processed
+            webhook_event.processed = True
+            webhook_event.processed_at = timezone.now()
+            webhook_event.tiles_generated = 0
+            webhook_event.processing_result = {
+                'tiles_deleted': total_tiles_deleted,
+                'media_records_deleted': deleted_media_count,
+                'remaining_media_count': len(remaining_media_items)
+            }
+            webhook_event.save()
+            
+            logger.info(f"[WEBHOOK_DELETE] ✅ Media deletion completed")
+            logger.info(f"[WEBHOOK_DELETE]    - Tiles deleted: {total_tiles_deleted}")
+            logger.info(f"[WEBHOOK_DELETE]    - Media records deleted: {deleted_media_count}")
+            logger.info(f"[WEBHOOK_DELETE]    - Remaining media: {len(remaining_media_items)}")
+            logger.info(f"[WEBHOOK_DELETE] ===== Media deletion processing completed =====")
+            
+            return Response(
+                {
+                    "status": "success",
+                    "message": f"Media deletion processed for {listing_type} {listing_id}",
+                    "tiles_deleted": total_tiles_deleted,
+                    "media_records_deleted": deleted_media_count,
+                    "remaining_media_count": len(remaining_media_items)
+                },
+                status=status.HTTP_200_OK
+            )
+            
+        except Exception as e:
+            logger.error(f"[WEBHOOK_DELETE] ❌ Error processing media deletion: {e}", exc_info=True)
+            webhook_event.processing_error = str(e)
+            webhook_event.save()
+            return Response(
+                {
+                    "status": "error",
+                    "message": f"Error processing media deletion: {str(e)}"
                 },
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )

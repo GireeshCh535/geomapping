@@ -994,16 +994,23 @@ class TIFMetadataAdmin(AuditFieldsMixin, admin.ModelAdmin):
 class WebhookEventAdmin(AuditFieldsMixin, admin.ModelAdmin):
     list_display = (
         "id",
-        "event_type",
+        "event_type_badge",
+        "action_badge",
         "listing_type",
         "listing_id",
-        "processed",
-        "tiles_generated",
-        "tif_files_processed",
+        "processed_status",
+        "tiles_info",
         "received_at",
     )
-    search_fields = ("event_type", "listing_type", "listing_id", "action")
-    list_filter = ("event_type", "listing_type", "processed", "received_at")
+    search_fields = ("event_type", "listing_type", "listing_id", "action", "processing_error")
+    list_filter = (
+        "event_type",
+        "action",
+        "listing_type",
+        "processed",
+        "received_at",
+        "tiles_generated",
+    )
     readonly_fields = (
         "event_type",
         "action",
@@ -1012,6 +1019,7 @@ class WebhookEventAdmin(AuditFieldsMixin, admin.ModelAdmin):
         "payload_display",
         "processing_result_display",
         "request_headers_display",
+        "deletion_summary",
         "received_at",
         "processed_at",
     )
@@ -1022,6 +1030,11 @@ class WebhookEventAdmin(AuditFieldsMixin, admin.ModelAdmin):
         }),
         ("Processing Status", {
             "fields": ("processed", "processed_at", "tiles_generated", "tif_files_processed", "processing_error")
+        }),
+        ("Deletion Summary", {
+            "fields": ("deletion_summary",),
+            "classes": ("collapse",),
+            "description": "Summary of deletions (only shown for deletion events)"
         }),
         ("Request Metadata", {
             "fields": ("request_ip", "request_headers_display")
@@ -1036,22 +1049,156 @@ class WebhookEventAdmin(AuditFieldsMixin, admin.ModelAdmin):
         }),
     )
     
+    def get_queryset(self, request):
+        qs = super().get_queryset(request)
+        return qs.order_by("-received_at")
+    
+    @admin.display(description="Event Type", ordering="event_type")
+    def event_type_badge(self, obj):
+        """Display event type with color-coded badge"""
+        colors = {
+            "developer_listing_created": "#28a745",  # Green
+            "developer_listing_updated": "#17a2b8",  # Blue
+            "developer_listing_media_uploaded": "#007bff",  # Primary blue
+            "developer_listing_media_deleted": "#dc3545",  # Red
+            "developer_listing_listing_deleted": "#721c24",  # Dark red
+        }
+        color = colors.get(obj.event_type, "#6c757d")
+        icon = "🗑️" if "deleted" in obj.event_type else "📥"
+        return format_html(
+            '<span style="background-color: {}; color: white; padding: 4px 8px; border-radius: 4px; font-weight: bold; font-size: 0.85em;">{} {}</span>',
+            color,
+            icon,
+            obj.get_event_type_display()
+        )
+    
+    @admin.display(description="Action", ordering="action")
+    def action_badge(self, obj):
+        """Display action with badge"""
+        if not obj.action:
+            return "—"
+        colors = {
+            "created": "#28a745",
+            "updated": "#17a2b8",
+            "media_uploaded": "#007bff",
+            "media_deleted": "#dc3545",
+            "listing_deleted": "#721c24",
+        }
+        color = colors.get(obj.action, "#6c757d")
+        return format_html(
+            '<span style="background-color: {}; color: white; padding: 3px 6px; border-radius: 3px; font-size: 0.8em;">{}</span>',
+            color,
+            obj.action.replace("_", " ").title()
+        )
+    
+    @admin.display(description="Status", ordering="processed", boolean=True)
+    def processed_status(self, obj):
+        """Display processed status with icon"""
+        if obj.processed:
+            if obj.processing_error:
+                return format_html(
+                    '<span style="color: #dc3545;" title="{}">⚠️ Error</span>',
+                    obj.processing_error[:100]
+                )
+            return format_html('<span style="color: #28a745;">✅ Processed</span>')
+        return format_html('<span style="color: #ffc107;">⏳ Pending</span>')
+    
+    @admin.display(description="Tiles Info")
+    def tiles_info(self, obj):
+        """Display tiles information based on event type"""
+        if obj.action in ["media_deleted", "listing_deleted"]:
+            # For deletion events, show tiles deleted
+            tiles_deleted = obj.processing_result.get("tiles_deleted", 0) if obj.processing_result else 0
+            if tiles_deleted > 0:
+                return format_html(
+                    '<span style="color: #dc3545; font-weight: bold;">🗑️ {} tiles deleted</span>',
+                    tiles_deleted
+                )
+            return format_html('<span style="color: #6c757d;">—</span>')
+        else:
+            # For creation/update events, show tiles generated
+            if obj.tiles_generated > 0:
+                return format_html(
+                    '<span style="color: #28a745; font-weight: bold;">✅ {} tiles</span>',
+                    obj.tiles_generated
+                )
+            return format_html('<span style="color: #6c757d;">—</span>')
+    
+    @admin.display(description="Deletion Summary")
+    def deletion_summary(self, obj):
+        """Show summary for deletion events"""
+        if obj.action not in ["media_deleted", "listing_deleted"]:
+            return format_html('<em>Not a deletion event</em>')
+        
+        if not obj.processing_result:
+            return "—"
+        
+        result = obj.processing_result
+        summary_parts = []
+        
+        if obj.action == "listing_deleted":
+            summary_parts.append(f"<strong>Listing Deleted:</strong> {obj.listing_type} #{obj.listing_id}")
+            tiles_deleted = result.get("tiles_deleted", 0)
+            media_deleted = result.get("media_records_deleted", 0)
+            summary_parts.append(f"<strong>Tiles Deleted:</strong> {tiles_deleted}")
+            summary_parts.append(f"<strong>Media Records Deleted:</strong> {media_deleted}")
+        
+        elif obj.action == "media_deleted":
+            tiles_deleted = result.get("tiles_deleted", 0)
+            media_deleted = result.get("media_records_deleted", 0)
+            remaining = result.get("remaining_media_count", 0)
+            summary_parts.append(f"<strong>Tiles Deleted:</strong> {tiles_deleted}")
+            summary_parts.append(f"<strong>Media Records Deleted:</strong> {media_deleted}")
+            summary_parts.append(f"<strong>Remaining Media:</strong> {remaining}")
+        
+        if not summary_parts:
+            return "—"
+        
+        return format_html(
+            '<div style="background: #fff3cd; padding: 10px; border-left: 4px solid #ffc107; margin: 10px 0;">{}</div>',
+            "<br>".join(summary_parts)
+        )
+    
     @admin.display(description="Webhook Payload (JSON)")
     def payload_display(self, obj):
         if not obj.payload:
             return "—"
+        
+        # Highlight deletion-related fields
+        payload_str = json.dumps(obj.payload, indent=2)
+        if obj.action in ["media_deleted", "listing_deleted"]:
+            # Add warning style for deletion events
+            return format_html(
+                '<div style="border: 2px solid #dc3545; padding: 5px; margin-bottom: 10px; background: #fff3cd;">'
+                '<strong style="color: #dc3545;">⚠️ DELETION EVENT</strong></div>'
+                '<pre style="max-height: 500px; overflow-y: auto; background: #f5f5f5; padding: 10px; border: 1px solid #ddd; font-size: 0.9em;">{}</pre>',
+                payload_str
+            )
+        
         return format_html(
             '<pre style="max-height: 500px; overflow-y: auto; background: #f5f5f5; padding: 10px; border: 1px solid #ddd; font-size: 0.9em;">{}</pre>',
-            json.dumps(obj.payload, indent=2)
+            payload_str
         )
     
     @admin.display(description="Processing Result (JSON)")
     def processing_result_display(self, obj):
         if not obj.processing_result:
             return "—"
+        
+        result_str = json.dumps(obj.processing_result, indent=2)
+        
+        # Highlight deletion results
+        if obj.action in ["media_deleted", "listing_deleted"]:
+            return format_html(
+                '<div style="border: 2px solid #dc3545; padding: 5px; margin-bottom: 10px; background: #f8d7da;">'
+                '<strong style="color: #721c24;">🗑️ DELETION RESULTS</strong></div>'
+                '<pre style="max-height: 400px; overflow-y: auto; background: #f5f5f5; padding: 10px; border: 1px solid #ddd; font-size: 0.9em;">{}</pre>',
+                result_str
+            )
+        
         return format_html(
             '<pre style="max-height: 400px; overflow-y: auto; background: #f5f5f5; padding: 10px; border: 1px solid #ddd; font-size: 0.9em;">{}</pre>',
-            json.dumps(obj.processing_result, indent=2)
+            result_str
         )
     
     @admin.display(description="Request Headers (JSON)")
@@ -1062,6 +1209,72 @@ class WebhookEventAdmin(AuditFieldsMixin, admin.ModelAdmin):
             '<pre style="max-height: 300px; overflow-y: auto; background: #f5f5f5; padding: 10px; border: 1px solid #ddd; font-size: 0.9em;">{}</pre>',
             json.dumps(obj.request_headers, indent=2)
         )
+    
+    actions = ["mark_as_processed", "retry_failed_webhooks"]
+    
+    @admin.action(description="Mark selected webhooks as processed")
+    def mark_as_processed(self, request, queryset):
+        """Manually mark webhooks as processed"""
+        from django.utils import timezone
+        updated = queryset.filter(processed=False).update(
+            processed=True,
+            processed_at=timezone.now()
+        )
+        self.message_user(
+            request,
+            f"Successfully marked {updated} webhook(s) as processed.",
+            level="success"
+        )
+    
+    @admin.action(description="Retry failed webhooks (for debugging)")
+    def retry_failed_webhooks(self, request, queryset):
+        """Mark failed webhooks for retry by clearing error"""
+        updated = queryset.filter(
+            processing_error__isnull=False,
+            processing_error__gt=""
+        ).update(
+            processing_error="",
+            processed=False,
+            processed_at=None
+        )
+        self.message_user(
+            request,
+            f"Cleared errors for {updated} webhook(s). They will be retried on next processing.",
+            level="info"
+        )
+    
+    def changelist_view(self, request, extra_context=None):
+        """Add custom context for changelist"""
+        extra_context = extra_context or {}
+        
+        # Get statistics
+        from django.db.models import Count, Q, Sum
+        stats = WebhookEvent.objects.aggregate(
+            total=Count("id"),
+            processed=Count("id", filter=Q(processed=True)),
+            pending=Count("id", filter=Q(processed=False)),
+            deletions=Count("id", filter=Q(action__in=["media_deleted", "listing_deleted"])),
+            errors=Count("id", filter=Q(processing_error__isnull=False, processing_error__gt="")),
+            total_tiles_generated=Sum("tiles_generated", filter=Q(tiles_generated__gt=0)),
+        )
+        
+        # Get deletion-specific stats
+        deletion_events = WebhookEvent.objects.filter(
+            action__in=["media_deleted", "listing_deleted"]
+        )
+        deletion_stats = {
+            "media_deleted": deletion_events.filter(action="media_deleted").count(),
+            "listing_deleted": deletion_events.filter(action="listing_deleted").count(),
+            "total_tiles_deleted": sum(
+                e.processing_result.get("tiles_deleted", 0) 
+                for e in deletion_events 
+                if e.processing_result
+            ),
+        }
+        
+        extra_context["stats"] = stats
+        extra_context["deletion_stats"] = deletion_stats
+        return super().changelist_view(request, extra_context)
 
 
 admin.site.site_header = "GIS Data Management"
