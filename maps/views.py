@@ -4761,17 +4761,28 @@ class DeveloperListingMediaWebhookView(APIView):
                     )
                     old_s3_tile_path = old_media.s3_tile_path
                     
-                    # If it's a TIF file and the tile path changed, delete old tiles
-                    if is_tif and old_s3_tile_path and old_s3_tile_path != new_s3_tile_path:
-                        logger.info(f"[WEBHOOK_RECEIVE] 🔄 Media tile path changed: {old_s3_tile_path} → {new_s3_tile_path}")
-                        logger.info(f"[WEBHOOK_RECEIVE] 🗑️  Deleting old tiles before updating media...")
+                    # If it's a TIF file, delete old tiles before updating
+                    # This handles both cases:
+                    # 1. File updated with same name (same path) - need to delete old tiles before generating new ones
+                    # 2. File updated with different name (different path) - delete old path, generate to new path
+                    if is_tif and old_s3_tile_path:
+                        if old_s3_tile_path == new_s3_tile_path:
+                            logger.info(f"[WEBHOOK_RECEIVE] 🔄 Media file updated with same name/path: {old_s3_tile_path}")
+                            logger.info(f"[WEBHOOK_RECEIVE] 🗑️  Deleting old tiles before generating new ones (same path)...")
+                        else:
+                            logger.info(f"[WEBHOOK_RECEIVE] 🔄 Media tile path changed: {old_s3_tile_path} → {new_s3_tile_path}")
+                            logger.info(f"[WEBHOOK_RECEIVE] 🗑️  Deleting old tiles from old path before updating...")
+                        
+                        logger.info(f"[WEBHOOK_RECEIVE]    ⚠️  Will ONLY delete tiles for this specific media (ID={media_id}), not other listings/media")
                         
                         if not tile_service_for_cleanup:
                             from .developer_listing_tile_service import DeveloperListingTileService
                             tile_service_for_cleanup = DeveloperListingTileService()
                         
+                        # Always delete old tiles, even if path is the same (file replaced with same name)
                         deleted_tiles = tile_service_for_cleanup._delete_s3_tiles(old_s3_tile_path)
-                        logger.info(f"[WEBHOOK_RECEIVE] ✅ Deleted {deleted_tiles} old tiles from {old_s3_tile_path}")
+                        logger.info(f"[WEBHOOK_RECEIVE] ✅ Deleted {deleted_tiles} old tiles from {old_s3_tile_path} (ONLY for media ID={media_id}, listing #{listing_id})")
+                        logger.info(f"[WEBHOOK_RECEIVE] 🆕 New tiles will be generated after this update")
                         
                 except DeveloperListingMedia.DoesNotExist:
                     # New media, no cleanup needed
@@ -4804,12 +4815,13 @@ class DeveloperListingMediaWebhookView(APIView):
                         # This media was deleted from the backend
                         logger.info(f"[WEBHOOK_RECEIVE] 🗑️  Media deleted: ID={existing_media_obj.backend_media_id}, File={existing_media_obj.file_name}")
                         
-                        # Delete tiles from S3 if it's a TIF file
+                        # Delete tiles from S3 if it's a TIF file (ONLY for this specific deleted media)
                         if existing_media_obj.is_tif and existing_media_obj.s3_tile_path:
+                            logger.info(f"[WEBHOOK_RECEIVE]    ⚠️  Will ONLY delete tiles for this specific media (ID={existing_media_obj.backend_media_id}), not other files")
                             from .developer_listing_tile_service import DeveloperListingTileService
                             tile_service = DeveloperListingTileService()
                             deleted_tiles = tile_service._delete_s3_tiles(existing_media_obj.s3_tile_path)
-                            logger.info(f"[WEBHOOK_RECEIVE] 🗑️  Deleted {deleted_tiles} tiles from S3 for deleted media")
+                            logger.info(f"[WEBHOOK_RECEIVE] 🗑️  Deleted {deleted_tiles} tiles from S3 for deleted media (ONLY for media ID={existing_media_obj.backend_media_id}, listing #{listing_id})")
                         
                         # Delete the media record
                         existing_media_obj.delete()
@@ -4939,18 +4951,22 @@ class DeveloperListingMediaWebhookView(APIView):
                     status=status.HTTP_200_OK
                 )
             
-            # Get all media for this listing
+            # Get all media for this SPECIFIC listing only (e.g., listing ID 70)
+            # This ensures we only delete tiles for this listing, not all listings
             all_media = DeveloperListingMedia.objects.filter(listing=listing)
             total_tiles_deleted = 0
             
-            # Delete tiles for each TIF media file
+            logger.info(f"[WEBHOOK_DELETE] 📋 Found {all_media.count()} media files for listing {listing_type} #{listing_id}")
+            
+            # Delete tiles for each TIF media file (ONLY for this specific listing)
             tile_service = DeveloperListingTileService()
             for media in all_media:
                 if media.is_tif and media.s3_tile_path:
-                    logger.info(f"[WEBHOOK_DELETE] 🗑️  Deleting tiles for media: {media.file_name}")
+                    logger.info(f"[WEBHOOK_DELETE] 🗑️  Deleting tiles for media: {media.file_name} (path: {media.s3_tile_path})")
+                    logger.info(f"[WEBHOOK_DELETE]    ⚠️  This will ONLY delete tiles for this specific media file, not other listings")
                     deleted_count = tile_service._delete_s3_tiles(media.s3_tile_path)
                     total_tiles_deleted += deleted_count
-                    logger.info(f"[WEBHOOK_DELETE] ✅ Deleted {deleted_count} tiles for {media.file_name}")
+                    logger.info(f"[WEBHOOK_DELETE] ✅ Deleted {deleted_count} tiles for {media.file_name} (ONLY for listing #{listing_id})")
             
             # Delete all media records (CASCADE will handle this, but we do it explicitly for logging)
             media_count = all_media.count()
@@ -5035,15 +5051,16 @@ class DeveloperListingMediaWebhookView(APIView):
                 )
             
             # Find deleted media items (those marked with 'deleted': true)
+            # This ensures we ONLY delete tiles for the specific deleted media files, not all media
             deleted_media_items = [m for m in media_items if m.get('deleted', False)]
-            logger.info(f"[WEBHOOK_DELETE] Found {len(deleted_media_items)} deleted media items")
+            logger.info(f"[WEBHOOK_DELETE] Found {len(deleted_media_items)} deleted media items (will ONLY delete tiles for these specific files)")
             
             total_tiles_deleted = 0
             deleted_media_count = 0
             
             tile_service = DeveloperListingTileService()
             
-            # Process each deleted media item
+            # Process each deleted media item (ONLY these specific files)
             for deleted_media in deleted_media_items:
                 media_id = deleted_media.get('id')
                 file_name = deleted_media.get('file_name', 'unknown')
@@ -5051,13 +5068,15 @@ class DeveloperListingMediaWebhookView(APIView):
                 is_tif = deleted_media.get('is_tif', False)
                 
                 logger.info(f"[WEBHOOK_DELETE] 🗑️  Processing deleted media: ID={media_id}, File={file_name}, TIF={is_tif}")
+                logger.info(f"[WEBHOOK_DELETE]    ⚠️  Will ONLY delete tiles for this specific media file (ID={media_id}), not other files")
                 
-                # Delete tiles from S3 if it's a TIF file
+                # Delete tiles from S3 if it's a TIF file (ONLY for this specific media)
                 if is_tif and s3_tile_path:
-                    logger.info(f"[WEBHOOK_DELETE] 🗑️  Deleting tiles from S3: {s3_tile_path}")
+                    logger.info(f"[WEBHOOK_DELETE] 🗑️  Deleting tiles from S3 path: {s3_tile_path}")
+                    logger.info(f"[WEBHOOK_DELETE]    ⚠️  This will ONLY delete tiles matching this path prefix, not other listings/media")
                     deleted_count = tile_service._delete_s3_tiles(s3_tile_path)
                     total_tiles_deleted += deleted_count
-                    logger.info(f"[WEBHOOK_DELETE] ✅ Deleted {deleted_count} tiles for {file_name}")
+                    logger.info(f"[WEBHOOK_DELETE] ✅ Deleted {deleted_count} tiles for {file_name} (ONLY for media ID={media_id}, listing #{listing_id})")
                 elif is_tif:
                     logger.warning(f"[WEBHOOK_DELETE] ⚠️  TIF file {file_name} has no s3_tile_path, skipping tile deletion")
                 

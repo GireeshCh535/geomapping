@@ -142,16 +142,24 @@ class DeveloperListingTileService:
         """
         Delete all tiles from S3 for a given tile path prefix
         
+        IMPORTANT: This method ONLY deletes tiles matching the specific path prefix.
+        For example, if s3_tile_path = 'developer_data/land/70/map.tif', it will ONLY
+        delete tiles under 'developer_data/land/70/map.tif/' and will NOT affect tiles
+        for other listings (e.g., 'developer_data/land/71/' or 'developer_data/land/69/').
+        
         Args:
             s3_tile_path: S3 path prefix (e.g., 'developer_data/land/123/map.tif')
+                          This should be specific to ONE listing/media file
             
         Returns:
             Number of files deleted
         """
         try:
-            logger.info(f"[S3_CLEANUP] 🗑️  Deleting old tiles from S3: {s3_tile_path}")
+            logger.info(f"[S3_CLEANUP] 🗑️  Deleting tiles from S3: {s3_tile_path}")
+            logger.info(f"[S3_CLEANUP]    ⚠️  This will ONLY delete tiles matching this specific path prefix")
             
             # Ensure path ends with / for prefix matching
+            # This ensures we only delete tiles under this specific path, not other paths
             prefix = s3_tile_path.rstrip('/') + '/'
             
             paginator = self.s3_client.get_paginator('list_objects_v2')
@@ -246,18 +254,26 @@ class DeveloperListingTileService:
         
         # Delete old tiles before generating new ones
         # This handles cases where:
-        # 1. Media is updated/recreated (same backend_media_id, potentially different file/path)
-        # 2. File is deleted and recreated
+        # 1. File updated with same name (same path) - delete old tiles, generate new ones to same path
+        # 2. File updated with different name (different path) - delete old path, generate to new path
+        # 3. Media is updated/recreated (same backend_media_id, potentially different file/path)
+        # 4. File is deleted and recreated
         logger.info(f"[TIF_PROCESS] 🗑️  Cleaning up old tiles before generating new ones...")
         
-        # Delete tiles from new path (in case it exists from a previous failed/partial upload)
+        # Always delete tiles from new path first (handles case where file is updated with same name)
+        # This ensures we clean up any existing tiles before generating new ones
+        logger.info(f"[TIF_PROCESS]    ⚠️  Deleting tiles from target path: {s3_tile_path}")
         deleted_new = self._delete_s3_tiles(s3_tile_path)
         
-        # Delete tiles from old path if different
+        # If path changed, also delete from old path
+        # (If path is same, we already deleted above, so this is just for different paths)
         deleted_old = 0
         if old_s3_tile_path and old_s3_tile_path != s3_tile_path:
+            logger.info(f"[TIF_PROCESS]    ⚠️  Path changed, also deleting tiles from old path: {old_s3_tile_path}")
             deleted_old = self._delete_s3_tiles(old_s3_tile_path)
             logger.info(f"[TIF_PROCESS] 🗑️  Deleted {deleted_old} tiles from old path: {old_s3_tile_path}")
+        elif old_s3_tile_path and old_s3_tile_path == s3_tile_path:
+            logger.info(f"[TIF_PROCESS]    ℹ️  File updated with same name/path - old tiles already deleted above")
         
         total_deleted = deleted_new + deleted_old
         if total_deleted > 0:
