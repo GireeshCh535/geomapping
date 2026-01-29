@@ -1667,6 +1667,16 @@ class CoordinateSearchTestView(APIView):
                     'data': layer.name
                 }
 
+            # Special handling for hyderabad_masterplan - return properties.Name only
+            if layer.slug == 'hyderabad_masterplan' and containing_features:
+                primary_feature = containing_features[0]
+                detailed_category = primary_feature.get('detailed_category', {})
+                properties = detailed_category.get('properties', {}) or {}
+                name = properties.get('Name', '')
+                return {
+                    'data': name
+                }
+
             if layer.slug == 'amaravati_master_plan' and containing_features:
                 primary_feature = containing_features[0]
                 feature_name = primary_feature.get('feature_name') or primary_feature.get('detailed_category', {}).get('plot_category', 'Unknown')
