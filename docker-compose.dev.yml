@@ -55,6 +55,8 @@ services:
       - REDIS_URL=redis://redis:6379/1
       - DJANGO_DEBUG=True        # ✅ LOCAL: Enable DEBUG
       - USE_CLOUDFRONT=False     # ✅ LOCAL: Disable CloudFront  
+      - CLOUDFRONT_DISTRIBUTION_ID=E3VZOEKNMYD012
+      - ENABLE_CLOUDFRONT_INVALIDATION=False  # ✅ LOCAL: Disable invalidation in dev
       - DJANGO_ALLOWED_HOSTS=localhost,127.0.0.1,0.0.0.0
       - DEVELOPER_BACKEND_API_URL=${DEVELOPER_BACKEND_API_URL:-http://be.staging.1acre.in}
     volumes:

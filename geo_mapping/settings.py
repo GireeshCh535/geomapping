@@ -14,7 +14,7 @@ SECRET_KEY = "django-insecure-9xdea)mc6dhr@)lrhn65!&!uc+#z6nlajj8j091eswp$$2jf!#
 DEBUG = os.getenv('DJANGO_DEBUG', 'True').lower() == 'true'
 
 # ALLOWED HOSTS
-ALLOWED_HOSTS = ['*']
+ALLOWED_HOSTS = ['*', '3.108.10.59', 'layers.1acre.in']
 
 CSRF_TRUSTED_ORIGINS = [
     'https://layers.1acre.in',
@@ -253,7 +253,9 @@ AWS_S3_CUSTOM_DOMAIN = f'{AWS_STORAGE_BUCKET_NAME}.s3.{AWS_S3_REGION_NAME}.amazo
 
 # CloudFront Configuration - TILES ONLY
 CLOUDFRONT_DOMAIN = 'd17yosovmfjm4.cloudfront.net'
+CLOUDFRONT_DISTRIBUTION_ID = os.getenv('CLOUDFRONT_DISTRIBUTION_ID', '')  # Set via environment variable
 USE_CLOUDFRONT = os.getenv('USE_CLOUDFRONT', 'True').lower() == 'true'
+ENABLE_CLOUDFRONT_INVALIDATION = os.getenv('ENABLE_CLOUDFRONT_INVALIDATION', 'True').lower() == 'true'
 
 # S3-Only Tile Serving Configuration
 S3_ONLY_TILE_SERVING = True

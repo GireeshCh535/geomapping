@@ -10,6 +10,7 @@ import requests
 import boto3
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
+import time
 from django.conf import settings
 from botocore.exceptions import ClientError
 import rasterio
@@ -35,6 +36,28 @@ class DeveloperListingTileService:
             aws_access_key_id=getattr(settings, 'AWS_ACCESS_KEY_ID', None),
             aws_secret_access_key=getattr(settings, 'AWS_SECRET_ACCESS_KEY', None)
         )
+        # CloudFront client for cache invalidation
+        self.cloudfront_client = None
+        self.cloudfront_distribution_id = getattr(settings, 'CLOUDFRONT_DISTRIBUTION_ID', None)
+        self.enable_cloudfront_invalidation = getattr(settings, 'ENABLE_CLOUDFRONT_INVALIDATION', True)
+        if self.enable_cloudfront_invalidation and self.cloudfront_distribution_id:
+            try:
+                self.cloudfront_client = boto3.client(
+                    'cloudfront',
+                    region_name='us-east-1',  # CloudFront API is always us-east-1
+                    aws_access_key_id=getattr(settings, 'AWS_ACCESS_KEY_ID', None),
+                    aws_secret_access_key=getattr(settings, 'AWS_SECRET_ACCESS_KEY', None)
+                )
+                logger.info(f"[CLOUDFRONT] ✅ CloudFront invalidation enabled for distribution: {self.cloudfront_distribution_id}")
+            except Exception as e:
+                logger.warning(f"[CLOUDFRONT] ⚠️  Failed to initialize CloudFront client: {e}")
+                self.cloudfront_client = None
+        else:
+            if not self.cloudfront_distribution_id:
+                logger.warning(f"[CLOUDFRONT] ⚠️  CloudFront distribution ID not configured, invalidation disabled")
+            else:
+                logger.info(f"[CLOUDFRONT] ℹ️  CloudFront invalidation disabled via settings")
+        
         self.tile_size = 256
         self.min_zoom = 8
         self.max_zoom = 18
@@ -186,6 +209,11 @@ class DeveloperListingTileService:
                 deleted_count += len(response.get('Deleted', []))
             
             logger.info(f"[S3_CLEANUP] ✅ Deleted {deleted_count} old tiles from {prefix}")
+            
+            # Invalidate CloudFront cache for deleted tiles
+            if deleted_count > 0:
+                self._invalidate_cloudfront_paths([prefix + '*'])
+            
             return deleted_count
             
         except ClientError as e:
@@ -194,6 +222,53 @@ class DeveloperListingTileService:
         except Exception as e:
             logger.error(f"[S3_CLEANUP] ❌ Unexpected error deleting S3 tiles: {e}", exc_info=True)
             return 0
+    
+    def _invalidate_cloudfront_paths(self, paths: List[str]) -> Optional[str]:
+        """
+        Invalidate CloudFront cache for given S3 paths
+        
+        Args:
+            paths: List of S3 path patterns to invalidate (e.g., ['developer_data/land/70/map.tif/*'])
+            
+        Returns:
+            Invalidation ID if successful, None otherwise
+        """
+        if not self.enable_cloudfront_invalidation or not self.cloudfront_client or not self.cloudfront_distribution_id:
+            logger.debug(f"[CLOUDFRONT] ⚠️  CloudFront invalidation disabled or not configured")
+            return None
+        
+        try:
+            logger.info(f"[CLOUDFRONT] 🔄 Creating CloudFront invalidation for {len(paths)} path(s)...")
+            logger.info(f"[CLOUDFRONT]    Paths: {paths}")
+            
+            # Create invalidation
+            response = self.cloudfront_client.create_invalidation(
+                DistributionId=self.cloudfront_distribution_id,
+                InvalidationBatch={
+                    'Paths': {
+                        'Quantity': len(paths),
+                        'Items': paths
+                    },
+                    'CallerReference': f"tile-update-{int(time.time())}"
+                }
+            )
+            
+            invalidation_id = response.get('Invalidation', {}).get('Id')
+            status = response.get('Invalidation', {}).get('Status')
+            
+            logger.info(f"[CLOUDFRONT] ✅ CloudFront invalidation created: ID={invalidation_id}, Status={status}")
+            logger.info(f"[CLOUDFRONT]    ⚠️  Cache will be cleared in a few minutes")
+            
+            return invalidation_id
+            
+        except ClientError as e:
+            error_code = e.response.get('Error', {}).get('Code', 'Unknown')
+            error_message = e.response.get('Error', {}).get('Message', str(e))
+            logger.error(f"[CLOUDFRONT] ❌ Error creating CloudFront invalidation: {error_code} - {error_message}")
+            return None
+        except Exception as e:
+            logger.error(f"[CLOUDFRONT] ❌ Unexpected error creating CloudFront invalidation: {e}", exc_info=True)
+            return None
     
     def process_tif_file(
         self,
@@ -390,6 +465,17 @@ class DeveloperListingTileService:
                 logger.info(f"[TIF_PROCESS] ✅ Successfully processed {file_name}")
                 logger.info(f"[TIF_PROCESS]    - Tiles generated: {tiles_generated}")
                 logger.info(f"[TIF_PROCESS]    - Processing time: {time.time() - start_time:.2f}s")
+                
+                # Invalidate CloudFront cache for newly generated tiles
+                if tiles_generated > 0:
+                    invalidation_path = f"{s3_tile_path.rstrip('/')}/*"
+                    logger.info(f"[TIF_PROCESS] 🔄 Invalidating CloudFront cache for new tiles...")
+                    invalidation_id = self._invalidate_cloudfront_paths([invalidation_path])
+                    if invalidation_id:
+                        logger.info(f"[TIF_PROCESS] ✅ CloudFront invalidation created: {invalidation_id}")
+                    else:
+                        logger.warning(f"[TIF_PROCESS] ⚠️  CloudFront invalidation skipped or failed")
+                
                 logger.info(f"[TIF_PROCESS] ===== TIF processing completed =====")
                 
                 return {

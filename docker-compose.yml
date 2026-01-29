@@ -51,6 +51,8 @@ services:
       - DJANGO_DB_USER=postgres
       - DJANGO_DB_PASSWORD=postgres
       - REDIS_URL=redis://redis:6379/1
+      - CLOUDFRONT_DISTRIBUTION_ID=E3VZOEKNMYD012
+      - ENABLE_CLOUDFRONT_INVALIDATION=True  # ✅ PROD: Enable CloudFront invalidation
       - DEVELOPER_BACKEND_API_URL=${DEVELOPER_BACKEND_API_URL:-https://be.1acre.in}
       - WEB_CONCURRENCY=4  # Number of gunicorn workers (adjust based on CPU cores)
     depends_on:
