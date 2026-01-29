@@ -389,13 +389,37 @@ class DeveloperListingTileService:
                     media.save()
                     logger.info(f"[TIF_PROCESS] ✅ Media record updated")
                 
+                # Try to extract location from listing data for fallback bounds
+                fallback_bounds = None
+                if listing and listing.listing_data:
+                    listing_data = listing.listing_data
+                    # Try to extract lat/lng from common field names
+                    lat = listing_data.get('latitude') or listing_data.get('lat') or listing_data.get('location', {}).get('latitude')
+                    lng = listing_data.get('longitude') or listing_data.get('lng') or listing_data.get('lon') or listing_data.get('location', {}).get('longitude')
+                    
+                    if lat and lng:
+                        try:
+                            lat = float(lat)
+                            lng = float(lng)
+                            # Create a small bounding box around the point (0.01 degrees ≈ 1km)
+                            fallback_bounds = {
+                                'west': lng - 0.005,
+                                'east': lng + 0.005,
+                                'north': lat + 0.005,
+                                'south': lat - 0.005
+                            }
+                            logger.info(f"[TIF_PROCESS] 📍 Found listing location: ({lat}, {lng}), using as fallback bounds")
+                        except (ValueError, TypeError):
+                            logger.debug(f"[TIF_PROCESS] Could not parse lat/lng from listing data")
+                
                 # Generate tiles and get metadata
                 logger.info(f"[TIF_PROCESS] 🗺️  Starting tile generation (zoom {self.min_zoom}-{self.max_zoom})...")
                 result = self._generate_tiles_from_tif(
                     tif_path=tif_path,
                     s3_tile_base_path=s3_tile_path,
                     temp_dir=temp_dir,
-                    media=media
+                    media=media,
+                    fallback_bounds=fallback_bounds
                 )
                 
                 tiles_generated = result.get('tiles_generated', 0)
@@ -691,9 +715,15 @@ class DeveloperListingTileService:
             logger.error(f"Error downloading TIF file: {e}")
             return None
     
-    def _load_and_reproject_geotiff(self, geotiff_path, target_crs='EPSG:4326'):
+    def _load_and_reproject_geotiff(self, geotiff_path, target_crs='EPSG:4326', fallback_bounds=None):
         """
         Load and reproject GeoTIFF to target CRS (optimized approach from Chennai script)
+        
+        Args:
+            geotiff_path: Path to the GeoTIFF file
+            target_crs: Target CRS (default: EPSG:4326)
+            fallback_bounds: Optional fallback bounds dict with 'west', 'east', 'north', 'south'
+                           to use if file is not georeferenced
         
         Returns:
             Tuple of (data_r, data_g, data_b, data_a, bounds, transform) or None on error
@@ -705,8 +735,90 @@ class DeveloperListingTileService:
                 logger.info(f"[REPROJECT] 📐 Source CRS: {src.crs}, Target CRS: {target_crs}")
                 logger.info(f"[REPROJECT] 📐 Source dimensions: {src.width} x {src.height}, Bands: {src.count}")
                 logger.info(f"[REPROJECT] 📐 Source bounds: {src.bounds}")
+                logger.info(f"[REPROJECT] 📐 Source transform: {src.transform}")
                 
-                # Calculate transform for target CRS
+                # Check if file is georeferenced
+                # A file is considered non-georeferenced if:
+                # 1. CRS is None, OR
+                # 2. Transform is None or identity-like, OR
+                # 3. Bounds are invalid (all zeros or identical)
+                is_georeferenced = True
+                try:
+                    # Try to calculate transform - if this fails, file is not georeferenced
+                    test_transform, _, _ = calculate_default_transform(
+                        src.crs, target_crs, src.width, src.height, *src.bounds
+                    )
+                    # Also check if CRS is None or transform is identity
+                    if src.crs is None:
+                        is_georeferenced = False
+                    elif src.transform is None:
+                        is_georeferenced = False
+                    elif (src.bounds.left == src.bounds.right or src.bounds.bottom == src.bounds.top):
+                        is_georeferenced = False
+                except Exception as e:
+                    # If we can't calculate transform, file is likely not georeferenced
+                    logger.debug(f"[REPROJECT] Could not calculate transform: {e}")
+                    is_georeferenced = False
+                
+                if not is_georeferenced:
+                    logger.warning(f"[REPROJECT] ⚠️  TIF file is not georeferenced (no CRS, transform, or GCPs)")
+                    
+                    # If we have fallback bounds, use them to create a georeferenced version
+                    if fallback_bounds:
+                        logger.info(f"[REPROJECT] 🔄 Using fallback bounds: {fallback_bounds}")
+                        # Read the image data directly without reprojection
+                        logger.info(f"[REPROJECT] 📖 Reading image data directly (no reprojection needed)...")
+                        
+                        # Read all bands
+                        if src.count >= 4:
+                            data_r = src.read(1)
+                            data_g = src.read(2)
+                            data_b = src.read(3)
+                            data_a = src.read(4)
+                        elif src.count == 3:
+                            data_r = src.read(1)
+                            data_g = src.read(2)
+                            data_b = src.read(3)
+                            data_a = np.full_like(data_r, 255, dtype=np.uint8)
+                        elif src.count == 1:
+                            data_r = src.read(1)
+                            data_g = data_r.copy()
+                            data_b = data_r.copy()
+                            data_a = np.full_like(data_r, 255, dtype=np.uint8)
+                        else:
+                            logger.error(f"[REPROJECT] ❌ Unsupported number of bands: {src.count}")
+                            return None
+                        
+                        # Create a transform that maps the image to the fallback bounds
+                        width = src.width
+                        height = src.height
+                        west = fallback_bounds.get('west', 0)
+                        east = fallback_bounds.get('east', 1)
+                        north = fallback_bounds.get('north', 1)
+                        south = fallback_bounds.get('south', 0)
+                        
+                        # Create affine transform: pixel coordinates to lat/lon
+                        from rasterio.transform import from_bounds
+                        transform = from_bounds(west, south, east, north, width, height)
+                        
+                        bounds = {
+                            'west': west,
+                            'south': south,
+                            'east': east,
+                            'north': north
+                        }
+                        
+                        logger.info(f"[REPROJECT] ✅ Using fallback bounds: {bounds}")
+                        logger.info(f"[REPROJECT] ✅ Data bands: R={data_r.shape}, G={data_g.shape}, B={data_b.shape}, A={data_a.shape}")
+                        
+                        return data_r, data_g, data_b, data_a, bounds, transform
+                    else:
+                        logger.error(f"[REPROJECT] ❌ TIF file is not georeferenced and no fallback bounds provided. Cannot generate map tiles.")
+                        logger.error(f"[REPROJECT] ❌ File must have CRS, geotransform, or GCPs to create map tiles.")
+                        return None
+                
+                # File is georeferenced - proceed with normal reprojection
+                # Calculate transform for target CRS (we already tested this above, but need to recalculate)
                 transform, width, height = calculate_default_transform(
                     src.crs, target_crs, src.width, src.height, *src.bounds
                 )
@@ -718,16 +830,70 @@ class DeveloperListingTileService:
                 
                 # Reproject with high quality resampling
                 logger.info(f"[REPROJECT] 🔄 Performing reprojection (this may take a while)...")
-                reproject(
-                    source=rasterio.band(src, list(range(1, src.count + 1))),
-                    destination=dst_data,
-                    src_transform=src.transform,
-                    src_crs=src.crs,
-                    dst_transform=transform,
-                    dst_crs=target_crs,
-                    resampling=Resampling.cubic_spline,
-                    num_threads=self.max_workers
-                )
+                try:
+                    reproject(
+                        source=rasterio.band(src, list(range(1, src.count + 1))),
+                        destination=dst_data,
+                        src_transform=src.transform,
+                        src_crs=src.crs,
+                        dst_transform=transform,
+                        dst_crs=target_crs,
+                        resampling=Resampling.cubic_spline,
+                        num_threads=self.max_workers
+                    )
+                except Exception as reproject_error:
+                    # Check if error is about missing geotransform
+                    error_msg = str(reproject_error).lower()
+                    if 'no geotransform' in error_msg or 'no affine transformation' in error_msg:
+                        logger.warning(f"[REPROJECT] ⚠️  Reprojection failed - file appears non-georeferenced: {reproject_error}")
+                        # Try fallback handling
+                        if fallback_bounds:
+                            logger.info(f"[REPROJECT] 🔄 Attempting fallback bounds handling...")
+                            # Read image data directly
+                            if src.count >= 4:
+                                data_r = src.read(1)
+                                data_g = src.read(2)
+                                data_b = src.read(3)
+                                data_a = src.read(4)
+                            elif src.count == 3:
+                                data_r = src.read(1)
+                                data_g = src.read(2)
+                                data_b = src.read(3)
+                                data_a = np.full_like(data_r, 255, dtype=np.uint8)
+                            elif src.count == 1:
+                                data_r = src.read(1)
+                                data_g = data_r.copy()
+                                data_b = data_r.copy()
+                                data_a = np.full_like(data_r, 255, dtype=np.uint8)
+                            else:
+                                logger.error(f"[REPROJECT] ❌ Unsupported number of bands: {src.count}")
+                                return None
+                            
+                            width = src.width
+                            height = src.height
+                            west = fallback_bounds.get('west', 0)
+                            east = fallback_bounds.get('east', 1)
+                            north = fallback_bounds.get('north', 1)
+                            south = fallback_bounds.get('south', 0)
+                            
+                            from rasterio.transform import from_bounds
+                            transform = from_bounds(west, south, east, north, width, height)
+                            
+                            bounds = {
+                                'west': west,
+                                'south': south,
+                                'east': east,
+                                'north': north
+                            }
+                            
+                            logger.info(f"[REPROJECT] ✅ Using fallback bounds: {bounds}")
+                            return data_r, data_g, data_b, data_a, bounds, transform
+                        else:
+                            logger.error(f"[REPROJECT] ❌ Reprojection failed and no fallback bounds available: {reproject_error}")
+                            return None
+                    else:
+                        # Different error - re-raise
+                        raise
                 
                 logger.info(f"[REPROJECT] ✅ Reprojection completed")
                 
@@ -752,6 +918,7 @@ class DeveloperListingTileService:
                 logger.info(f"[REPROJECT] ✅ Data bands: R={data_r.shape}, G={data_g.shape}, B={data_b.shape}, A={data_a.shape}")
                 
                 return data_r, data_g, data_b, data_a, bounds, transform
+                
         except Exception as e:
             logger.error(f"Error loading and reprojecting GeoTIFF: {e}", exc_info=True)
             return None
@@ -882,7 +1049,8 @@ class DeveloperListingTileService:
         tif_path: str,
         s3_tile_base_path: str,
         temp_dir: str,
-        media=None
+        media=None,
+        fallback_bounds=None
     ) -> Dict:
         """
         Generate map tiles from TIF file using optimized approach (like Chennai script)
@@ -892,7 +1060,7 @@ class DeveloperListingTileService:
             s3_tile_base_path: Base S3 path (e.g., 'developerland/123')
             temp_dir: Temporary directory (not used but kept for compatibility)
             media: DeveloperListingMedia instance (optional)
-            job: TileGenerationJob instance (optional)
+            fallback_bounds: Optional fallback bounds dict for non-georeferenced files
             
         Returns:
             Dict with tiles_generated, tiles_by_zoom, and tif_metadata
@@ -903,7 +1071,7 @@ class DeveloperListingTileService:
             
             # Step 1: Load and reproject entire TIF to WGS84 (optimized approach)
             logger.info(f"[TILE_GEN] 🔄 Step 1: Loading and reprojecting TIF to WGS84...")
-            result = self._load_and_reproject_geotiff(tif_path)
+            result = self._load_and_reproject_geotiff(tif_path, fallback_bounds=fallback_bounds)
             if not result:
                 logger.error(f"[TILE_GEN] ❌ Failed to load and reproject TIF file")
                 return {
