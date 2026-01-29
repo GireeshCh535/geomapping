@@ -393,9 +393,13 @@ class DeveloperListingTileService:
                 fallback_bounds = None
                 if listing and listing.listing_data:
                     listing_data = listing.listing_data
+                    # location may be a dict or a string (e.g. JSON); only use .get() when it's a dict
+                    location = listing_data.get('location')
+                    if not isinstance(location, dict):
+                        location = {}
                     # Try to extract lat/lng from common field names
-                    lat = listing_data.get('latitude') or listing_data.get('lat') or listing_data.get('location', {}).get('latitude')
-                    lng = listing_data.get('longitude') or listing_data.get('lng') or listing_data.get('lon') or listing_data.get('location', {}).get('longitude')
+                    lat = listing_data.get('latitude') or listing_data.get('lat') or location.get('latitude')
+                    lng = listing_data.get('longitude') or listing_data.get('lng') or listing_data.get('lon') or location.get('longitude')
                     
                     if lat and lng:
                         try:
