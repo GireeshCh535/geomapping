@@ -1781,6 +1781,16 @@ class CoordinateSearchTestView(APIView):
                 return {
                     'data': layer_name
                 }
+
+            if layer.slug == 'warangal_master_plan' and containing_features:
+                # Return just the feature name (Layer Name from properties)
+                primary_feature = containing_features[0]
+                detailed_category = primary_feature.get('detailed_category', {})
+                properties = detailed_category.get('properties', {})
+                layer_name = properties.get('PLU_NAME', '')
+                return {
+                    'data': layer_name
+                }
             
             # Special handling for gurugram_masterplan
             if layer.slug == 'gurugram_masterplan' and containing_features:
