@@ -1668,7 +1668,7 @@ class CoordinateSearchTestView(APIView):
                     'data': layer.name
                 }
 
-            # Special handling for hyderabad_masterplan - return Name and fill_color
+            # Special handling for hyderabad_masterplan - return data (name) and fill_color as separate keys
             if layer.slug == 'hyderabad_masterplan' and containing_features:
                 primary_feature = containing_features[0]
                 detailed_category = primary_feature.get('detailed_category', {})
@@ -1676,7 +1676,8 @@ class CoordinateSearchTestView(APIView):
                 name = properties.get('Name', '')
                 fill_color = properties.get('fill_color', '')
                 return {
-                    'data': f"{name}, {fill_color}"
+                    'data': name,
+                    'fill_color': fill_color,
                 }
 
             if layer.slug == 'amaravati_master_plan' and containing_features:
@@ -2018,7 +2019,8 @@ class CoordinateSearchTestView(APIView):
                     primary_feature.get('color', '')
                 ) or ''
                 return {
-                    'data': f"{landuse_ca}, {fill_color}"
+                    'data': landuse_ca,
+                    'fill_color': fill_color,
                 }
             
             # Special handling for jodhpur_masterplan
@@ -2034,7 +2036,8 @@ class CoordinateSearchTestView(APIView):
                     primary_feature.get('color', '')
                 ) or ''
                 return {
-                    'data': f"{name}, {fill_color}"
+                    'data': name,
+                    'fill_color': fill_color,
                 }
             
             # Special handling for jaipur_masterplan
@@ -2053,7 +2056,8 @@ class CoordinateSearchTestView(APIView):
                     primary_feature.get('color', '')
                 ) or ''
                 return {
-                    'data': f"{landuse_category}, {fill_color}"
+                    'data': landuse_category,
+                    'fill_color': fill_color,
                 }
             
             # Special handling for visakhapatnam_master_plan
