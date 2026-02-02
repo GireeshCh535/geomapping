@@ -20,12 +20,28 @@ from .serializers import *
 from .tile_path_service import TilePathService
 import logging
 import json
+from urllib.parse import quote
 import boto3
 import requests
 import psycopg2
 from psycopg2 import OperationalError, DatabaseError
 
 logger = logging.getLogger(__name__)
+
+# SVG template for master plan fill color indicator (use {color} placeholder)
+MASTERPLAN_FILL_COLOR_SVG = (
+    '<svg width="16" height="16" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg">'
+    '<rect x="0" y="0" width="16" height="16" rx="4" ry="4" fill="{color}"/>'
+    '</svg>'
+)
+
+
+def _masterplan_fill_color_svg_data_uri(hex_color):
+    """Return SVG as a data URI so frontend can use in <img src={fill_color} /> without JSON escaping issues."""
+    if not hex_color:
+        return ''
+    svg_str = MASTERPLAN_FILL_COLOR_SVG.format(color=hex_color)
+    return f"data:image/svg+xml,{quote(svg_str)}"
 
 # ================================
 # VIEWSETS (Router endpoints)
@@ -1668,16 +1684,16 @@ class CoordinateSearchTestView(APIView):
                     'data': layer.name
                 }
 
-            # Special handling for hyderabad_masterplan - return data (name) and fill_color as separate keys
+            # Special handling for hyderabad_masterplan - return data (name) and fill_color as SVG
             if layer.slug == 'hyderabad_masterplan' and containing_features:
                 primary_feature = containing_features[0]
                 detailed_category = primary_feature.get('detailed_category', {})
                 properties = detailed_category.get('properties', {}) or {}
                 name = properties.get('Name', '')
-                fill_color = properties.get('fill_color', '')
+                fill_color = properties.get('fill_color', '') or primary_feature.get('color', '')
                 return {
                     'data': name,
-                    'fill_color': fill_color,
+                    'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
                 }
 
             if layer.slug == 'amaravati_master_plan' and containing_features:
@@ -2020,7 +2036,7 @@ class CoordinateSearchTestView(APIView):
                 ) or ''
                 return {
                     'data': landuse_ca,
-                    'fill_color': fill_color,
+                    'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
                 }
             
             # Special handling for jodhpur_masterplan
@@ -2037,7 +2053,7 @@ class CoordinateSearchTestView(APIView):
                 ) or ''
                 return {
                     'data': name,
-                    'fill_color': fill_color,
+                    'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
                 }
             
             # Special handling for jaipur_masterplan
@@ -2057,7 +2073,7 @@ class CoordinateSearchTestView(APIView):
                 ) or ''
                 return {
                     'data': landuse_category,
-                    'fill_color': fill_color,
+                    'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
                 }
             
             # Special handling for visakhapatnam_master_plan

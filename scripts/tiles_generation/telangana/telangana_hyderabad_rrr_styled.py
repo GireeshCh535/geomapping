@@ -26,7 +26,7 @@ import time
 import geopandas as gpd
 from pathlib import Path
 from PIL import Image, ImageDraw
-from typing import Tuple, List, Optional, Any
+from typing import Tuple, List
 import mercantile
 from shapely.geometry import LineString, MultiLineString, box
 from shapely.ops import unary_union
@@ -62,14 +62,6 @@ ZOOM_RESOLUTION = {
     18: 15.0,
 }
 REFERENCE_STROKE_WIDTH = 3.0  # GeoJSON stroke-width that maps 1:1 to ZOOM_RESOLUTION[z]
-
-# Supersample factor: render at 2x then downscale for smoother edges and continuous outlines.
-RENDER_SCALE = 2
-# Shapely buffer styles: round cap (2) and round join (1) for smooth corners and no gaps.
-CAP_STYLE_ROUND = 2
-JOIN_STYLE_ROUND = 1
-# Buffer resolution: segments per quadrant for round cap/join (higher = smoother curves at junctions).
-BUFFER_RESOLUTION = 32
 
 
 class HyderabadRRRStyledTileGenerator:
@@ -170,16 +162,6 @@ class HyderabadRRRStyledTileGenerator:
         pixel_y = int((tile_lat - tile_y) * 256)
         return pixel_x, pixel_y
 
-    def wgs84_to_tile_pixel_float(self, lon: float, lat: float, tile_x: int, tile_y: int, zoom: int,
-                                   scale: float = 1.0) -> Tuple[float, float]:
-        """Convert WGS84 to float pixel coords (optionally scaled) for smooth polygon buffering."""
-        lat = max(-85.051129, min(85.051129, lat))
-        tile_lon = (lon + 180) / 360 * (2 ** zoom)
-        tile_lat = (1 - math.asinh(math.tan(math.radians(lat))) / math.pi) / 2 * (2 ** zoom)
-        px = (tile_lon - tile_x) * 256.0 * scale
-        py = (tile_lat - tile_y) * 256.0 * scale
-        return px, py
-
     def draw_line(self, draw: ImageDraw.Draw, coordinates: List[Tuple[float, float]],
                   color: str, width: int, tile_x: int, tile_y: int, zoom: int,
                   offset_x: int = 0, offset_y: int = 0):
@@ -200,137 +182,22 @@ class HyderabadRRRStyledTileGenerator:
                     except Exception:
                         continue
 
-    def draw_line_as_polygon(self, draw: ImageDraw.Draw, coordinates: List[Tuple[float, float]],
-                             color: str, width_px: float, tile_x: int, tile_y: int, zoom: int,
-                             offset_x: float, offset_y: float, canvas_w: int, canvas_h: int,
-                             scale: float = 1.0):
-        """Draw a line as a buffered polygon (round cap + round join) for smooth, continuous edges."""
-        if len(coordinates) < 2 or width_px < 0.5:
-            return
-        # Float pixel coords in scaled canvas space
-        pts = []
-        for lon, lat in coordinates:
-            px, py = self.wgs84_to_tile_pixel_float(lon, lat, tile_x, tile_y, zoom, scale)
-            pts.append((px + offset_x, py + offset_y))
-        # Shapely: y is upward; image y is downward → use (x, canvas_h - y)
-        pts_shapely = [(p[0], canvas_h - p[1]) for p in pts]
-        try:
-            line = LineString(pts_shapely)
-            if line.is_empty or not line.is_valid:
-                return
-            radius = max(0.5, width_px / 2.0)
-            poly = line.buffer(
-                radius,
-                resolution=BUFFER_RESOLUTION,
-                cap_style=CAP_STYLE_ROUND,
-                join_style=JOIN_STYLE_ROUND,
-            )
-            if poly.is_empty or poly.geom_type not in ('Polygon', 'MultiPolygon'):
-                return
-            # Collect exterior rings and convert back to image coords
-            if poly.geom_type == 'MultiPolygon':
-                geoms = list(poly.geoms)
-            else:
-                geoms = [poly]
-            for geom in geoms:
-                if geom.is_empty:
-                    continue
-                ext = geom.exterior
-                if ext is None:
-                    continue
-                img_coords = [(x, canvas_h - y) for x, y in ext.coords]
-                # Clip to canvas and draw (PIL polygon accepts sequence of xy)
-                try:
-                    draw.polygon(img_coords, fill=color, outline=color)
-                except Exception:
-                    pass
-        except Exception as e:
-            logger.debug("draw_line_as_polygon: %s", e)
-
-    def line_to_buffered_polygons(
-        self,
-        coordinates: List[Tuple[float, float]],
-        width_px: float,
-        tile_x: int,
-        tile_y: int,
-        zoom: int,
-        offset_x: float,
-        offset_y: float,
-        canvas_w: int,
-        canvas_h: int,
-        scale: float = 1.0,
-    ) -> List[Any]:
-        """Return list of Shapely Polygons (in Shapely canvas space) for this line, for union-by-style."""
-        if len(coordinates) < 2 or width_px < 0.5:
-            return []
-        pts = []
-        for lon, lat in coordinates:
-            px, py = self.wgs84_to_tile_pixel_float(lon, lat, tile_x, tile_y, zoom, scale)
-            pts.append((px + offset_x, py + offset_y))
-        pts_shapely = [(p[0], canvas_h - p[1]) for p in pts]
-        try:
-            line = LineString(pts_shapely)
-            if line.is_empty or not line.is_valid:
-                return []
-            radius = max(0.5, width_px / 2.0)
-            poly = line.buffer(
-                radius,
-                resolution=BUFFER_RESOLUTION,
-                cap_style=CAP_STYLE_ROUND,
-                join_style=JOIN_STYLE_ROUND,
-            )
-            if poly.is_empty or poly.geom_type not in ('Polygon', 'MultiPolygon'):
-                return []
-            if poly.geom_type == 'MultiPolygon':
-                return list(poly.geoms)
-            return [poly]
-        except Exception as e:
-            logger.debug("line_to_buffered_polygons: %s", e)
-            return []
-
-    def draw_shapely_geom(
-        self,
-        draw: ImageDraw.Draw,
-        geom: Any,
-        color: str,
-        canvas_h: int,
-    ) -> None:
-        """Draw a Shapely Polygon, MultiPolygon, or GeometryCollection onto the image."""
-        if geom is None or geom.is_empty:
-            return
-        if geom.geom_type == 'GeometryCollection':
-            for g in geom.geoms:
-                self.draw_shapely_geom(draw, g, color, canvas_h)
-            return
-        geoms = list(geom.geoms) if geom.geom_type == 'MultiPolygon' else [geom]
-        for g in geoms:
-            if g.is_empty or not hasattr(g, 'exterior') or g.exterior is None:
-                continue
-            img_coords = [(x, canvas_h - y) for x, y in g.exterior.coords]
-            try:
-                draw.polygon(img_coords, fill=color, outline=color)
-            except Exception:
-                pass
-
     def create_blank_tile(self) -> Image.Image:
         """Create a fully transparent PNG tile (same as telangana_hyderabad_rrr.py)."""
         return Image.new('RGBA', (self.tile_size, self.tile_size), (0, 0, 0, 0))
 
     def generate_tile(self, x: int, y: int, zoom: int) -> Image.Image:
-        """Generate a single tile: polygon-based lines (round cap/join) at 2x scale, then downscale for smooth edges."""
-        scale = RENDER_SCALE
-        line_width = max(1.0, self.get_rrr_line_width(zoom))
-        bleed_px = max(2, int(line_width * 2))
-        # Canvas in scaled pixels so we can downscale for anti-aliasing
-        canvas_size = int((256 + 2 * bleed_px) * scale)
-        bleed_scaled = bleed_px * scale
+        """Generate a single tile (same rendering as telangana_hyderabad_rrr.py; color/width from GeoJSON)."""
+        line_width = max(1, int(self.get_rrr_line_width(zoom)))
+        bleed_px = max(2, line_width * 2)
+        canvas_size = 256 + 2 * bleed_px
         img = Image.new('RGBA', (canvas_size, canvas_size), (0, 0, 0, 0))
         draw = ImageDraw.Draw(img)
 
         tile_bounds = mercantile.bounds(x, y, zoom)
         tile_width_deg = tile_bounds.east - tile_bounds.west
         tile_height_deg = tile_bounds.north - tile_bounds.south
-        buffer_px = bleed_px + int(line_width) + 2
+        buffer_px = bleed_px + line_width
         buffer_lon = tile_width_deg * (buffer_px / 256.0)
         buffer_lat = tile_height_deg * (buffer_px / 256.0)
         tile_box = box(
@@ -339,12 +206,6 @@ class HyderabadRRRStyledTileGenerator:
             tile_bounds.east + buffer_lon,
             tile_bounds.north + buffer_lat,
         )
-
-        # Collect buffered polygons by style (outer / inner) so we can union at junctions.
-        outer_polys: List[Any] = []
-        inner_polys: List[Any] = []
-        outer_color: Optional[str] = None
-        inner_color: Optional[str] = None
 
         for idx, row in self.gdf.iterrows():
             geometry = row.geometry
@@ -361,66 +222,33 @@ class HyderabadRRRStyledTileGenerator:
             color = str(color).strip()
             if not color or color.lower() == 'nan':
                 color = '#999999'
-            # Width from GeoJSON properties only (stroke-width), in scaled pixels for polygon buffer
+            # Width from GeoJSON properties only (stroke-width)
             stroke_width = None
             if 'stroke-width' in row.index:
                 stroke_width = row['stroke-width']
             if stroke_width is None and 'stroke_width' in row.index:
                 stroke_width = row['stroke_width']
-            base_width = self.get_rrr_line_width(zoom)
+            base_width = self.get_rrr_line_width(zoom)  # resolution for this zoom
             if stroke_width is not None and str(stroke_width).strip().lower() not in ('', 'nan', 'none'):
                 try:
-                    line_width_feature = max(1.0, base_width * float(stroke_width) / REFERENCE_STROKE_WIDTH)
+                    line_width_feature = max(1, int(base_width * float(stroke_width) / REFERENCE_STROKE_WIDTH))
                 except (TypeError, ValueError):
-                    line_width_feature = max(1.0, base_width)
+                    line_width_feature = max(1, int(base_width))
             else:
-                line_width_feature = max(1.0, base_width)
-            width_scaled = max(1.0, line_width_feature * scale)
-
-            draw_order = int(row.get('_draw_order', 0))
-            is_outer = draw_order == 0
-
-            def collect(coords: List[Tuple[float, float]]) -> None:
-                nonlocal outer_color, inner_color
-                polys = self.line_to_buffered_polygons(
-                    coords, width_scaled, x, y, zoom,
-                    bleed_scaled, bleed_scaled, canvas_size, canvas_size, scale
-                )
-                if not polys:
-                    return
-                if is_outer:
-                    outer_polys.extend(polys)
-                    if outer_color is None:
-                        outer_color = color
-                else:
-                    inner_polys.extend(polys)
-                    if inner_color is None:
-                        inner_color = color
+                line_width_feature = max(1, int(base_width))
 
             if geometry.geom_type == 'MultiLineString':
                 for line in geometry.geoms:
                     coords = list(line.coords)
                     if len(coords) >= 2:
-                        collect(coords)
+                        self.draw_line(draw, coords, color, line_width_feature, x, y, zoom, bleed_px, bleed_px)
             elif geometry.geom_type == 'LineString':
                 coords = list(geometry.coords)
                 if len(coords) >= 2:
-                    collect(coords)
+                    self.draw_line(draw, coords, color, line_width_feature, x, y, zoom, bleed_px, bleed_px)
 
-        # Union by style so junctions merge into single white and single dark shape (no overlaps/gaps).
-        outer_union = unary_union(outer_polys) if outer_polys else None
-        inner_union = unary_union(inner_polys) if inner_polys else None
-        if outer_union is not None and not outer_union.is_empty and outer_color:
-            self.draw_shapely_geom(draw, outer_union, outer_color, canvas_size)
-        if inner_union is not None and not inner_union.is_empty and inner_color:
-            self.draw_shapely_geom(draw, inner_union, inner_color, canvas_size)
-
-        # Crop center 256*scale region and downscale to 256x256 for smooth edges
-        crop_size = int(256 * scale)
-        crop_x0 = int(bleed_scaled)
-        crop_y0 = int(bleed_scaled)
-        cropped = img.crop((crop_x0, crop_y0, crop_x0 + crop_size, crop_y0 + crop_size))
-        return cropped.resize((self.tile_size, self.tile_size), Image.LANCZOS)
+        cropped = img.crop((bleed_px, bleed_px, bleed_px + 256, bleed_px + 256))
+        return cropped
 
     def generate_tiles(self, min_zoom: int = 5, max_zoom: int = 18):
         logger.info("Generating styled RRR tiles (zoom %d–%d)", min_zoom, max_zoom)
@@ -544,7 +372,7 @@ def main():
         if sys.argv[1] == "--force":
             skip_existing = False
     geojson_path = "data/Telangana/Hyderabad/rrr/RRR_2_Layer.geojson"
-    output_dir = "hyderabad_rrr_styled_tiles_curverd"
+    output_dir = "hyderabad_rrr_styled_tiles"
     if not os.path.exists(geojson_path):
         logger.error("GeoJSON not found: %s", geojson_path)
         sys.exit(1)
