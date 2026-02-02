@@ -1668,14 +1668,15 @@ class CoordinateSearchTestView(APIView):
                     'data': layer.name
                 }
 
-            # Special handling for hyderabad_masterplan - return properties.Name only
+            # Special handling for hyderabad_masterplan - return Name and fill_color
             if layer.slug == 'hyderabad_masterplan' and containing_features:
                 primary_feature = containing_features[0]
                 detailed_category = primary_feature.get('detailed_category', {})
                 properties = detailed_category.get('properties', {}) or {}
                 name = properties.get('Name', '')
+                fill_color = properties.get('fill_color', '')
                 return {
-                    'data': name
+                    'data': f"{name}, {fill_color}"
                 }
 
             if layer.slug == 'amaravati_master_plan' and containing_features:
@@ -2005,36 +2006,54 @@ class CoordinateSearchTestView(APIView):
                 }
             
             # Special handling for udaipur_masterplan
+            # Udaipur: zone name in properties.LANDUSE_CA, fill_color in properties (from legend script)
             if layer.slug == 'udaipur_masterplan' and containing_features:
-                # Return properties.LANDUSE_CA
                 primary_feature = containing_features[0]
                 detailed_category = primary_feature.get('detailed_category', {})
-                properties = detailed_category.get('properties', {})
-                landuse_ca = properties.get('LANDUSE_CA', '')
+                properties = detailed_category.get('properties', {}) or {}
+                landuse_ca = properties.get('LANDUSE_CA', '') or properties.get('LANDUSE_CATEGORY', '')
+                fill_color = (
+                    properties.get('fill_color') or properties.get('fillColor') or
+                    properties.get('FillColor') or properties.get('color') or
+                    primary_feature.get('color', '')
+                ) or ''
                 return {
-                    'data': landuse_ca
+                    'data': f"{landuse_ca}, {fill_color}"
                 }
             
             # Special handling for jodhpur_masterplan
+            # Jodhpur: zone name in properties.Name, fill_color in properties (from legend script)
             if layer.slug == 'jodhpur_masterplan' and containing_features:
-                # Return properties.Name
                 primary_feature = containing_features[0]
                 detailed_category = primary_feature.get('detailed_category', {})
-                properties = detailed_category.get('properties', {})
-                name = properties.get('Name', '')
+                properties = detailed_category.get('properties', {}) or {}
+                name = properties.get('Name', '') or properties.get('name', '')
+                fill_color = (
+                    properties.get('fill_color') or properties.get('fillColor') or
+                    properties.get('FillColor') or properties.get('color') or
+                    primary_feature.get('color', '')
+                ) or ''
                 return {
-                    'data': name
+                    'data': f"{name}, {fill_color}"
                 }
             
             # Special handling for jaipur_masterplan
+            # Jaipur: zone name in properties.LANDUSE_CATEGORY, fill_color in properties (from legend script)
             if layer.slug == 'jaipur_masterplan' and containing_features:
-                # Return properties.LANDUSE_CATEGORY
                 primary_feature = containing_features[0]
                 detailed_category = primary_feature.get('detailed_category', {})
-                properties = detailed_category.get('properties', {})
-                landuse_category = properties.get('LANDUSE_CATEGORY', '')
+                properties = detailed_category.get('properties', {}) or {}
+                landuse_category = (
+                    properties.get('LANDUSE_CATEGORY', '') or properties.get('LANDUSE_CA', '') or
+                    properties.get('Name', '') or properties.get('name', '')
+                )
+                fill_color = (
+                    properties.get('fill_color') or properties.get('fillColor') or
+                    properties.get('FillColor') or properties.get('color') or
+                    primary_feature.get('color', '')
+                ) or ''
                 return {
-                    'data': landuse_category
+                    'data': f"{landuse_category}, {fill_color}"
                 }
             
             # Special handling for visakhapatnam_master_plan
