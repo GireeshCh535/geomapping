@@ -33,6 +33,7 @@ import argparse
 import csv
 import json
 from pathlib import Path
+from typing import Optional
 
 
 def load_legend_fill_colors(legend_path: Path, case_insensitive: bool = True) -> dict[str, str]:
@@ -59,10 +60,12 @@ def add_fill_color_to_geojson(
     category_to_fill: dict[str, str],
     *,
     dry_run: bool = False,
+    collect_missing: Optional[set] = None,
 ) -> tuple[int, int]:
     """
     Load GeoJSON, add fill_color to each feature's properties, optionally save back.
     Returns (features_updated, features_missing_color).
+    If collect_missing is provided, add raw category strings that had no match to it.
     """
     with open(geojson_path, encoding="utf-8") as f:
         data = json.load(f)
@@ -71,11 +74,21 @@ def add_fill_color_to_geojson(
     updated = 0
     missing = 0
 
-    # Property keys to try for category name (Hyderabad: Name; Udaipur: LANDUSE_CA; Jaipur: LANDUSE_CATEGORY)
+    # Property keys to try for category name (prefer zone/category over owner/sector name)
     name_keys = (
-        "Name", "name",
+        "linecolour",  # Bengaluru / Hyderabad metro: match fill_color by line (Purple, Green, Pink, etc.)
+        "boundary_type",  # Heritage: protected / prohibited / regulated
+        "Category", "category",
+        "Landuse", "landuse",  # Puducherry master plan: zone type (before layer!)
+        "PLU", "PLU_NAME",  # Warangal / Telangana master plan
+        "Layer Name",  # Karnataka Bengaluru master plan (exact key with space)
+        "LAYER", "layer", "classtext",  # Gurgaon / Faridabad / Yamuna Expressway
+        "ppt_full", "plot_categ", "symbology",  # Greater Noida: zone type (before name!)
         "LANDUSE_CA", "LANDUSE_CATEGORY", "LANDUSE_SUBCAT_LEVEL_1",
-        "zone_name", "Zone", "zone_category", "category",
+        "NAME", "Name", "name",  # Delhi master plan uses NAME
+        "class",
+        "Pemissible Height", "Permissible Height", "Height", "Zone",
+        "zone_name", "zone_category",
     )
     # Fallback: use filename stem (e.g. Agriculture_Land.geojson -> "Agriculture Land") when no prop
     file_stem = geojson_path.stem.replace("_", " ")
@@ -84,20 +97,25 @@ def add_fill_color_to_geojson(
         props = feature.get("properties") or {}
         name = ""
         for key in name_keys:
-            val = (props.get(key) or "").strip()
-            if val:
-                name = val
-                break
+            val = props.get(key)
+            if val is not None:
+                s = str(val).strip()
+                if s:
+                    name = s
+                    break
         if not name:
             name = file_stem
         # Lookup: legend is stored with lowercase keys; normalize spaces for case-insensitive match
         lookup_key = " ".join((name or "").strip().lower().split()) if name else ""
         fill = category_to_fill.get(lookup_key) if lookup_key else None
         if fill is not None:
+            # Only add/update fill_color; do not change any other properties
             props["fill_color"] = fill
             updated += 1
         else:
             missing += 1
+            if collect_missing is not None and name:
+                collect_missing.add(name)
 
     if not dry_run:
         with open(geojson_path, "w", encoding="utf-8") as f:
@@ -134,6 +152,11 @@ def main() -> None:
         action="store_true",
         help="Do not write files; only report what would be updated",
     )
+    parser.add_argument(
+        "--report-missing",
+        action="store_true",
+        help="Print unique category values that had no match in the legend (add these to legend.csv to fix)",
+    )
     args = parser.parse_args()
 
     legend_path = args.legend.resolve()
@@ -163,9 +186,13 @@ def main() -> None:
 
     total_updated = 0
     total_missing = 0
+    missing_values: set[str] = set() if args.report_missing else set()
     for path in geojson_files:
         updated, missing = add_fill_color_to_geojson(
-            path, category_to_fill, dry_run=args.dry_run
+            path,
+            category_to_fill,
+            dry_run=args.dry_run,
+            collect_missing=missing_values if args.report_missing else None,
         )
         total_updated += updated
         total_missing += missing
@@ -177,6 +204,10 @@ def main() -> None:
         print(f"  {rel}: {updated} feature(s) updated, {status}")
 
     print(f"\nDone: {total_updated} features got fill_color, {total_missing} without match in legend.")
+    if args.report_missing and missing_values:
+        print("\nUnique category values with no legend match (add to legend.csv):")
+        for val in sorted(missing_values):
+            print(f"  {val!r}")
 
 
 if __name__ == "__main__":

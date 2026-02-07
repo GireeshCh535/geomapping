@@ -539,11 +539,23 @@ class CoordinateSearchTestView(APIView):
                 # Search across all states and cities
                 result = self._search_across_all_cities(search_point, latitude, longitude, radius_meters)
             
-            # Add metadata to response
+            # When returning simple format (data + fill_color), strip default color from features so client never sees it
+            if isinstance(result, dict) and 'fill_color' in result and result.get('features'):
+                for f in result['features']:
+                    if isinstance(f, dict):
+                        f.pop('color', None)
+                        dc = f.get('detailed_category') or {}
+                        if isinstance(dc, dict) and 'layer_category' in dc and isinstance(dc.get('layer_category'), dict):
+                            dc['layer_category'].pop('default_color', None)
+            
+            # Add metadata to response (simple format has 'data' + 'fill_color' but no 'features' list)
+            total_found = len(result.get('features', []))
+            if total_found == 0 and result.get('data') is not None and 'fill_color' in result:
+                total_found = 1
             result['metadata'] = {
                 'search_timestamp': timezone.now().isoformat(),
                 'search_radius_meters': radius_meters,
-                'total_features_found': len(result.get('features', [])),
+                'total_features_found': total_found,
                 'total_nearby_features': len(result.get('nearby_features', [])),
                 'api_version': '2.0',
                 'from_cache': False
@@ -1013,7 +1025,7 @@ class CoordinateSearchTestView(APIView):
                 'code': feature.layer.category.code,
                 'name': feature.layer.category.name,
                 'description': feature.layer.category.description or '',
-                'default_color': feature.layer.category.default_color or '#666666',
+                'default_color': feature.layer.category.default_color or '',
                 'default_opacity': feature.layer.category.default_opacity or 0.8
             }
         
@@ -1069,21 +1081,21 @@ class CoordinateSearchTestView(APIView):
             try:
                 style = feature.layer.get_style()
                 if isinstance(style, dict):
-                    return style.get('fill_color', '#666666')
+                    return style.get('fill_color', '') or ''
                 elif hasattr(style, 'fill_color'):
-                    return style.fill_color
+                    return style.fill_color or ''
             except:
                 pass
             
-            # Fallback to category color or default
+            # Fallback to category color; no default - keep "" if none
             if feature.layer.category:
-                return feature.layer.category.color or '#0066CC'
+                return feature.layer.category.color or ''
             
-            return '#0066CC'  # Default blue
+            return ''
             
         except Exception as e:
             logger.error(f"Error getting feature color: {e}")
-            return '#0066CC'
+            return ''
     
     def _create_search_summary(self, containing_features, nearby_features):
         """Create a human-readable summary of the search results"""
@@ -1218,9 +1230,15 @@ class CoordinateSearchTestView(APIView):
                         
                         # Return as comma-separated string
                         data_string = f"{notation}, Status: {current_status}"
-                        
+                        fill_color = (
+                            properties.get('fill_color') or properties.get('fillColor') or
+                            properties.get('FillColor') or properties.get('color')
+                        ) or ''
                         return {
-                            'data': data_string
+                            'data': data_string,
+                            'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
+                            'found': True,
+                            'features': [feature_data],
                         }
                     
                     elif layer.slug == 'bengaluru_metro':
@@ -1228,15 +1246,21 @@ class CoordinateSearchTestView(APIView):
                         properties = detailed_category.get('properties', {})
                         
                         linecolour = properties.get('linecolour', '')
-                        name = properties.get('Name ', '')  # Note the space after 'Name'
+                        name = properties.get('Name ', '') or properties.get('Name', '')
                         remarks = properties.get('remarks', '')
                         
                         # Format: "linecolour" + Line, name, Status: remarks
                         line_name = f"{linecolour} Line" if linecolour else "Line"
                         data_string = f"{line_name}, {name}, Status: {remarks}"
-                        
+                        fill_color = (
+                            properties.get('fill_color') or properties.get('fillColor') or
+                            properties.get('FillColor') or properties.get('color')
+                        ) or ''
                         return {
-                            'data': data_string
+                            'data': data_string,
+                            'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
+                            'found': True,
+                            'features': [feature_data],
                         }
                     
                     elif layer.slug == 'hyderabad_metro':
@@ -1268,9 +1292,15 @@ class CoordinateSearchTestView(APIView):
                         if route:
                             parts.append(route)
                         data_string = ', '.join(parts)
-
+                        fill_color = (
+                            properties.get('fill_color') or properties.get('fillColor') or
+                            properties.get('FillColor') or properties.get('color')
+                        ) or ''
                         return {
-                            'data': data_string
+                            'data': data_string,
+                            'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
+                            'found': True,
+                            'features': [feature_data],
                         }
 
                     elif layer.slug == 'bengaluru_highways':
@@ -1282,9 +1312,15 @@ class CoordinateSearchTestView(APIView):
                         
                         # Format: "Name, Notation"
                         data_string = f"{name}, {notation}"
-                        
+                        fill_color = (
+                            properties.get('fill_color') or properties.get('fillColor') or
+                            properties.get('FillColor') or properties.get('color')
+                        ) or ''
                         return {
-                            'data': data_string
+                            'data': data_string,
+                            'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
+                            'found': True,
+                            'features': [feature_data],
                         }
                     
                     elif layer.slug == 'hyderabad_highways':
@@ -1296,9 +1332,15 @@ class CoordinateSearchTestView(APIView):
                         
                         # Format: "Name, Notation"
                         data_string = f"{name}, {notation}"
-                        
+                        fill_color = (
+                            properties.get('fill_color') or properties.get('fillColor') or
+                            properties.get('FillColor') or properties.get('color')
+                        ) or ''
                         return {
-                            'data': data_string
+                            'data': data_string,
+                            'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
+                            'found': True,
+                            'features': [feature_data],
                         }
                     
                     elif layer.slug == 'hyderabad_rrr':
@@ -1311,9 +1353,15 @@ class CoordinateSearchTestView(APIView):
                         # Format: "Proposed, Status: Alignment"
                         proposed_notation = f"Proposed {notation}" if notation else "Proposed"
                         data_string = f"{proposed_notation}, Status: {alignment}"
-                        
+                        fill_color = (
+                            properties.get('fill_color') or properties.get('fillColor') or
+                            properties.get('FillColor') or properties.get('color')
+                        ) or ''
                         return {
-                            'data': data_string
+                            'data': data_string,
+                            'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
+                            'found': True,
+                            'features': [feature_data],
                         }
                     
                     elif layer.slug == 'hyderabad_ratan_tata_road':
@@ -1324,9 +1372,15 @@ class CoordinateSearchTestView(APIView):
                         
                         # Format: "Name"
                         data_string = name
-                        
+                        fill_color = (
+                            properties.get('fill_color') or properties.get('fillColor') or
+                            properties.get('FillColor') or properties.get('color')
+                        ) or ''
                         return {
-                            'data': data_string
+                            'data': data_string,
+                            'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
+                            'found': True,
+                            'features': [feature_data],
                         }
                     
                     elif layer.slug == 'hyderabad_future_city':
@@ -1340,13 +1394,20 @@ class CoordinateSearchTestView(APIView):
                             data_string = name
                         else:
                             data_string = "Unknown"
-                        
+                        fill_color = (
+                            properties.get('fill_color') or properties.get('fillColor') or
+                            properties.get('FillColor') or properties.get('color')
+                        ) or ''
                         return {
-                            'data': data_string
+                            'data': data_string,
+                            'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
+                            'found': True,
+                            'features': [feature_data],
                         }
                     
                     # Special handling for all air funnel zones layers (nearby features)
                     elif layer.slug in [
+                        'bhubaneswar_air_funnel_zones'
                         'bengaluru_air_funnel_zones',
                         'hyderabad_air_funnel_zones',
                         'kozhikode_air_funnel_zones',
@@ -1372,9 +1433,15 @@ class CoordinateSearchTestView(APIView):
                     ]:
                         detailed_category = feature_data.get('detailed_category', {})
                         properties = detailed_category.get('properties', {}) or {}
-                        height_value = properties.get('Pemissible Height', '')
+                        height_value = properties.get('Pemissible Height', '') or properties.get('Permissible Height', '')
+                        data_str = f"Permissible Height : {height_value}" if height_value else "Permissible Height : "
+                        fill_color = (
+                            properties.get('fill_color') or properties.get('fillColor') or
+                            properties.get('FillColor') or properties.get('color')
+                        ) or ''
                         return {
-                            'data': f"Permissible Height : {height_value}" if height_value else "Permissible Height : "
+                            'data': data_str,
+                            'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
                         }
                     
                     elif layer.slug in ['bengaluru_anekal_masterplan', 'bengaluru_chikkaballapura_masterplan', 'bengaluru_hosakote_masterplan', 'bengaluru_nelamangala_masterplan',
@@ -1519,64 +1586,70 @@ class CoordinateSearchTestView(APIView):
             if layer.slug == 'bengaluru_strr' and containing_features:
                 primary_feature = containing_features[0]
                 detailed_category = primary_feature.get('detailed_category', {})
-                properties = detailed_category.get('properties', {})
+                properties = detailed_category.get('properties', {}) or {}
                 
                 notation = properties.get('Notation', '')
                 current_status = properties.get('Current_St', '')
-                
-                # Return as comma-separated string
                 data_string = f"{notation}, Status: {current_status}"
-                
+                fill_color = (
+                    properties.get('fill_color') or properties.get('fillColor') or
+                    properties.get('FillColor') or properties.get('color')
+                ) or ''
                 return {
-                    'data': data_string
+                    'data': data_string,
+                    'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
+                    'found': True,
+                    'features': containing_features[:1],
                 }
             
             # Special handling for bengaluru_metro layer
             if layer.slug == 'bengaluru_metro' and containing_features:
                 primary_feature = containing_features[0]
                 detailed_category = primary_feature.get('detailed_category', {})
-                properties = detailed_category.get('properties', {})
+                properties = detailed_category.get('properties', {}) or {}
                 
                 linecolour = properties.get('linecolour', '')
-                name = properties.get('Name ', '')  # Note the space after 'Name'
+                name = properties.get('Name ', '') or properties.get('Name', '')
                 remarks = properties.get('remarks', '')
-                
-                # Format: "linecolour" + Line, name, Status: remarks
                 line_name = f"{linecolour} Line" if linecolour else "Line"
                 data_string = f"{line_name}, {name}, Status: {remarks}"
-                
+                fill_color = (
+                    properties.get('fill_color') or properties.get('fillColor') or
+                    properties.get('FillColor') or properties.get('color')
+                ) or ''
                 return {
-                    'data': data_string
+                    'data': data_string,
+                    'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
+                    'found': True,
+                    'features': containing_features[:1],
                 }
             
             # Special handling for bengaluru_masterplan_roads
             if layer.slug == 'bengaluru_masterplan_roads' and containing_features:
                 primary_feature = containing_features[0]
                 detailed_category = primary_feature.get('detailed_category', {})
-                properties = detailed_category.get('properties', {})
+                properties = detailed_category.get('properties', {}) or {}
 
                 name = str(properties.get('Name', '')) if properties.get('Name') else ''
-                
-                # Check for road width in both feet and meters
                 road_width_feet = properties.get('Road Width (in feet)')
                 road_width_meters = properties.get('Road Width (in meters)')
-                
-                # Build comma-separated string
                 data_parts = []
                 if name:
                     data_parts.append(name)
-                
-                # Add road width with appropriate unit
                 if road_width_feet:
                     data_parts.append(f"Road Width (in feet) - {str(road_width_feet)}")
                 elif road_width_meters:
                     data_parts.append(f"Road Width (in meters) - {str(road_width_meters)}")
-                
-                # Create the final string response
                 data_string = ', '.join(data_parts) if data_parts else 'Masterplan Road'
-                
+                fill_color = (
+                    properties.get('fill_color') or properties.get('fillColor') or
+                    properties.get('FillColor') or properties.get('color')
+                ) or ''
                 return {
-                    'data': data_string
+                    'data': data_string,
+                    'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
+                    'found': True,
+                    'features': containing_features[:1],
                 }
             
             if layer.slug == 'hyderabad_metro' and containing_features:
@@ -1618,16 +1691,20 @@ class CoordinateSearchTestView(APIView):
             if layer.slug == 'bengaluru_highways' and containing_features:
                 primary_feature = containing_features[0]
                 detailed_category = primary_feature.get('detailed_category', {})
-                properties = detailed_category.get('properties', {})
+                properties = detailed_category.get('properties', {}) or {}
                 
                 name = properties.get('Name', '')
                 notation = properties.get('Notation', '')
-                
-                # Format: "Name, Notation"
                 data_string = f"{name}, {notation}"
-                
+                fill_color = (
+                    properties.get('fill_color') or properties.get('fillColor') or
+                    properties.get('FillColor') or properties.get('color')
+                ) or ''
                 return {
-                    'data': data_string
+                    'data': data_string,
+                    'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
+                    'found': True,
+                    'features': containing_features[:1],
                 }
             
             # Special handling for hyderabad_highways layer
@@ -1690,38 +1767,50 @@ class CoordinateSearchTestView(APIView):
                 detailed_category = primary_feature.get('detailed_category', {})
                 properties = detailed_category.get('properties', {}) or {}
                 name = properties.get('Name', '')
-                fill_color = properties.get('fill_color', '') or primary_feature.get('color', '')
+                fill_color = properties.get('fill_color', '') or properties.get('fillColor', '') or properties.get('FillColor', '') or properties.get('color', '')
                 return {
                     'data': name,
                     'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
                 }
 
+            # Special handling for amaravati_master_plan - return data (plot_category/feature_name) and fill_color as SVG
             if layer.slug == 'amaravati_master_plan' and containing_features:
                 primary_feature = containing_features[0]
-                feature_name = primary_feature.get('feature_name') or primary_feature.get('detailed_category', {}).get('plot_category', 'Unknown')
+                detailed_category = primary_feature.get('detailed_category', {})
+                properties = detailed_category.get('properties', {}) or {}
+                feature_name = (
+                    primary_feature.get('feature_name') or
+                    detailed_category.get('plot_category') or
+                    properties.get('symbology') or properties.get('plot_categ') or
+                    properties.get('Name') or properties.get('name', '') or
+                    'Unknown'
+                )
+                fill_color = (
+                    properties.get('fill_color') or properties.get('fillColor') or
+                    properties.get('FillColor') or properties.get('color')
+                ) or ''
                 return {
-                    'data': feature_name
+                    'data': feature_name,
+                    'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
                 }
 
             if layer.slug == 'hyderabad_future_city' and containing_features:
                 primary_feature = containing_features[0]
                 detailed_category = primary_feature.get('detailed_category', {})
-                properties = detailed_category.get('properties', {})
-                
-                name = properties.get('Name', '')
-                
-                # Return just the Name
-                if name:
-                    data = name
-                else:
-                    data = "Unknown"
-                
+                properties = detailed_category.get('properties', {}) or {}
+                name = properties.get('Name', '') or 'Unknown'
+                fill_color = (
+                    properties.get('fill_color') or properties.get('fillColor') or
+                    properties.get('FillColor') or properties.get('color')
+                ) or ''
                 return {
-                    'data': data
+                    'data': name,
+                    'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
                 }
             
             # Special handling for all air funnel zones layers
             air_funnel_zones_layers = [
+                'bhubaneswar_air_funnel_zones',
                 'bengaluru_air_funnel_zones',
                 'hyderabad_air_funnel_zones',
                 'kozhikode_air_funnel_zones',
@@ -1750,9 +1839,15 @@ class CoordinateSearchTestView(APIView):
                 primary_feature = containing_features[0]
                 detailed_category = primary_feature.get('detailed_category', {})
                 properties = detailed_category.get('properties', {}) or {}
-                height_value = properties.get('Pemissible Height', '')
+                height_value = properties.get('Pemissible Height', '') or properties.get('Permissible Height', '')
+                data_str = f"Permissible Height : {height_value}" if height_value else "Permissible Height : "
+                fill_color = (
+                    properties.get('fill_color') or properties.get('fillColor') or
+                    properties.get('FillColor') or properties.get('color')
+                ) or ''
                 return {
-                    'data': f"Permissible Height : {height_value}" if height_value else "Permissible Height : "
+                    'data': data_str,
+                    'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
                 }
 
             # Special handling for heritage site layers
@@ -1763,8 +1858,13 @@ class CoordinateSearchTestView(APIView):
                 mon_name = properties.get('mon_name', '')
                 boundary_type = properties.get('boundary_type', '')
                 data_string = f"{mon_name}, {boundary_type}".strip()
+                fill_color = (
+                    properties.get('fill_color') or properties.get('fillColor') or
+                    properties.get('FillColor') or properties.get('color')
+                ) or ''
                 return {
-                    'data': data_string
+                    'data': data_string,
+                    'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
                 }
             
             # Special handling for BMRDA boundary layers
@@ -1791,157 +1891,234 @@ class CoordinateSearchTestView(APIView):
             
             # Special handling for bengaluru_master_plan_2015
             if layer.slug == 'bengaluru_master_plan_2015' and containing_features:
-                # Return just the feature name (Layer Name from properties)
                 primary_feature = containing_features[0]
                 detailed_category = primary_feature.get('detailed_category', {})
-                properties = detailed_category.get('properties', {})
+                properties = detailed_category.get('properties', {}) or {}
                 layer_name = properties.get('Layer Name', '')
+                fill_color = (
+                    properties.get('fill_color') or properties.get('fillColor') or
+                    properties.get('FillColor') or properties.get('color')
+                ) or ''
                 return {
-                    'data': layer_name
+                    'data': layer_name,
+                    'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
+                    'found': True,
+                    'features': containing_features[:1],
                 }
 
+            # Special handling for warangal_master_plan
+            # Warangal: zone name in properties.PLU_NAME/PLU, fill_color in properties (from legend script)
             if layer.slug == 'warangal_master_plan' and containing_features:
-                # Return just the feature name (Layer Name from properties)
                 primary_feature = containing_features[0]
                 detailed_category = primary_feature.get('detailed_category', {})
-                properties = detailed_category.get('properties', {})
-                layer_name = properties.get('PLU_NAME', '')
+                properties = detailed_category.get('properties', {}) or {}
+                layer_name = properties.get('PLU_NAME', '') or properties.get('PLU', '')
+                fill_color = (
+                    properties.get('fill_color') or properties.get('fillColor') or
+                    properties.get('FillColor') or properties.get('color')
+                ) or ''
                 return {
-                    'data': layer_name
+                    'data': layer_name,
+                    'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
                 }
             
             # Special handling for gurugram_masterplan
             if layer.slug == 'gurugram_masterplan' and containing_features:
-                # Return properties.LAYER
                 primary_feature = containing_features[0]
                 detailed_category = primary_feature.get('detailed_category', {})
                 properties = detailed_category.get('properties', {})
                 layer_value = properties.get('LAYER', '')
+                fill_color = (
+                    properties.get('fill_color') or properties.get('fillColor') or
+                    properties.get('FillColor') or properties.get('color')
+                ) or ''
                 return {
-                    'data': layer_value
+                    'data': layer_value,
+                    'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
                 }
             
             # Special handling for delhi_masterplan
             if layer.slug == 'delhi_masterplan' and containing_features:
-                # Return properties.NAME
                 primary_feature = containing_features[0]
                 detailed_category = primary_feature.get('detailed_category', {})
-                properties = detailed_category.get('properties', {})
+                properties = detailed_category.get('properties', {}) 
                 name = properties.get('NAME', '')
+                fill_color = (
+                    properties.get('fill_color') or properties.get('fillColor') or
+                    properties.get('FillColor') or properties.get('color')
+                ) or ''
                 return {
-                    'data': name
+                    'data': name,
+                    'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
                 }
             
             # Special handling for noida_masterplan
             if layer.slug == 'noida_masterplan' and containing_features:
-                # Return properties.ppt_full
                 primary_feature = containing_features[0]
                 detailed_category = primary_feature.get('detailed_category', {})
                 properties = detailed_category.get('properties', {})
                 ppt_full = properties.get('ppt_full', '')
+                fill_color = (
+                    properties.get('fill_color') or properties.get('fillColor') or
+                    properties.get('FillColor') or properties.get('color')
+                ) or ''
                 return {
-                    'data': ppt_full
+                    'data': ppt_full,
+                    'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
                 }
             
             # Special handling for greater_noida_masterplan
             if layer.slug == 'greater_noida_masterplan' and containing_features:
-                # Return properties.ppt_full
                 primary_feature = containing_features[0]
                 detailed_category = primary_feature.get('detailed_category', {})
                 properties = detailed_category.get('properties', {})
                 ppt_full = properties.get('ppt_full', '')
+                fill_color = (
+                    properties.get('fill_color') or properties.get('fillColor') or
+                    properties.get('FillColor') or properties.get('color')
+                ) or ''
                 return {
-                    'data': ppt_full
+                    'data': ppt_full,
+                    'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
                 }
             
             # Special handling for yamuna_expressway_masterplan
             if layer.slug == 'yamuna_expressway_masterplan' and containing_features:
-                # Return properties.layer - search through all features to find one with non-empty layer
                 layer_value = ''
+                primary_feature = containing_features[0]
                 for feature in containing_features:
                     detailed_category = feature.get('detailed_category', {})
-                    properties = detailed_category.get('properties', {})
+                    properties = detailed_category.get('properties', {}) 
                     layer_val = properties.get('layer', '')
-                    if layer_val:  # If we find a non-empty layer value, use it
+                    if layer_val:
                         layer_value = layer_val
+                        primary_feature = feature
                         break
+                properties = primary_feature.get('detailed_category', {}).get('properties', {}) or {}
+                fill_color = (
+                    properties.get('fill_color') or properties.get('fillColor') or
+                    properties.get('FillColor') or properties.get('color')
+                ) or ''
                 return {
-                    'data': layer_value
+                    'data': layer_value,
+                    'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
                 }
             
             # Special handling for faridabad_masterplan
             if layer.slug == 'faridabad_masterplan' and containing_features:
-                # Return properties.LAYER
                 primary_feature = containing_features[0]
                 detailed_category = primary_feature.get('detailed_category', {})
-                properties = detailed_category.get('properties', {})
+                properties = detailed_category.get('properties', {}) or {}
                 layer_value = properties.get('LAYER', '')
+                fill_color = (
+                    properties.get('fill_color') or properties.get('fillColor') or
+                    properties.get('FillColor') or properties.get('color')
+                ) or ''
                 return {
-                    'data': layer_value
+                    'data': layer_value,
+                    'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
                 }
             
             # Special handling for amaravati_masterplan
             if layer.slug == 'amaravati_masterplan' and containing_features:
-                # Return properties.symbology
                 primary_feature = containing_features[0]
                 detailed_category = primary_feature.get('detailed_category', {})
-                properties = detailed_category.get('properties', {})
+                properties = detailed_category.get('properties', {}) or {}
                 symbology = properties.get('symbology', '')
+                fill_color = (
+                    properties.get('fill_color') or properties.get('fillColor') or
+                    properties.get('FillColor') or properties.get('color')
+                ) or ''
                 return {
-                    'data': symbology
+                    'data': symbology,
+                    'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
                 }
             
             # Special handling for bhubaneswar_masterplan
             if layer.slug == 'bhubaneswar_masterplan' and containing_features:
-                # Return properties.LANDUSE
                 primary_feature = containing_features[0]
                 detailed_category = primary_feature.get('detailed_category', {})
-                properties = detailed_category.get('properties', {})
+                properties = detailed_category.get('properties', {}) or {}
                 landuse = properties.get('LANDUSE', '')
+                fill_color = (
+                    properties.get('fill_color') or properties.get('fillColor') or
+                    properties.get('FillColor') or properties.get('color')
+                ) or ''
                 return {
-                    'data': landuse
+                    'data': landuse,
+                    'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
                 }
             
             # Special handling for puducherry_masterplan
             if layer.slug == 'puducherry_masterplan' and containing_features:
-                # Return properties.Landuse
                 primary_feature = containing_features[0]
                 detailed_category = primary_feature.get('detailed_category', {})
-                properties = detailed_category.get('properties', {})
+                properties = detailed_category.get('properties', {}) or {}
                 landuse = properties.get('Landuse', '')
+                fill_color = (
+                    properties.get('fill_color') or properties.get('fillColor') or
+                    properties.get('FillColor') or properties.get('color')
+                ) or ''
                 return {
-                    'data': landuse
+                    'data': landuse,
+                    'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
                 }
             
-            # Special handling for chandigarh_masterplan
+            # Special handling for chandigarh_masterplan (Chandigarh GeoJSON has no Name; use zone_subcategory from file name e.g. Residential, Commercial)
             if layer.slug == 'chandigarh_masterplan' and containing_features:
-                # Return properties.Name
                 primary_feature = containing_features[0]
                 detailed_category = primary_feature.get('detailed_category', {})
-                properties = detailed_category.get('properties', {})
-                name = properties.get('Name', '')
+                properties = detailed_category.get('properties', {}) or {}
+                name = (
+                    properties.get('Name') or
+                    primary_feature.get('zone_subcategory') or
+                    primary_feature.get('feature_name') or
+                    primary_feature.get('zone_category') or
+                    ''
+                )
+                if isinstance(name, str):
+                    name = name.strip()
+                else:
+                    name = str(name).strip() if name else ''
+                fill_color = (
+                    properties.get('fill_color') or properties.get('fillColor') or
+                    properties.get('FillColor') or properties.get('color')
+                ) or ''
                 return {
-                    'data': name
+                    'data': name,
+                    'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
+                    'found': True,
+                    'features': containing_features,
                 }
             
             # Special handling for rajnandgaon_masterplan
             if layer.slug == 'rajnandgaon_masterplan' and containing_features:
-                # Return properties.PROPOSED_T
                 primary_feature = containing_features[0]
                 detailed_category = primary_feature.get('detailed_category', {})
-                properties = detailed_category.get('properties', {})
+                properties = detailed_category.get('properties', {}) or {}
                 proposed_t = properties.get('PROPOSED_T', '')
+                fill_color = (
+                    properties.get('fill_color') or properties.get('fillColor') or
+                    properties.get('FillColor') or properties.get('color')
+                ) or ''
                 return {
-                    'data': proposed_t
+                    'data': proposed_t,
+                    'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
                 }
             
             # Special handling for durg_bihlai_masterplan
             if layer.slug == 'durg_bihlai_masterplan' and containing_features:
-                # Return zone_subcategory
                 primary_feature = containing_features[0]
+                detailed_category = primary_feature.get('detailed_category', {})
+                properties = detailed_category.get('properties', {}) or {}
                 zone_subcategory = primary_feature.get('zone_subcategory', '')
+                fill_color = (
+                    properties.get('fill_color') or properties.get('fillColor') or
+                    properties.get('FillColor') or properties.get('color')
+                ) or ''
                 return {
-                    'data': zone_subcategory
+                    'data': zone_subcategory,
+                    'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
                 }
             
             # Special handling for jagdalpur_masterplan
@@ -1963,63 +2140,88 @@ class CoordinateSearchTestView(APIView):
                 if not name:
                     name = primary_feature.get('zone_subcategory', '')
                 
+                fill_color = (
+                    properties.get('fill_color') or properties.get('fillColor') or
+                    properties.get('FillColor') or properties.get('color')
+                ) or ''
                 return {
-                    'data': name
+                    'data': name,
+                    'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
                 }
             
             # Special handling for arang_masterplan
             if layer.slug == 'arang_masterplan' and containing_features:
-                # Return properties.ELU_PLU_UP
                 primary_feature = containing_features[0]
                 detailed_category = primary_feature.get('detailed_category', {})
-                properties = detailed_category.get('properties', {})
+                properties = detailed_category.get('properties', {}) or {}
                 elu_plu_up = properties.get('ELU_PLU_UP', '')
+                fill_color = (
+                    properties.get('fill_color') or properties.get('fillColor') or
+                    properties.get('FillColor') or properties.get('color')
+                ) or ''
                 return {
-                    'data': elu_plu_up
+                    'data': elu_plu_up,
+                    'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
                 }
             
             # Special handling for mahasamund_masterplan
             if layer.slug == 'mahasamund_masterplan' and containing_features:
-                # Return properties.PRO_LULC
                 primary_feature = containing_features[0]
                 detailed_category = primary_feature.get('detailed_category', {})
-                properties = detailed_category.get('properties', {})
+                properties = detailed_category.get('properties', {}) or {}
                 pro_lulc = properties.get('PRO_LULC', '')
+                fill_color = (
+                    properties.get('fill_color') or properties.get('fillColor') or
+                    properties.get('FillColor') or properties.get('color')
+                ) or ''
                 return {
-                    'data': pro_lulc
+                    'data': pro_lulc,
+                    'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
                 }
             
             # Special handling for balodabazaar_masterplan
             if layer.slug == 'balodabazaar_masterplan' and containing_features:
-                # Return properties.PROPOSED_T
                 primary_feature = containing_features[0]
                 detailed_category = primary_feature.get('detailed_category', {})
-                properties = detailed_category.get('properties', {})
+                properties = detailed_category.get('properties', {}) or {}
                 proposed_t = properties.get('PROPOSED_T', '')
+                fill_color = (
+                    properties.get('fill_color') or properties.get('fillColor') or
+                    properties.get('FillColor') or properties.get('color')
+                ) or ''
                 return {
-                    'data': proposed_t
+                    'data': proposed_t,
+                    'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
                 }
             
             # Special handling for bhatapara_masterplan
             if layer.slug == 'bhatapara_masterplan' and containing_features:
-                # Return properties.PROPOSED_T
                 primary_feature = containing_features[0]
                 detailed_category = primary_feature.get('detailed_category', {})
-                properties = detailed_category.get('properties', {})
+                properties = detailed_category.get('properties', {}) or {}
                 proposed_t = properties.get('PROPOSED_T', '')
+                fill_color = (
+                    properties.get('fill_color') or properties.get('fillColor') or
+                    properties.get('FillColor') or properties.get('color')
+                ) or ''
                 return {
-                    'data': proposed_t
+                    'data': proposed_t,
+                    'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
                 }
             
             # Special handling for raigarh_masterplan
             if layer.slug == 'raigarh_masterplan' and containing_features:
-                # Return properties.OLD_DP_PLU
                 primary_feature = containing_features[0]
                 detailed_category = primary_feature.get('detailed_category', {})
-                properties = detailed_category.get('properties', {})
+                properties = detailed_category.get('properties', {}) or {}
                 old_dp_plu = properties.get('OLD_DP_PLU', '')
+                fill_color = (
+                    properties.get('fill_color') or properties.get('fillColor') or
+                    properties.get('FillColor') or properties.get('color')
+                ) or ''
                 return {
-                    'data': old_dp_plu
+                    'data': old_dp_plu,
+                    'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
                 }
             
             # Special handling for udaipur_masterplan
@@ -2031,8 +2233,7 @@ class CoordinateSearchTestView(APIView):
                 landuse_ca = properties.get('LANDUSE_CA', '') or properties.get('LANDUSE_CATEGORY', '')
                 fill_color = (
                     properties.get('fill_color') or properties.get('fillColor') or
-                    properties.get('FillColor') or properties.get('color') or
-                    primary_feature.get('color', '')
+                    properties.get('FillColor') or properties.get('color')
                 ) or ''
                 return {
                     'data': landuse_ca,
@@ -2040,51 +2241,62 @@ class CoordinateSearchTestView(APIView):
                 }
             
             # Special handling for jodhpur_masterplan
-            # Jodhpur: zone name in properties.Name, fill_color in properties (from legend script)
+            # Jodhpur: zone name from LANDUSE_CATEGORY or Name (skip generic "Placemark"), fill_color from properties
             if layer.slug == 'jodhpur_masterplan' and containing_features:
                 primary_feature = containing_features[0]
                 detailed_category = primary_feature.get('detailed_category', {})
                 properties = detailed_category.get('properties', {}) or {}
-                name = properties.get('Name', '') or properties.get('name', '')
+                name = (properties.get('Name', '') or properties.get('name', '') or '').strip()
+                if not name or str(name).upper() == 'PLACEMARK':
+                    name = (
+                        properties.get('LANDUSE_CATEGORY', '') or properties.get('LANDUSE_SUBCAT_LEVEL_1', '') or
+                        properties.get('LANDUSE_CA', '') or primary_feature.get('feature_name', '') or ''
+                    ) or name
                 fill_color = (
                     properties.get('fill_color') or properties.get('fillColor') or
-                    properties.get('FillColor') or properties.get('color') or
-                    primary_feature.get('color', '')
+                    properties.get('FillColor') or properties.get('color')
                 ) or ''
                 return {
-                    'data': name,
+                    'data': name or 'Placemark',
                     'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
+                    'found': True,
+                    'features': containing_features[:1],
                 }
             
             # Special handling for jaipur_masterplan
-            # Jaipur: zone name in properties.LANDUSE_CATEGORY, fill_color in properties (from legend script)
+            # Jaipur: zone name in properties.LANDUSE_CATEGORY (or Name), fill_color in properties (from legend script)
             if layer.slug == 'jaipur_masterplan' and containing_features:
                 primary_feature = containing_features[0]
                 detailed_category = primary_feature.get('detailed_category', {})
                 properties = detailed_category.get('properties', {}) or {}
                 landuse_category = (
-                    properties.get('LANDUSE_CATEGORY', '') or properties.get('LANDUSE_CA', '') or
-                    properties.get('Name', '') or properties.get('name', '')
+                    properties.get('LANDUSE_CATEGORY', '') or properties.get('LANDUSE_SUBCAT_LEVEL_1', '') or
+                    properties.get('LANDUSE_CA', '') or properties.get('Name', '') or properties.get('name', '')
                 )
                 fill_color = (
                     properties.get('fill_color') or properties.get('fillColor') or
-                    properties.get('FillColor') or properties.get('color') or
-                    primary_feature.get('color', '')
+                    properties.get('FillColor') or properties.get('color')
                 ) or ''
                 return {
-                    'data': landuse_category,
+                    'data': landuse_category or primary_feature.get('feature_name', ''),
                     'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
+                    'found': True,
+                    'features': containing_features[:1],
                 }
-            
-            # Special handling for visakhapatnam_master_plan
-            if layer.slug == 'visakhapatnam_master_plan' and containing_features:
-                # Return properties.Category
+
+            # Special handling for visakhapatnam_master_plan / visakhapatnam_masterplan
+            # fill_color comes from geojson_add_fill_color_from_legend.py (key: fill_color only)
+            if layer.slug in ('visakhapatnam_master_plan', 'visakhapatnam_masterplan') and containing_features:
                 primary_feature = containing_features[0]
                 detailed_category = primary_feature.get('detailed_category', {})
-                properties = detailed_category.get('properties', {})
+                properties = detailed_category.get('properties', {}) or {}
                 category = properties.get('Category', '')
+                fill_color = (properties.get('fill_color') or '').strip() or ''
                 return {
-                    'data': category
+                    'data': category,
+                    'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
+                    'found': True,
+                    'features': containing_features[:1],
                 }
             
             # Generate summary

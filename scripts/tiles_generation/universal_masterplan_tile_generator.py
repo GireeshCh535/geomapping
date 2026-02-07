@@ -277,11 +277,7 @@ class UniversalMasterPlanTiles:
                         
                         props = feature.get('properties', {})
                         # Try multiple property fields for category
-                        # Skip "Placemark" as it's a generic placeholder - use filename instead
                         name_value = props.get("Name") or props.get("name") or props.get("NAME")
-                        if name_value and str(name_value).strip().upper() == "PLACEMARK":
-                            name_value = None  # Skip Placemark, will fall back to filename
-        
                         raw_category = (
                             props.get("LANDUSE_CATEGORY")
                             or props.get("LANDUSE_SUBCAT_LEVEL_1")
