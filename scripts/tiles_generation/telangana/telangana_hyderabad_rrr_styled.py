@@ -3,7 +3,7 @@
 Hyderabad RRR Roads - Styled Tile Generator (2-layer from GeoJSON)
 ==================================================================
 
-Generates PNG tiles from RRR_2_Layer.geojson.
+Generates PNG tiles from RRR_2_Layer_swapped.geojson.
 All styling (stroke, stroke-width, layer order) is read from the GeoJSON;
 no hardcoded colors or legend file.
 
@@ -28,7 +28,7 @@ from pathlib import Path
 from PIL import Image, ImageDraw
 from typing import Tuple, List
 import mercantile
-from shapely.geometry import LineString, MultiLineString, box
+from shapely.geometry import LineString, MultiLineString, Polygon, box
 from shapely.ops import unary_union
 from shapely.validation import make_valid
 import logging
@@ -165,14 +165,43 @@ class HyderabadRRRStyledTileGenerator:
     def draw_line(self, draw: ImageDraw.Draw, coordinates: List[Tuple[float, float]],
                   color: str, width: int, tile_x: int, tile_y: int, zoom: int,
                   offset_x: int = 0, offset_y: int = 0):
-        """Draw a line on the tile (same as telangana_hyderabad_rrr.py: color string, width int)."""
+        """Draw a line with smooth rounded joins at corners (joint='curve' or buffered polygon fallback)."""
         if len(coordinates) < 2:
             return
         pixel_coords = []
         for lon, lat in coordinates:
             pixel_x, pixel_y = self.wgs84_to_tile_pixel(lon, lat, tile_x, tile_y, zoom)
             pixel_coords.append((pixel_x + offset_x, pixel_y + offset_y))
-        if len(pixel_coords) >= 2:
+        if len(pixel_coords) < 2:
+            return
+
+        # Use rounded joins at bends so edges don't break or look jagged
+        try:
+            draw.line(pixel_coords, fill=color, width=width, joint="curve")
+            return
+        except TypeError:
+            pass  # Pillow < 8.2 without joint parameter
+
+        # Fallback: draw line as buffered polygon for smooth rounded corners and caps
+        try:
+            ls = LineString(pixel_coords)
+            if ls.is_empty or not ls.is_valid:
+                draw.line(pixel_coords, fill=color, width=width)
+                return
+            half = max(0.5, width / 2.0)
+            buffered = ls.buffer(half, cap_style=2, join_style=2)  # round cap, round join
+            if buffered.is_empty:
+                draw.line(pixel_coords, fill=color, width=width)
+                return
+            geoms = buffered.geoms if hasattr(buffered, "geoms") else [buffered]
+            for geom in geoms:
+                if not isinstance(geom, Polygon) or geom.is_empty:
+                    continue
+                ext = geom.exterior
+                poly_coords = [(float(x), float(y)) for x, y in zip(ext.xy[0], ext.xy[1])]
+                if len(poly_coords) >= 3:
+                    draw.polygon(poly_coords, fill=color)
+        except Exception:
             try:
                 draw.line(pixel_coords, fill=color, width=width)
             except Exception:
@@ -371,8 +400,8 @@ def main():
             return
         if sys.argv[1] == "--force":
             skip_existing = False
-    geojson_path = "data/Telangana/Hyderabad/rrr/RRR_2_Layer.geojson"
-    output_dir = "hyderabad_rrr_styled_tiles"
+    geojson_path = "data/Telangana/Hyderabad/rrr/RRR_2_Layer_swapped.geojson"
+    output_dir = "hyderabad_rrr_styled_tiles_new"
     if not os.path.exists(geojson_path):
         logger.error("GeoJSON not found: %s", geojson_path)
         sys.exit(1)
