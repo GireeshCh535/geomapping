@@ -19,6 +19,10 @@ from .models import (
     PLUCodeMapping,
     State,
     SyncedLandPlot,
+    SyncedLand,
+    SyncedPlot,
+    SyncedDeveloperLand,
+    SyncedDeveloperPlot,
     TIFMetadata,
     ValidationLog,
     VectorTileLayer,
@@ -1297,7 +1301,7 @@ class LandPlotWebhookEventAdmin(admin.ModelAdmin):
 
 @admin.register(SyncedLandPlot)
 class SyncedLandPlotAdmin(admin.ModelAdmin):
-    """Land/Plot data pulled from 1acre-be API (GET /lands/, GET /plots/)."""
+    """Legacy: single table for all listing types. Prefer per-type tables below."""
     list_display = ("id", "listing_type", "backend_id", "synced_at")
     list_filter = ("listing_type", "synced_at")
     search_fields = ("listing_type", "backend_id")
@@ -1306,6 +1310,50 @@ class SyncedLandPlotAdmin(admin.ModelAdmin):
         ("Identity", {"fields": ("listing_type", "backend_id", "synced_at")}),
         ("API payload", {"fields": ("payload",)}),
     )
+    ordering = ("-synced_at",)
+
+
+@admin.register(SyncedLand)
+class SyncedLandAdmin(admin.ModelAdmin):
+    """Land data from GET /lands/."""
+    list_display = ("id", "backend_id", "synced_at")
+    list_filter = ("synced_at",)
+    search_fields = ("backend_id",)
+    readonly_fields = ("backend_id", "payload", "synced_at")
+    fieldsets = (("Identity", {"fields": ("backend_id", "synced_at")}), ("API payload", {"fields": ("payload",)}))
+    ordering = ("-synced_at",)
+
+
+@admin.register(SyncedPlot)
+class SyncedPlotAdmin(admin.ModelAdmin):
+    """Plot data from GET /plots/."""
+    list_display = ("id", "backend_id", "synced_at")
+    list_filter = ("synced_at",)
+    search_fields = ("backend_id",)
+    readonly_fields = ("backend_id", "payload", "synced_at")
+    fieldsets = (("Identity", {"fields": ("backend_id", "synced_at")}), ("API payload", {"fields": ("payload",)}))
+    ordering = ("-synced_at",)
+
+
+@admin.register(SyncedDeveloperLand)
+class SyncedDeveloperLandAdmin(admin.ModelAdmin):
+    """Developer Land data from GET /developer-lands-listings/."""
+    list_display = ("id", "backend_id", "synced_at")
+    list_filter = ("synced_at",)
+    search_fields = ("backend_id",)
+    readonly_fields = ("backend_id", "payload", "synced_at")
+    fieldsets = (("Identity", {"fields": ("backend_id", "synced_at")}), ("API payload", {"fields": ("payload",)}))
+    ordering = ("-synced_at",)
+
+
+@admin.register(SyncedDeveloperPlot)
+class SyncedDeveloperPlotAdmin(admin.ModelAdmin):
+    """Developer Plot data from GET /developer-plots-listings/."""
+    list_display = ("id", "backend_id", "synced_at")
+    list_filter = ("synced_at",)
+    search_fields = ("backend_id",)
+    readonly_fields = ("backend_id", "payload", "synced_at")
+    fieldsets = (("Identity", {"fields": ("backend_id", "synced_at")}), ("API payload", {"fields": ("payload",)}))
     ordering = ("-synced_at",)
 
 

@@ -1201,3 +1201,67 @@ class SyncedLandPlot(models.Model):
 
     def __str__(self):
         return f"Synced {self.get_listing_type_display()} #{self.backend_id}"
+
+
+# ---------------------------------------------------------------------------
+# Per–listing-type synced tables (split from SyncedLandPlot)
+# ---------------------------------------------------------------------------
+
+class SyncedLand(models.Model):
+    """Land data pulled from 1acre-be GET /lands/. Full API item in payload."""
+    backend_id = models.IntegerField(unique=True, help_text='ID from 1acre-be API')
+    payload = models.JSONField(default=dict, help_text='Full list-item from API')
+    synced_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'synced_land'
+        ordering = ['backend_id']
+        indexes = [models.Index(fields=['backend_id']), models.Index(fields=['synced_at'])]
+
+    def __str__(self):
+        return f"Synced Land #{self.backend_id}"
+
+
+class SyncedPlot(models.Model):
+    """Plot data pulled from 1acre-be GET /plots/. Full API item in payload."""
+    backend_id = models.IntegerField(unique=True, help_text='ID from 1acre-be API')
+    payload = models.JSONField(default=dict, help_text='Full list-item from API')
+    synced_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'synced_plot'
+        ordering = ['backend_id']
+        indexes = [models.Index(fields=['backend_id']), models.Index(fields=['synced_at'])]
+
+    def __str__(self):
+        return f"Synced Plot #{self.backend_id}"
+
+
+class SyncedDeveloperLand(models.Model):
+    """Developer Land data from 1acre-be GET /developer-lands-listings/. Full API item in payload."""
+    backend_id = models.IntegerField(unique=True, help_text='ID from 1acre-be API')
+    payload = models.JSONField(default=dict, help_text='Full list-item from API')
+    synced_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'synced_developer_land'
+        ordering = ['backend_id']
+        indexes = [models.Index(fields=['backend_id']), models.Index(fields=['synced_at'])]
+
+    def __str__(self):
+        return f"Synced Developer Land #{self.backend_id}"
+
+
+class SyncedDeveloperPlot(models.Model):
+    """Developer Plot data from 1acre-be GET /developer-plots-listings/. Full API item in payload."""
+    backend_id = models.IntegerField(unique=True, help_text='ID from 1acre-be API')
+    payload = models.JSONField(default=dict, help_text='Full list-item from API')
+    synced_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'synced_developer_plot'
+        ordering = ['backend_id']
+        indexes = [models.Index(fields=['backend_id']), models.Index(fields=['synced_at'])]
+
+    def __str__(self):
+        return f"Synced Developer Plot #{self.backend_id}"

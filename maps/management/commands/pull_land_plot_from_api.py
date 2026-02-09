@@ -7,7 +7,7 @@ Uses:
   - GET /developer-lands-listings/  (DeveloperLandListSerializer)
   - GET /developer-plots-listings/  (DeveloperPlotListSerializer)
 
-Data is stored in SyncedLandPlot (listing_type land|plot|developerland|developerplot, backend_id, payload, synced_at).
+Data is stored in per-type tables: SyncedLand, SyncedPlot, SyncedDeveloperLand, SyncedDeveloperPlot.
 
 Usage:
   python manage.py pull_land_plot_from_api --token "eyJ..."
@@ -24,7 +24,12 @@ import requests
 from django.core.management.base import BaseCommand
 from django.utils import timezone
 
-from maps.models import SyncedLandPlot
+from maps.models import (
+    SyncedLand,
+    SyncedPlot,
+    SyncedDeveloperLand,
+    SyncedDeveloperPlot,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +38,7 @@ DEFAULT_PAGE_SIZE = 50  # 1acre-be CustomPagination max_page_size is 50
 
 
 class Command(BaseCommand):
-    help = 'Pull Land and Plot list data from 1acre-be API and store in SyncedLandPlot.'
+    help = 'Pull Land, Plot, Developer Land and Developer Plot from 1acre-be API into per-type tables.'
 
     def add_arguments(self, parser):
         parser.add_argument(
@@ -117,7 +122,7 @@ class Command(BaseCommand):
             total_lands = self._fetch_and_save(
                 base_url=base_url,
                 path='/lands/',
-                listing_type='land',
+                model_class=SyncedLand,
                 headers=headers,
                 page_size=page_size,
                 dry_run=dry_run,
@@ -129,7 +134,7 @@ class Command(BaseCommand):
             total_plots = self._fetch_and_save(
                 base_url=base_url,
                 path='/plots/',
-                listing_type='plot',
+                model_class=SyncedPlot,
                 headers=headers,
                 page_size=page_size,
                 dry_run=dry_run,
@@ -141,7 +146,7 @@ class Command(BaseCommand):
             total_dev_lands = self._fetch_and_save(
                 base_url=base_url,
                 path='/developer-lands-listings/',
-                listing_type='developerland',
+                model_class=SyncedDeveloperLand,
                 headers=headers,
                 page_size=page_size,
                 dry_run=dry_run,
@@ -153,7 +158,7 @@ class Command(BaseCommand):
             total_dev_plots = self._fetch_and_save(
                 base_url=base_url,
                 path='/developer-plots-listings/',
-                listing_type='developerplot',
+                model_class=SyncedDeveloperPlot,
                 headers=headers,
                 page_size=page_size,
                 dry_run=dry_run,
@@ -170,7 +175,7 @@ class Command(BaseCommand):
                 )
             )
 
-    def _fetch_and_save(self, base_url, path, listing_type, headers, page_size, dry_run):
+    def _fetch_and_save(self, base_url, path, model_class, headers, page_size, dry_run):
         url = f'{base_url}{path}'
         count = 0
         page = 1
@@ -197,8 +202,7 @@ class Command(BaseCommand):
                     continue
                 count += 1
                 if not dry_run:
-                    SyncedLandPlot.objects.update_or_create(
-                        listing_type=listing_type,
+                    model_class.objects.update_or_create(
                         backend_id=backend_id,
                         defaults={'payload': item},
                     )
