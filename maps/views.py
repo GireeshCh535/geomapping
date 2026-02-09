@@ -4026,6 +4026,9 @@ class NearbyLayersAPIView(APIView):
                     'layer_slug': layer_data['layer__slug'],
                     'layer_name': layer_data['layer__name'],
                     'layer_description': layer_data['layer__description'] or '',
+                    'meaning': (
+                        'Your point falls inside this layer (inside ' + str(feature_count) + ' feature(s)).'
+                    ),
                     'state': {
                         'slug': layer_data['layer__city__state_ref__slug'],
                         'name': layer_data['layer__city__state_ref__name']
@@ -4039,6 +4042,7 @@ class NearbyLayersAPIView(APIView):
                         'name': layer_data['layer__category__name']
                     } if layer_data['layer__category__code'] else None,
                     'feature_count': feature_count,
+                    'feature_count_description': f'Number of polygons/features in this layer that contain your point.',
                     'distance_km': round(distance_km, 2) if distance_km is not None else None,
                     'bounds': layer_bounds,
                     'center': {
@@ -4052,34 +4056,86 @@ class NearbyLayersAPIView(APIView):
             # Sort by distance (closest first)
             layers_list.sort(key=lambda x: x['distance_km'] if x['distance_km'] is not None else float('inf'))
             
-            # Prepare response
+            # Build a self-explanatory response
+            total = len(layers_list)
+            if search_type == 'point':
+                summary_message = (
+                    f"Found {total} layer(s) that contain your point. "
+                    "Your coordinates fall inside at least one polygon/feature in each of these layers."
+                )
+                if total == 0:
+                    summary_message = (
+                        "No layers found. Your point does not fall inside any layer's geometry. "
+                        "Try a point inside a city/masterplan area or use bounds search with ?bounds=west,south,east,north"
+                    )
+            else:
+                summary_message = (
+                    f"Found {total} layer(s) within the given bounds (radius {bounds_search_radius_km} km)."
+                )
+            
             response_data = {
                 'success': True,
+                'summary': {
+                    'message': summary_message,
+                    'total_layers_found': total,
+                    'search_type': search_type,
+                },
+                'request': {
+                    'description': (
+                        'Point search: layers whose geometry contains this exact point (no radius).'
+                        if search_type == 'point'
+                        else f'Bounds search: layers that intersect the area (radius {bounds_search_radius_km} km).'
+                    ),
+                    'coordinates': {
+                        'lat': search_center.get('lat'),
+                        'lng': search_center.get('lng'),
+                        'lat_description': 'Latitude (degrees, -90 to 90)',
+                        'lng_description': 'Longitude (degrees, -180 to 180)',
+                    },
+                },
                 'search_area': {
                     'type': search_type,
-                    'center': search_center
-                }
+                    'center': search_center,
+                },
             }
             
-            # For point searches, we don't use radius anymore - only exact containment
             if search_type == 'point':
                 response_data['search_area']['search_type'] = 'exact_containment'
-                response_data['search_area']['note'] = 'Only returns layers where the point is inside a feature (no radius)'
+                response_data['search_area']['note'] = (
+                    'Only layers where your point is inside a feature are returned (no distance radius).'
+                )
             else:
-                # Bounds-based search still uses radius
-                # bounds_search_radius_km is defined in the bounds_param block above
                 response_data['search_area']['radius_km'] = bounds_search_radius_km
-                response_data['search_area']['center'] = search_center
                 response_data['search_area']['original_bounds'] = original_bounds
                 response_data['search_area']['expanded_bounds'] = {
                     'west': expanded_west,
                     'south': expanded_south,
                     'east': expanded_east,
-                    'north': expanded_north
+                    'north': expanded_north,
                 }
             
-            response_data['total_layers_found'] = len(layers_list)
             response_data['layers'] = layers_list
+            response_data['response_guide'] = {
+                'summary': 'Quick human-readable result and what was searched.',
+                'request': 'Echo of your query and what it means.',
+                'layers': (
+                    'Each layer listed has at least one polygon/line that contains (or intersects) your point. '
+                    'Ordered by distance from your point to the layer center (closest first).'
+                ),
+                'layer_fields': {
+                    'layer_id': 'Database ID of the layer.',
+                    'layer_slug': 'URL-safe identifier (use in APIs: state/city/layer_slug).',
+                    'layer_name': 'Human-readable layer name.',
+                    'layer_description': 'Optional description of the layer.',
+                    'state': 'State this layer belongs to (slug and name).',
+                    'city': 'City this layer belongs to (slug and name).',
+                    'category': 'Layer type/category (e.g. PLANNING, TRANSPORT).',
+                    'feature_count': 'Number of polygons/features in this layer that contain your point.',
+                    'distance_km': 'Distance from your point to the layer center in km (0 = point inside layer).',
+                    'bounds': 'Layer extent: west, south, east, north (degrees). Use to zoom map to layer.',
+                    'center': 'Approximate center of the layer (lat, lng).',
+                },
+            }
             
             logger.info(f"Returning {len(layers_list)} layers near coordinates ({search_center.get('lat')}, {search_center.get('lng')})")
             
