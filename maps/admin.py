@@ -1315,45 +1315,77 @@ class SyncedLandPlotAdmin(admin.ModelAdmin):
 
 @admin.register(SyncedLand)
 class SyncedLandAdmin(admin.ModelAdmin):
-    """Land data from GET /lands/."""
-    list_display = ("id", "backend_id", "synced_at")
-    list_filter = ("synced_at",)
-    search_fields = ("backend_id",)
-    readonly_fields = ("backend_id", "payload", "synced_at")
-    fieldsets = (("Identity", {"fields": ("backend_id", "synced_at")}), ("API payload", {"fields": ("payload",)}))
+    """Land data from GET /lands/. Columns + payload."""
+    list_display = ("id", "backend_id", "lat", "long", "status", "total_land_size", "total_price", "synced_at")
+    list_filter = ("status", "synced_at")
+    search_fields = ("backend_id", "slug")
+    readonly_fields = (
+        "backend_id", "lat", "long", "slug", "status", "price_per_acre", "total_land_size", "total_price",
+        "created_at", "updated_at", "exposure_type", "seller_type", "zone_type", "is_exact", "approach_road_length",
+        "payload", "synced_at",
+    )
+    fieldsets = (
+        ("Identity", {"fields": ("backend_id", "synced_at")}),
+        ("Columns", {"fields": ("lat", "long", "slug", "status", "price_per_acre", "total_land_size", "total_price", "created_at", "updated_at", "exposure_type", "seller_type", "zone_type", "is_exact", "approach_road_length")}),
+        ("API payload", {"fields": ("payload",)}),
+    )
     ordering = ("-synced_at",)
 
 
 @admin.register(SyncedPlot)
 class SyncedPlotAdmin(admin.ModelAdmin):
-    """Plot data from GET /plots/."""
-    list_display = ("id", "backend_id", "synced_at")
-    list_filter = ("synced_at",)
-    search_fields = ("backend_id",)
-    readonly_fields = ("backend_id", "payload", "synced_at")
-    fieldsets = (("Identity", {"fields": ("backend_id", "synced_at")}), ("API payload", {"fields": ("payload",)}))
+    """Plot data from GET /plots/. Columns + payload."""
+    list_display = ("id", "backend_id", "lat", "long", "status", "total_plot_size", "total_price", "synced_at")
+    list_filter = ("status", "synced_at")
+    search_fields = ("backend_id", "slug")
+    readonly_fields = (
+        "backend_id", "lat", "long", "slug", "status", "total_plot_size", "total_price", "price_per_square_yard",
+        "created_at", "updated_at", "exposure_type", "seller_type", "zone_type", "is_exact", "abutting_road_length",
+        "payload", "synced_at",
+    )
+    fieldsets = (
+        ("Identity", {"fields": ("backend_id", "synced_at")}),
+        ("Columns", {"fields": ("lat", "long", "slug", "status", "total_plot_size", "total_price", "price_per_square_yard", "created_at", "updated_at", "exposure_type", "seller_type", "zone_type", "is_exact", "abutting_road_length")}),
+        ("API payload", {"fields": ("payload",)}),
+    )
     ordering = ("-synced_at",)
 
 
 @admin.register(SyncedDeveloperLand)
 class SyncedDeveloperLandAdmin(admin.ModelAdmin):
-    """Developer Land data from GET /developer-lands-listings/."""
-    list_display = ("id", "backend_id", "synced_at")
-    list_filter = ("synced_at",)
-    search_fields = ("backend_id",)
-    readonly_fields = ("backend_id", "payload", "synced_at")
-    fieldsets = (("Identity", {"fields": ("backend_id", "synced_at")}), ("API payload", {"fields": ("payload",)}))
+    """Developer Land from GET /developer-lands-listings/. Columns + payload."""
+    list_display = ("id", "backend_id", "status", "deal_type", "total_land_size", "total_price", "synced_at")
+    list_filter = ("status", "deal_type", "synced_at")
+    search_fields = ("backend_id", "marker_title", "location")
+    readonly_fields = (
+        "backend_id", "status", "location", "deal_type", "total_land_size", "total_price", "price_per_acre",
+        "created_at", "updated_at", "exposure_type", "marker_title", "description",
+        "payload", "synced_at",
+    )
+    fieldsets = (
+        ("Identity", {"fields": ("backend_id", "synced_at")}),
+        ("Columns", {"fields": ("status", "location", "deal_type", "total_land_size", "total_price", "price_per_acre", "created_at", "updated_at", "exposure_type", "marker_title", "description")}),
+        ("API payload", {"fields": ("payload",)}),
+    )
     ordering = ("-synced_at",)
 
 
 @admin.register(SyncedDeveloperPlot)
 class SyncedDeveloperPlotAdmin(admin.ModelAdmin):
-    """Developer Plot data from GET /developer-plots-listings/."""
-    list_display = ("id", "backend_id", "synced_at")
-    list_filter = ("synced_at",)
-    search_fields = ("backend_id",)
-    readonly_fields = ("backend_id", "payload", "synced_at")
-    fieldsets = (("Identity", {"fields": ("backend_id", "synced_at")}), ("API payload", {"fields": ("payload",)}))
+    """Developer Plot from GET /developer-plots-listings/. Columns + payload."""
+    list_display = ("id", "backend_id", "status", "deal_type", "total_plot_size", "total_price", "synced_at")
+    list_filter = ("status", "deal_type", "synced_at")
+    search_fields = ("backend_id", "marker_title", "location")
+    readonly_fields = (
+        "backend_id", "status", "location", "deal_type", "total_plot_size", "total_price", "price_per_square_yard",
+        "created_at", "updated_at", "exposure_type", "marker_title", "description",
+        "payload", "synced_at",
+    )
+    fieldsets = (
+        ("Identity", {"fields": ("backend_id", "synced_at")}),
+        ("Columns", {"fields": ("status", "location", "deal_type", "total_plot_size", "total_price", "price_per_square_yard", "created_at", "updated_at", "exposure_type", "marker_title", "description")}),
+        ("API payload", {"fields": ("payload",)}),
+    )
     ordering = ("-synced_at",)
 
 

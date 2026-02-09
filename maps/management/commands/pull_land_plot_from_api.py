@@ -11,6 +11,7 @@ Data is stored in per-type tables: SyncedLand, SyncedPlot, SyncedDeveloperLand, 
 
 Usage:
   python manage.py pull_land_plot_from_api --token "eyJ..."
+  python manage.py pull_land_plot_from_api --clear-first --token "eyJ..."   # clear all 5 tables then pull fresh
   python manage.py pull_land_plot_from_api --lands-only
   python manage.py pull_land_plot_from_api --plots-only
   python manage.py pull_land_plot_from_api --developer-lands-only
@@ -22,16 +23,130 @@ import logging
 import os
 import requests
 from django.core.management.base import BaseCommand
-from django.utils import timezone
+from django.utils.dateparse import parse_datetime
 
 from maps.models import (
     SyncedLand,
+    SyncedLandPlot,
     SyncedPlot,
     SyncedDeveloperLand,
     SyncedDeveloperPlot,
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _f(v, default=None):
+    if v is None:
+        return default
+    if isinstance(v, bool):
+        return default
+    if isinstance(v, (int, float)):
+        return float(v)
+    if isinstance(v, str):
+        try:
+            return float(v)
+        except (ValueError, TypeError):
+            return default
+    return default
+
+
+def _dt(s):
+    if not s or not isinstance(s, str):
+        return None
+    return parse_datetime(s)
+
+
+def _str_trunc(s, max_len):
+    if s is None:
+        return ''
+    return (str(s) or '')[:max_len]
+
+
+def defaults_for_land(item):
+    p = item
+    return {
+        'payload': item,
+        'lat': _f(p.get('lat')),
+        'long': _f(p.get('long')),
+        'slug': _str_trunc(p.get('slug'), 500),
+        'status': _str_trunc(p.get('status'), 20),
+        'price_per_acre': _f(p.get('price_per_acre')),
+        'total_land_size': _f(p.get('total_land_size')),
+        'total_price': _f(p.get('total_price')),
+        'created_at': _dt(p.get('created_at')),
+        'updated_at': _dt(p.get('updated_at')),
+        'exposure_type': _str_trunc(p.get('exposure_type'), 20),
+        'seller_type': _str_trunc(p.get('seller_type'), 30),
+        'zone_type': (p.get('zone_type') or '')[:50] if p.get('zone_type') is not None else None,
+        'is_exact': bool(p.get('is_exact')),
+        'approach_road_length': _f(p.get('approach_road_length')),
+    }
+
+
+def defaults_for_plot(item):
+    p = item
+    return {
+        'payload': item,
+        'lat': _f(p.get('lat')),
+        'long': _f(p.get('long')),
+        'slug': _str_trunc(p.get('slug'), 500),
+        'status': _str_trunc(p.get('status'), 20),
+        'total_plot_size': _f(p.get('total_plot_size')),
+        'total_price': _f(p.get('total_price')),
+        'price_per_square_yard': _f(p.get('price_per_square_yard')),
+        'created_at': _dt(p.get('created_at')),
+        'updated_at': _dt(p.get('updated_at')),
+        'exposure_type': _str_trunc(p.get('exposure_type'), 20),
+        'seller_type': _str_trunc(p.get('seller_type'), 30),
+        'zone_type': (p.get('zone_type') or '')[:50] if p.get('zone_type') is not None else None,
+        'is_exact': bool(p.get('is_exact')),
+        'abutting_road_length': _f(p.get('abutting_road_length')),
+    }
+
+
+def defaults_for_developer_land(item):
+    p = item
+    return {
+        'payload': item,
+        'status': _str_trunc(p.get('status'), 20),
+        'location': _str_trunc(p.get('location'), 200),
+        'deal_type': _str_trunc(p.get('deal_type'), 50),
+        'total_land_size': _f(p.get('total_land_size')),
+        'total_price': _f(p.get('total_price')),
+        'price_per_acre': _f(p.get('price_per_acre')),
+        'created_at': _dt(p.get('created_at')),
+        'updated_at': _dt(p.get('updated_at')),
+        'exposure_type': _str_trunc(p.get('exposure_type'), 20),
+        'marker_title': _str_trunc(p.get('marker_title'), 500),
+        'description': _str_trunc(p.get('description'), 10000),
+    }
+
+
+def defaults_for_developer_plot(item):
+    p = item
+    return {
+        'payload': item,
+        'status': _str_trunc(p.get('status'), 20),
+        'location': _str_trunc(p.get('location'), 200),
+        'deal_type': _str_trunc(p.get('deal_type'), 50),
+        'total_plot_size': _f(p.get('total_plot_size')),
+        'total_price': _f(p.get('total_price')),
+        'price_per_square_yard': _f(p.get('price_per_square_yard')),
+        'created_at': _dt(p.get('created_at')),
+        'updated_at': _dt(p.get('updated_at')),
+        'exposure_type': _str_trunc(p.get('exposure_type'), 20),
+        'marker_title': _str_trunc(p.get('marker_title'), 500),
+        'description': _str_trunc(p.get('description'), 10000),
+    }
+
+
+DEFAULTS_BUILDER = {
+    SyncedLand: defaults_for_land,
+    SyncedPlot: defaults_for_plot,
+    SyncedDeveloperLand: defaults_for_developer_land,
+    SyncedDeveloperPlot: defaults_for_developer_plot,
+}
 
 DEFAULT_BASE_URL = 'https://prod-be.1acre.in'
 DEFAULT_PAGE_SIZE = 50  # 1acre-be CustomPagination max_page_size is 50
@@ -80,6 +195,11 @@ class Command(BaseCommand):
             help='Only fetch developer plots',
         )
         parser.add_argument(
+            '--clear-first',
+            action='store_true',
+            help='Delete all rows from SyncedLandPlot, SyncedLand, SyncedPlot, SyncedDeveloperLand, SyncedDeveloperPlot before pulling (fresh sync).',
+        )
+        parser.add_argument(
             '--dry-run',
             action='store_true',
             help='Log requests and counts only, do not save to DB',
@@ -100,6 +220,10 @@ class Command(BaseCommand):
         fetch_plots = plots_only or not any_only
         fetch_dev_lands = developer_lands_only or not any_only
         fetch_dev_plots = developer_plots_only or not any_only
+        clear_first = options['clear_first']
+
+        if clear_first and not dry_run:
+            self._clear_all_synced_tables()
 
         if not token:
             self.stdout.write(
@@ -202,9 +326,11 @@ class Command(BaseCommand):
                     continue
                 count += 1
                 if not dry_run:
+                    builder = DEFAULTS_BUILDER.get(model_class)
+                    defaults = builder(item) if builder else {'payload': item}
                     model_class.objects.update_or_create(
                         backend_id=backend_id,
-                        defaults={'payload': item},
+                        defaults=defaults,
                     )
 
             next_page = data.get('next')
@@ -213,3 +339,17 @@ class Command(BaseCommand):
             page += 1
 
         return count
+
+    def _clear_all_synced_tables(self):
+        """Delete all rows from the 5 synced tables (legacy + per-type) for a fresh pull."""
+        tables = [
+            (SyncedLandPlot, 'SyncedLandPlot'),
+            (SyncedLand, 'SyncedLand'),
+            (SyncedPlot, 'SyncedPlot'),
+            (SyncedDeveloperLand, 'SyncedDeveloperLand'),
+            (SyncedDeveloperPlot, 'SyncedDeveloperPlot'),
+        ]
+        for model, label in tables:
+            n, _ = model.objects.all().delete()
+            self.stdout.write(self.style.WARNING(f'Cleared {label}: {n} rows deleted.'))
+        self.stdout.write(self.style.SUCCESS('All synced tables cleared. Starting fresh pull.'))

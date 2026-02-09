@@ -1208,60 +1208,129 @@ class SyncedLandPlot(models.Model):
 # ---------------------------------------------------------------------------
 
 class SyncedLand(models.Model):
-    """Land data pulled from 1acre-be GET /lands/. Full API item in payload."""
+    """Land data pulled from 1acre-be GET /lands/. Key fields in columns; full API item in payload."""
     backend_id = models.IntegerField(unique=True, help_text='ID from 1acre-be API')
+    # Columns extracted from payload for querying/filtering
+    lat = models.FloatField(null=True, blank=True)
+    long = models.FloatField(null=True, blank=True)
+    slug = models.CharField(max_length=500, blank=True)
+    status = models.CharField(max_length=20, blank=True)
+    price_per_acre = models.FloatField(null=True, blank=True)
+    total_land_size = models.FloatField(null=True, blank=True)
+    total_price = models.FloatField(null=True, blank=True)
+    created_at = models.DateTimeField(null=True, blank=True)
+    updated_at = models.DateTimeField(null=True, blank=True)
+    exposure_type = models.CharField(max_length=20, blank=True)
+    seller_type = models.CharField(max_length=30, blank=True)
+    zone_type = models.CharField(max_length=50, null=True, blank=True)
+    is_exact = models.BooleanField(default=False)
+    approach_road_length = models.FloatField(null=True, blank=True)
     payload = models.JSONField(default=dict, help_text='Full list-item from API')
     synced_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         db_table = 'synced_land'
         ordering = ['backend_id']
-        indexes = [models.Index(fields=['backend_id']), models.Index(fields=['synced_at'])]
+        indexes = [
+            models.Index(fields=['backend_id']),
+            models.Index(fields=['synced_at']),
+            models.Index(fields=['status']),
+            models.Index(fields=['lat', 'long']),
+        ]
 
     def __str__(self):
         return f"Synced Land #{self.backend_id}"
 
 
 class SyncedPlot(models.Model):
-    """Plot data pulled from 1acre-be GET /plots/. Full API item in payload."""
+    """Plot data pulled from 1acre-be GET /plots/. Key fields in columns; full API item in payload."""
     backend_id = models.IntegerField(unique=True, help_text='ID from 1acre-be API')
+    lat = models.FloatField(null=True, blank=True)
+    long = models.FloatField(null=True, blank=True)
+    slug = models.CharField(max_length=500, blank=True)
+    status = models.CharField(max_length=20, blank=True)
+    total_plot_size = models.FloatField(null=True, blank=True)
+    total_price = models.FloatField(null=True, blank=True)
+    price_per_square_yard = models.FloatField(null=True, blank=True)
+    created_at = models.DateTimeField(null=True, blank=True)
+    updated_at = models.DateTimeField(null=True, blank=True)
+    exposure_type = models.CharField(max_length=20, blank=True)
+    seller_type = models.CharField(max_length=30, blank=True)
+    zone_type = models.CharField(max_length=50, null=True, blank=True)
+    is_exact = models.BooleanField(default=False)
+    abutting_road_length = models.FloatField(null=True, blank=True)
     payload = models.JSONField(default=dict, help_text='Full list-item from API')
     synced_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         db_table = 'synced_plot'
         ordering = ['backend_id']
-        indexes = [models.Index(fields=['backend_id']), models.Index(fields=['synced_at'])]
+        indexes = [
+            models.Index(fields=['backend_id']),
+            models.Index(fields=['synced_at']),
+            models.Index(fields=['status']),
+            models.Index(fields=['lat', 'long']),
+        ]
 
     def __str__(self):
         return f"Synced Plot #{self.backend_id}"
 
 
 class SyncedDeveloperLand(models.Model):
-    """Developer Land data from 1acre-be GET /developer-lands-listings/. Full API item in payload."""
+    """Developer Land from 1acre-be GET /developer-lands-listings/. Key fields in columns; full in payload."""
     backend_id = models.IntegerField(unique=True, help_text='ID from 1acre-be API')
+    status = models.CharField(max_length=20, blank=True)
+    location = models.CharField(max_length=200, blank=True, help_text='lat,lng string from API')
+    deal_type = models.CharField(max_length=50, blank=True)
+    total_land_size = models.FloatField(null=True, blank=True)
+    total_price = models.FloatField(null=True, blank=True)
+    price_per_acre = models.FloatField(null=True, blank=True)
+    created_at = models.DateTimeField(null=True, blank=True)
+    updated_at = models.DateTimeField(null=True, blank=True)
+    exposure_type = models.CharField(max_length=20, blank=True)
+    marker_title = models.CharField(max_length=500, blank=True)
+    description = models.TextField(blank=True)
     payload = models.JSONField(default=dict, help_text='Full list-item from API')
     synced_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         db_table = 'synced_developer_land'
         ordering = ['backend_id']
-        indexes = [models.Index(fields=['backend_id']), models.Index(fields=['synced_at'])]
+        indexes = [
+            models.Index(fields=['backend_id']),
+            models.Index(fields=['synced_at']),
+            models.Index(fields=['status']),
+        ]
 
     def __str__(self):
         return f"Synced Developer Land #{self.backend_id}"
 
 
 class SyncedDeveloperPlot(models.Model):
-    """Developer Plot data from 1acre-be GET /developer-plots-listings/. Full API item in payload."""
+    """Developer Plot from 1acre-be GET /developer-plots-listings/. Key fields in columns; full in payload."""
     backend_id = models.IntegerField(unique=True, help_text='ID from 1acre-be API')
+    status = models.CharField(max_length=20, blank=True)
+    location = models.CharField(max_length=200, blank=True, help_text='lat,lng string from API')
+    deal_type = models.CharField(max_length=50, blank=True)
+    total_plot_size = models.FloatField(null=True, blank=True)
+    total_price = models.FloatField(null=True, blank=True)
+    price_per_square_yard = models.FloatField(null=True, blank=True)
+    created_at = models.DateTimeField(null=True, blank=True)
+    updated_at = models.DateTimeField(null=True, blank=True)
+    exposure_type = models.CharField(max_length=20, blank=True)
+    marker_title = models.CharField(max_length=500, blank=True)
+    description = models.TextField(blank=True)
     payload = models.JSONField(default=dict, help_text='Full list-item from API')
     synced_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         db_table = 'synced_developer_plot'
         ordering = ['backend_id']
-        indexes = [models.Index(fields=['backend_id']), models.Index(fields=['synced_at'])]
+        indexes = [
+            models.Index(fields=['backend_id']),
+            models.Index(fields=['synced_at']),
+            models.Index(fields=['status']),
+        ]
 
     def __str__(self):
         return f"Synced Developer Plot #{self.backend_id}"
