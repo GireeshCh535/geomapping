@@ -18,6 +18,7 @@ from .models import (
     LayerGroup,
     PLUCodeMapping,
     State,
+    SyncedLandPlot,
     TIFMetadata,
     ValidationLog,
     VectorTileLayer,
@@ -1292,6 +1293,20 @@ class LandPlotWebhookEventAdmin(admin.ModelAdmin):
         ("Request", {"fields": ("request_ip", "request_headers")}),
     )
     ordering = ("-received_at",)
+
+
+@admin.register(SyncedLandPlot)
+class SyncedLandPlotAdmin(admin.ModelAdmin):
+    """Land/Plot data pulled from 1acre-be API (GET /lands/, GET /plots/)."""
+    list_display = ("id", "listing_type", "backend_id", "synced_at")
+    list_filter = ("listing_type", "synced_at")
+    search_fields = ("listing_type", "backend_id")
+    readonly_fields = ("listing_type", "backend_id", "payload", "synced_at")
+    fieldsets = (
+        ("Identity", {"fields": ("listing_type", "backend_id", "synced_at")}),
+        ("API payload", {"fields": ("payload",)}),
+    )
+    ordering = ("-synced_at",)
 
 
 admin.site.site_header = "GIS Data Management"

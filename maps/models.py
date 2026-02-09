@@ -1166,3 +1166,38 @@ class LandPlotWebhookEvent(models.Model):
 
     def __str__(self):
         return f"LandPlot Webhook - {self.action} - {self.listing_type} {self.listing_id} - {self.received_at}"
+
+
+class SyncedLandPlot(models.Model):
+    """
+    Store Land, Plot, Developer Land and Developer Plot data pulled from 1acre-be API.
+    Endpoints: GET /lands/, GET /plots/, GET /developer-lands-listings/, GET /developer-plots-listings/.
+    Full API response is stored in payload so we keep all fields the API returns.
+    """
+    LISTING_TYPES = [
+        ('land', 'Land'),
+        ('plot', 'Plot'),
+        ('developerland', 'Developer Land'),
+        ('developerplot', 'Developer Plot'),
+    ]
+
+    listing_type = models.CharField(max_length=20, choices=LISTING_TYPES)
+    backend_id = models.IntegerField(help_text='ID from 1acre-be API')
+    payload = models.JSONField(
+        default=dict,
+        help_text='Full list-item response from API (LandListSerializer or PlotListSerializer)'
+    )
+    synced_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'synced_land_plot'
+        unique_together = [('listing_type', 'backend_id')]
+        indexes = [
+            models.Index(fields=['listing_type', 'backend_id']),
+            models.Index(fields=['listing_type']),
+            models.Index(fields=['synced_at']),
+        ]
+        ordering = ['listing_type', 'backend_id']
+
+    def __str__(self):
+        return f"Synced {self.get_listing_type_display()} #{self.backend_id}"
