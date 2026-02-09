@@ -1086,12 +1086,14 @@ class WebhookEvent(models.Model):
     listing_type = models.CharField(max_length=20)
     listing_id = models.IntegerField()
     
-    # Complete webhook payload (JSON)
+    # Complete webhook payload (JSON) – every key/value sent by 1acre-be
     payload = models.JSONField(
         default=dict,
-        help_text='Complete webhook payload received'
+        help_text='Complete webhook payload received (event_type, action, listing_type, listing_id, listing_data, media_items, tif_files, etc.)'
     )
-    
+    # Exact request body as received (so we never lose anything)
+    raw_body = models.TextField(blank=True, default='', help_text='Raw request body JSON string')
+
     # Processing status
     processed = models.BooleanField(default=False)
     processed_at = models.DateTimeField(null=True, blank=True)
@@ -1126,3 +1128,41 @@ class WebhookEvent(models.Model):
     
     def __str__(self):
         return f"Webhook Event - {self.event_type} - {self.listing_type} {self.listing_id} - {self.received_at}"
+
+
+class LandPlotWebhookEvent(models.Model):
+    """
+    Store Land/Plot (regular listing) webhook events from 1acre-be.
+    Payload: created, updated, deleted with full listing_data.
+    """
+    EVENT_TYPES = [
+        ('listing_created', 'Listing Created'),
+        ('listing_updated', 'Listing Updated'),
+        ('listing_deleted', 'Listing Deleted'),
+    ]
+    LISTING_TYPES = [
+        ('land', 'Land'),
+        ('plot', 'Plot'),
+    ]
+
+    event_type = models.CharField(max_length=50, choices=EVENT_TYPES)
+    action = models.CharField(max_length=20)  # created, updated, deleted
+    listing_type = models.CharField(max_length=10, choices=LISTING_TYPES)
+    listing_id = models.IntegerField()
+    payload = models.JSONField(default=dict, help_text='Full webhook payload: event_type, action, listing_type, listing_id, listing_data, timestamp')
+    raw_body = models.TextField(blank=True, default='', help_text='Raw request body JSON string')
+    request_headers = models.JSONField(default=dict, blank=True)
+    request_ip = models.GenericIPAddressField(null=True, blank=True)
+    received_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'land_plot_webhook_events'
+        ordering = ['-received_at']
+        indexes = [
+            models.Index(fields=['event_type', 'listing_type', 'listing_id']),
+            models.Index(fields=['listing_type', 'listing_id']),
+            models.Index(fields=['received_at']),
+        ]
+
+    def __str__(self):
+        return f"LandPlot Webhook - {self.action} - {self.listing_type} {self.listing_id} - {self.received_at}"

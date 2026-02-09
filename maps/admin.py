@@ -13,6 +13,7 @@ from .models import (
     DeveloperListing,
     DeveloperListingMedia,
     GeoFeature,
+    LandPlotWebhookEvent,
     LayerCategory,
     LayerGroup,
     PLUCodeMapping,
@@ -1017,6 +1018,7 @@ class WebhookEventAdmin(AuditFieldsMixin, admin.ModelAdmin):
         "listing_type",
         "listing_id",
         "payload_display",
+        "raw_body",
         "processing_result_display",
         "request_headers_display",
         "deletion_summary",
@@ -1039,8 +1041,8 @@ class WebhookEventAdmin(AuditFieldsMixin, admin.ModelAdmin):
         ("Request Metadata", {
             "fields": ("request_ip", "request_headers_display")
         }),
-        ("Webhook Payload", {
-            "fields": ("payload_display",),
+        ("Webhook Payload (full request body saved)", {
+            "fields": ("payload_display", "raw_body"),
             "classes": ("collapse",)
         }),
         ("Processing Result", {
@@ -1275,6 +1277,21 @@ class WebhookEventAdmin(AuditFieldsMixin, admin.ModelAdmin):
         extra_context["stats"] = stats
         extra_context["deletion_stats"] = deletion_stats
         return super().changelist_view(request, extra_context)
+
+
+@admin.register(LandPlotWebhookEvent)
+class LandPlotWebhookEventAdmin(admin.ModelAdmin):
+    """Land/Plot webhook events – full payload and raw body saved."""
+    list_display = ("id", "event_type", "action", "listing_type", "listing_id", "received_at")
+    list_filter = ("event_type", "action", "listing_type", "received_at")
+    search_fields = ("listing_type", "listing_id", "action")
+    readonly_fields = ("event_type", "action", "listing_type", "listing_id", "payload", "raw_body", "request_headers", "request_ip", "received_at")
+    fieldsets = (
+        ("Event", {"fields": ("event_type", "action", "listing_type", "listing_id", "received_at")}),
+        ("Payload (full webhook body)", {"fields": ("payload", "raw_body")}),
+        ("Request", {"fields": ("request_ip", "request_headers")}),
+    )
+    ordering = ("-received_at",)
 
 
 admin.site.site_header = "GIS Data Management"

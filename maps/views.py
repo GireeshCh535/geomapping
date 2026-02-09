@@ -18,6 +18,7 @@ from drf_spectacular.utils import extend_schema, extend_schema_view, OpenApiPara
 from .models import *
 from .serializers import *
 from .tile_path_service import TilePathService
+import copy
 import logging
 import json
 from urllib.parse import quote
@@ -4928,17 +4929,41 @@ class LayerBoundsZoomAPIView(APIView):
         return zoom
 
 
+def _webhook_payload_snapshot(data):
+    """
+    Return a deep copy of webhook payload so we store everything exactly as received.
+    Handles QueryDict and nested structures; result is JSON-serializable.
+    """
+    if data is None:
+        return {}
+    if hasattr(data, 'dict'):
+        data = data.dict()
+    elif hasattr(data, 'items') and not isinstance(data, dict):
+        data = dict(data)
+    try:
+        return copy.deepcopy(data)
+    except Exception:
+        return json.loads(json.dumps(data, default=str))
+
+
 class DeveloperListingMediaWebhookView(APIView):
     """
     Webhook endpoint to receive notifications when developer listing media files
     are uploaded and need tile generation.
     
-    This endpoint receives POST requests from the backend service when:
+    Supports: Developer Land and Developer Plot (listing_type: developerland, developerplot).
+    
+    We store everything from the webhook:
+    - WebhookEvent.payload: full request body (every key/value sent by backend)
+    - DeveloperListing.listing_data: full listing object (unchanged)
+    - DeveloperListingMedia.media_data: full media object per item (unchanged)
+    
+    This endpoint receives POST requests when:
     - DeveloperLand or DeveloperPlot is created/updated
     - TIF files are uploaded/updated
     
     The service will:
-    1. Save webhook data to database
+    1. Save full webhook data to database (no fields dropped)
     2. Download TIF files from CloudFront URLs
     3. Generate map tiles from TIF files
     4. Upload tiles to S3 at the specified path
@@ -4963,14 +4988,16 @@ class DeveloperListingMediaWebhookView(APIView):
         webhook_event = None
         try:
             data = request.data
+            # Snapshot full payload so we store everything (no keys dropped)
+            payload_snapshot = _webhook_payload_snapshot(data)
             
             # Validate required fields
             event_type = data.get('event_type')
             listing_type = data.get('listing_type')
             listing_id = data.get('listing_id')
             tif_files = data.get('tif_files', [])
-            listing_data = data.get('listing_data', {})
-            media_items = data.get('media_items', [])
+            listing_data = data.get('listing_data', {}) or {}
+            media_items = data.get('media_items', []) or []
             action = data.get('action', '')
             
             if not all([event_type, listing_type, listing_id]):
@@ -4996,7 +5023,25 @@ class DeveloperListingMediaWebhookView(APIView):
                     status=status.HTTP_400_BAD_REQUEST
                 )
             
-            # Handle deletion events early (before saving listing/media)
+            # Save webhook event first – store everything: full payload + raw body
+            raw_body = ''
+            if getattr(request, 'body', None):
+                try:
+                    raw_body = request.body.decode('utf-8', errors='replace')
+                except Exception:
+                    raw_body = str(request.body)[:50000]
+            webhook_event = WebhookEvent.objects.create(
+                event_type=event_type,
+                action=action,
+                listing_type=listing_type,
+                listing_id=listing_id,
+                payload=payload_snapshot,
+                raw_body=raw_body,
+                request_headers=dict(request.headers),
+                request_ip=self._get_client_ip(request)
+            )
+            
+            # Handle deletion events (listing/media); we already stored the payload above
             if action == 'listing_deleted':
                 logger.info(f"[WEBHOOK_RECEIVE] 🗑️  Listing deletion event received")
                 return self._handle_listing_deletion(webhook_event, listing_type, listing_id, data)
@@ -5004,17 +5049,6 @@ class DeveloperListingMediaWebhookView(APIView):
             if action == 'media_deleted':
                 logger.info(f"[WEBHOOK_RECEIVE] 🗑️  Media deletion event received")
                 return self._handle_media_deletion(webhook_event, listing_type, listing_id, data, media_items)
-            
-            # Save webhook event
-            webhook_event = WebhookEvent.objects.create(
-                event_type=event_type,
-                action=action,
-                listing_type=listing_type,
-                listing_id=listing_id,
-                payload=data,
-                request_headers=dict(request.headers),
-                request_ip=self._get_client_ip(request)
-            )
             
             logger.info(f"[WEBHOOK_RECEIVE] ===== Webhook received =====")
             logger.info(f"[WEBHOOK_RECEIVE] 📥 Event: {event_type}")
@@ -5039,11 +5073,13 @@ class DeveloperListingMediaWebhookView(APIView):
                 elif isinstance(division, dict):
                     city_name = division.get('name', '')
             
+            # Store full listing_data (every field from backend; we only extract a few for querying)
+            listing_data_stored = _webhook_payload_snapshot(listing_data)
             listing, created = DeveloperListing.objects.update_or_create(
                 listing_type=listing_type,
                 backend_listing_id=listing_id,
                 defaults={
-                    'listing_data': listing_data,
+                    'listing_data': listing_data_stored,
                     'name': listing_data.get('name', '') or listing_data.get('title', ''),
                     'description': listing_data.get('description', ''),
                     'location': listing_data.get('location', ''),
@@ -5122,6 +5158,8 @@ class DeveloperListingMediaWebhookView(APIView):
                     # New media, no cleanup needed
                     pass
                 
+                # Store full media item (every field from backend)
+                media_data_stored = _webhook_payload_snapshot(media_item)
                 media_obj, created = DeveloperListingMedia.objects.update_or_create(
                     listing=listing,
                     backend_media_id=media_id,
@@ -5133,7 +5171,7 @@ class DeveloperListingMediaWebhookView(APIView):
                         's3_path': media_item.get('s3_path', ''),
                         'is_tif': is_tif,
                         's3_tile_path': new_s3_tile_path,
-                        'media_data': media_item,
+                        'media_data': media_data_stored,
                     }
                 )
                 logger.info(f"[WEBHOOK_RECEIVE] ✅ Media {'created' if created else 'updated'}: ID={media_obj.id}")
@@ -5507,6 +5545,83 @@ class DeveloperListingMediaWebhookView(APIView):
             return None
         from django.utils.dateparse import parse_datetime
         return parse_datetime(dt_string)
+
+
+class LandPlotWebhookView(APIView):
+    """
+    Webhook endpoint for Land and Plot (regular listings) from 1acre-be.
+    Receives create/update/delete events with full listing_data.
+    Same pattern as DeveloperListingMediaWebhookView.
+    """
+    permission_classes = [AllowAny]
+    authentication_classes = []
+    http_method_names = ['post']
+
+    def post(self, request):
+        from .models import LandPlotWebhookEvent
+
+        logger.info("[LAND_PLOT_WEBHOOK] ===== Land/Plot webhook POST received =====")
+        try:
+            data = request.data
+            # Snapshot full payload so we save everything (same pattern as developer listing webhook)
+            payload_snapshot = _webhook_payload_snapshot(data)
+            raw_body = ''
+            if getattr(request, 'body', None):
+                try:
+                    raw_body = request.body.decode('utf-8', errors='replace')
+                except Exception:
+                    raw_body = str(request.body)[:50000]
+
+            event_type = data.get('event_type')
+            action = data.get('action')
+            listing_type = data.get('listing_type')
+            listing_id = data.get('listing_id')
+            listing_data = data.get('listing_data', {})
+
+            if not all([event_type, action, listing_type, listing_id is not None]):
+                return Response(
+                    {"error": "Missing required fields: event_type, action, listing_type, listing_id"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            if event_type not in ('listing_created', 'listing_updated', 'listing_deleted'):
+                return Response(
+                    {"error": f"Unknown event_type: {event_type}"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            if listing_type not in ('land', 'plot'):
+                return Response(
+                    {"error": f"Unknown listing_type: {listing_type}"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            ip = self._get_client_ip(request)
+            LandPlotWebhookEvent.objects.create(
+                event_type=event_type,
+                action=action,
+                listing_type=listing_type,
+                listing_id=listing_id,
+                payload=payload_snapshot,
+                raw_body=raw_body,
+                request_headers=dict(request.headers),
+                request_ip=ip,
+            )
+            logger.info(f"[LAND_PLOT_WEBHOOK] Saved: {action} {listing_type} {listing_id}")
+            return Response(
+                {"status": "success", "event_type": event_type, "listing_type": listing_type, "listing_id": listing_id},
+                status=status.HTTP_200_OK
+            )
+        except Exception as e:
+            logger.error(f"[LAND_PLOT_WEBHOOK] Error: {e}", exc_info=True)
+            return Response(
+                {"error": "Internal server error", "details": str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+    def _get_client_ip(self, request):
+        x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
+        if x_forwarded_for:
+            return x_forwarded_for.split(',')[0].strip()
+        return request.META.get('REMOTE_ADDR')
 
 
 class DeveloperListingDetailAPIView(APIView):

@@ -97,7 +97,12 @@ urlpatterns = [
     path('webhooks/developer-listing-media/',
          views.DeveloperListingMediaWebhookView.as_view(),
          name='developer-listing-media-webhook'),
-    
+
+    # Webhook endpoint for Land and Plot (regular listings) create/update/delete
+    path('webhooks/land-plot/',
+         views.LandPlotWebhookView.as_view(),
+         name='land-plot-webhook'),
+
     # ================================
     # DEVELOPER LISTING APIs (Public Access to Webhook Data)
     # ================================
