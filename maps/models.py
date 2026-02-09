@@ -834,6 +834,15 @@ class DeveloperListing(models.Model):
     is_active = models.BooleanField(default=True)
     last_webhook_event = models.CharField(max_length=50, blank=True)
     
+    # Spatial: point for layer overlap/nearby enrichment (populated from listing_data lat/lng)
+    location_point = models.PointField(geography=True, null=True, blank=True)
+    
+    # Layer enrichment: unified list of relevant layers (overlapping + nearby up to 30 km)
+    # Each entry: { "layer_id": int, "layer_slug": str, "layer_type": str (category code), "distance_km": float }
+    # distance_km = 0 means overlap; 0.01–30 means nearby; >30 excluded
+    enriched_layers = models.JSONField(default=list, blank=True)
+    enriched_at = models.DateTimeField(null=True, blank=True)
+    
     # Timestamps
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -848,10 +857,34 @@ class DeveloperListing(models.Model):
             models.Index(fields=['listing_type', 'is_active']),
             models.Index(fields=['city', 'state']),
             models.Index(fields=['created_at']),
+            models.Index(fields=['enriched_at']),
         ]
     
     def __str__(self):
         return f"{self.get_listing_type_display()} - {self.backend_listing_id} - {self.name or 'Unnamed'}"
+    
+    def get_listing_point(self):
+        """Return Point for this listing: location_point if set, else derived from listing_data."""
+        if self.location_point:
+            return self.location_point
+        lat = None
+        lng = None
+        data = self.listing_data or {}
+        loc = data.get('location')
+        if isinstance(loc, dict):
+            lat = loc.get('latitude') or loc.get('lat')
+            lng = loc.get('longitude') or loc.get('lng') or loc.get('lon')
+        if lat is None:
+            lat = data.get('latitude') or data.get('lat')
+        if lng is None:
+            lng = data.get('longitude') or data.get('lng') or data.get('lon')
+        if lat is not None and lng is not None:
+            try:
+                from django.contrib.gis.geos import Point
+                return Point(float(lng), float(lat), srid=4326)
+            except (ValueError, TypeError):
+                pass
+        return None
     
     def get_media_count(self):
         """Get count of media files"""

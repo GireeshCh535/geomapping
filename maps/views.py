@@ -4998,6 +4998,11 @@ class DeveloperListingMediaWebhookView(APIView):
                     'backend_updated_at': self._parse_datetime(listing_data.get('updated_at')),
                 }
             )
+            # Sync location_point from listing_data for layer enrichment
+            point = listing.get_listing_point()
+            if point is not None and (listing.location_point is None or listing.location_point.wkt != point.wkt):
+                listing.location_point = point
+                listing.save(update_fields=['location_point'])
             logger.info(f"[WEBHOOK_RECEIVE] ✅ DeveloperListing {'created' if created else 'updated'}: ID={listing.id}, Name={listing.name}")
             
             # Save/update media files

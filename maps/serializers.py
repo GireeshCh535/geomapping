@@ -448,6 +448,7 @@ class DeveloperListingSerializer(serializers.ModelSerializer):
             'name', 'description', 'location', 'city', 'state', 'is_active',
             'last_webhook_event', 'backend_created_at', 'backend_updated_at',
             'created_at', 'updated_at', 'media_files', 'media_summary',
+            'enriched_layers', 'enriched_at',
             'tile_summary'
         ]
     
@@ -496,7 +497,7 @@ class DeveloperListingDetailSerializer(serializers.ModelSerializer):
             'last_webhook_event', 'backend_created_at', 'backend_updated_at',
             'created_at', 'updated_at', 'media_files', 'recent_webhook_events',
             'media_summary', 'tile_summary', 'bounds', 'zoom_levels', 'center',
-            'data_layers'
+            'data_layers', 'enriched_layers', 'enriched_at'
         ]
     
     def get_recent_webhook_events(self, obj):
