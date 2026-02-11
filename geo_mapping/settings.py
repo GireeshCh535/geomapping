@@ -15,15 +15,16 @@ DEBUG = os.getenv('DJANGO_DEBUG', 'True').lower() == 'true'
 
 # ALLOWED HOSTS (include IP with ports when Host header has port, e.g. behind nginx)
 _allowed = os.getenv('DJANGO_ALLOWED_HOSTS')
-ALLOWED_HOSTS = (
-    [h.strip() for h in _allowed.split(',') if h.strip()] if _allowed else [
+if _allowed:
+    ALLOWED_HOSTS = [h.strip() for h in _allowed.split(',') if h.strip()]
+else:
+    ALLOWED_HOSTS = [
         '*',
         '3.108.10.59',
         '3.108.10.59:80',
         '3.108.10.59:443',
         'layers.1acre.in',
     ]
-)
 
 CSRF_TRUSTED_ORIGINS = [
     'https://layers.1acre.in',
