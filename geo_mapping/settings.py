@@ -13,8 +13,17 @@ SECRET_KEY = "django-insecure-9xdea)mc6dhr@)lrhn65!&!uc+#z6nlajj8j091eswp$$2jf!#
 # DEBUG
 DEBUG = os.getenv('DJANGO_DEBUG', 'True').lower() == 'true'
 
-# ALLOWED HOSTS
-ALLOWED_HOSTS = ['*', '3.108.10.59', 'layers.1acre.in']
+# ALLOWED HOSTS (include IP with ports when Host header has port, e.g. behind nginx)
+_allowed = os.getenv('DJANGO_ALLOWED_HOSTS')
+ALLOWED_HOSTS = (
+    [h.strip() for h in _allowed.split(',') if h.strip()] if _allowed else [
+        '*',
+        '3.108.10.59',
+        '3.108.10.59:80',
+        '3.108.10.59:443',
+        'layers.1acre.in',
+    ]
+)
 
 CSRF_TRUSTED_ORIGINS = [
     'https://layers.1acre.in',
