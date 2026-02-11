@@ -5919,7 +5919,8 @@ class EnrichmentLookupAPIView(APIView):
         d = model_to_dict(obj, exclude=['location_point'])
         d['id'] = obj.pk
         d['backend_id'] = getattr(obj, 'backend_id', None)
-        d['enriched_layers'] = getattr(obj, 'enriched_layers', []) or []
+        raw_layers = getattr(obj, 'enriched_layers', []) or []
+        d['enriched_layers'] = [dict(entry) for entry in raw_layers]
         d['enriched_at'] = obj.enriched_at.isoformat() if getattr(obj, 'enriched_at', None) else None
         d['location_point'] = self._serialize_point(getattr(obj, 'location_point', None))
         if hasattr(obj, 'lat') and obj.lat is not None:
@@ -5969,6 +5970,26 @@ class EnrichmentLookupAPIView(APIView):
                 qs = model.objects.none()
             records = list(qs)
             results = [self._record_to_dict(r) for r in records]
+
+            # Resolve "place" (specific feature) for each enriched layer, like CoordinateSearchTestView
+            from .listing_layer_enrichment_service import get_place_for_point_in_layer
+            from django.contrib.gis.geos import Point
+            for record, result in zip(records, results):
+                point = getattr(record, 'location_point', None)
+                if point is None and getattr(record, 'long', None) is not None and getattr(record, 'lat', None) is not None:
+                    try:
+                        point = Point(float(record.long), float(record.lat), srid=4326)
+                    except (TypeError, ValueError):
+                        point = None
+                if point is None:
+                    continue
+                enriched = result.get('enriched_layers') or []
+                for layer_entry in enriched:
+                    layer_id = layer_entry.get('layer_id')
+                    distance_km = layer_entry.get('distance_km', 0)
+                    if layer_id is not None:
+                        place = get_place_for_point_in_layer(point, layer_id, distance_km)
+                        layer_entry['place'] = place
 
             return Response(
                 {

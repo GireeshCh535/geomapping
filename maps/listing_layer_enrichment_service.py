@@ -222,6 +222,88 @@ def compute_enriched_layers_for_point(point: Point):
     return result
 
 
+def get_place_for_point_in_layer(point: Point, layer_id: int, distance_km: float):
+    """
+    Resolve the specific place (feature) for a point in a layer: the containing feature
+    when distance_km=0, or the nearest feature when distance_km>0. Same idea as
+    CoordinateSearchTestView: which feature/polygon the point is inside or closest to.
+
+    Returns a dict with feature_id, feature_name, layer_slug, layer_name, category,
+    distance_meters, and optional area, zone_category, plot_category, properties;
+    or None if no feature found.
+    """
+    if not point or point.empty:
+        return None
+    try:
+        layer = DataLayer.objects.filter(id=layer_id).select_related('category', 'city', 'city__state_ref').first()
+        if not layer:
+            return None
+        layer_slug = layer.slug
+        layer_name = layer.name or ''
+        category = (layer.category.code if layer.category else '') or 'UNCLASSIFIED'
+
+        if distance_km == 0:
+            # Point is inside: get containing feature(s), pick largest by area
+            feature = (
+                GeoFeature.objects.filter(
+                    layer_id=layer_id,
+                    geometry__contains=point,
+                    is_valid=True,
+                )
+                .select_related('layer', 'layer__category')
+                .order_by('-area')
+                .first()
+            )
+            distance_meters = 0.0
+        else:
+            # Nearby: get nearest feature within 30 km (distance in meters via geography)
+            qs = (
+                GeoFeature.objects.filter(
+                    layer_id=layer_id,
+                    geometry__dwithin=(point, DEGREES_30KM),
+                    is_valid=True,
+                )
+                .select_related('layer', 'layer__category')
+                .annotate(
+                    dist_m=RawSQL(
+                        'ST_Distance(geometry::geography, ST_SetSRID(ST_MakePoint(%s, %s), 4326)::geography)',
+                        (point.x, point.y),
+                        output_field=FloatField(),
+                    )
+                )
+                .order_by('dist_m')
+            )
+            feature = qs.first()
+            if feature is None:
+                return None
+            dist_m = getattr(feature, 'dist_m', None)
+            distance_meters = round(float(dist_m) or distance_km * 1000, 2)
+        if feature is None:
+            return None
+
+        area_sq_m = float(feature.area) if feature.area else None
+        place = {
+            'feature_id': feature.id,
+            'feature_name': feature.name or 'Unnamed',
+            'layer_slug': layer_slug,
+            'layer_name': layer_name,
+            'category': category,
+            'distance_meters': distance_meters,
+            'area_square_meters': area_sq_m,
+            'zone_category': feature.zone_category or '',
+            'plot_category': feature.plot_category or '',
+            'symbology': feature.symbology or '',
+            'plu_code': feature.plu_primary_code or '',
+            'plu_name': feature.plu_secondary_1 or '',
+        }
+        if getattr(feature, 'properties', None):
+            place['properties'] = feature.properties
+        return place
+    except Exception as e:
+        logger.debug("get_place_for_point_in_layer: %s", e)
+        return None
+
+
 def enrich_listing(listing: DeveloperListing, update_location_point: bool = True) -> bool:
     """
     Compute and save enriched_layers for one listing. Optionally sync location_point from listing_data.
