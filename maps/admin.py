@@ -51,15 +51,23 @@ class StateAdmin(AuditFieldsMixin, admin.ModelAdmin):
         "name",
         "code",
         "slug",
+        "center_lat",
+        "center_lng",
+        "default_zoom",
         "is_active",
         "cities_link",
         "layers_count",
         "created_at",
     )
-    search_fields = ("name", "code", "slug")
     list_filter = ("is_active",)
+    search_fields = ("name", "code", "slug")
     prepopulated_fields = {"slug": ("name",)}
     ordering = ("name",)
+    fieldsets = (
+        ("Identity", {"fields": ("name", "slug", "code")}),
+        ("Map view", {"fields": ("center_lat", "center_lng", "default_zoom")}),
+        ("Status", {"fields": ("is_active", "created_at")}),
+    )
 
     def get_queryset(self, request):
         qs = super().get_queryset(request)
@@ -87,17 +95,26 @@ class CityAdmin(AuditFieldsMixin, admin.ModelAdmin):
         "name",
         "slug",
         "state_name",
+        "center_lat",
+        "center_lng",
+        "min_zoom",
+        "max_zoom",
         "is_active",
         "layers_link",
         "processed_layers",
         "features_count",
         "created_at",
     )
-    search_fields = ("name", "slug", "state", "state_ref__name")
     list_filter = ("state_ref", "is_active")
+    search_fields = ("name", "slug", "state", "state_ref__name")
     autocomplete_fields = ("state_ref",)
     prepopulated_fields = {"slug": ("name",)}
     ordering = ("name",)
+    fieldsets = (
+        ("Identity", {"fields": ("name", "slug", "state", "state_ref")}),
+        ("Map view", {"fields": ("center_lat", "center_lng", "min_zoom", "max_zoom")}),
+        ("Status", {"fields": ("is_active", "created_at")}),
+    )
 
     def get_queryset(self, request):
         qs = super().get_queryset(request)
@@ -138,11 +155,16 @@ class LayerCategoryAdmin(AuditFieldsMixin, admin.ModelAdmin):
         "name",
         "code",
         "display_order",
+        "default_color",
         "is_active",
     )
-    search_fields = ("name", "code")
     list_filter = ("is_active",)
+    search_fields = ("name", "code", "description")
     ordering = ("display_order", "name")
+    fieldsets = (
+        ("Identity", {"fields": ("code", "name", "description")}),
+        ("Display", {"fields": ("display_order", "default_color", "default_stroke", "default_opacity", "is_active")}),
+    )
 
 @admin.register(CityLayerStyle)
 class CityLayerStyleAdmin(AuditFieldsMixin, admin.ModelAdmin):
@@ -1254,14 +1276,14 @@ class WebhookEventAdmin(AuditFieldsMixin, admin.ModelAdmin):
         """Add custom context for changelist"""
         extra_context = extra_context or {}
         
-        # Get statistics
+        # Get statistics (alias names must not match model field names e.g. 'processed')
         from django.db.models import Count, Q, Sum
         stats = WebhookEvent.objects.aggregate(
             total=Count("id"),
-            processed=Count("id", filter=Q(processed=True)),
-            pending=Count("id", filter=Q(processed=False)),
-            deletions=Count("id", filter=Q(action__in=["media_deleted", "listing_deleted"])),
-            errors=Count("id", filter=Q(processing_error__isnull=False, processing_error__gt="")),
+            processed_count=Count("id", filter=Q(processed=True)),
+            pending_count=Count("id", filter=Q(processed=False)),
+            deletion_count=Count("id", filter=Q(action__in=["media_deleted", "listing_deleted"])),
+            error_count=Count("id", filter=Q(processing_error__isnull=False, processing_error__gt="")),
             total_tiles_generated=Sum("tiles_generated", filter=Q(tiles_generated__gt=0)),
         )
         
@@ -1315,18 +1337,22 @@ class SyncedLandPlotAdmin(admin.ModelAdmin):
 
 @admin.register(SyncedLand)
 class SyncedLandAdmin(admin.ModelAdmin):
-    """Land data from GET /lands/. Columns + payload."""
-    list_display = ("id", "backend_id", "lat", "long", "status", "total_land_size", "total_price", "synced_at")
-    list_filter = ("status", "synced_at")
-    search_fields = ("backend_id", "slug")
+    """Land data from GET /lands/. Columns + payload + enrichment."""
+    list_display = (
+        "id", "backend_id", "lat", "long", "status", "total_land_size", "total_price",
+        "enriched_at", "synced_at",
+    )
+    list_filter = ("status", "synced_at", "enriched_at")
+    search_fields = ("backend_id", "slug", "status")
     readonly_fields = (
         "backend_id", "lat", "long", "slug", "status", "price_per_acre", "total_land_size", "total_price",
         "created_at", "updated_at", "exposure_type", "seller_type", "zone_type", "is_exact", "approach_road_length",
-        "payload", "synced_at",
+        "payload", "synced_at", "location_point", "enriched_layers", "enriched_at",
     )
     fieldsets = (
         ("Identity", {"fields": ("backend_id", "synced_at")}),
         ("Columns", {"fields": ("lat", "long", "slug", "status", "price_per_acre", "total_land_size", "total_price", "created_at", "updated_at", "exposure_type", "seller_type", "zone_type", "is_exact", "approach_road_length")}),
+        ("Enrichment", {"fields": ("location_point", "enriched_layers", "enriched_at"), "description": "Layer overlap/nearby (0–30 km). Filled by enrich_listing_layers."}),
         ("API payload", {"fields": ("payload",)}),
     )
     ordering = ("-synced_at",)
@@ -1334,18 +1360,22 @@ class SyncedLandAdmin(admin.ModelAdmin):
 
 @admin.register(SyncedPlot)
 class SyncedPlotAdmin(admin.ModelAdmin):
-    """Plot data from GET /plots/. Columns + payload."""
-    list_display = ("id", "backend_id", "lat", "long", "status", "total_plot_size", "total_price", "synced_at")
-    list_filter = ("status", "synced_at")
-    search_fields = ("backend_id", "slug")
+    """Plot data from GET /plots/. Columns + payload + enrichment."""
+    list_display = (
+        "id", "backend_id", "lat", "long", "status", "total_plot_size", "total_price",
+        "enriched_at", "synced_at",
+    )
+    list_filter = ("status", "synced_at", "enriched_at")
+    search_fields = ("backend_id", "slug", "status")
     readonly_fields = (
         "backend_id", "lat", "long", "slug", "status", "total_plot_size", "total_price", "price_per_square_yard",
         "created_at", "updated_at", "exposure_type", "seller_type", "zone_type", "is_exact", "abutting_road_length",
-        "payload", "synced_at",
+        "payload", "synced_at", "location_point", "enriched_layers", "enriched_at",
     )
     fieldsets = (
         ("Identity", {"fields": ("backend_id", "synced_at")}),
         ("Columns", {"fields": ("lat", "long", "slug", "status", "total_plot_size", "total_price", "price_per_square_yard", "created_at", "updated_at", "exposure_type", "seller_type", "zone_type", "is_exact", "abutting_road_length")}),
+        ("Enrichment", {"fields": ("location_point", "enriched_layers", "enriched_at"), "description": "Layer overlap/nearby (0–30 km). Filled by enrich_listing_layers."}),
         ("API payload", {"fields": ("payload",)}),
     )
     ordering = ("-synced_at",)
@@ -1353,18 +1383,22 @@ class SyncedPlotAdmin(admin.ModelAdmin):
 
 @admin.register(SyncedDeveloperLand)
 class SyncedDeveloperLandAdmin(admin.ModelAdmin):
-    """Developer Land from GET /developer-lands-listings/. Columns + payload."""
-    list_display = ("id", "backend_id", "status", "deal_type", "total_land_size", "total_price", "synced_at")
-    list_filter = ("status", "deal_type", "synced_at")
-    search_fields = ("backend_id", "marker_title", "location")
+    """Developer Land from GET /developer-lands-listings/. Columns + payload + enrichment."""
+    list_display = (
+        "id", "backend_id", "status", "deal_type", "total_land_size", "total_price",
+        "enriched_at", "synced_at",
+    )
+    list_filter = ("status", "deal_type", "synced_at", "enriched_at")
+    search_fields = ("backend_id", "marker_title", "location", "status")
     readonly_fields = (
         "backend_id", "status", "location", "deal_type", "total_land_size", "total_price", "price_per_acre",
         "created_at", "updated_at", "exposure_type", "marker_title", "description",
-        "payload", "synced_at",
+        "payload", "synced_at", "location_point", "enriched_layers", "enriched_at",
     )
     fieldsets = (
         ("Identity", {"fields": ("backend_id", "synced_at")}),
         ("Columns", {"fields": ("status", "location", "deal_type", "total_land_size", "total_price", "price_per_acre", "created_at", "updated_at", "exposure_type", "marker_title", "description")}),
+        ("Enrichment", {"fields": ("location_point", "enriched_layers", "enriched_at"), "description": "Layer overlap/nearby (0–30 km). Filled by enrich_listing_layers."}),
         ("API payload", {"fields": ("payload",)}),
     )
     ordering = ("-synced_at",)
@@ -1372,18 +1406,22 @@ class SyncedDeveloperLandAdmin(admin.ModelAdmin):
 
 @admin.register(SyncedDeveloperPlot)
 class SyncedDeveloperPlotAdmin(admin.ModelAdmin):
-    """Developer Plot from GET /developer-plots-listings/. Columns + payload."""
-    list_display = ("id", "backend_id", "status", "deal_type", "total_plot_size", "total_price", "synced_at")
-    list_filter = ("status", "deal_type", "synced_at")
-    search_fields = ("backend_id", "marker_title", "location")
+    """Developer Plot from GET /developer-plots-listings/. Columns + payload + enrichment."""
+    list_display = (
+        "id", "backend_id", "status", "deal_type", "total_plot_size", "total_price",
+        "enriched_at", "synced_at",
+    )
+    list_filter = ("status", "deal_type", "synced_at", "enriched_at")
+    search_fields = ("backend_id", "marker_title", "location", "status")
     readonly_fields = (
         "backend_id", "status", "location", "deal_type", "total_plot_size", "total_price", "price_per_square_yard",
         "created_at", "updated_at", "exposure_type", "marker_title", "description",
-        "payload", "synced_at",
+        "payload", "synced_at", "location_point", "enriched_layers", "enriched_at",
     )
     fieldsets = (
         ("Identity", {"fields": ("backend_id", "synced_at")}),
         ("Columns", {"fields": ("status", "location", "deal_type", "total_plot_size", "total_price", "price_per_square_yard", "created_at", "updated_at", "exposure_type", "marker_title", "description")}),
+        ("Enrichment", {"fields": ("location_point", "enriched_layers", "enriched_at"), "description": "Layer overlap/nearby (0–30 km). Filled by enrich_listing_layers."}),
         ("API payload", {"fields": ("payload",)}),
     )
     ordering = ("-synced_at",)

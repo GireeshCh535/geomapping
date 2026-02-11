@@ -311,7 +311,7 @@ LOGGING = {
     },
     'handlers': {
         'console': {
-            'level': 'INFO',
+            'level': 'ERROR',  # Only errors in console; set to INFO for verbose
             'class': 'logging.StreamHandler',
             'formatter': 'verbose',
         },

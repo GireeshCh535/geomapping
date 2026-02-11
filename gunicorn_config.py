@@ -21,10 +21,10 @@ max_requests = 1000
 max_requests_jitter = 100
 preload_app = False  # Set to True if using connection pooling
 
-# Logging
-accesslog = "-"
+# Logging: only errors to console (no per-request access logs)
+accesslog = None  # Disable access log; set to "-" or a path to re-enable
 errorlog = "-"
-loglevel = os.getenv('LOG_LEVEL', 'info')
+loglevel = os.getenv('LOG_LEVEL', 'error')
 access_log_format = '%(h)s %(l)s %(u)s %(t)s "%(r)s" %(s)s %(b)s "%(f)s" "%(a)s" %(D)s'
 
 # Process naming
