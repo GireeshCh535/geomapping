@@ -5882,7 +5882,7 @@ class EnrichmentLookupAPIView(APIView):
 
     POST /api/enrichment-lookup/
     Body: { "listing_type": "land"|"plot"|"developer_land"|"developer_plot", "ids": [1, 2, 3] }
-    IDs are backend_id (1acre-be API id).
+    ids can be either Django primary keys (id) or backend_id (1acre-be API id); both are matched.
 
     Returns: { "results": [ {...}, ... ], "count": N } with enrichment (enriched_layers, enriched_at, location_point)
     and all other model fields + payload.
@@ -5961,7 +5961,12 @@ class EnrichmentLookupAPIView(APIView):
             ids = list(dict.fromkeys(ids))
 
             model = model_map[listing_type]
-            qs = model.objects.filter(backend_id__in=ids) if ids else model.objects.none()
+            if ids:
+                qs = model.objects.filter(
+                    Q(backend_id__in=ids) | Q(pk__in=ids)
+                ).distinct()
+            else:
+                qs = model.objects.none()
             records = list(qs)
             results = [self._record_to_dict(r) for r in records]
 
