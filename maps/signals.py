@@ -13,7 +13,9 @@ from django.dispatch import receiver
 from maps.models import DataLayer
 from maps.listing_layer_enrichment_service import (
     get_listings_near_layer,
+    get_synced_listings_near_layer,
     enrich_listings_queryset,
+    enrich_synced_queryset,
     NEARBY_THRESHOLD_KM,
 )
 
@@ -41,15 +43,25 @@ def _enrich_listings_near_layer_after_commit(layer_id: int):
             return
         if layer.category and getattr(layer.category, 'code', None) == 'DEVELOPER_LISTING':
             return
+        total_p, total_s = 0, 0
         listings = get_listings_near_layer(layer, within_km=NEARBY_THRESHOLD_KM)
-        if not listings.exists():
+        if listings.exists():
+            p, s = enrich_listings_queryset(listings, update_location_point=False)
+            total_p += p
+            total_s += s
+        land_qs, plot_qs, dev_land_qs, dev_plot_qs = get_synced_listings_near_layer(layer, within_km=NEARBY_THRESHOLD_KM)
+        for qs in (land_qs, plot_qs, dev_land_qs, dev_plot_qs):
+            if qs.exists():
+                p, s = enrich_synced_queryset(qs, update_location_point=False)
+                total_p += p
+                total_s += s
+        if total_p or total_s:
+            logger.info(
+                "Auto-enrichment for new/updated layer id=%s: %d listings processed, %d skipped",
+                layer_id, total_p, total_s,
+            )
+        else:
             logger.debug("No listings near layer id=%s, skipping enrichment", layer_id)
-            return
-        processed, skipped = enrich_listings_queryset(listings, update_location_point=False)
-        logger.info(
-            "Auto-enrichment for new/updated layer id=%s: %d listings processed, %d skipped",
-            layer_id, processed, skipped,
-        )
     except Exception as e:
         logger.exception("Auto-enrichment for layer id=%s failed: %s", layer_id, e)
 

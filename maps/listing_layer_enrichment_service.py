@@ -1,22 +1,34 @@
 """
 Listing–Layer Enrichment Service
 
-For each developer listing (point), discovers:
+For each listing (point), discovers:
 - Overlapping layers: listing point falls inside layer geometry (distance_km = 0)
 - Nearby layers: shortest distance from point to layer edge in [0.01, 30] km
 
 Excludes DEVELOPER_LISTING category (listing's own TIF layers).
-Stores unified enriched_layers on DeveloperListing: list of
-{ layer_id, layer_slug, layer_type, distance_km }.
+Stores unified enriched_layers: list of { layer_id, layer_slug, layer_type, distance_km }.
+
+Supports:
+- DeveloperListing (existing)
+- SyncedLand, SyncedPlot, SyncedDeveloperLand, SyncedDeveloperPlot (all 4 Synced* tables).
 """
 
 import logging
+import re
 from django.utils import timezone
 from django.contrib.gis.geos import Point, Polygon
 from django.db.models import FloatField
 from django.db.models.expressions import RawSQL
 
-from maps.models import DeveloperListing, DataLayer, GeoFeature
+from maps.models import (
+    DeveloperListing,
+    DataLayer,
+    GeoFeature,
+    SyncedLand,
+    SyncedPlot,
+    SyncedDeveloperLand,
+    SyncedDeveloperPlot,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -31,12 +43,57 @@ MIN_NEARBY_KM = 0.01
 
 
 def get_listing_point(listing: DeveloperListing):
-    """Return Point (srid=4326) for listing, or None if no coordinates."""
+    """Return Point (srid=4326) for DeveloperListing, or None if no coordinates."""
     point = listing.get_listing_point()
     if point is None:
         return None
     if point.srid != 4326:
         point.transform(4326)
+    return point
+
+
+def get_point_for_synced(record, update_location_point: bool = True):
+    """
+    Return Point (srid=4326) for a SyncedLand, SyncedPlot, SyncedDeveloperLand, or SyncedDeveloperPlot.
+    If update_location_point is True, sets record.location_point when lat/long are available.
+    """
+    lat, lng = None, None
+    if isinstance(record, (SyncedLand, SyncedPlot)):
+        lat, lng = record.lat, record.long
+    elif isinstance(record, (SyncedDeveloperLand, SyncedDeveloperPlot)):
+        if record.location_point:
+            p = record.location_point
+            if p.srid != 4326:
+                p = p.clone()
+                p.transform(4326)
+            return p
+        # Parse from payload or location string
+        payload = record.payload or {}
+        lat = payload.get('lat') or payload.get('latitude')
+        lng = payload.get('long') or payload.get('longitude') or payload.get('lng') or payload.get('lon')
+        if (lat is None or lng is None) and record.location:
+            # Try "lat,lng" or "lat, lng"
+            match = re.match(r'^\s*([-\d.]+)\s*,\s*([-\d.]+)\s*$', (record.location or '').strip())
+            if match:
+                try:
+                    lat, lng = float(match.group(1)), float(match.group(2))
+                except (ValueError, TypeError):
+                    pass
+    if lat is None or lng is None:
+        try:
+            lat = float(lat) if lat is not None else None
+            lng = float(lng) if lng is not None else None
+        except (TypeError, ValueError):
+            return None
+    if lat is None or lng is None:
+        return None
+    try:
+        point = Point(float(lng), float(lat), srid=4326)
+    except (TypeError, ValueError):
+        return None
+    if update_location_point and (record.location_point is None or record.location_point.wkt != point.wkt):
+        record.location_point = point
+        record.save(update_fields=['location_point'])
     return point
 
 
@@ -175,15 +232,42 @@ def enrich_listings_queryset(queryset, update_location_point: bool = True):
     return processed, skipped
 
 
+def enrich_synced_record(record, update_location_point: bool = True) -> bool:
+    """
+    Compute and save enriched_layers for one SyncedLand, SyncedPlot, SyncedDeveloperLand, or SyncedDeveloperPlot.
+    Returns True if enrichment was run and saved, False if record has no point (skipped).
+    """
+    point = get_point_for_synced(record, update_location_point=update_location_point)
+    if point is None:
+        logger.debug("Synced record %s %s has no coordinates; skipping", type(record).__name__, getattr(record, 'backend_id', record.pk))
+        return False
+    enriched = compute_enriched_layers_for_point(point)
+    record.enriched_layers = enriched
+    record.enriched_at = timezone.now()
+    record.save(update_fields=['enriched_layers', 'enriched_at'])
+    logger.debug("Enriched %s backend_id=%s: %d layers", type(record).__name__, getattr(record, 'backend_id', record.pk), len(enriched))
+    return True
+
+
+def enrich_synced_queryset(queryset, update_location_point: bool = True):
+    """Enrich all records in queryset (SyncedLand, SyncedPlot, etc.) that have a point. Returns (processed, skipped)."""
+    processed = 0
+    skipped = 0
+    for record in queryset.iterator():
+        if enrich_synced_record(record, update_location_point=update_location_point):
+            processed += 1
+        else:
+            skipped += 1
+    return processed, skipped
+
+
 def get_listings_near_layer(layer: DataLayer, within_km: float = NEARBY_THRESHOLD_KM):
     """
-    Return listings that have a location point within `within_km` of the layer's geometry.
+    Return DeveloperListings that have a location point within `within_km` of the layer's geometry.
     Used when a new layer is added to re-enrich affected listings.
     """
-    # Layer extent (bbox) for quick filter; then exact distance
     if layer.bbox_xmin is None or layer.bbox_ymin is None or layer.bbox_ymax is None or layer.bbox_xmax is None:
         return DeveloperListing.objects.none()
-    # Expand bbox by within_km (approx 1 deg ~ 111 km)
     delta = within_km / 111.0
     expanded = Polygon.from_bbox((
         layer.bbox_xmin - delta,
@@ -196,3 +280,30 @@ def get_listings_near_layer(layer: DataLayer, within_km: float = NEARBY_THRESHOL
         location_point__within=expanded,
         is_active=True,
     ).exclude(location_point__isnull=True)
+
+
+def get_synced_listings_near_layer(layer: DataLayer, within_km: float = NEARBY_THRESHOLD_KM):
+    """
+    Return (land_qs, plot_qs, dev_land_qs, dev_plot_qs) of Synced* records with location_point
+    within `within_km` of the layer's bbox. Used to re-enrich when a new layer is added.
+    """
+    if layer.bbox_xmin is None or layer.bbox_ymin is None or layer.bbox_ymax is None or layer.bbox_xmax is None:
+        return (
+            SyncedLand.objects.none(),
+            SyncedPlot.objects.none(),
+            SyncedDeveloperLand.objects.none(),
+            SyncedDeveloperPlot.objects.none(),
+        )
+    delta = within_km / 111.0
+    expanded = Polygon.from_bbox((
+        layer.bbox_xmin - delta,
+        layer.bbox_ymin - delta,
+        layer.bbox_xmax + delta,
+        layer.bbox_ymax + delta,
+    ))
+    expanded.srid = 4326
+    land_qs = SyncedLand.objects.filter(location_point__within=expanded).exclude(location_point__isnull=True)
+    plot_qs = SyncedPlot.objects.filter(location_point__within=expanded).exclude(location_point__isnull=True)
+    dev_land_qs = SyncedDeveloperLand.objects.filter(location_point__within=expanded).exclude(location_point__isnull=True)
+    dev_plot_qs = SyncedDeveloperPlot.objects.filter(location_point__within=expanded).exclude(location_point__isnull=True)
+    return land_qs, plot_qs, dev_land_qs, dev_plot_qs

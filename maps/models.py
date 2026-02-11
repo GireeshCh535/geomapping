@@ -1227,6 +1227,14 @@ class SyncedLand(models.Model):
     approach_road_length = models.FloatField(null=True, blank=True)
     payload = models.JSONField(default=dict, help_text='Full list-item from API')
     synced_at = models.DateTimeField(auto_now=True)
+    # Layer enrichment: point for spatial queries; overlapping + nearby layers (0–30 km)
+    location_point = models.PointField(geography=True, null=True, blank=True)
+    enriched_layers = models.JSONField(
+        default=list,
+        blank=True,
+        help_text='Unified list: { layer_id, layer_slug, layer_type, distance_km }. 0=overlap, 0.01–30=nearby'
+    )
+    enriched_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         db_table = 'synced_land'
@@ -1236,6 +1244,7 @@ class SyncedLand(models.Model):
             models.Index(fields=['synced_at']),
             models.Index(fields=['status']),
             models.Index(fields=['lat', 'long']),
+            models.Index(fields=['enriched_at']),
         ]
 
     def __str__(self):
@@ -1261,6 +1270,13 @@ class SyncedPlot(models.Model):
     abutting_road_length = models.FloatField(null=True, blank=True)
     payload = models.JSONField(default=dict, help_text='Full list-item from API')
     synced_at = models.DateTimeField(auto_now=True)
+    location_point = models.PointField(geography=True, null=True, blank=True)
+    enriched_layers = models.JSONField(
+        default=list,
+        blank=True,
+        help_text='Unified list: { layer_id, layer_slug, layer_type, distance_km }. 0=overlap, 0.01–30=nearby'
+    )
+    enriched_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         db_table = 'synced_plot'
@@ -1270,6 +1286,7 @@ class SyncedPlot(models.Model):
             models.Index(fields=['synced_at']),
             models.Index(fields=['status']),
             models.Index(fields=['lat', 'long']),
+            models.Index(fields=['enriched_at']),
         ]
 
     def __str__(self):
@@ -1292,6 +1309,13 @@ class SyncedDeveloperLand(models.Model):
     description = models.TextField(blank=True)
     payload = models.JSONField(default=dict, help_text='Full list-item from API')
     synced_at = models.DateTimeField(auto_now=True)
+    location_point = models.PointField(geography=True, null=True, blank=True)
+    enriched_layers = models.JSONField(
+        default=list,
+        blank=True,
+        help_text='Unified list: { layer_id, layer_slug, layer_type, distance_km }. 0=overlap, 0.01–30=nearby'
+    )
+    enriched_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         db_table = 'synced_developer_land'
@@ -1300,6 +1324,7 @@ class SyncedDeveloperLand(models.Model):
             models.Index(fields=['backend_id']),
             models.Index(fields=['synced_at']),
             models.Index(fields=['status']),
+            models.Index(fields=['enriched_at']),
         ]
 
     def __str__(self):
@@ -1322,6 +1347,13 @@ class SyncedDeveloperPlot(models.Model):
     description = models.TextField(blank=True)
     payload = models.JSONField(default=dict, help_text='Full list-item from API')
     synced_at = models.DateTimeField(auto_now=True)
+    location_point = models.PointField(geography=True, null=True, blank=True)
+    enriched_layers = models.JSONField(
+        default=list,
+        blank=True,
+        help_text='Unified list: { layer_id, layer_slug, layer_type, distance_km }. 0=overlap, 0.01–30=nearby'
+    )
+    enriched_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         db_table = 'synced_developer_plot'
@@ -1330,6 +1362,7 @@ class SyncedDeveloperPlot(models.Model):
             models.Index(fields=['backend_id']),
             models.Index(fields=['synced_at']),
             models.Index(fields=['status']),
+            models.Index(fields=['enriched_at']),
         ]
 
     def __str__(self):

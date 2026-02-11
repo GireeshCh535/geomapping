@@ -10,6 +10,7 @@ Used by:
 """
 
 from django.utils.dateparse import parse_datetime
+from django.contrib.gis.geos import Point
 
 
 def _f(v, default=None):
@@ -39,13 +40,26 @@ def _str_trunc(s, max_len):
     return (str(s) or '')[:max_len]
 
 
+def _point_from_lat_lng(lat, lng):
+    """Return Point(srid=4326) if both lat and lng are valid numbers, else None."""
+    lat_f = _f(lat)
+    lng_f = _f(lng)
+    if lat_f is None or lng_f is None:
+        return None
+    try:
+        return Point(float(lng_f), float(lat_f), srid=4326)
+    except (TypeError, ValueError):
+        return None
+
+
 def defaults_for_land(item):
     """Build SyncedLand defaults from API item or webhook listing_data."""
     p = item if isinstance(item, dict) else {}
-    return {
+    lat, lng = _f(p.get('lat')), _f(p.get('long'))
+    out = {
         'payload': item,
-        'lat': _f(p.get('lat')),
-        'long': _f(p.get('long')),
+        'lat': lat,
+        'long': lng,
         'slug': _str_trunc(p.get('slug'), 500),
         'status': _str_trunc(p.get('status'), 20),
         'price_per_acre': _f(p.get('price_per_acre')),
@@ -59,15 +73,20 @@ def defaults_for_land(item):
         'is_exact': bool(p.get('is_exact')),
         'approach_road_length': _f(p.get('approach_road_length')),
     }
+    pt = _point_from_lat_lng(lat, lng)
+    if pt is not None:
+        out['location_point'] = pt
+    return out
 
 
 def defaults_for_plot(item):
     """Build SyncedPlot defaults from API item or webhook listing_data."""
     p = item if isinstance(item, dict) else {}
-    return {
+    lat, lng = _f(p.get('lat')), _f(p.get('long'))
+    out = {
         'payload': item,
-        'lat': _f(p.get('lat')),
-        'long': _f(p.get('long')),
+        'lat': lat,
+        'long': lng,
         'slug': _str_trunc(p.get('slug'), 500),
         'status': _str_trunc(p.get('status'), 20),
         'total_plot_size': _f(p.get('total_plot_size')),
@@ -81,12 +100,26 @@ def defaults_for_plot(item):
         'is_exact': bool(p.get('is_exact')),
         'abutting_road_length': _f(p.get('abutting_road_length')),
     }
+    pt = _point_from_lat_lng(lat, lng)
+    if pt is not None:
+        out['location_point'] = pt
+    return out
 
 
 def defaults_for_developer_land(item):
     """Build SyncedDeveloperLand defaults from API item or webhook listing_data."""
     p = item if isinstance(item, dict) else {}
-    return {
+    lat = _f(p.get('lat')) or _f(p.get('latitude'))
+    lng = _f(p.get('long')) or _f(p.get('lng')) or _f(p.get('longitude'))
+    if lat is None and lng is None and p.get('location'):
+        import re
+        m = re.match(r'^\s*([-\d.]+)\s*,\s*([-\d.]+)\s*$', (p.get('location') or '').strip())
+        if m:
+            try:
+                lat, lng = float(m.group(1)), float(m.group(2))
+            except (ValueError, TypeError):
+                pass
+    out = {
         'payload': item,
         'status': _str_trunc(p.get('status'), 20),
         'location': _str_trunc(p.get('location'), 200),
@@ -100,12 +133,26 @@ def defaults_for_developer_land(item):
         'marker_title': _str_trunc(p.get('marker_title'), 500),
         'description': _str_trunc(p.get('description'), 10000),
     }
+    pt = _point_from_lat_lng(lat, lng)
+    if pt is not None:
+        out['location_point'] = pt
+    return out
 
 
 def defaults_for_developer_plot(item):
     """Build SyncedDeveloperPlot defaults from API item or webhook listing_data."""
     p = item if isinstance(item, dict) else {}
-    return {
+    lat = _f(p.get('lat')) or _f(p.get('latitude'))
+    lng = _f(p.get('long')) or _f(p.get('lng')) or _f(p.get('longitude'))
+    if lat is None and lng is None and p.get('location'):
+        import re
+        m = re.match(r'^\s*([-\d.]+)\s*,\s*([-\d.]+)\s*$', (p.get('location') or '').strip())
+        if m:
+            try:
+                lat, lng = float(m.group(1)), float(m.group(2))
+            except (ValueError, TypeError):
+                pass
+    out = {
         'payload': item,
         'status': _str_trunc(p.get('status'), 20),
         'location': _str_trunc(p.get('location'), 200),
@@ -119,3 +166,7 @@ def defaults_for_developer_plot(item):
         'marker_title': _str_trunc(p.get('marker_title'), 500),
         'description': _str_trunc(p.get('description'), 10000),
     }
+    pt = _point_from_lat_lng(lat, lng)
+    if pt is not None:
+        out['location_point'] = pt
+    return out
