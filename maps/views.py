@@ -4987,7 +4987,20 @@ class DeveloperListingMediaWebhookView(APIView):
         
         webhook_event = None
         try:
-            data = request.data
+            # Read body once (stream can only be read once); use it for both parsing and raw storage
+            raw_body_full = ''
+            try:
+                raw_body_full = request.body.decode('utf-8', errors='replace')
+            except Exception:
+                pass
+            import json
+            data = {}
+            if raw_body_full:
+                try:
+                    data = json.loads(raw_body_full)
+                except Exception:
+                    pass
+            raw_body_str = raw_body_full[:50000] if len(raw_body_full) > 50000 else raw_body_full
             # Snapshot full payload so we store everything (no keys dropped)
             payload_snapshot = _webhook_payload_snapshot(data)
             
@@ -5023,20 +5036,14 @@ class DeveloperListingMediaWebhookView(APIView):
                     status=status.HTTP_400_BAD_REQUEST
                 )
             
-            # Save webhook event first – store everything: full payload + raw body
-            raw_body = ''
-            if getattr(request, 'body', None):
-                try:
-                    raw_body = request.body.decode('utf-8', errors='replace')
-                except Exception:
-                    raw_body = str(request.body)[:50000]
+            # Save webhook event first – store everything: full payload + raw body (already read above)
             webhook_event = WebhookEvent.objects.create(
                 event_type=event_type,
                 action=action,
                 listing_type=listing_type,
                 listing_id=listing_id,
                 payload=payload_snapshot,
-                raw_body=raw_body,
+                raw_body=raw_body_str,
                 request_headers=dict(request.headers),
                 request_ip=self._get_client_ip(request)
             )
