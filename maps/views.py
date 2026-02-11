@@ -5096,7 +5096,27 @@ class DeveloperListingMediaWebhookView(APIView):
                 listing.location_point = point
                 listing.save(update_fields=['location_point'])
             logger.info(f"[WEBHOOK_RECEIVE] ✅ DeveloperListing {'created' if created else 'updated'}: ID={listing.id}, Name={listing.name}")
-            
+
+            # Sync into SyncedDeveloperLand / SyncedDeveloperPlot so the 4 Synced* tables stay in sync
+            from .models import SyncedDeveloperLand, SyncedDeveloperPlot
+            from .sync_utils import defaults_for_developer_land, defaults_for_developer_plot
+            listing_data_for_sync = dict(listing_data_stored) if listing_data_stored else {}
+            listing_data_for_sync['id'] = listing_id
+            if listing_type == 'developerland':
+                defaults = defaults_for_developer_land(listing_data_for_sync)
+                SyncedDeveloperLand.objects.update_or_create(
+                    backend_id=listing_id,
+                    defaults=defaults,
+                )
+                logger.info(f"[WEBHOOK_RECEIVE] Synced SyncedDeveloperLand backend_id={listing_id}")
+            elif listing_type == 'developerplot':
+                defaults = defaults_for_developer_plot(listing_data_for_sync)
+                SyncedDeveloperPlot.objects.update_or_create(
+                    backend_id=listing_id,
+                    defaults=defaults,
+                )
+                logger.info(f"[WEBHOOK_RECEIVE] Synced SyncedDeveloperPlot backend_id={listing_id}")
+
             # Save/update media files
             logger.info(f"[WEBHOOK_RECEIVE] 💾 Saving/updating {len(media_items)} media files...")
             
@@ -5344,10 +5364,19 @@ class DeveloperListingMediaWebhookView(APIView):
             media_count = all_media.count()
             all_media.delete()
             logger.info(f"[WEBHOOK_DELETE] ✅ Deleted {media_count} media records")
-            
+
             # Delete the listing record
             listing.delete()
             logger.info(f"[WEBHOOK_DELETE] ✅ Deleted listing record")
+
+            # Keep SyncedDeveloperLand / SyncedDeveloperPlot in sync
+            from .models import SyncedDeveloperLand, SyncedDeveloperPlot
+            if listing_type == 'developerland':
+                SyncedDeveloperLand.objects.filter(backend_id=listing_id).delete()
+                logger.info(f"[WEBHOOK_DELETE] Deleted SyncedDeveloperLand backend_id={listing_id}")
+            elif listing_type == 'developerplot':
+                SyncedDeveloperPlot.objects.filter(backend_id=listing_id).delete()
+                logger.info(f"[WEBHOOK_DELETE] Deleted SyncedDeveloperPlot backend_id={listing_id}")
             
             # Mark webhook as processed
             webhook_event.processed = True
@@ -5558,7 +5587,8 @@ class LandPlotWebhookView(APIView):
     http_method_names = ['post']
 
     def post(self, request):
-        from .models import LandPlotWebhookEvent
+        from .models import LandPlotWebhookEvent, SyncedLand, SyncedPlot
+        from .sync_utils import defaults_for_land, defaults_for_plot
 
         logger.info("[LAND_PLOT_WEBHOOK] ===== Land/Plot webhook POST received =====")
         try:
@@ -5606,6 +5636,35 @@ class LandPlotWebhookView(APIView):
                 request_ip=ip,
             )
             logger.info(f"[LAND_PLOT_WEBHOOK] Saved: {action} {listing_type} {listing_id}")
+
+            # Sync into SyncedLand / SyncedPlot so DB stays in sync with 1acre-be
+            if action in ('created', 'updated'):
+                item = dict(listing_data) if listing_data else {}
+                item['id'] = listing_id  # ensure id present for payload
+                if listing_type == 'land':
+                    defaults = defaults_for_land(item)
+                    SyncedLand.objects.update_or_create(
+                        backend_id=listing_id,
+                        defaults=defaults,
+                    )
+                    logger.info(f"[LAND_PLOT_WEBHOOK] Synced SyncedLand backend_id={listing_id}")
+                else:
+                    defaults = defaults_for_plot(item)
+                    SyncedPlot.objects.update_or_create(
+                        backend_id=listing_id,
+                        defaults=defaults,
+                    )
+                    logger.info(f"[LAND_PLOT_WEBHOOK] Synced SyncedPlot backend_id={listing_id}")
+            elif action == 'deleted':
+                if listing_type == 'land':
+                    deleted, _ = SyncedLand.objects.filter(backend_id=listing_id).delete()
+                    if deleted:
+                        logger.info(f"[LAND_PLOT_WEBHOOK] Deleted SyncedLand backend_id={listing_id}")
+                else:
+                    deleted, _ = SyncedPlot.objects.filter(backend_id=listing_id).delete()
+                    if deleted:
+                        logger.info(f"[LAND_PLOT_WEBHOOK] Deleted SyncedPlot backend_id={listing_id}")
+
             return Response(
                 {"status": "success", "event_type": event_type, "listing_type": listing_type, "listing_id": listing_id},
                 status=status.HTTP_200_OK
