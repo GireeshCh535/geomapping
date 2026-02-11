@@ -139,7 +139,13 @@ echo "🚀 Running Ansible playbook..."
 echo "================================================"
 
 # Run with more verbose output and better error handling
-ansible-playbook -i "$INVENTORY_FILE" deploy.yml -vv --timeout=60
+# For a full clean rebuild (slow, ~15–20 min): ./run_play.sh full_clean
+EXTRA_VARS=""
+if [ "$1" = "full_clean" ]; then
+  EXTRA_VARS="-e full_clean=true"
+  echo "⚠️  Full clean mode: will prune images and build cache (slow rebuild)"
+fi
+ansible-playbook -i "$INVENTORY_FILE" deploy.yml -vv --timeout=60 $EXTRA_VARS
 
 # Check deployment result
 ANSIBLE_EXIT_CODE=$?

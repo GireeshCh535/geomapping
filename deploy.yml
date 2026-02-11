@@ -9,6 +9,8 @@
     temp_dir: "/tmp/{{ project_name }}_deploy"
     zip_file: "{{ project_name }}.zip"
     domain: "layers.1acre.in"  # Updated domain name
+    # Set full_clean: true to prune images + build cache (slow next build). Default: fast deploys with cache.
+    full_clean: false
 
   tasks:
     # ===================================
@@ -215,17 +217,19 @@
       shell: docker container prune -f
       ignore_errors: yes
 
-    - name: Clean up unused images only
+    - name: Clean up unused images only (only when full_clean)
       shell: docker image prune -af
       ignore_errors: yes
+      when: full_clean | default(false) | bool
 
     - name: Clean up unused networks only
       shell: docker network prune -f
       ignore_errors: yes
 
-    - name: Clean up build cache only
+    - name: Clean up build cache only (only when full_clean)
       shell: docker builder prune -af
       ignore_errors: yes
+      when: full_clean | default(false) | bool
 
     - name: Show preserved volumes
       shell: docker volume ls
@@ -540,14 +544,9 @@
       loop:
         - "{{ project_dir }}/logs"
 
-    - name: Build Docker containers (no cache for fresh build)
-      shell: docker-compose build --no-cache
-      args:
-        chdir: "{{ project_dir }}"
-      become_user: ubuntu
-
-    - name: Start Docker containers (including nginx)
-      shell: docker-compose up -d
+    # Build and start (uses cache for fast deploys; use full_clean + --no-cache for a full rebuild)
+    - name: Build and start Docker containers (uses cache when available)
+      shell: docker-compose up -d --build
       args:
         chdir: "{{ project_dir }}"
       become_user: ubuntu
