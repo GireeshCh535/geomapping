@@ -41,6 +41,39 @@ DEGREES_30KM = 30.0 / 111.32
 # Minimum non-zero distance to store (avoids floating point noise for overlapping)
 MIN_NEARBY_KM = 0.01
 
+# Bbox delta in degrees (~30 km) to pre-filter layers that could possibly touch the point
+_DEGREES_BUFFER = NEARBY_THRESHOLD_KM / 111.0
+
+# Batch size for bulk_update when enriching synced tables (fewer round-trips)
+ENRICH_BULK_BATCH_SIZE = 250
+
+
+def _layer_ids_near_point(point: Point):
+    """
+    Return list of DataLayer IDs whose bbox intersects (point ± 30km).
+    Only processed, active-city layers, excluding DEVELOPER_LISTING.
+    Cuts down GeoFeature queries from 1.6M+ to only features in relevant layers.
+    """
+    if not point or point.empty:
+        return []
+    x, y = point.x, point.y
+    return list(
+        DataLayer.objects.filter(
+            is_processed=True,
+            city__is_active=True,
+            bbox_xmin__isnull=False,
+            bbox_ymin__isnull=False,
+            bbox_xmax__isnull=False,
+            bbox_ymax__isnull=False,
+            bbox_xmax__gte=x - _DEGREES_BUFFER,
+            bbox_xmin__lte=x + _DEGREES_BUFFER,
+            bbox_ymax__gte=y - _DEGREES_BUFFER,
+            bbox_ymin__lte=y + _DEGREES_BUFFER,
+        )
+        .exclude(category__code='DEVELOPER_LISTING')
+        .values_list('id', flat=True)
+    )
+
 
 def get_listing_point(listing: DeveloperListing):
     """Return Point (srid=4326) for DeveloperListing, or None if no coordinates."""
@@ -104,31 +137,30 @@ def compute_enriched_layers_for_point(point: Point):
     Returns list of dicts: { "layer_id", "layer_slug", "layer_type", "distance_km" }.
     distance_km = 0 means overlap; (0.01, 30] means nearby.
     Uses PostGIS geography for meter-based distance where available.
+    Pre-filters layers by bbox so only layers that could touch the point are queried (faster).
     """
     if not point or point.empty:
         return []
 
-    # Exclude listing-owned TIF layers
-    base_layer_qs = DataLayer.objects.filter(
-        is_processed=True,
-        city__is_active=True,
-    ).exclude(category__code='DEVELOPER_LISTING').select_related('category')
+    # Only consider layers whose bbox intersects point ± 30km (drastically reduces GeoFeature rows)
+    layer_ids = _layer_ids_near_point(point)
+    if not layer_ids:
+        return []
 
     overlapping_layer_ids = set(
         GeoFeature.objects.filter(
             geometry__contains=point,
             is_valid=True,
-            layer__in=base_layer_qs,
+            layer_id__in=layer_ids,
         ).values_list('layer_id', flat=True).distinct()
     )
 
     # Nearby: features within 30 km that are not overlapping (min distance per layer)
-    # Use degrees for dwithin (PostGIS geographic DWithin expects degree units)
     nearby_qs = (
         GeoFeature.objects.filter(
             geometry__dwithin=(point, DEGREES_30KM),
             is_valid=True,
-            layer__in=base_layer_qs,
+            layer_id__in=layer_ids,
         )
         .exclude(layer_id__in=overlapping_layer_ids)
         .annotate(
@@ -250,14 +282,29 @@ def enrich_synced_record(record, update_location_point: bool = True) -> bool:
 
 
 def enrich_synced_queryset(queryset, update_location_point: bool = True):
-    """Enrich all records in queryset (SyncedLand, SyncedPlot, etc.) that have a point. Returns (processed, skipped)."""
+    """
+    Enrich all records in queryset (SyncedLand, SyncedPlot, etc.) that have a point.
+    Uses bulk_update in batches to reduce DB round-trips. Returns (processed, skipped).
+    """
     processed = 0
     skipped = 0
+    batch = []
+    now = timezone.now()
     for record in queryset.iterator():
-        if enrich_synced_record(record, update_location_point=update_location_point):
-            processed += 1
-        else:
+        point = get_point_for_synced(record, update_location_point=update_location_point)
+        if point is None:
             skipped += 1
+            continue
+        enriched = compute_enriched_layers_for_point(point)
+        record.enriched_layers = enriched
+        record.enriched_at = now
+        batch.append(record)
+        processed += 1
+        if len(batch) >= ENRICH_BULK_BATCH_SIZE:
+            type(record).objects.bulk_update(batch, ['enriched_layers', 'enriched_at'])
+            batch = []
+    if batch:
+        type(batch[0]).objects.bulk_update(batch, ['enriched_layers', 'enriched_at'])
     return processed, skipped
 
 
