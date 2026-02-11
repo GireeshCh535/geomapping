@@ -5876,6 +5876,116 @@ class DeveloperListingListAPIView(APIView):
             )
 
 
+class EnrichmentLookupAPIView(APIView):
+    """
+    POST API: return enrichment and full record data for land/plot/developer_land/developer_plot by IDs.
+
+    POST /api/enrichment-lookup/
+    Body: { "listing_type": "land"|"plot"|"developer_land"|"developer_plot", "ids": [1, 2, 3] }
+    IDs are backend_id (1acre-be API id).
+
+    Returns: { "results": [ {...}, ... ], "count": N } with enrichment (enriched_layers, enriched_at, location_point)
+    and all other model fields + payload.
+    """
+    permission_classes = [AllowAny]
+
+    # Map listing_type -> (Model, backend_id field name)
+    _MODEL_MAP = None
+
+    @classmethod
+    def _get_model_map(cls):
+        if cls._MODEL_MAP is None:
+            from .models import SyncedLand, SyncedPlot, SyncedDeveloperLand, SyncedDeveloperPlot
+            cls._MODEL_MAP = {
+                'land': SyncedLand,
+                'plot': SyncedPlot,
+                'developer_land': SyncedDeveloperLand,
+                'developer_plot': SyncedDeveloperPlot,
+            }
+        return cls._MODEL_MAP
+
+    @staticmethod
+    def _serialize_point(point):
+        if point is None:
+            return None
+        try:
+            return {'type': 'Point', 'coordinates': [point.x, point.y]}
+        except Exception:
+            return None
+
+    def _record_to_dict(self, obj):
+        """Build a dict with all fields + enrichment for one synced record."""
+        from django.forms.models import model_to_dict
+        d = model_to_dict(obj, exclude=['location_point'])
+        d['id'] = obj.pk
+        d['backend_id'] = getattr(obj, 'backend_id', None)
+        d['enriched_layers'] = getattr(obj, 'enriched_layers', []) or []
+        d['enriched_at'] = obj.enriched_at.isoformat() if getattr(obj, 'enriched_at', None) else None
+        d['location_point'] = self._serialize_point(getattr(obj, 'location_point', None))
+        if hasattr(obj, 'lat') and obj.lat is not None:
+            d['lat'] = obj.lat
+        if hasattr(obj, 'long') and obj.long is not None:
+            d['long'] = obj.long
+        d['payload'] = getattr(obj, 'payload', {}) or {}
+        d['synced_at'] = obj.synced_at.isoformat() if getattr(obj, 'synced_at', None) else None
+        return d
+
+    def post(self, request):
+        from .models import SyncedLand, SyncedPlot, SyncedDeveloperLand, SyncedDeveloperPlot
+
+        try:
+            data = request.data if getattr(request, 'data', None) is not None else {}
+            if not isinstance(data, dict):
+                return Response(
+                    {'error': 'Request body must be JSON with listing_type and ids'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            listing_type = (data.get('listing_type') or '').strip().lower()
+            ids = data.get('ids')
+            if not listing_type:
+                return Response(
+                    {'error': 'Missing listing_type. Use one of: land, plot, developer_land, developer_plot'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            model_map = self._get_model_map()
+            if listing_type not in model_map:
+                return Response(
+                    {'error': f'Invalid listing_type "{listing_type}". Use one of: land, plot, developer_land, developer_plot'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            if ids is None:
+                ids = []
+            if not isinstance(ids, list):
+                ids = [ids] if ids is not None else []
+            ids = [int(x) for x in ids if x is not None and str(x).strip() != '']
+            ids = list(dict.fromkeys(ids))
+
+            model = model_map[listing_type]
+            qs = model.objects.filter(backend_id__in=ids) if ids else model.objects.none()
+            records = list(qs)
+            results = [self._record_to_dict(r) for r in records]
+
+            return Response(
+                {
+                    'listing_type': listing_type,
+                    'count': len(results),
+                    'results': results,
+                },
+                status=status.HTTP_200_OK
+            )
+        except (ValueError, TypeError) as e:
+            return Response(
+                {'error': 'ids must be a list of integers', 'details': str(e)},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        except Exception as e:
+            logger.error(f"Enrichment lookup error: {e}", exc_info=True)
+            return Response(
+                {'error': 'Internal server error', 'details': str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
 class DeveloperListingMediaDetailAPIView(APIView):
     """
     API endpoint to retrieve detailed information about a specific media file

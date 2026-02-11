@@ -131,5 +131,9 @@ urlpatterns = [
     path('webhook-events/',
          views.WebhookEventListAPIView.as_view(),
          name='webhook-event-list'),
-    
+
+    # Enrichment lookup: POST listing_type + ids, get enrichment + full record data
+    path('enrichment-lookup/',
+         views.EnrichmentLookupAPIView.as_view(),
+         name='enrichment-lookup'),
 ]
