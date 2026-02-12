@@ -282,13 +282,18 @@ def get_place_for_point_in_layer(point: Point, layer_id: int, distance_km: float
             return None
 
         area_sq_m = float(feature.area) if feature.area else None
+        from .feature_display import get_feature_display_data
+        display = get_feature_display_data(layer, feature)
         place = {
             'feature_id': feature.id,
             'feature_name': feature.name or 'Unnamed',
             'layer_slug': layer_slug,
             'layer_name': layer_name,
             'category': category,
+            'distance': distance_meters,
             'distance_meters': distance_meters,
+            'data': display.get('data', ''),
+            'fill_color': display.get('fill_color', ''),
             'area_square_meters': area_sq_m,
             'zone_category': feature.zone_category or '',
             'plot_category': feature.plot_category or '',
