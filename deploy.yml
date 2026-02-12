@@ -285,11 +285,13 @@
           exit 1
         fi
 
-    - name: Update Django ALLOWED_HOSTS setting
+    # Inject public IP (ansible_host) so requests to http(s)://<public-IP> are allowed.
+    # On EC2, ansible_default_ipv4.address is the private IP; clients send Host: <public-IP>.
+    - name: Update Django _required_hosts with public IP for ALLOWED_HOSTS
       lineinfile:
         path: "{{ project_dir }}/geo_mapping/settings.py"
-        regexp: '^ALLOWED_HOSTS\s*='
-        line: "ALLOWED_HOSTS = ['{{ domain }}', '{{ ansible_default_ipv4.address }}', 'localhost', '127.0.0.1']"  # CHANGED: Added proper hosts
+        regexp: '^\s*_required_hosts\s*='
+        line: "_required_hosts = ['*', '{{ ansible_host }}', '{{ ansible_host }}:80', '{{ ansible_host }}:443', '{{ domain }}', 'localhost', '127.0.0.1']"
 
     - name: Ensure DEBUG = False for production
       lineinfile:

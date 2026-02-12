@@ -175,10 +175,50 @@ class UniversalLineStyledTileGenerator:
         self.gdf = self.gdf.sort_values('_draw_order').reset_index(drop=True)
         self.bounds = self.gdf.total_bounds
         self.spatial_index = self.gdf.sindex
+
+        # Precompute stroke (color + width ratio) and line coords once per feature for fast tile generation
+        stroke_resolved = self.gdf.apply(self._resolve_stroke_for_row, axis=1)
+        self.gdf['_stroke_color'] = [t[0] for t in stroke_resolved]
+        self.gdf['_stroke_width_ratio'] = [t[1] / REFERENCE_STROKE_WIDTH for t in stroke_resolved]
+        self.gdf['_line_coords'] = self.gdf.geometry.apply(lambda g: list(geometry_to_line_coords(g)))
+
         log_info("Loaded %d features", len(self.gdf))
 
     def get_line_width(self, zoom: int) -> float:
         return ZOOM_RESOLUTION.get(zoom, 3.0)
+
+    def _resolve_stroke_for_row(self, row) -> Tuple[str, float]:
+        """Return (stroke_hex, stroke_width_val) for a feature row (no zoom). Used to precompute _stroke_color and _stroke_width_ratio."""
+        color = None
+        for key in ('stroke', 'Stroke'):
+            if key in row.index and row.get(key) is not None:
+                v = row[key]
+                if isinstance(v, str) and v.strip() and v.strip().lower() != 'nan':
+                    color = v.strip()
+                    break
+        if not color:
+            style_role = str(row.get('_style_role', row.get('Style_role', 'inner')) or 'inner').strip().lower()
+            color = self.legend.get(style_role, {}).get('stroke', '#999999')
+        if not color or (isinstance(color, (int, float)) and math.isnan(color)):
+            color = '#999999'
+        color = str(color).strip()
+        if not color or color.lower() == 'nan':
+            color = '#999999'
+
+        stroke_width_val = None
+        for key in ('stroke-width', 'stroke_width'):
+            if key in row.index and row.get(key) is not None:
+                v = row[key]
+                if v is not None and str(v).strip().lower() not in ('', 'nan', 'none'):
+                    try:
+                        stroke_width_val = float(v)
+                        break
+                    except (TypeError, ValueError):
+                        pass
+        if stroke_width_val is None:
+            style_role = str(row.get('_style_role', row.get('Style_role', 'inner')) or 'inner').strip().lower()
+            stroke_width_val = self.legend.get(style_role, {}).get('stroke_width', REFERENCE_STROKE_WIDTH)
+        return color, float(stroke_width_val)
 
     def get_feature_stroke(self, row, zoom: int) -> Tuple[str, float]:
         """Return (stroke_hex, stroke_width_px) for a feature row."""
@@ -303,12 +343,16 @@ class UniversalLineStyledTileGenerator:
             tile_bounds.north + buffer_lat,
         )
 
-        for idx, row in self.gdf.iterrows():
+        # Use spatial index: only consider features whose bbox intersects the tile
+        candidate_idxs = list(self.spatial_index.intersection(tile_box.bounds))
+        for idx in candidate_idxs:
+            row = self.gdf.iloc[idx]
             geometry = row.geometry
             if not geometry.intersects(tile_box):
                 continue
-            color, width_px = self.get_feature_stroke(row, zoom)
-            for coords in geometry_to_line_coords(geometry):
+            color = row['_stroke_color']
+            width_px = max(1, int(line_width_base * row['_stroke_width_ratio']))
+            for coords in row['_line_coords']:
                 if len(coords) >= 2:
                     self.draw_line(draw, coords, color, width_px, x, y, zoom, bleed_px, bleed_px)
 
