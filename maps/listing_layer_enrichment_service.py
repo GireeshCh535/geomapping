@@ -17,7 +17,7 @@ import logging
 import re
 from django.utils import timezone
 from django.contrib.gis.geos import Point, Polygon
-from django.db.models import FloatField
+from django.db.models import FloatField, Q
 from django.db.models.expressions import RawSQL
 
 from maps.models import (
@@ -48,30 +48,56 @@ _DEGREES_BUFFER = NEARBY_THRESHOLD_KM / 111.0
 ENRICH_BULK_BATCH_SIZE = 250
 
 
-def _layer_ids_near_point(point: Point):
+def _get_state_name_from_payload(payload):
+    """
+    Extract state name from listing payload (division_info or state field).
+    Returns None if not found. Used to restrict enrichment to layers in the same state.
+    """
+    if not payload or not isinstance(payload, dict):
+        return None
+    # division_info: [ {"division_type": "state", "name": "Andhra Pradesh"}, ... ]
+    division_info = payload.get('division_info') or payload.get('lgd_division_info')
+    if isinstance(division_info, list):
+        for d in division_info:
+            if isinstance(d, dict) and (d.get('division_type') or '').lower() == 'state':
+                name = (d.get('name') or '').strip()
+                if name:
+                    return name
+    # Fallback: top-level state
+    state = (payload.get('state') or '').strip()
+    if state:
+        return state
+    return None
+
+
+def _layer_ids_near_point(point: Point, state_name=None):
     """
     Return list of DataLayer IDs whose bbox intersects (point ± 30km).
     Only processed, active-city layers, excluding DEVELOPER_LISTING.
-    Cuts down GeoFeature queries from 1.6M+ to only features in relevant layers.
+    When state_name is set, only layers from that state (city.state_ref or city.state) are included,
+    so we never return e.g. Hyderabad layers for an Andhra Pradesh listing.
     """
     if not point or point.empty:
         return []
     x, y = point.x, point.y
-    return list(
-        DataLayer.objects.filter(
-            is_processed=True,
-            city__is_active=True,
-            bbox_xmin__isnull=False,
-            bbox_ymin__isnull=False,
-            bbox_xmax__isnull=False,
-            bbox_ymax__isnull=False,
-            bbox_xmax__gte=x - _DEGREES_BUFFER,
-            bbox_xmin__lte=x + _DEGREES_BUFFER,
-            bbox_ymax__gte=y - _DEGREES_BUFFER,
-            bbox_ymin__lte=y + _DEGREES_BUFFER,
+    qs = DataLayer.objects.filter(
+        is_processed=True,
+        city__is_active=True,
+        bbox_xmin__isnull=False,
+        bbox_ymin__isnull=False,
+        bbox_xmax__isnull=False,
+        bbox_ymax__isnull=False,
+        bbox_xmax__gte=x - _DEGREES_BUFFER,
+        bbox_xmin__lte=x + _DEGREES_BUFFER,
+        bbox_ymax__gte=y - _DEGREES_BUFFER,
+        bbox_ymin__lte=y + _DEGREES_BUFFER,
+    )
+    if state_name:
+        qs = qs.filter(
+            Q(city__state_ref__name__iexact=state_name) | Q(city__state__iexact=state_name)
         )
-        .exclude(category__code='DEVELOPER_LISTING')
-        .values_list('id', flat=True)
+    return list(
+        qs.exclude(category__code='DEVELOPER_LISTING').values_list('id', flat=True)
     )
 
 
@@ -130,12 +156,14 @@ def get_point_for_synced(record, update_location_point: bool = True):
     return point
 
 
-def compute_enriched_layers_for_point(point: Point):
+def compute_enriched_layers_for_point(point: Point, state_name=None):
     """
     Compute list of relevant layers for a given point (overlapping + nearby up to 30 km).
 
     Returns list of dicts: { "layer_id", "layer_slug", "layer_type", "distance_km" }.
     distance_km = 0 means overlap; (0.01, 30] means nearby.
+    When state_name is set, only layers from that state are returned (avoids wrong-state results
+    e.g. Hyderabad layers for an Andhra Pradesh listing).
     Uses PostGIS geography for meter-based distance where available.
     Pre-filters layers by bbox so only layers that could touch the point are queried (faster).
     """
@@ -143,7 +171,7 @@ def compute_enriched_layers_for_point(point: Point):
         return []
 
     # Only consider layers whose bbox intersects point ± 30km (drastically reduces GeoFeature rows)
-    layer_ids = _layer_ids_near_point(point)
+    layer_ids = _layer_ids_near_point(point, state_name=state_name)
     if not layer_ids:
         return []
 
@@ -314,6 +342,7 @@ def enrich_listing(listing: DeveloperListing, update_location_point: bool = True
     Compute and save enriched_layers for one listing. Optionally sync location_point from listing_data.
 
     Returns True if enrichment was run and saved, False if listing has no point (skipped).
+    Only layers from the listing's state (from listing_data.division_info or .state) are included.
     """
     if update_location_point:
         _sync_listing_location_point(listing)
@@ -323,7 +352,8 @@ def enrich_listing(listing: DeveloperListing, update_location_point: bool = True
         logger.debug("Listing %s has no coordinates; skipping enrichment", listing.id)
         return False
 
-    enriched = compute_enriched_layers_for_point(point)
+    state_name = _get_state_name_from_payload(listing.listing_data or {})
+    enriched = compute_enriched_layers_for_point(point, state_name=state_name)
     listing.enriched_layers = enriched
     listing.enriched_at = timezone.now()
     listing.save(update_fields=['enriched_layers', 'enriched_at'])
@@ -355,12 +385,15 @@ def enrich_synced_record(record, update_location_point: bool = True) -> bool:
     """
     Compute and save enriched_layers for one SyncedLand, SyncedPlot, SyncedDeveloperLand, or SyncedDeveloperPlot.
     Returns True if enrichment was run and saved, False if record has no point (skipped).
+    Only layers from the listing's state (from payload.division_info or .state) are included.
     """
     point = get_point_for_synced(record, update_location_point=update_location_point)
     if point is None:
         logger.debug("Synced record %s %s has no coordinates; skipping", type(record).__name__, getattr(record, 'backend_id', record.pk))
         return False
-    enriched = compute_enriched_layers_for_point(point)
+    payload = getattr(record, 'payload', None) or {}
+    state_name = _get_state_name_from_payload(payload)
+    enriched = compute_enriched_layers_for_point(point, state_name=state_name)
     record.enriched_layers = enriched
     record.enriched_at = timezone.now()
     record.save(update_fields=['enriched_layers', 'enriched_at'])
@@ -382,7 +415,9 @@ def enrich_synced_queryset(queryset, update_location_point: bool = True):
         if point is None:
             skipped += 1
             continue
-        enriched = compute_enriched_layers_for_point(point)
+        payload = getattr(record, 'payload', None) or {}
+        state_name = _get_state_name_from_payload(payload)
+        enriched = compute_enriched_layers_for_point(point, state_name=state_name)
         record.enriched_layers = enriched
         record.enriched_at = now
         batch.append(record)
