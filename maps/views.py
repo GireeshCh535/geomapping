@@ -4946,6 +4946,31 @@ def _webhook_payload_snapshot(data):
         return json.loads(json.dumps(data, default=str))
 
 
+def _print_webhook_response(webhook_name, data):
+    """
+    Print the entire webhook request body as clear, readable JSON to console and log.
+    Use for all webhook endpoints so incoming payload is visible for debugging.
+    """
+    try:
+        if data is None:
+            payload = {}
+        elif hasattr(data, 'dict'):
+            payload = data.dict()
+        elif hasattr(data, 'items') and not isinstance(data, dict):
+            payload = dict(data)
+        else:
+            payload = data
+        json_str = json.dumps(payload, indent=2, default=str, ensure_ascii=False)
+    except Exception as e:
+        json_str = f"(could not serialize: {e})"
+    sep = "=" * 80
+    banner = f"\n{sep}\n  WEBHOOK REQUEST BODY: {webhook_name}\n{sep}"
+    print(banner)
+    print(json_str)
+    print(sep + "\n")
+    logger.info("%s\n%s", banner, json_str)
+
+
 class DeveloperListingMediaWebhookView(APIView):
     """
     Webhook endpoint to receive notifications when developer listing media files
@@ -5003,6 +5028,8 @@ class DeveloperListingMediaWebhookView(APIView):
             raw_body_str = raw_body_full[:50000] if len(raw_body_full) > 50000 else raw_body_full
             # Snapshot full payload so we store everything (no keys dropped)
             payload_snapshot = _webhook_payload_snapshot(data)
+            # Print entire webhook JSON clearly for debugging
+            _print_webhook_response("developer-listing-media", data)
             
             # Validate required fields
             event_type = data.get('event_type')
@@ -5602,6 +5629,8 @@ class LandPlotWebhookView(APIView):
             data = request.data
             # Snapshot full payload so we save everything (same pattern as developer listing webhook)
             payload_snapshot = _webhook_payload_snapshot(data)
+            # Print entire webhook JSON clearly for debugging
+            _print_webhook_response("land-plot", data)
             raw_body = ''
             if getattr(request, 'body', None):
                 try:
