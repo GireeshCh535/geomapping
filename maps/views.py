@@ -5627,6 +5627,18 @@ class LandPlotWebhookView(APIView):
         logger.info("[LAND_PLOT_WEBHOOK] ===== Land/Plot webhook POST received =====")
         try:
             data = request.data
+            # Ensure we have a dict: fallback to parsing raw body when 1acre-be sends application/json
+            if not isinstance(data, dict) and getattr(request, 'body', None):
+                try:
+                    data = json.loads(request.body.decode('utf-8', errors='replace'))
+                except (json.JSONDecodeError, UnicodeDecodeError) as e:
+                    logger.warning(f"[LAND_PLOT_WEBHOOK] Could not parse JSON body: {e}")
+                    return Response(
+                        {"error": "Invalid JSON body"},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+            if not isinstance(data, dict):
+                data = {}
             # Snapshot full payload so we save everything (same pattern as developer listing webhook)
             payload_snapshot = _webhook_payload_snapshot(data)
             # Print entire webhook JSON clearly for debugging
