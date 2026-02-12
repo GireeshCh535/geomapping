@@ -5626,12 +5626,20 @@ class LandPlotWebhookView(APIView):
 
         logger.info("[LAND_PLOT_WEBHOOK] ===== Land/Plot webhook POST received =====")
         try:
-            data = request.data
-            # Ensure we have a dict: fallback to parsing raw body when 1acre-be sends application/json
-            if not isinstance(data, dict) and getattr(request, 'body', None):
+            # Read raw body first (only one read allowed; request.data would consume the stream)
+            raw_body = ''
+            try:
+                _req = getattr(request, '_request', request)
+                raw_body = (_req.body.decode('utf-8', errors='replace')
+                            if getattr(_req, 'body', None) else '')
+            except Exception:
+                pass
+            # Parse JSON from raw body so we never touch request.body again
+            data = {}
+            if raw_body and raw_body.strip():
                 try:
-                    data = json.loads(request.body.decode('utf-8', errors='replace'))
-                except (json.JSONDecodeError, UnicodeDecodeError) as e:
+                    data = json.loads(raw_body)
+                except (json.JSONDecodeError, ValueError) as e:
                     logger.warning(f"[LAND_PLOT_WEBHOOK] Could not parse JSON body: {e}")
                     return Response(
                         {"error": "Invalid JSON body"},
@@ -5643,12 +5651,9 @@ class LandPlotWebhookView(APIView):
             payload_snapshot = _webhook_payload_snapshot(data)
             # Print entire webhook JSON clearly for debugging
             _print_webhook_response("land-plot", data)
-            raw_body = ''
-            if getattr(request, 'body', None):
-                try:
-                    raw_body = request.body.decode('utf-8', errors='replace')
-                except Exception:
-                    raw_body = str(request.body)[:50000]
+            # Truncate raw_body for storage if needed (already have full string above)
+            if len(raw_body) > 50000:
+                raw_body = raw_body[:50000]
 
             event_type = data.get('event_type')
             action = data.get('action')
