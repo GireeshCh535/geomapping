@@ -5151,6 +5151,16 @@ class DeveloperListingMediaWebhookView(APIView):
                 )
                 logger.info(f"[WEBHOOK_RECEIVE] Synced SyncedDeveloperPlot backend_id={listing_id}")
 
+            # Run enrichment (state-filtered); no coords or no nearby layers -> enriched_layers=[], enriched_at=None or now
+            try:
+                from maps.listing_layer_enrichment_service import enrich_listing
+                if enrich_listing(listing, update_location_point=True):
+                    logger.info(f"[WEBHOOK_RECEIVE] Enriched DeveloperListing {listing_type} {listing_id}")
+                else:
+                    logger.info(f"[WEBHOOK_RECEIVE] Enrichment skipped/cleared (no coords or no layers) for {listing_type} {listing_id}")
+            except Exception as enr_err:
+                logger.warning(f"[WEBHOOK_RECEIVE] Enrichment failed for {listing_type} {listing_id}: {enr_err}", exc_info=True)
+
             # Save/update media files
             logger.info(f"[WEBHOOK_RECEIVE] 💾 Saving/updating {len(media_items)} media files...")
             
@@ -5696,18 +5706,27 @@ class LandPlotWebhookView(APIView):
                 item['id'] = listing_id  # ensure id present for payload
                 if listing_type == 'land':
                     defaults = defaults_for_land(item)
-                    SyncedLand.objects.update_or_create(
+                    record, _ = SyncedLand.objects.update_or_create(
                         backend_id=listing_id,
                         defaults=defaults,
                     )
                     logger.info(f"[LAND_PLOT_WEBHOOK] Synced SyncedLand backend_id={listing_id}")
                 else:
                     defaults = defaults_for_plot(item)
-                    SyncedPlot.objects.update_or_create(
+                    record, _ = SyncedPlot.objects.update_or_create(
                         backend_id=listing_id,
                         defaults=defaults,
                     )
                     logger.info(f"[LAND_PLOT_WEBHOOK] Synced SyncedPlot backend_id={listing_id}")
+                # Run enrichment (state-filtered); no coords or no nearby layers -> enriched_layers=[], enriched_at=None or now
+                try:
+                    from maps.listing_layer_enrichment_service import enrich_synced_record
+                    if enrich_synced_record(record, update_location_point=True):
+                        logger.info(f"[LAND_PLOT_WEBHOOK] Enriched {listing_type} {listing_id}")
+                    else:
+                        logger.info(f"[LAND_PLOT_WEBHOOK] Enrichment skipped/cleared (no coords or no layers) for {listing_type} {listing_id}")
+                except Exception as enr_err:
+                    logger.warning(f"[LAND_PLOT_WEBHOOK] Enrichment failed for {listing_type} {listing_id}: {enr_err}", exc_info=True)
             elif action == 'deleted':
                 if listing_type == 'land':
                     deleted, _ = SyncedLand.objects.filter(backend_id=listing_id).delete()
@@ -5975,6 +5994,14 @@ class EnrichmentLookupAPIView(APIView):
             d['long'] = obj.long
         d['payload'] = getattr(obj, 'payload', {}) or {}
         d['synced_at'] = obj.synced_at.isoformat() if getattr(obj, 'synced_at', None) else None
+        # True when no coordinates -> enrichment not run or cleared; client can treat as null/false
+        has_point = getattr(obj, 'location_point', None) is not None
+        if not has_point and hasattr(obj, 'lat') and hasattr(obj, 'long'):
+            has_point = obj.lat is not None and obj.long is not None
+        if not has_point and hasattr(obj, 'payload') and obj.payload:
+            p = obj.payload
+            has_point = (p.get('lat') or p.get('latitude')) is not None and (p.get('long') or p.get('lng') or p.get('longitude')) is not None
+        d['enrichment_skipped'] = not has_point
         return d
 
     def post(self, request):

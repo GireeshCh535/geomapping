@@ -342,6 +342,7 @@ def enrich_listing(listing: DeveloperListing, update_location_point: bool = True
     Compute and save enriched_layers for one listing. Optionally sync location_point from listing_data.
 
     Returns True if enrichment was run and saved, False if listing has no point (skipped).
+    When no coordinates: sets enriched_layers=[], enriched_at=None so API can return null/false.
     Only layers from the listing's state (from listing_data.division_info or .state) are included.
     """
     if update_location_point:
@@ -349,7 +350,10 @@ def enrich_listing(listing: DeveloperListing, update_location_point: bool = True
 
     point = get_listing_point(listing)
     if point is None:
-        logger.debug("Listing %s has no coordinates; skipping enrichment", listing.id)
+        logger.debug("Listing %s has no coordinates; clearing enrichment", listing.id)
+        listing.enriched_layers = []
+        listing.enriched_at = None
+        listing.save(update_fields=['enriched_layers', 'enriched_at'])
         return False
 
     state_name = _get_state_name_from_payload(listing.listing_data or {})
@@ -385,11 +389,15 @@ def enrich_synced_record(record, update_location_point: bool = True) -> bool:
     """
     Compute and save enriched_layers for one SyncedLand, SyncedPlot, SyncedDeveloperLand, or SyncedDeveloperPlot.
     Returns True if enrichment was run and saved, False if record has no point (skipped).
+    When no coordinates: sets enriched_layers=[], enriched_at=None so API can return null/false.
     Only layers from the listing's state (from payload.division_info or .state) are included.
     """
     point = get_point_for_synced(record, update_location_point=update_location_point)
     if point is None:
-        logger.debug("Synced record %s %s has no coordinates; skipping", type(record).__name__, getattr(record, 'backend_id', record.pk))
+        logger.debug("Synced record %s %s has no coordinates; clearing enrichment", type(record).__name__, getattr(record, 'backend_id', record.pk))
+        record.enriched_layers = []
+        record.enriched_at = None
+        record.save(update_fields=['enriched_layers', 'enriched_at'])
         return False
     payload = getattr(record, 'payload', None) or {}
     state_name = _get_state_name_from_payload(payload)
@@ -404,16 +412,24 @@ def enrich_synced_record(record, update_location_point: bool = True) -> bool:
 def enrich_synced_queryset(queryset, update_location_point: bool = True):
     """
     Enrich all records in queryset (SyncedLand, SyncedPlot, etc.) that have a point.
-    Uses bulk_update in batches to reduce DB round-trips. Returns (processed, skipped).
+    Records with no coordinates get enriched_layers=[], enriched_at=None (cleared).
+    Uses bulk_update in batches. Returns (processed, skipped).
     """
     processed = 0
     skipped = 0
     batch = []
+    clear_batch = []
     now = timezone.now()
     for record in queryset.iterator():
         point = get_point_for_synced(record, update_location_point=update_location_point)
         if point is None:
+            record.enriched_layers = []
+            record.enriched_at = None
+            clear_batch.append(record)
             skipped += 1
+            if len(clear_batch) >= ENRICH_BULK_BATCH_SIZE:
+                type(record).objects.bulk_update(clear_batch, ['enriched_layers', 'enriched_at'])
+                clear_batch = []
             continue
         payload = getattr(record, 'payload', None) or {}
         state_name = _get_state_name_from_payload(payload)
@@ -427,6 +443,8 @@ def enrich_synced_queryset(queryset, update_location_point: bool = True):
             batch = []
     if batch:
         type(batch[0]).objects.bulk_update(batch, ['enriched_layers', 'enriched_at'])
+    if clear_batch:
+        type(clear_batch[0]).objects.bulk_update(clear_batch, ['enriched_layers', 'enriched_at'])
     return processed, skipped
 
 
