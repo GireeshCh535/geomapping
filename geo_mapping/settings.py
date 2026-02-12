@@ -317,12 +317,12 @@ LOGGING = {
     },
     'handlers': {
         'console': {
-            'level': 'ERROR',  # Only errors in console; set to INFO for verbose
+            'level': 'INFO',  # INFO and above (INFO, WARNING, ERROR) to console
             'class': 'logging.StreamHandler',
             'formatter': 'verbose',
         },
         'file': {
-            'level': 'ERROR',
+            'level': 'INFO',  # INFO and above to file (not only errors)
             'class': 'logging.FileHandler',
             'filename': os.path.join(BASE_DIR, 'logs', 'django_errors.log'),
             'formatter': 'verbose',
