@@ -1120,9 +1120,9 @@ class WebhookEventAdmin(AuditFieldsMixin, admin.ModelAdmin):
             obj.action.replace("_", " ").title()
         )
     
-    @admin.display(description="Status", ordering="processed", boolean=True)
+    @admin.display(description="Status", ordering="processed")
     def processed_status(self, obj):
-        """Display processed status with icon"""
+        """Display processed status with icon (HTML; do not use boolean=True)."""
         if obj.processed:
             if obj.processing_error:
                 return format_html(
