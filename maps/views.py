@@ -6085,6 +6085,104 @@ class EnrichmentLookupAPIView(APIView):
             )
 
 
+class LayerPointCountsAPIView(APIView):
+    """
+    Point counts and optional details per layer: for each layer, how many listing points
+    (from all 5 tables) overlap (inside layer geometry) or are nearby (within within_km),
+    and optionally the list of those records (source, id, backend_id, lat, lng).
+    POST /api/layer-point-counts/  Body: { "layer_ids": [1,2], "within_km": 30, "include_details": true, "detail_limit": 200 }
+    GET  /api/layer-point-counts/?layer_ids=1,2&within_km=30&include_details=true&detail_limit=200
+    """
+    permission_classes = [AllowAny]
+
+    def _parse_request(self, request):
+        layer_ids = None
+        within_km = 30.0
+        include_details = True
+        detail_limit = 200
+        data = None
+        if request.method == 'POST' and getattr(request, 'data', None) and isinstance(request.data, dict):
+            data = request.data
+        else:
+            data = dict(request.query_params) if hasattr(request, 'query_params') else {}
+            # query_params values are lists
+            for k, v in data.items():
+                if isinstance(v, list) and len(v) == 1:
+                    data[k] = v[0]
+        if data:
+            layer_ids = data.get('layer_ids')
+            if isinstance(layer_ids, str) and layer_ids:
+                try:
+                    layer_ids = [int(x.strip()) for x in layer_ids.split(',') if x.strip()]
+                except (ValueError, TypeError):
+                    layer_ids = None
+            elif not isinstance(layer_ids, list):
+                layer_ids = None
+            if data.get('within_km') is not None:
+                try:
+                    within_km = float(data.get('within_km'))
+                except (TypeError, ValueError):
+                    within_km = 30.0
+            if data.get('include_details') is not None:
+                include_details = str(data.get('include_details')).lower() in ('1', 'true', 'yes')
+            if data.get('detail_limit') is not None:
+                try:
+                    detail_limit = max(0, min(1000, int(data.get('detail_limit'))))
+                except (TypeError, ValueError):
+                    detail_limit = 200
+        if request.method == 'GET' and not data:
+            layer_ids_str = request.query_params.get('layer_ids', '')
+            if layer_ids_str:
+                try:
+                    layer_ids = [int(x.strip()) for x in layer_ids_str.split(',') if x.strip()]
+                except (ValueError, TypeError):
+                    layer_ids = None
+            w = request.query_params.get('within_km')
+            if w is not None:
+                try:
+                    within_km = float(w)
+                except (TypeError, ValueError):
+                    within_km = 30.0
+            include_details = str(request.query_params.get('include_details', 'true')).lower() in ('1', 'true', 'yes')
+            try:
+                detail_limit = max(0, min(1000, int(request.query_params.get('detail_limit', 200))))
+            except (TypeError, ValueError):
+                detail_limit = 200
+        return layer_ids, within_km, include_details, detail_limit
+
+    def get(self, request):
+        layer_ids, within_km, include_details, detail_limit = self._parse_request(request)
+        try:
+            from .listing_layer_enrichment_service import get_point_counts_per_layer
+            counts = get_point_counts_per_layer(
+                layer_ids=layer_ids, within_km=within_km,
+                include_details=include_details, detail_limit=detail_limit,
+            )
+            return Response({'counts': counts}, status=status.HTTP_200_OK)
+        except Exception as e:
+            logger.error(f"Layer point counts error: {e}", exc_info=True)
+            return Response(
+                {'error': 'Internal server error', 'details': str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+    def post(self, request):
+        layer_ids, within_km, include_details, detail_limit = self._parse_request(request)
+        try:
+            from .listing_layer_enrichment_service import get_point_counts_per_layer
+            counts = get_point_counts_per_layer(
+                layer_ids=layer_ids, within_km=within_km,
+                include_details=include_details, detail_limit=detail_limit,
+            )
+            return Response({'counts': counts}, status=status.HTTP_200_OK)
+        except Exception as e:
+            logger.error(f"Layer point counts error: {e}", exc_info=True)
+            return Response(
+                {'error': 'Internal server error', 'details': str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
 class DeveloperListingMediaDetailAPIView(APIView):
     """
     API endpoint to retrieve detailed information about a specific media file

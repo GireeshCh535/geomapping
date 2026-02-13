@@ -22,6 +22,7 @@ Usage:
   python manage.py enrich_listing_layers                    # incremental, skip if done
   python manage.py enrich_listing_layers --refresh          # clear + full re-run (fresh)
   python manage.py enrich_listing_layers --full
+  python manage.py enrich_listing_layers --update-four-tables  # update all 4 Synced* tables (sync coords + enrichment)
   python manage.py enrich_listing_layers --new-listings-only
   python manage.py enrich_listing_layers --new-layers-only
   python manage.py enrich_listing_layers --developer-only   # only DeveloperListing
@@ -85,6 +86,11 @@ class Command(BaseCommand):
             help='Only process the 4 Synced* tables (skip DeveloperListing)',
         )
         parser.add_argument(
+            '--update-four-tables',
+            action='store_true',
+            help='Update all 4 Synced* tables only: sync location_point from payload/lat/long, then full enrichment',
+        )
+        parser.add_argument(
             '--refresh',
             action='store_true',
             help='Clear existing enrichment (enriched_layers, enriched_at) then run full enrichment (keep fresh)',
@@ -97,16 +103,25 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         dry_run = options['dry_run']
-        do_developer = not options['synced_only']
-        do_synced = not options['developer_only']
+        update_four_tables = options.get('update_four_tables', False)
+        if update_four_tables:
+            do_developer = False
+            do_synced = True
+            options['synced_only'] = True
+            options['full'] = True
+        else:
+            do_developer = not options['synced_only']
+            do_synced = not options['developer_only']
 
         if dry_run:
             self.stdout.write(self.style.WARNING('DRY RUN: no changes will be saved.'))
 
-        mode = 'new-layers-only' if options['new_layers_only'] else (
-            'new-listings-only' if options['new_listings_only'] else (
-                'full' if options['full'] else (
-                    'refresh' if options['refresh'] else 'incremental'
+        mode = 'update-four-tables' if update_four_tables else (
+            'new-layers-only' if options['new_layers_only'] else (
+                'new-listings-only' if options['new_listings_only'] else (
+                    'full' if options['full'] else (
+                        'refresh' if options['refresh'] else 'incremental'
+                    )
                 )
             )
         )

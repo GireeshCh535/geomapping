@@ -864,26 +864,41 @@ class DeveloperListing(models.Model):
         return f"{self.get_listing_type_display()} - {self.backend_listing_id} - {self.name or 'Unnamed'}"
     
     def get_listing_point(self):
-        """Return Point for this listing: location_point if set, else derived from listing_data."""
-        if self.location_point:
-            return self.location_point
-        lat = None
-        lng = None
+        """
+        Return Point for this listing.
+        Priority: listing_data lat/lng (top-level) -> listing_data.location (dict or "lat,lng" string) -> location_point.
+        """
         data = self.listing_data or {}
-        loc = data.get('location')
-        if isinstance(loc, dict):
-            lat = loc.get('latitude') or loc.get('lat')
-            lng = loc.get('longitude') or loc.get('lng') or loc.get('lon')
-        if lat is None:
-            lat = data.get('latitude') or data.get('lat')
-        if lng is None:
-            lng = data.get('longitude') or data.get('lng') or data.get('lon')
+        lat = data.get('latitude') or data.get('lat')
+        lng = data.get('longitude') or data.get('lng') or data.get('lon')
         if lat is not None and lng is not None:
             try:
                 from django.contrib.gis.geos import Point
                 return Point(float(lng), float(lat), srid=4326)
             except (ValueError, TypeError):
                 pass
+        loc = data.get('location')
+        if isinstance(loc, dict):
+            lat = loc.get('latitude') or loc.get('lat')
+            lng = loc.get('longitude') or loc.get('lng') or loc.get('lon')
+            if lat is not None and lng is not None:
+                try:
+                    from django.contrib.gis.geos import Point
+                    return Point(float(lng), float(lat), srid=4326)
+                except (ValueError, TypeError):
+                    pass
+        elif isinstance(loc, str) and loc.strip():
+            import re
+            match = re.match(r'^\s*([-\d.]+)\s*,\s*([-\d.]+)\s*$', loc.strip())
+            if match:
+                try:
+                    from django.contrib.gis.geos import Point
+                    lat, lng = float(match.group(1)), float(match.group(2))
+                    return Point(float(lng), float(lat), srid=4326)
+                except (ValueError, TypeError):
+                    pass
+        if self.location_point:
+            return self.location_point
         return None
     
     def get_media_count(self):

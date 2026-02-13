@@ -136,4 +136,9 @@ urlpatterns = [
     path('enrichment-lookup/',
          views.EnrichmentLookupAPIView.as_view(),
          name='enrichment-lookup'),
+
+    # Layer point counts: for each layer, count of listing points (overlapping + nearby)
+    path('layer-point-counts/',
+         views.LayerPointCountsAPIView.as_view(),
+         name='layer-point-counts'),
 ]
