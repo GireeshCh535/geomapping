@@ -3303,7 +3303,7 @@ class OptimizedHierarchyAPIView(APIView):
         try:
             # Single bulk query: feature count per layer (avoids N+1)
             layer_ids = list(DataLayer.objects.filter(
-                city__state__is_active=True,
+                city__state_ref__is_active=True,
                 city__is_active=True
             ).values_list('id', flat=True))
             feature_count_map = {}
