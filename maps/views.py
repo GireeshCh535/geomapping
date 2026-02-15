@@ -3210,7 +3210,28 @@ class CompleteHierarchyAPIView(APIView):
 
 # Cache key and TTL for optimized hierarchy (5 min)
 HIERARCHY_V2_CACHE_KEY = 'hierarchy_v2_response'
+HIERARCHY_V2_CACHE_KEY_MINIMAL = 'hierarchy_v2_response_minimal'
 HIERARCHY_V2_CACHE_TTL = 300
+
+
+def _build_layer_data_minimal(layer, state_slug, city_slug, feature_count_map):
+    """Minimal layer payload: id, slug, name, category, feature_count, tiles, bounds, tile URL."""
+    fc = feature_count_map.get(layer.id, 0)
+    base_url = getattr(settings, 'CLOUDFRONT_DOMAIN', 'd17yosovmfjm4.cloudfront.net')
+    tile_template = f"https://{base_url}/{state_slug}/{city_slug}/{layer.slug}/{{z}}/{{x}}/{{y}}.png" if layer.tiles_generated else None
+    bounds = None
+    if layer.bbox_xmin is not None and layer.bbox_ymin is not None and layer.bbox_xmax is not None and layer.bbox_ymax is not None:
+        bounds = {'xmin': layer.bbox_xmin, 'ymin': layer.bbox_ymin, 'xmax': layer.bbox_xmax, 'ymax': layer.bbox_ymax}
+    return {
+        'id': layer.id,
+        'name': layer.name,
+        'slug': layer.slug,
+        'category': layer.category.code if layer.category else None,
+        'feature_count': fc,
+        'tiles_generated': layer.tiles_generated,
+        'bounds': bounds,
+        'tile_url_template': tile_template,
+    }
 
 
 def _build_layer_data_optimized(layer, state_slug, city_slug, feature_count_map):
@@ -3286,22 +3307,26 @@ class OptimizedHierarchyAPIView(APIView):
 
     - One bulk query for all layer feature counts (no N+1).
     - Response cached for 5 minutes (invalidate by query param ?refresh=1).
-    - Same response shape: hierarchy (states → cities → layer_groups / standalone_layers), global_statistics, categories.
+    - ?minimal=1 returns a lean payload: no styling, no file_info/metadata, only structure + ids, slugs, bounds, tile URL.
 
-    GET /api/hierarchy/v2/
-    GET /api/hierarchy/v2/?refresh=1  to bypass cache
+    GET /api/hierarchy/v2/           full response
+    GET /api/hierarchy/v2/?minimal=1  minimal response (recommended for map UIs)
+    GET /api/hierarchy/v2/?refresh=1  bypass cache
     """
     permission_classes = [AllowAny]
 
     def get(self, request):
-        if request.query_params.get('refresh'):
+        minimal = request.query_params.get('minimal', '').lower() in ('1', 'true', 'yes')
+        refresh = request.query_params.get('refresh')
+        cache_key = HIERARCHY_V2_CACHE_KEY_MINIMAL if minimal else HIERARCHY_V2_CACHE_KEY
+        if refresh:
             cache.delete(HIERARCHY_V2_CACHE_KEY)
-        payload = cache.get(HIERARCHY_V2_CACHE_KEY)
+            cache.delete(HIERARCHY_V2_CACHE_KEY_MINIMAL)
+        payload = cache.get(cache_key)
         if payload is not None:
             return Response(payload)
 
         try:
-            # Single bulk query: feature count per layer (avoids N+1)
             layer_ids = list(DataLayer.objects.filter(
                 city__state_ref__is_active=True,
                 city__is_active=True
@@ -3314,206 +3339,40 @@ class OptimizedHierarchyAPIView(APIView):
                 ).values('layer_id').annotate(cnt=Count('id'))
                 feature_count_map = {r['layer_id']: r['cnt'] for r in counts}
 
-            states = State.objects.filter(is_active=True).prefetch_related(
-                Prefetch(
-                    'cities',
-                    queryset=City.objects.filter(is_active=True).prefetch_related(
-                        Prefetch(
-                            'layer_groups',
-                            queryset=LayerGroup.objects.all().select_related('category')
-                        ),
-                        Prefetch(
-                            'layers',
-                            queryset=DataLayer.objects.all().select_related('category', 'layer_group')
-                        ),
-                        Prefetch(
-                            'layer_styles',
-                            queryset=CityLayerStyle.objects.all().select_related('category')
+            if minimal:
+                states = State.objects.filter(is_active=True).prefetch_related(
+                    Prefetch(
+                        'cities',
+                        queryset=City.objects.filter(is_active=True).prefetch_related(
+                            Prefetch('layer_groups', queryset=LayerGroup.objects.all().select_related('category')),
+                            Prefetch('layers', queryset=DataLayer.objects.all().select_related('category', 'layer_group')),
                         )
                     )
                 )
-            )
-
-            categories = LayerCategory.objects.all()
-            category_data = {
-                cat.code: {
-                    'name': cat.name,
-                    'description': cat.description,
-                    'default_color': cat.default_color,
-                    'default_stroke': cat.default_stroke,
-                    'default_opacity': cat.default_opacity,
-                    'display_order': cat.display_order
-                } for cat in categories
-            }
-
-            hierarchy_data = []
-            total_states = 0
-            total_cities = 0
-            total_layers = 0
-            total_features = 0
-
-            for state in states:
-                state_cities = []
-                state_total_features = 0
-                state_total_layers = 0
-
-                for city in state.cities.all():
-                    city_layer_groups = []
-                    city_layers = list(city.layers.all())
-                    city_total_features = 0
-                    city_total_layers = 0
-                    layers_with_tiles = 0
-
-                    for layer_group in city.layer_groups.all():
-                        group_layers = []
-                        group_feature_count = 0
-                        for layer in city_layers:
-                            if layer.layer_group_id == layer_group.id:
-                                layer_data = _build_layer_data_optimized(
-                                    layer, state.slug, city.slug, feature_count_map
-                                )
-                                group_layers.append(layer_data)
-                                fc = layer_data['statistics']['feature_count']
-                                group_feature_count += fc
-                                city_total_features += fc
-                                city_total_layers += 1
-                                if layer.tiles_generated:
-                                    layers_with_tiles += 1
-                        layer_group_data = {
-                            'id': layer_group.id,
-                            'name': layer_group.name,
-                            'slug': layer_group.slug,
-                            'description': layer_group.description or '',
-                            'directory_path': layer_group.directory_path,
-                            'category': {
-                                'code': layer_group.category.code,
-                                'name': layer_group.category.name
-                            },
-                            'styling': {
-                                'default_color': layer_group.default_color,
-                                'default_stroke': layer_group.default_stroke,
-                                'default_opacity': layer_group.default_opacity
-                            },
-                            'display_settings': {
-                                'display_order': layer_group.display_order,
-                                'is_visible': layer_group.is_visible,
-                                'min_zoom': layer_group.min_zoom,
-                                'max_zoom': layer_group.max_zoom
-                            },
-                            'statistics': {
-                                'total_layers': len(group_layers),
-                                'total_features': group_feature_count
-                            },
-                            'layers': group_layers
-                        }
-                        city_layer_groups.append(layer_group_data)
-
-                    standalone_layers = []
-                    for layer in city_layers:
-                        if not layer.layer_group_id:
-                            layer_data = _build_layer_data_optimized(
-                                layer, state.slug, city.slug, feature_count_map
+                payload = self._build_minimal_hierarchy(states, feature_count_map)
+            else:
+                states = State.objects.filter(is_active=True).prefetch_related(
+                    Prefetch(
+                        'cities',
+                        queryset=City.objects.filter(is_active=True).prefetch_related(
+                            Prefetch(
+                                'layer_groups',
+                                queryset=LayerGroup.objects.all().select_related('category')
+                            ),
+                            Prefetch(
+                                'layers',
+                                queryset=DataLayer.objects.all().select_related('category', 'layer_group')
+                            ),
+                            Prefetch(
+                                'layer_styles',
+                                queryset=CityLayerStyle.objects.all().select_related('category')
                             )
-                            standalone_layers.append(layer_data)
-                            city_total_features += layer_data['statistics']['feature_count']
-                            city_total_layers += 1
-                            if layer.tiles_generated:
-                                layers_with_tiles += 1
+                        )
+                    )
+                )
+                payload = self._build_full_hierarchy(states, feature_count_map)
 
-                    city_styles = {}
-                    for style in city.layer_styles.all():
-                        city_styles[style.category.code] = {
-                            'fill_color': style.fill_color,
-                            'stroke_color': style.stroke_color,
-                            'opacity': style.opacity,
-                            'stroke_width': style.stroke_width,
-                            'pattern_config': style.get_pattern_config(),
-                            'visibility': {
-                                'is_visible': style.is_visible,
-                                'min_zoom': style.min_zoom,
-                                'max_zoom': style.max_zoom
-                            }
-                        }
-
-                    city_status = 'live' if layers_with_tiles > 0 else 'pending'
-                    is_live = layers_with_tiles > 0
-                    city_data = {
-                        'id': city.id,
-                        'name': city.name,
-                        'slug': city.slug,
-                        'state': {
-                            'name': state.name,
-                            'slug': state.slug,
-                            'code': state.code
-                        },
-                        'map_settings': {
-                            'center_lat': city.center_lat,
-                            'center_lng': city.center_lng,
-                            'min_zoom': city.min_zoom,
-                            'max_zoom': city.max_zoom
-                        },
-                        'status': {
-                            'is_active': city.is_active,
-                            'is_live': is_live,
-                            'status': city_status
-                        },
-                        'statistics': {
-                            'total_layer_groups': len(city_layer_groups),
-                            'total_layers': city_total_layers,
-                            'layers_with_tiles': layers_with_tiles,
-                            'total_features': city_total_features,
-                            'standalone_layers': len(standalone_layers)
-                        },
-                        'styling': city_styles,
-                        'layer_groups': city_layer_groups,
-                        'standalone_layers': standalone_layers,
-                        'created_at': city.created_at.isoformat() if city.created_at else None
-                    }
-                    state_cities.append(city_data)
-                    state_total_features += city_total_features
-                    state_total_layers += city_total_layers
-                    total_cities += 1
-
-                state_data = {
-                    'id': state.id,
-                    'name': state.name,
-                    'slug': state.slug,
-                    'code': state.code,
-                    'map_settings': {
-                        'center_lat': state.center_lat,
-                        'center_lng': state.center_lng,
-                        'default_zoom': state.default_zoom
-                    },
-                    'status': {'is_active': state.is_active},
-                    'statistics': {
-                        'total_cities': len(state_cities),
-                        'total_layers': state_total_layers,
-                        'total_features': state_total_features
-                    },
-                    'cities': state_cities,
-                    'created_at': state.created_at.isoformat() if state.created_at else None
-                }
-                hierarchy_data.append(state_data)
-                total_states += 1
-                total_layers += state_total_layers
-                total_features += state_total_features
-
-            global_stats = {
-                'total_states': total_states,
-                'total_cities': total_cities,
-                'total_layers': total_layers,
-                'total_features': total_features,
-                'total_categories': len(categories)
-            }
-
-            payload = {
-                'status': 'success',
-                'timestamp': timezone.now().isoformat(),
-                'global_statistics': global_stats,
-                'categories': category_data,
-                'hierarchy': hierarchy_data
-            }
-            cache.set(HIERARCHY_V2_CACHE_KEY, payload, HIERARCHY_V2_CACHE_TTL)
+            cache.set(cache_key, payload, HIERARCHY_V2_CACHE_TTL)
             return Response(payload)
 
         except Exception as e:
@@ -3522,6 +3381,272 @@ class OptimizedHierarchyAPIView(APIView):
                 'error': 'Failed to load hierarchy',
                 'message': str(e)
             }, status=500)
+
+    def _build_minimal_hierarchy(self, states, feature_count_map):
+        """Build hierarchy with only essential fields: no styling, no file_info, no metadata."""
+        hierarchy_data = []
+        total_states = 0
+        total_cities = 0
+        total_layers = 0
+        total_features = 0
+
+        for state in states:
+            state_cities = []
+            state_layers = 0
+            state_features = 0
+
+            for city in state.cities.all():
+                city_layers = list(city.layers.all())
+                group_list = []
+                standalone_list = []
+                city_features = 0
+                layers_with_tiles = 0
+
+                for layer_group in city.layer_groups.all():
+                    group_layers = []
+                    for layer in city_layers:
+                        if layer.layer_group_id == layer_group.id:
+                            ld = _build_layer_data_minimal(layer, state.slug, city.slug, feature_count_map)
+                            group_layers.append(ld)
+                            city_features += ld['feature_count']
+                            if layer.tiles_generated:
+                                layers_with_tiles += 1
+                    group_list.append({
+                        'id': layer_group.id,
+                        'name': layer_group.name,
+                        'slug': layer_group.slug,
+                        'category': layer_group.category.code if layer_group.category else None,
+                        'layers': group_layers,
+                    })
+
+                for layer in city_layers:
+                    if not layer.layer_group_id:
+                        ld = _build_layer_data_minimal(layer, state.slug, city.slug, feature_count_map)
+                        standalone_list.append(ld)
+                        city_features += ld['feature_count']
+                        if layer.tiles_generated:
+                            layers_with_tiles += 1
+
+                state_cities.append({
+                    'id': city.id,
+                    'name': city.name,
+                    'slug': city.slug,
+                    'state': {'name': state.name, 'slug': state.slug, 'code': state.code},
+                    'center_lat': city.center_lat,
+                    'center_lng': city.center_lng,
+                    'min_zoom': city.min_zoom,
+                    'max_zoom': city.max_zoom,
+                    'is_live': layers_with_tiles > 0,
+                    'layer_groups': group_list,
+                    'standalone_layers': standalone_list,
+                })
+                state_layers += sum(len(g['layers']) for g in group_list) + len(standalone_list)
+                state_features += city_features
+                total_cities += 1
+
+            hierarchy_data.append({
+                'id': state.id,
+                'name': state.name,
+                'slug': state.slug,
+                'code': state.code,
+                'center_lat': state.center_lat,
+                'center_lng': state.center_lng,
+                'default_zoom': state.default_zoom,
+                'cities': state_cities,
+            })
+            total_states += 1
+            total_layers += state_layers
+            total_features += state_features
+
+        return {
+            'status': 'success',
+            'timestamp': timezone.now().isoformat(),
+            'global_statistics': {
+                'total_states': total_states,
+                'total_cities': total_cities,
+                'total_layers': total_layers,
+                'total_features': total_features,
+            },
+            'hierarchy': hierarchy_data,
+        }
+
+    def _build_full_hierarchy(self, states, feature_count_map):
+        """Build full hierarchy (original shape with categories, styling, etc.)."""
+        categories = LayerCategory.objects.all()
+        category_data = {
+            cat.code: {
+                'name': cat.name,
+                'description': cat.description,
+                'default_color': cat.default_color,
+                'default_stroke': cat.default_stroke,
+                'default_opacity': cat.default_opacity,
+                'display_order': cat.display_order
+            } for cat in categories
+        }
+
+        hierarchy_data = []
+        total_states = 0
+        total_cities = 0
+        total_layers = 0
+        total_features = 0
+
+        for state in states:
+            state_cities = []
+            state_total_features = 0
+            state_total_layers = 0
+
+            for city in state.cities.all():
+                city_layer_groups = []
+                city_layers = list(city.layers.all())
+                city_total_features = 0
+                city_total_layers = 0
+                layers_with_tiles = 0
+
+                for layer_group in city.layer_groups.all():
+                    group_layers = []
+                    group_feature_count = 0
+                    for layer in city_layers:
+                        if layer.layer_group_id == layer_group.id:
+                            layer_data = _build_layer_data_optimized(
+                                layer, state.slug, city.slug, feature_count_map
+                            )
+                            group_layers.append(layer_data)
+                            fc = layer_data['statistics']['feature_count']
+                            group_feature_count += fc
+                            city_total_features += fc
+                            city_total_layers += 1
+                            if layer.tiles_generated:
+                                layers_with_tiles += 1
+                    layer_group_data = {
+                        'id': layer_group.id,
+                        'name': layer_group.name,
+                        'slug': layer_group.slug,
+                        'description': layer_group.description or '',
+                        'directory_path': layer_group.directory_path,
+                        'category': {
+                            'code': layer_group.category.code,
+                            'name': layer_group.category.name
+                        },
+                        'styling': {
+                            'default_color': layer_group.default_color,
+                            'default_stroke': layer_group.default_stroke,
+                            'default_opacity': layer_group.default_opacity
+                        },
+                        'display_settings': {
+                            'display_order': layer_group.display_order,
+                            'is_visible': layer_group.is_visible,
+                            'min_zoom': layer_group.min_zoom,
+                            'max_zoom': layer_group.max_zoom
+                        },
+                        'statistics': {
+                            'total_layers': len(group_layers),
+                            'total_features': group_feature_count
+                        },
+                        'layers': group_layers
+                    }
+                    city_layer_groups.append(layer_group_data)
+
+                standalone_layers = []
+                for layer in city_layers:
+                    if not layer.layer_group_id:
+                        layer_data = _build_layer_data_optimized(
+                            layer, state.slug, city.slug, feature_count_map
+                        )
+                        standalone_layers.append(layer_data)
+                        city_total_features += layer_data['statistics']['feature_count']
+                        city_total_layers += 1
+                        if layer.tiles_generated:
+                            layers_with_tiles += 1
+
+                city_styles = {}
+                for style in city.layer_styles.all():
+                    city_styles[style.category.code] = {
+                        'fill_color': style.fill_color,
+                        'stroke_color': style.stroke_color,
+                        'opacity': style.opacity,
+                        'stroke_width': style.stroke_width,
+                        'pattern_config': style.get_pattern_config(),
+                        'visibility': {
+                            'is_visible': style.is_visible,
+                            'min_zoom': style.min_zoom,
+                            'max_zoom': style.max_zoom
+                        }
+                    }
+
+                city_data = {
+                    'id': city.id,
+                    'name': city.name,
+                    'slug': city.slug,
+                    'state': {
+                        'name': state.name,
+                        'slug': state.slug,
+                        'code': state.code
+                    },
+                    'map_settings': {
+                        'center_lat': city.center_lat,
+                        'center_lng': city.center_lng,
+                        'min_zoom': city.min_zoom,
+                        'max_zoom': city.max_zoom
+                    },
+                    'status': {
+                        'is_active': city.is_active,
+                        'is_live': layers_with_tiles > 0,
+                        'status': 'live' if layers_with_tiles > 0 else 'pending'
+                    },
+                    'statistics': {
+                        'total_layer_groups': len(city_layer_groups),
+                        'total_layers': city_total_layers,
+                        'layers_with_tiles': layers_with_tiles,
+                        'total_features': city_total_features,
+                        'standalone_layers': len(standalone_layers)
+                    },
+                    'styling': city_styles,
+                    'layer_groups': city_layer_groups,
+                    'standalone_layers': standalone_layers,
+                    'created_at': city.created_at.isoformat() if city.created_at else None
+                }
+                state_cities.append(city_data)
+                state_total_features += city_total_features
+                state_total_layers += city_total_layers
+                total_cities += 1
+
+            state_data = {
+                'id': state.id,
+                'name': state.name,
+                'slug': state.slug,
+                'code': state.code,
+                'map_settings': {
+                    'center_lat': state.center_lat,
+                    'center_lng': state.center_lng,
+                    'default_zoom': state.default_zoom
+                },
+                'status': {'is_active': state.is_active},
+                'statistics': {
+                    'total_cities': len(state_cities),
+                    'total_layers': state_total_layers,
+                    'total_features': state_total_features
+                },
+                'cities': state_cities,
+                'created_at': state.created_at.isoformat() if state.created_at else None
+            }
+            hierarchy_data.append(state_data)
+            total_states += 1
+            total_layers += state_total_layers
+            total_features += state_total_features
+
+        return {
+            'status': 'success',
+            'timestamp': timezone.now().isoformat(),
+            'global_statistics': {
+                'total_states': total_states,
+                'total_cities': total_cities,
+                'total_layers': total_layers,
+                'total_features': total_features,
+                'total_categories': len(categories)
+            },
+            'categories': category_data,
+            'hierarchy': hierarchy_data
+        }
 
 
 @extend_schema(
