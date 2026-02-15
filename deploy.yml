@@ -8,9 +8,7 @@
     project_dir: "/opt/{{ project_name }}"
     temp_dir: "/tmp/{{ project_name }}_deploy"
     zip_file: "{{ project_name }}.zip"
-    # Domain and SSL: certificate must exist at /etc/letsencrypt/live/{{ domain }}/ before deploy.
-    # Create cert (after DNS A record for domain points to server): sudo certbot certonly --standalone -d <domain> --non-interactive --agree-tos --email admin@1acre.in
-    domain: "layers-prod.1acre.in"
+    domain: "layers.1acre.in"  # Updated domain name
     # Set full_clean: true to prune images + build cache (slow next build). Default: fast deploys with cache.
     full_clean: false
 
@@ -27,11 +25,11 @@
       run_once: true
       become: no
 
-    - name: Clone repository to local machine (main branch)
+    - name: Clone repository to local machine (master branch)
       git:
         repo: "{{ repo_url }}"
         dest: "{{ temp_dir }}"
-        version: "main"
+        version: "master"
         depth: 1
       delegate_to: localhost
       run_once: true
@@ -746,7 +744,7 @@
         msg: |
           🎉 DATA-SAFE DEPLOYMENT COMPLETED SUCCESSFULLY!
           
-          📦 Deployed Branch: main
+          📦 Deployed Branch: master
           
           🌐 Application URLs:
             - HTTPS: https://{{ domain }}
