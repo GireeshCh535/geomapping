@@ -47,6 +47,10 @@ urlpatterns = [
     path('hierarchy/',
          views.CompleteHierarchyAPIView.as_view(),
          name='complete_hierarchy_api'),
+    # Optimized hierarchy (bulk queries + 5 min cache); same graph data as hierarchy/
+    path('hierarchy/v2/',
+         views.OptimizedHierarchyAPIView.as_view(),
+         name='optimized_hierarchy_api'),
     
     # CloudFront tile serving with hierarchical structure
     path('tiles/<slug:state_slug>/<slug:city_slug>/<slug:layer_slug>/<int:z>/<int:x>/<int:y>.png',
