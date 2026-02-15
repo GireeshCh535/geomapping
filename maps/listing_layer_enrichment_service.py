@@ -144,13 +144,14 @@ def get_point_for_synced(record, update_location_point: bool = True):
     payload = getattr(record, 'payload', None) or {}
 
     if isinstance(record, (SyncedLand, SyncedPlot)):
-        # Priority: (1) payload lat/long, (2) record.lat/long, (3) record.location string
+        # Priority: (1) payload lat/long, (2) record.lat/long, (3) record.location if present (SyncedLand/Plot have no location field)
         lat = payload.get('lat') or payload.get('latitude')
         lng = payload.get('long') or payload.get('longitude') or payload.get('lng') or payload.get('lon')
         if lat is None or lng is None:
             lat, lng = getattr(record, 'lat', None), getattr(record, 'long', None)
-        if lat is None or lng is None and getattr(record, 'location', None):
-            lat, lng = _parse_location_string(record.location)
+        loc_str = getattr(record, 'location', None)
+        if (lat is None or lng is None) and loc_str:
+            lat, lng = _parse_location_string(loc_str)
     elif isinstance(record, (SyncedDeveloperLand, SyncedDeveloperPlot)):
         # Priority: (1) record.location_point, (2) payload lat/long, (3) record.location string
         if record.location_point:
@@ -161,8 +162,9 @@ def get_point_for_synced(record, update_location_point: bool = True):
             return p
         lat = payload.get('lat') or payload.get('latitude')
         lng = payload.get('long') or payload.get('longitude') or payload.get('lng') or payload.get('lon')
-        if lat is None or lng is None and getattr(record, 'location', None):
-            lat, lng = _parse_location_string(record.location)
+        loc_str = getattr(record, 'location', None)
+        if (lat is None or lng is None) and loc_str:
+            lat, lng = _parse_location_string(loc_str)
 
     lat, lng = _parse_lat_lng(lat, lng)
     if lat is None or lng is None:
