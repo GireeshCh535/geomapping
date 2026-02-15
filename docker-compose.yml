@@ -11,6 +11,7 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
       POSTGRES_INITDB_ARGS: "--auth-host=md5"
+    command: postgres -c max_connections=500 -c shared_buffers=256MB -c effective_cache_size=1GB -c maintenance_work_mem=128MB -c checkpoint_completion_target=0.9 -c wal_buffers=16MB -c default_statistics_target=100 -c random_page_cost=1.1 -c effective_io_concurrency=200 -c work_mem=4MB -c min_wal_size=1GB -c max_wal_size=4GB
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./init-db.sql:/docker-entrypoint-initdb.d/01-init-db.sql
@@ -18,6 +19,7 @@ services:
     ports:
       - "127.0.0.1:5432:5432"  # CHANGED: Bind to localhost only for security
     restart: unless-stopped
+    shm_size: 256mb  # Increase shared memory for better performance
 
   redis:
     image: redis:7-alpine
@@ -49,6 +51,10 @@ services:
       - DJANGO_DB_USER=postgres
       - DJANGO_DB_PASSWORD=postgres
       - REDIS_URL=redis://redis:6379/1
+      - CLOUDFRONT_DISTRIBUTION_ID=E3VZOEKNMYD012
+      - ENABLE_CLOUDFRONT_INVALIDATION=True  # ✅ PROD: Enable CloudFront invalidation
+      - DEVELOPER_BACKEND_API_URL=${DEVELOPER_BACKEND_API_URL:-https://be.1acre.in}
+      - WEB_CONCURRENCY=4  # Number of gunicorn workers (adjust based on CPU cores)
     depends_on:
       - db
       - redis
@@ -56,7 +62,7 @@ services:
       - .:/app
       - static_volume:/app/staticfiles
       - media_volume:/app/media
-    command: sh -c "sleep 15 && python manage.py migrate && python manage.py runserver 0.0.0.0:8000"
+    command: sh -c "sleep 15 && python manage.py migrate && gunicorn geo_mapping.wsgi:application -c gunicorn_config.py"
     restart: unless-stopped
 
   nginx:

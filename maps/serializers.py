@@ -306,3 +306,392 @@ class CityConfigDetailSerializer(serializers.Serializer):
     data_format = serializers.CharField()
     coordinate_precision = serializers.IntegerField()
     plu_mapping = serializers.DictField(required=False)
+
+
+# ================================
+# DEVELOPER LISTING SERIALIZERS
+# ================================
+
+class TIFMetadataSerializer(serializers.ModelSerializer):
+    """Serializer for TIF metadata"""
+    bounds = serializers.SerializerMethodField()
+    source_bounds = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = TIFMetadata
+        fields = [
+            'source_crs', 'source_width', 'source_height', 'source_bands',
+            'source_bounds', 'reprojected_width', 'reprojected_height',
+            'bounds', 'transform_matrix', 'min_zoom', 'max_zoom', 'tile_size',
+            'total_tiles_generated', 'tiles_by_zoom', 'processing_time_seconds',
+            'file_size_bytes', 'created_at', 'updated_at'
+        ]
+    
+    def get_bounds(self, obj):
+        """Get WGS84 bounds"""
+        return {
+            'west': obj.bounds_west,
+            'south': obj.bounds_south,
+            'east': obj.bounds_east,
+            'north': obj.bounds_north
+        }
+    
+    def get_source_bounds(self, obj):
+        """Get source CRS bounds"""
+        return {
+            'west': obj.source_bounds_west,
+            'south': obj.source_bounds_south,
+            'east': obj.source_bounds_east,
+            'north': obj.source_bounds_north
+        }
+
+
+class DeveloperListingMediaSerializer(serializers.ModelSerializer):
+    """Serializer for developer listing media"""
+    tif_metadata = TIFMetadataSerializer(read_only=True)
+    tile_url_template = serializers.SerializerMethodField()
+    tiles_status = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = DeveloperListingMedia
+        fields = [
+            'id', 'backend_media_id', 'media_type', 'category',
+            'file_name', 'file_url', 's3_path', 'is_tif', 's3_tile_path',
+            'tiles_generated', 'tiles_generation_started_at',
+            'tiles_generation_completed_at', 'tiles_generation_error',
+            'total_tiles_generated', 'media_data', 'tif_metadata',
+            'tile_url_template', 'tiles_status', 'created_at', 'updated_at'
+        ]
+    
+    def get_tile_url_template(self, obj):
+        """Get tile URL template for this media"""
+        if obj.is_tif and obj.tiles_generated and obj.s3_tile_path:
+            # CloudFront URL template
+            cloudfront_domain = 'https://d3js84ohvqla36.cloudfront.net'
+            return f"{cloudfront_domain}/{obj.s3_tile_path}/{{z}}/{{x}}/{{y}}.png"
+        return None
+    
+    def get_tiles_status(self, obj):
+        """Get human-readable tile status"""
+        if not obj.is_tif:
+            return 'not_applicable'
+        if obj.tiles_generated:
+            return 'completed'
+        elif obj.tiles_generation_started_at:
+            return 'in_progress'
+        elif obj.tiles_generation_error:
+            return 'error'
+        else:
+            return 'pending'
+
+
+class DeveloperListingMediaMinimalSerializer(serializers.ModelSerializer):
+    """Minimal serializer for media (without full metadata)"""
+    tiles_status = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = DeveloperListingMedia
+        fields = [
+            'id', 'backend_media_id', 'media_type', 'category',
+            'file_name', 'file_url', 'is_tif', 'tiles_generated',
+            'total_tiles_generated', 'tiles_status'
+        ]
+    
+    def get_tiles_status(self, obj):
+        """Get human-readable tile status"""
+        if not obj.is_tif:
+            return 'not_applicable'
+        if obj.tiles_generated:
+            return 'completed'
+        elif obj.tiles_generation_started_at:
+            return 'in_progress'
+        elif obj.tiles_generation_error:
+            return 'error'
+        else:
+            return 'pending'
+
+
+class WebhookEventSerializer(serializers.ModelSerializer):
+    """Serializer for webhook events"""
+    
+    class Meta:
+        model = WebhookEvent
+        fields = [
+            'id', 'event_type', 'action', 'listing_type', 'listing_id',
+            'payload', 'processed', 'processed_at', 'processing_error',
+            'tiles_generated', 'tif_files_processed', 'processing_result',
+            'request_ip', 'received_at', 'created_at'
+        ]
+
+
+class WebhookEventMinimalSerializer(serializers.ModelSerializer):
+    """Minimal serializer for webhook events (without full payload)"""
+    
+    class Meta:
+        model = WebhookEvent
+        fields = [
+            'id', 'event_type', 'action', 'processed', 'processed_at',
+            'tiles_generated', 'tif_files_processed', 'received_at'
+        ]
+
+
+class DeveloperListingSerializer(serializers.ModelSerializer):
+    """Serializer for developer listings"""
+    media_files = DeveloperListingMediaMinimalSerializer(many=True, read_only=True)
+    media_summary = serializers.SerializerMethodField()
+    tile_summary = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = DeveloperListing
+        fields = [
+            'id', 'listing_type', 'backend_listing_id', 'listing_data',
+            'name', 'description', 'location', 'city', 'state', 'is_active',
+            'last_webhook_event', 'backend_created_at', 'backend_updated_at',
+            'created_at', 'updated_at', 'media_files', 'media_summary',
+            'enriched_layers', 'enriched_at',
+            'tile_summary'
+        ]
+    
+    def get_media_summary(self, obj):
+        """Get media file summary"""
+        media_files = obj.media_files.all()
+        return {
+            'total_media': media_files.count(),
+            'total_images': media_files.filter(media_type='image').count(),
+            'total_videos': media_files.filter(media_type='video').count(),
+            'total_files': media_files.filter(media_type='file').count(),
+            'total_tif_files': media_files.filter(is_tif=True).count(),
+        }
+    
+    def get_tile_summary(self, obj):
+        """Get tile generation summary"""
+        tif_media = obj.media_files.filter(is_tif=True)
+        tif_generated = tif_media.filter(tiles_generated=True)
+        
+        return {
+            'total_tif_files': tif_media.count(),
+            'tiles_generated': tif_generated.count(),
+            'tiles_pending': tif_media.filter(tiles_generated=False, tiles_generation_error='').count(),
+            'tiles_in_progress': tif_media.filter(tiles_generation_started_at__isnull=False, tiles_generated=False).count(),
+            'tiles_failed': tif_media.exclude(tiles_generation_error='').count(),
+            'total_tiles_count': sum(m.total_tiles_generated for m in tif_generated)
+        }
+
+
+class DeveloperListingDetailSerializer(serializers.ModelSerializer):
+    """Detailed serializer for developer listings (with full media details)"""
+    media_files = DeveloperListingMediaSerializer(many=True, read_only=True)
+    recent_webhook_events = serializers.SerializerMethodField()
+    media_summary = serializers.SerializerMethodField()
+    tile_summary = serializers.SerializerMethodField()
+    bounds = serializers.SerializerMethodField()
+    zoom_levels = serializers.SerializerMethodField()
+    center = serializers.SerializerMethodField()
+    data_layers = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = DeveloperListing
+        fields = [
+            'id', 'listing_type', 'backend_listing_id', 'listing_data',
+            'name', 'description', 'location', 'city', 'state', 'is_active',
+            'last_webhook_event', 'backend_created_at', 'backend_updated_at',
+            'created_at', 'updated_at', 'media_files', 'recent_webhook_events',
+            'media_summary', 'tile_summary', 'bounds', 'zoom_levels', 'center',
+            'data_layers', 'enriched_layers', 'enriched_at'
+        ]
+    
+    def get_recent_webhook_events(self, obj):
+        """Get recent webhook events for this listing"""
+        events = WebhookEvent.objects.filter(
+            listing_type=obj.listing_type,
+            listing_id=obj.backend_listing_id
+        ).order_by('-received_at')[:10]
+        return WebhookEventMinimalSerializer(events, many=True).data
+    
+    def get_media_summary(self, obj):
+        """Get media file summary"""
+        media_files = obj.media_files.all()
+        return {
+            'total_media': media_files.count(),
+            'total_images': media_files.filter(media_type='image').count(),
+            'total_videos': media_files.filter(media_type='video').count(),
+            'total_files': media_files.filter(media_type='file').count(),
+            'total_tif_files': media_files.filter(is_tif=True).count(),
+        }
+    
+    def get_tile_summary(self, obj):
+        """Get tile generation summary"""
+        tif_media = obj.media_files.filter(is_tif=True)
+        tif_generated = tif_media.filter(tiles_generated=True)
+        
+        return {
+            'total_tif_files': tif_media.count(),
+            'tiles_generated': tif_generated.count(),
+            'tiles_pending': tif_media.filter(tiles_generated=False, tiles_generation_error='').count(),
+            'tiles_in_progress': tif_media.filter(tiles_generation_started_at__isnull=False, tiles_generated=False).count(),
+            'tiles_failed': tif_media.exclude(tiles_generation_error='').count(),
+            'total_tiles_count': sum(m.total_tiles_generated for m in tif_generated)
+        }
+    
+    def get_bounds(self, obj):
+        """
+        Get combined bounds from all TIF files
+        Returns the bounding box that encompasses all TIF files in this listing
+        """
+        from maps.models import TIFMetadata
+        
+        # Get all TIF metadata for this listing
+        tif_metadata_list = TIFMetadata.objects.filter(
+            media__listing=obj,
+            media__is_tif=True,
+            media__tiles_generated=True
+        )
+        
+        if not tif_metadata_list.exists():
+            return None
+        
+        # Calculate combined bounds
+        west = min([tm.bounds_west for tm in tif_metadata_list if tm.bounds_west is not None], default=None)
+        south = min([tm.bounds_south for tm in tif_metadata_list if tm.bounds_south is not None], default=None)
+        east = max([tm.bounds_east for tm in tif_metadata_list if tm.bounds_east is not None], default=None)
+        north = max([tm.bounds_north for tm in tif_metadata_list if tm.bounds_north is not None], default=None)
+        
+        if all([west, south, east, north]):
+            return {
+                'west': west,
+                'south': south,
+                'east': east,
+                'north': north,
+                'bbox': [west, south, east, north],  # Format: [minLng, minLat, maxLng, maxLat]
+                'leaflet_bounds': [[south, west], [north, east]]  # Format for Leaflet: [[lat, lng], [lat, lng]]
+            }
+        
+        return None
+    
+    def get_zoom_levels(self, obj):
+        """
+        Get zoom level information from TIF files
+        Returns min/max zoom and calculated appropriate zoom level for viewing
+        """
+        from maps.models import TIFMetadata
+        
+        # Get all TIF metadata for this listing
+        tif_metadata_list = TIFMetadata.objects.filter(
+            media__listing=obj,
+            media__is_tif=True,
+            media__tiles_generated=True
+        )
+        
+        if not tif_metadata_list.exists():
+            return None
+        
+        # Get min/max zoom from TIF files (usually 8 and 18)
+        min_zoom = min([tm.min_zoom for tm in tif_metadata_list])
+        max_zoom = max([tm.max_zoom for tm in tif_metadata_list])
+        
+        # Calculate appropriate zoom level based on bounds
+        bounds = self.get_bounds(obj)
+        if bounds:
+            # Calculate appropriate zoom level based on area
+            # Simple heuristic: smaller area = higher zoom
+            width = bounds['east'] - bounds['west']
+            height = bounds['north'] - bounds['south']
+            area = width * height
+            
+            # Zoom level heuristic
+            if area < 0.0001:  # Very small area (< 11 sq km approx)
+                appropriate_zoom = 17
+            elif area < 0.001:  # Small area (< 110 sq km approx)
+                appropriate_zoom = 15
+            elif area < 0.01:  # Medium area (< 1,100 sq km approx)
+                appropriate_zoom = 13
+            elif area < 0.1:  # Large area (< 11,000 sq km approx)
+                appropriate_zoom = 11
+            else:
+                appropriate_zoom = 9
+            
+            # Ensure within bounds
+            appropriate_zoom = max(min_zoom, min(appropriate_zoom, max_zoom))
+        else:
+            appropriate_zoom = 13  # Default middle zoom
+        
+        return {
+            'min_zoom': min_zoom,
+            'max_zoom': max_zoom,
+            'default_zoom': appropriate_zoom,
+            'recommended_zoom': appropriate_zoom
+        }
+    
+    def get_center(self, obj):
+        """
+        Get center coordinates from bounds
+        Returns the center point of all TIF files
+        """
+        bounds = self.get_bounds(obj)
+        if bounds:
+            center_lat = (bounds['south'] + bounds['north']) / 2
+            center_lng = (bounds['west'] + bounds['east']) / 2
+            return {
+                'lat': center_lat,
+                'lng': center_lng,
+                'coordinates': [center_lng, center_lat]  # [lng, lat] for GeoJSON
+            }
+        return None
+    
+    def get_data_layers(self, obj):
+        """
+        Get DataLayer information for TIF files in this listing
+        Returns layer slugs and IDs for accessing via layer APIs
+        """
+        from maps.models import DataLayer, GeoFeature
+        
+        # Find data layers created for this listing's TIF files
+        # They have slug pattern: {listing_type}-{listing_id}-{filename}
+        slug_prefix = f"{obj.listing_type}-{obj.backend_listing_id}-"
+        
+        layers = DataLayer.objects.filter(
+            slug__startswith=slug_prefix,
+            category__code='DEVELOPER_LISTING'
+        ).select_related('city', 'category')
+        
+        if not layers.exists():
+            return []
+        
+        result = []
+        for layer in layers:
+            # Get the GeoFeature to access bounds polygon
+            feature = layer.geofeature_set.first()
+            
+            layer_info = {
+                'id': layer.id,
+                'name': layer.name,
+                'slug': layer.slug,
+                'city': {
+                    'name': layer.city.name,
+                    'slug': layer.city.slug
+                },
+                'category': {
+                    'code': layer.category.code,
+                    'name': layer.category.name
+                },
+                'bounds': {
+                    'west': layer.bbox_xmin,
+                    'south': layer.bbox_ymin,
+                    'east': layer.bbox_xmax,
+                    'north': layer.bbox_ymax
+                } if layer.bbox_xmin else None,
+                'geometry_type': layer.geometry_type,
+                'is_processed': layer.is_processed,
+                'tiles_generated': layer.tiles_generated,
+                'is_visible': layer.is_true,
+                'feature_count': layer.feature_count
+            }
+            
+            # Add feature properties if available
+            if feature and feature.properties:
+                layer_info['tile_url_template'] = feature.properties.get('tile_url_template')
+                layer_info['s3_tile_path'] = feature.properties.get('s3_tile_path')
+            
+            result.append(layer_info)
+        
+        return result

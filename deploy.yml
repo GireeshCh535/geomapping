@@ -8,7 +8,9 @@
     project_dir: "/opt/{{ project_name }}"
     temp_dir: "/tmp/{{ project_name }}_deploy"
     zip_file: "{{ project_name }}.zip"
-    domain: "gis-map.1acre.in"  # CHANGED: Updated domain name
+    domain: "gis-map.1acre.in"  # Updated domain name
+    # Set full_clean: true to prune images + build cache (slow next build). Default: fast deploys with cache.
+    full_clean: false
 
   tasks:
     # ===================================
@@ -100,10 +102,17 @@
 
     - name: Install Docker Compose standalone
       get_url:
-        url: "https://github.com/docker/compose/releases/download/v2.20.2/docker-compose-linux-x86_64"
+        url: "https://github.com/docker/compose/releases/download/v2.24.5/docker-compose-linux-x86_64"
         dest: /usr/local/bin/docker-compose
         mode: '0755'
       when: docker_installed.rc != 0
+
+    - name: Upgrade Docker Compose if version is old
+      get_url:
+        url: "https://github.com/docker/compose/releases/download/v2.24.5/docker-compose-linux-x86_64"
+        dest: /usr/local/bin/docker-compose
+        mode: '0755'
+      ignore_errors: yes
 
     - name: Create docker-compose symlink
       file:
@@ -118,6 +127,51 @@
         name: docker
         state: started
         enabled: yes
+
+    - name: Check Docker version and upgrade if needed
+      shell: |
+        # Check current Docker version
+        CURRENT_VERSION=$(docker version --format '{{.Server.Version}}' 2>/dev/null || echo "0.0.0")
+        echo "Current Docker version: $CURRENT_VERSION"
+        
+        # Get Docker API version
+        API_VERSION=$(docker version --format '{{.Server.APIVersion}}' 2>/dev/null || echo "0.0")
+        echo "Docker API version: $API_VERSION"
+        
+        # Check if upgrade is needed (API version < 1.44)
+        MAJOR=$(echo $API_VERSION | cut -d. -f1)
+        MINOR=$(echo $API_VERSION | cut -d. -f2)
+        
+        if [ "$MAJOR" -lt "1" ] || ([ "$MAJOR" -eq "1" ] && [ "$MINOR" -lt "44" ]); then
+          echo "UPGRADE_NEEDED"
+        else
+          echo "OK"
+        fi
+      register: docker_version_check
+      ignore_errors: yes
+
+    - name: Upgrade Docker to latest version
+      apt:
+        name:
+          - docker-ce
+          - docker-ce-cli
+          - containerd.io
+          - docker-buildx-plugin
+          - docker-compose-plugin
+        state: latest
+        update_cache: yes
+      when: docker_version_check.stdout is defined and 'UPGRADE_NEEDED' in docker_version_check.stdout
+
+    - name: Restart Docker service after upgrade
+      systemd:
+        name: docker
+        state: restarted
+      when: docker_version_check.stdout is defined and 'UPGRADE_NEEDED' in docker_version_check.stdout
+
+    - name: Wait for Docker to be ready after restart
+      pause:
+        seconds: 5
+      when: docker_version_check.stdout is defined and 'UPGRADE_NEEDED' in docker_version_check.stdout
 
     - name: Add ubuntu user to docker group
       user:
@@ -163,17 +217,19 @@
       shell: docker container prune -f
       ignore_errors: yes
 
-    - name: Clean up unused images only
+    - name: Clean up unused images only (only when full_clean)
       shell: docker image prune -af
       ignore_errors: yes
+      when: full_clean | default(false) | bool
 
     - name: Clean up unused networks only
       shell: docker network prune -f
       ignore_errors: yes
 
-    - name: Clean up build cache only
+    - name: Clean up build cache only (only when full_clean)
       shell: docker builder prune -af
       ignore_errors: yes
+      when: full_clean | default(false) | bool
 
     - name: Show preserved volumes
       shell: docker volume ls
@@ -229,11 +285,13 @@
           exit 1
         fi
 
-    - name: Update Django ALLOWED_HOSTS setting
+    # Inject public IP (ansible_host) so requests to http(s)://<public-IP> are allowed.
+    # On EC2, ansible_default_ipv4.address is the private IP; clients send Host: <public-IP>.
+    - name: Update Django _required_hosts with public IP for ALLOWED_HOSTS
       lineinfile:
         path: "{{ project_dir }}/geo_mapping/settings.py"
-        regexp: '^ALLOWED_HOSTS\s*='
-        line: "ALLOWED_HOSTS = ['{{ domain }}', '{{ ansible_default_ipv4.address }}', 'localhost', '127.0.0.1']"  # CHANGED: Added proper hosts
+        regexp: '^\s*_required_hosts\s*='
+        line: "_required_hosts = ['*', '{{ ansible_host }}', '{{ ansible_host }}:80', '{{ ansible_host }}:443', '{{ domain }}', 'localhost', '127.0.0.1']"
 
     - name: Ensure DEBUG = False for production
       lineinfile:
@@ -242,26 +300,10 @@
         line: "DEBUG = False"
 
     # ===================================
-    # STEP 5: SSL CERTIFICATE (SKIP - ALREADY EXISTS)
+    # STEP 5: SSL CERTIFICATE CHECK (NO CREATION)
     # ===================================
-    
-    - name: Check if SSL certificate exists for our domain
-      stat:
-        path: "/etc/letsencrypt/live/{{ domain }}/fullchain.pem"
-      register: ssl_cert
-
-    - name: Display SSL certificate status
-      debug:
-        msg: "SSL certificate for {{ domain }} exists: {{ ssl_cert.stat.exists }}"
-
-    # Skip SSL generation since it already exists
-    - name: SSL certificate already configured
-      debug:
-        msg: "✅ SSL certificate already exists for {{ domain }}, skipping generation"
-      when: ssl_cert.stat.exists
-
-    # ===================================
-    # STEP 6: STOP HOST NGINX (DOCKER NGINX WILL TAKE OVER)
+    # NOTE: Certificate creation is DISABLED to avoid Let's Encrypt rate limits
+    # Certificates must be created manually or via renewal cron job only
     # ===================================
     
     - name: Stop and disable host nginx to avoid port conflicts
@@ -276,6 +318,163 @@
         path: "/etc/nginx/sites-enabled/{{ domain }}"
         state: absent
       ignore_errors: yes
+
+    - name: Stop any existing Docker containers to free ports 80/443
+      shell: |
+        if [ -d "{{ project_dir }}" ] && [ -f "{{ project_dir }}/docker-compose.yml" ]; then
+          cd {{ project_dir }} && docker-compose down --remove-orphans || true
+        fi
+        # Also stop any containers using ports 80/443
+        docker ps --filter "publish=80" --filter "publish=443" -q | xargs -r docker stop || true
+      ignore_errors: yes
+      become_user: ubuntu
+
+    - name: Wait for ports to be free
+      pause:
+        seconds: 5
+
+    - name: Check if SSL certificate exists for our domain (with sudo)
+      shell: |
+        if [ -f "/etc/letsencrypt/live/{{ domain }}/fullchain.pem" ]; then
+          echo "EXISTS"
+        else
+          echo "NOT_EXISTS"
+        fi
+      register: cert_check
+      changed_when: false
+
+    - name: Check certificate expiry date if it exists
+      shell: |
+        if [ -f "/etc/letsencrypt/live/{{ domain }}/fullchain.pem" ]; then
+          openssl x509 -enddate -noout -in /etc/letsencrypt/live/{{ domain }}/fullchain.pem | cut -d= -f2
+        else
+          echo "NOT_EXISTS"
+        fi
+      register: cert_expiry
+      ignore_errors: yes
+
+    - name: Set certificate exists flag
+      set_fact:
+        ssl_cert_exists: "{{ cert_check.stdout == 'EXISTS' }}"
+
+    - name: Display SSL certificate status
+      debug:
+        msg: |
+          SSL Certificate Status:
+          - Exists: {{ ssl_cert_exists }}
+          - Expiry: {{ cert_expiry.stdout if cert_expiry.stdout is defined else 'N/A' }}
+          
+          ⚠️ IMPORTANT: Certificate creation is DISABLED during deployment
+          - Using existing certificate at /etc/letsencrypt/live/{{ domain }}/
+          - Certificate will NOT be created/renewed during deployment
+          - Renewal is handled by cron job (if configured)
+          - To create certificate manually, run:
+            sudo certbot certonly --standalone -d {{ domain }}
+          - Wait for rate limit to expire before creating new certificates
+
+    - name: Debug - List letsencrypt directory contents
+      shell: |
+        echo "=== Checking /etc/letsencrypt/live/ ==="
+        ls -la /etc/letsencrypt/live/ 2>&1 || echo "Directory not accessible"
+        echo ""
+        echo "=== Checking for {{ domain }} directory ==="
+        ls -la /etc/letsencrypt/live/{{ domain }}/ 2>&1 || echo "Domain directory not found"
+        echo ""
+        echo "=== Checking certificate file ==="
+        ls -la /etc/letsencrypt/live/{{ domain }}/fullchain.pem 2>&1 || echo "Certificate file not found"
+        echo ""
+        echo "=== Certbot certificates ==="
+        certbot certificates 2>&1 || echo "Certbot command failed"
+      register: cert_debug
+      when: not ssl_cert_exists
+      ignore_errors: yes
+
+    - name: Display certificate debug info
+      debug:
+        msg: "{{ cert_debug.stdout }}"
+      when: not ssl_cert_exists and cert_debug.stdout is defined
+
+    - name: Verify SSL certificate exists (fail if missing)
+      fail:
+        msg: |
+          ❌ SSL certificate NOT FOUND at /etc/letsencrypt/live/{{ domain }}/fullchain.pem
+          
+          Certificate must exist before deployment. Options:
+          1. Wait for Let's Encrypt rate limit to expire (check: sudo certbot certificates)
+          2. Use existing certificate from another location
+          3. Create certificate manually: sudo certbot certonly --standalone -d {{ domain }}
+          
+          To verify certificate exists, SSH to server and run:
+            sudo ls -la /etc/letsencrypt/live/{{ domain }}/
+            sudo certbot certificates
+          
+          Debug output above shows what was found in /etc/letsencrypt/live/
+          
+          Deployment cannot proceed without a valid SSL certificate.
+      when: not ssl_cert_exists
+
+    # ===================================
+    # CERTIFICATE CREATION DISABLED - Rate limit protection
+    # ===================================
+    # The following steps are COMMENTED OUT to prevent hitting Let's Encrypt rate limits
+    # Uncomment only if you need to create certificates and rate limit has expired
+    # ===================================
+    
+    # - name: Remove old certificate to force new certificate generation
+    #   file:
+    #     path: "{{ item }}"
+    #     state: absent
+    #   loop:
+    #     - "/etc/letsencrypt/live/{{ domain }}"
+    #     - "/etc/letsencrypt/archive/{{ domain }}"
+    #     - "/etc/letsencrypt/renewal/{{ domain }}.conf"
+    #   ignore_errors: yes
+    #
+    # - name: Create new SSL certificate using standalone mode
+    #   shell: |
+    #     certbot certonly \
+    #       --standalone \
+    #       --non-interactive \
+    #       --agree-tos \
+    #       --email admin@1acre.in \
+    #       --preferred-challenges http \
+    #       -d {{ domain }} \
+    #       --expand
+    #   register: certbot_result
+    #   ignore_errors: yes
+    #
+    # - name: Retry certificate creation if first attempt failed
+    #   shell: |
+    #     certbot certonly \
+    #       --standalone \
+    #       --non-interactive \
+    #       --agree-tos \
+    #       --email admin@1acre.in \
+    #       --preferred-challenges http \
+    #       -d {{ domain }}
+    #   when: certbot_result.rc != 0
+    #   ignore_errors: yes
+
+    # ===================================
+    # SSL RENEWAL CRON JOB DISABLED
+    # ===================================
+    # Certificate renewal is handled by Certbot's built-in renewal system
+    # No manual cron job setup needed - Certbot manages this automatically
+    # ===================================
+    
+    # - name: Set up automatic SSL renewal cron job (if not exists)
+    #   cron:
+    #     name: "SSL certificate renewal"
+    #     job: "cd {{ project_dir }} && docker-compose stop nginx || true && sleep 5 && certbot renew --standalone --non-interactive --preferred-challenges http && cd {{ project_dir }} && docker-compose start nginx || true"
+    #     minute: "0"
+    #     hour: "3"
+    #     user: root
+    #   when: ssl_cert_exists
+    #   NOTE: Certbot snap installation already sets up automatic renewal
+
+    # ===================================
+    # STEP 6: PREPARE NGINX CONFIGURATION
+    # ===================================
 
     - name: Create nginx configuration directory for Docker
       file:
@@ -347,25 +546,12 @@
       loop:
         - "{{ project_dir }}/logs"
 
-    - name: Build Docker containers (no cache for fresh build)
-      shell: docker-compose build --no-cache
+    # Build and start (uses cache for fast deploys; use full_clean + --no-cache for a full rebuild)
+    - name: Build and start Docker containers (uses cache when available)
+      shell: docker-compose up -d --build
       args:
         chdir: "{{ project_dir }}"
       become_user: ubuntu
-
-    - name: Start Docker containers (including nginx)
-      shell: docker-compose up -d
-      args:
-        chdir: "{{ project_dir }}"
-      become_user: ubuntu
-
-    - name: Add SSL renewal cron job
-      cron:
-        name: "SSL renewal"
-        job: "certbot renew --quiet --deploy-hook 'cd {{ project_dir }} && docker-compose restart nginx'"
-        minute: "0"
-        hour: "3"
-        weekday: "1"
 
     - name: Wait for nginx container to be ready
       wait_for:
@@ -528,13 +714,13 @@
         docker-compose exec -T db psql -U postgres -d geo_mapping_db -c "
         SELECT 
           schemaname,
-          tablename,
+          relname as tablename,
           n_tup_ins as inserts,
           n_tup_upd as updates,
           n_tup_del as deletes
         FROM pg_stat_user_tables 
         WHERE schemaname = 'public'
-        ORDER BY tablename;
+        ORDER BY relname;
         "
       args:
         chdir: "{{ project_dir }}"

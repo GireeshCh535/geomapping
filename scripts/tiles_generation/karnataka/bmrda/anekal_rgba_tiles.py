@@ -211,8 +211,9 @@ class AnekalRGBATileGenerator:
                         b = int(wgs84_data_b[data_y, data_x])
                         a = int(wgs84_data_a[data_y, data_x])
                         
-                        # Only draw pixels that are not transparent and have some color
-                        if a > 0 and (r > 0 or g > 0 or b > 0):
+                        # Only draw pixels that are not transparent
+                        # FIXED: Preserve ALL colors including black (0,0,0) - only check alpha
+                        if a > 0:
                             # Use the actual RGB values from the GeoTIFF
                             rgb_color = (r, g, b)
                             

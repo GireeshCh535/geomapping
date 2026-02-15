@@ -17,7 +17,26 @@ router.register(r'features', views.GeoFeatureViewSet)
 
 urlpatterns = [
     
-    # Router URLs (REST API endpoints)
+    # ================================
+    # SPECIFIC PATHS (must come before router to avoid conflicts)
+    # ================================
+    
+    # Nearby layers API - Find all layers within 50km of coordinates or bounds
+    # MUST come before router.register(r'layers', ...) to avoid conflict
+    path('layers/nearby/',
+         views.NearbyLayersAPIView.as_view(), name='nearby_layers'),
+    
+    # Layer bounds API - Get bounds for a specific layer based on actual data
+    path('layers/<slug:state_slug>/<slug:city_slug>/<slug:layer_slug>/bounds/',
+         views.LayerBoundsAPIView.as_view(), name='layer_bounds'),
+    
+    # Layer bounds and zoom level API
+    path('layers/<slug:state_slug>/<slug:city_slug>/<str:layer_slugs>/bounds-zoom/',
+         views.LayerBoundsZoomAPIView.as_view(), name='layer_bounds_zoom'),
+    
+    # ================================
+    # ROUTER URLs (REST API endpoints)
+    # ================================
     path('', include(router.urls)),
     
     # ================================
@@ -62,16 +81,64 @@ urlpatterns = [
     path('search-coords-test/',
          views.CoordinateSearchTestView.as_view(), name='global_coordinate_search_test'),
     
-    # Layer bounds API - Get bounds for a specific layer based on actual data
-    path('layers/<slug:state_slug>/<slug:city_slug>/<slug:layer_slug>/bounds/',
-         views.LayerBoundsAPIView.as_view(), name='layer_bounds'),
-    
     # Layer-specific coordinate search API
     path('search-coords-by-layer/',
          views.LayerCoordinateSearchView.as_view(), name='layer_coordinate_search'),
     
-    # Layer bounds and zoom level API
-    path('layers/<slug:state_slug>/<slug:city_slug>/<str:layer_slugs>/bounds-zoom/',
-         views.LayerBoundsZoomAPIView.as_view(), name='layer_bounds_zoom'),
+    # Hyderabad HMDA Boundary Check API
+    path('check-hmda-boundary/',
+         views.HyderabadHMDABoundaryCheckAPIView.as_view(), name='check_hmda_boundary'),
     
+    # ================================
+    # DEVELOPER LISTING WEBHOOK & TILE GENERATION
+    # ================================
+    
+    # Webhook endpoint for developer listing media uploads
+    path('webhooks/developer-listing-media/',
+         views.DeveloperListingMediaWebhookView.as_view(),
+         name='developer-listing-media-webhook'),
+
+    # Webhook endpoint for Land and Plot (regular listings) create/update/delete
+    path('webhooks/land-plot/',
+         views.LandPlotWebhookView.as_view(),
+         name='land-plot-webhook'),
+
+    # ================================
+    # DEVELOPER LISTING APIs (Public Access to Webhook Data)
+    # ================================
+    
+    # List all developer listings with filtering
+    path('developer-listings/',
+         views.DeveloperListingListAPIView.as_view(),
+         name='developer-listing-list'),
+    
+    # Get complete details for a specific developer listing
+    path('developer-listings/<str:listing_type>/<int:listing_id>/',
+         views.DeveloperListingDetailAPIView.as_view(),
+         name='developer-listing-detail'),
+    
+    # Get lightweight map data (bounds, zoom, S3 paths only)
+    path('developer-listings/<str:listing_type>/<int:listing_id>/map-data/',
+         views.DeveloperListingMapDataAPIView.as_view(),
+         name='developer-listing-map-data'),
+    
+    # Get detailed information for a specific media file
+    path('developer-listing-media/<int:media_id>/',
+         views.DeveloperListingMediaDetailAPIView.as_view(),
+         name='developer-listing-media-detail'),
+    
+    # List webhook events with filtering
+    path('webhook-events/',
+         views.WebhookEventListAPIView.as_view(),
+         name='webhook-event-list'),
+
+    # Enrichment lookup: POST listing_type + ids, get enrichment + full record data
+    path('enrichment-lookup/',
+         views.EnrichmentLookupAPIView.as_view(),
+         name='enrichment-lookup'),
+
+    # Layer point counts: for each layer, count of listing points (overlapping + nearby)
+    path('layer-point-counts/',
+         views.LayerPointCountsAPIView.as_view(),
+         name='layer-point-counts'),
 ]

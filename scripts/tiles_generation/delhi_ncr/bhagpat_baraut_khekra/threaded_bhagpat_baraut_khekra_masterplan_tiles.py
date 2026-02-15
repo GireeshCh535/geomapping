@@ -1,0 +1,449 @@
+#!/usr/bin/env python3
+"""
+Multi-threaded script to generate high-quality PNG tiles from Bhagpat Baraut Khekra Masterplan RGBA GeoTIFF
+Keeps pixel-by-pixel rendering for maximum quality but adds multi-threading and data caching
+"""
+
+import os
+import sys
+import math
+import numpy as np
+from pathlib import Path
+import mercantile
+from PIL import Image, ImageDraw
+import rasterio
+from rasterio.warp import calculate_default_transform, reproject, Resampling
+from concurrent.futures import ThreadPoolExecutor
+import multiprocessing as mp
+import logging
+import time
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
+
+class ThreadedBhagpatBarautKhekraRGBATileGenerator:
+    """
+    Generate high-quality PNG tiles from Bhagpat Baraut Khekra Masterplan RGBA GeoTIFF with multi-threading
+    Maintains pixel-by-pixel rendering for maximum quality
+    """
+    
+    def __init__(self, data_dir: str = "data/delhi_ncr/bhagpat_baraut_khekra/bhagpat_baraut_khekra_masterplan",
+                 output_dir: str = "bhagpat_baraut_khekra_masterplan_tiles",
+                 max_workers: int = None):
+        self.data_dir = Path(data_dir)
+        self.output_dir = Path(output_dir)
+        self.output_dir.mkdir(exist_ok=True)
+        
+        # Set number of workers for parallel processing
+        self.max_workers = max_workers or min(mp.cpu_count(), 8)
+        
+        # Cache for reprojected data
+        self.wgs84_data_r = None
+        self.wgs84_data_g = None
+        self.wgs84_data_b = None
+        self.wgs84_data_a = None
+        self.wgs84_bounds = None
+        self.wgs84_transform = None
+        
+        logger.info(f"Threaded Bhagpat Baraut Khekra RGBA Tile Generator initialized with {self.max_workers} workers")
+    
+    def load_data(self):
+        """Load and cache the reprojected data once"""
+        if self.wgs84_data_r is not None:
+            logger.info("Data already loaded and cached")
+            return
+        
+        # Find the GeoTIFF file
+        geotiff_files = list(self.data_dir.glob("*.tif"))
+        if not geotiff_files:
+            logger.error(f"No GeoTIFF files found in {self.data_dir}")
+            return
+        
+        geotiff_path = geotiff_files[0]
+        logger.info(f"Loading and caching GeoTIFF: {geotiff_path}")
+        
+        # Reproject GeoTIFF to WGS84 and cache the data
+        self.wgs84_data_r, self.wgs84_data_g, self.wgs84_data_b, self.wgs84_data_a, self.wgs84_bounds, self.wgs84_transform = self.reproject_geotiff_to_wgs84(geotiff_path)
+        
+        logger.info("Data loaded and cached successfully")
+    
+    def reproject_geotiff_to_wgs84(self, geotiff_path):
+        """Reproject RGBA GeoTIFF to WGS84 and return the transformed data and bounds"""
+        with rasterio.open(geotiff_path) as src:
+            logger.info(f"Original CRS: {src.crs}")
+            logger.info(f"Original bounds: {src.bounds}")
+            logger.info(f"Original shape: {src.shape}")
+            logger.info(f"Number of bands: {src.count}")
+            
+            # Handle missing CRS - use default for Delhi-NCR region
+            source_crs = src.crs
+            if source_crs is None:
+                # Use UTM Zone 43N for Delhi-NCR region
+                source_crs = 'EPSG:32643'  # WGS 84 / UTM zone 43N
+                logger.warning(f"⚠️  No CRS found in GeoTIFF! Using default CRS for Delhi-NCR region: {source_crs}")
+            
+            # Calculate the transform to WGS84
+            transform, width, height = calculate_default_transform(
+                source_crs, 'EPSG:4326', src.width, src.height,
+                left=src.bounds.left, bottom=src.bounds.bottom,
+                right=src.bounds.right, top=src.bounds.top
+            )
+            
+            # Create the destination arrays for RGBA
+            destination_r = np.zeros((height, width), dtype=src.dtypes[0])
+            destination_g = np.zeros((height, width), dtype=src.dtypes[0])
+            destination_b = np.zeros((height, width), dtype=src.dtypes[0])
+            destination_a = np.zeros((height, width), dtype=src.dtypes[0])
+            
+            # Reproject each band
+            reproject(
+                source=src.read(1),  # Red band
+                destination=destination_r,
+                src_transform=src.transform,
+                src_crs=source_crs,
+                dst_transform=transform,
+                dst_crs='EPSG:4326',
+                resampling=Resampling.nearest
+            )
+            
+            reproject(
+                source=src.read(2),  # Green band
+                destination=destination_g,
+                src_transform=src.transform,
+                src_crs=source_crs,
+                dst_transform=transform,
+                dst_crs='EPSG:4326',
+                resampling=Resampling.nearest
+            )
+            
+            reproject(
+                source=src.read(3),  # Blue band
+                destination=destination_b,
+                src_transform=src.transform,
+                src_crs=source_crs,
+                dst_transform=transform,
+                dst_crs='EPSG:4326',
+                resampling=Resampling.nearest
+            )
+            
+            reproject(
+                source=src.read(4),  # Alpha band
+                destination=destination_a,
+                src_transform=src.transform,
+                src_crs=source_crs,
+                dst_transform=transform,
+                dst_crs='EPSG:4326',
+                resampling=Resampling.nearest
+            )
+            
+            # Calculate WGS84 bounds
+            wgs84_bounds = {
+                'west': transform[2],
+                'south': transform[5] + height * transform[4],
+                'east': transform[2] + width * transform[0],
+                'north': transform[5]
+            }
+            
+            logger.info(f"WGS84 bounds: {wgs84_bounds}")
+            logger.info(f"WGS84 data shape: {destination_r.shape}")
+            
+            return destination_r, destination_g, destination_b, destination_a, wgs84_bounds, transform
+    
+    def generate_tiles_for_zoom(self, zoom, min_tile, max_tile):
+        """Generate all tiles for a specific zoom level using multi-threading"""
+        logger.info(f"Processing zoom level {zoom} with {self.max_workers} workers")
+        
+        zoom_dir = self.output_dir / str(zoom)
+        zoom_dir.mkdir(exist_ok=True)
+        
+        tiles_generated = 0
+        tiles_skipped = 0
+        
+        # Collect all tile tasks
+        tile_tasks = []
+        for x in range(min_tile.x, max_tile.x + 1):
+            x_dir = zoom_dir / str(x)
+            x_dir.mkdir(exist_ok=True)
+            
+            for y in range(max_tile.y, min_tile.y + 1):
+                tile_path = x_dir / f"{y}.png"
+                tile_tasks.append((x, y, tile_path))
+        
+        logger.info(f"Generated {len(tile_tasks)} tile tasks for zoom {zoom}")
+        
+        # Process tiles in parallel using ThreadPoolExecutor
+        if tile_tasks:
+            with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+                # Submit all tasks
+                future_to_tile = {
+                    executor.submit(self.generate_single_tile, zoom, x, y, tile_path): (x, y, tile_path)
+                    for x, y, tile_path in tile_tasks
+                }
+                
+                # Process completed tasks
+                for future in future_to_tile:
+                    x, y, tile_path = future_to_tile[future]
+                    try:
+                        success = future.result()
+                        if success:
+                            tiles_generated += 1
+                        else:
+                            tiles_skipped += 1
+                    except Exception as e:
+                        logger.error(f"Error generating tile {zoom}/{x}/{y}: {e}")
+                        tiles_skipped += 1
+                    
+                    # Log progress every 100 tiles
+                    if (tiles_generated + tiles_skipped) % 100 == 0:
+                        logger.info(f"Zoom {zoom}: Generated {tiles_generated}, Skipped {tiles_skipped}")
+        
+        logger.info(f"Zoom {zoom} completed: {tiles_generated} generated, {tiles_skipped} skipped")
+        return tiles_generated
+    
+    def generate_tiles(self, min_zoom=8, max_zoom=16):
+        """Generate PNG tiles for Bhagpat Baraut Khekra Masterplan with multi-threading"""
+        start_time = time.time()
+        
+        # Load data once and cache it
+        self.load_data()
+        
+        if self.wgs84_data_r is None:
+            logger.error("Failed to load data")
+            return 0
+        
+        # Calculate tile bounds
+        min_tile = mercantile.tile(self.wgs84_bounds['west'], self.wgs84_bounds['south'], min_zoom)
+        max_tile = mercantile.tile(self.wgs84_bounds['east'], self.wgs84_bounds['north'], max_zoom)
+        
+        total_tiles = 0
+        
+        for zoom in range(min_zoom, max_zoom + 1):
+            # Recalculate tile bounds for this zoom level
+            min_tile = mercantile.tile(self.wgs84_bounds['west'], self.wgs84_bounds['south'], zoom)
+            max_tile = mercantile.tile(self.wgs84_bounds['east'], self.wgs84_bounds['north'], zoom)
+            
+            # Generate tiles for this zoom level
+            tiles_generated = self.generate_tiles_for_zoom(zoom, min_tile, max_tile)
+            total_tiles += tiles_generated
+        
+        end_time = time.time()
+        duration = end_time - start_time
+        
+        logger.info(f"Generated {total_tiles} PNG tiles for Bhagpat Baraut Khekra Masterplan in {duration:.2f} seconds")
+        logger.info(f"Average speed: {total_tiles/duration:.2f} tiles/second")
+        
+        # Create supporting files
+        self.create_supporting_files(self.wgs84_bounds, min_zoom, max_zoom)
+        
+        return total_tiles
+    
+    def generate_single_tile(self, zoom, x, y, tile_path):
+        """Generate a single PNG tile using pixel-by-pixel rendering"""
+        try:
+            # Get tile bounds
+            tile_bounds = mercantile.bounds(x, y, zoom)
+            
+            # Create a blank tile
+            img = Image.new('RGBA', (256, 256), (0, 0, 0, 0))
+            draw = ImageDraw.Draw(img)
+            
+            # Render the WGS84 data to this tile using pixel-by-pixel approach
+            self.render_data_to_tile(tile_bounds, draw)
+            
+            # Save the tile
+            img.save(tile_path, 'PNG')
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error generating tile {zoom}/{x}/{y}: {e}")
+            return False
+    
+    def render_data_to_tile(self, tile_bounds, draw):
+        """Render WGS84 data to a tile using pixel-by-pixel approach for maximum quality"""
+        try:
+            # Check if tile bounds intersect with data bounds
+            if (tile_bounds.east < self.wgs84_bounds['west'] or 
+                tile_bounds.west > self.wgs84_bounds['east'] or 
+                tile_bounds.south > self.wgs84_bounds['north'] or 
+                tile_bounds.north < self.wgs84_bounds['south']):
+                return
+            
+            # Get data dimensions
+            height, width = self.wgs84_data_r.shape
+            
+            # Sample points in the tile (every pixel for high quality)
+            for tile_y in range(0, 256, 1):
+                for tile_x in range(0, 256, 1):
+                    # Convert tile pixel to WGS84 coordinates
+                    lon = tile_bounds.west + (tile_bounds.east - tile_bounds.west) * tile_x / 256
+                    lat = tile_bounds.north - (tile_bounds.north - tile_bounds.south) * tile_y / 256
+                    
+                    # Convert WGS84 coordinates to data pixel coordinates
+                    data_x, data_y = self.wgs84_to_data_pixel(lon, lat, width, height)
+                    
+                    if 0 <= data_x < width and 0 <= data_y < height:
+                        r = int(self.wgs84_data_r[data_y, data_x])
+                        g = int(self.wgs84_data_g[data_y, data_x])
+                        b = int(self.wgs84_data_b[data_y, data_x])
+                        a = int(self.wgs84_data_a[data_y, data_x])
+                        
+                        # Only draw pixels that are not transparent
+                        # Preserve ALL colors including black (0,0,0) - only check alpha
+                        if a > 0:
+                            # Use the actual RGB values from the GeoTIFF
+                            rgb_color = (r, g, b)
+                            
+                            # Draw the pixel
+                            draw.point((tile_x, tile_y), fill=rgb_color)
+        
+        except Exception as e:
+            logger.error(f"Error rendering data to tile: {e}")
+    
+    def wgs84_to_data_pixel(self, lon, lat, width, height):
+        """Convert WGS84 coordinates to data pixel coordinates"""
+        # Use the inverse transform to get pixel coordinates
+        from rasterio.transform import rowcol
+        
+        row, col = rowcol(self.wgs84_transform, lon, lat)
+        return int(col), int(row)
+    
+    def create_supporting_files(self, bounds, min_zoom, max_zoom):
+        """Create supporting files for the tile set"""
+        logger.info("Creating supporting files...")
+        
+        # Create Mapbox style JSON
+        style_json = {
+            "version": 8,
+            "name": "Delhi-NCR - Bhagpat Baraut Khekra Masterplan (Threaded)",
+            "sources": {
+                "bhagpat-baraut-khekra-masterplan": {
+                    "type": "raster",
+                    "tiles": [
+                        "https://d17yosovmfjm4.cloudfront.net/delhi-ncr/bhagpat_baraut_khekra_masterplan/{z}/{x}/{y}.png"
+                    ],
+                    "tileSize": 256
+                }
+            },
+            "layers": [
+                {
+                    "id": "bhagpat-baraut-khekra-masterplan-layer",
+                    "type": "raster",
+                    "source": "bhagpat-baraut-khekra-masterplan",
+                    "paint": {
+                        "raster-opacity": 0.8
+                    }
+                }
+            ]
+        }
+        
+        with open(self.output_dir / "style.json", "w") as f:
+            import json
+            json.dump(style_json, f, indent=2)
+        
+        # Create TileJSON
+        tilejson = {
+            "tilejson": "2.2.0",
+            "name": "Delhi-NCR - Bhagpat Baraut Khekra Masterplan (Threaded)",
+            "description": "Master plan tiles for Delhi-NCR - Bhagpat Baraut Khekra (Multi-threaded with pixel-perfect quality)",
+            "version": "1.0.0",
+            "attribution": "Delhi-NCR Development Authority",
+            "template": "",
+            "legend": "",
+            "scheme": "xyz",
+            "tiles": [
+                "https://d17yosovmfjm4.cloudfront.net/delhi-ncr/bhagpat_baraut_khekra_masterplan/{z}/{x}/{y}.png"
+            ],
+            "grids": [],
+            "data": [],
+            "minzoom": min_zoom,
+            "maxzoom": max_zoom,
+            "bounds": [
+                bounds['west'],
+                bounds['south'],
+                bounds['east'],
+                bounds['north']
+            ],
+            "center": [
+                (bounds['west'] + bounds['east']) / 2,
+                (bounds['south'] + bounds['north']) / 2,
+                10
+            ]
+        }
+        
+        with open(self.output_dir / "tilejson.json", "w") as f:
+            import json
+            json.dump(tilejson, f, indent=2)
+        
+        # Create HTML viewer
+        html_content = f"""
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Delhi-NCR - Bhagpat Baraut Khekra Masterplan (Threaded)</title>
+    <script src='https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.js'></script>
+    <link href='https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.css' rel='stylesheet' />
+    <style>
+        body {{ margin: 0; padding: 0; }}
+        #map {{ position: absolute; top: 0; bottom: 0; width: 100%; }}
+    </style>
+</head>
+<body>
+    <div id='map'></div>
+    <script>
+        mapboxgl.accessToken = 'pk.eyJ1IjoiZXhhbXBsZSIsImEiOiJjbGV4YW1wbGUifQ.example';
+        var map = new mapboxgl.Map({{
+            container: 'map',
+            style: {{
+                "version": 8,
+                "sources": {{
+                    "bhagpat-baraut-khekra-masterplan": {{
+                        "type": "raster",
+                        "tiles": [
+                            "https://d17yosovmfjm4.cloudfront.net/delhi-ncr/bhagpat_baraut_khekra_masterplan/{{z}}/{{x}}/{{y}}.png"
+                        ],
+                        "tileSize": 256
+                    }}
+                }},
+                "layers": [
+                    {{
+                        "id": "bhagpat-baraut-khekra-masterplan-layer",
+                        "type": "raster",
+                        "source": "bhagpat-baraut-khekra-masterplan",
+                        "paint": {{
+                            "raster-opacity": 0.8
+                        }}
+                    }}
+                ]
+            }},
+            center: [{(bounds['west'] + bounds['east']) / 2}, {(bounds['south'] + bounds['north']) / 2}],
+            zoom: 10
+        }});
+    </script>
+</body>
+</html>
+"""
+        
+        with open(self.output_dir / "viewer.html", "w") as f:
+            f.write(html_content)
+        
+        logger.info("Created supporting files: style.json, tilejson.json, viewer.html")
+
+def main():
+    """Main function"""
+    logger.info("Starting Threaded Bhagpat Baraut Khekra RGBA Masterplan tile generation")
+    
+    # Initialize generator with configurable workers
+    generator = ThreadedBhagpatBarautKhekraRGBATileGenerator(max_workers=8)
+    
+    # Generate tiles with higher zoom levels for better quality
+    generator.generate_tiles(min_zoom=5, max_zoom=18)
+    
+    logger.info("Threaded Bhagpat Baraut Khekra RGBA Masterplan tile generation completed!")
+
+if __name__ == "__main__":
+    main()
+

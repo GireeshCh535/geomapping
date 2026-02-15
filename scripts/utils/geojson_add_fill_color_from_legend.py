@@ -1,0 +1,214 @@
+#!/usr/bin/env python3
+"""
+Unified script: add fill_color from a legend.csv to every feature in GeoJSON files.
+
+Reads a legend CSV (with columns: category, fill_color) and a data directory.
+For each .geojson in the directory, adds fill_color to each feature's properties
+by matching the feature's 'Name' (or 'name') to the legend's category.
+
+Usage:
+    python scripts/geojson_add_fill_color_from_legend.py \
+        --legend "data/Telangana/Hyderabad/master_plan/HMDA/legend.csv" \
+        --data-dir "data/Telangana/Hyderabad/master_plan/HMDA"
+
+    # With subdirectories (e.g. HMDA + HUDA each with own legend):
+    python scripts/geojson_add_fill_color_from_legend.py \
+        --legend "data/Telangana/Hyderabad/master_plan/HUDA/legend.csv" \
+        --data-dir "data/Telangana/Hyderabad/master_plan/HUDA"
+
+    # Recursive: process .geojson in subdirectories of data-dir
+    python scripts/geojson_add_fill_color_from_legend.py \
+        --legend "path/to/legend.csv" \
+        --data-dir "path/to/data" \
+        --recursive
+
+    # Dry run (no writes)
+    python scripts/geojson_add_fill_color_from_legend.py \
+        --legend "path/to/legend.csv" \
+        --data-dir "path/to/data" \
+        --dry-run
+"""
+
+import argparse
+import csv
+import json
+from pathlib import Path
+from typing import Optional
+
+
+def load_legend_fill_colors(legend_path: Path, case_insensitive: bool = True) -> dict[str, str]:
+    """Build category -> fill_color from legend CSV. First occurrence wins; skips empty fill_color.
+    If case_insensitive, keys are stored lowercased so 'Agriculture Land' matches 'AGRICULTURE LAND'.
+    """
+    mapping = {}
+    with open(legend_path, newline="", encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            category = (row.get("category") or "").strip()
+            fill = (row.get("fill_color") or "").strip()
+            if not category or not fill:
+                continue
+            # Normalize: lowercase and collapse spaces for case-insensitive match
+            key = " ".join(category.lower().split()) if case_insensitive else category
+            if key not in mapping:
+                mapping[key] = fill
+    return mapping
+
+
+def add_fill_color_to_geojson(
+    geojson_path: Path,
+    category_to_fill: dict[str, str],
+    *,
+    dry_run: bool = False,
+    collect_missing: Optional[set] = None,
+) -> tuple[int, int]:
+    """
+    Load GeoJSON, add fill_color to each feature's properties, optionally save back.
+    Returns (features_updated, features_missing_color).
+    If collect_missing is provided, add raw category strings that had no match to it.
+    """
+    with open(geojson_path, encoding="utf-8") as f:
+        data = json.load(f)
+
+    features = data.get("features", [])
+    updated = 0
+    missing = 0
+
+    # Property keys to try for category name (prefer zone/category over owner/sector name)
+    name_keys = (
+        "linecolour",  # Bengaluru / Hyderabad metro: match fill_color by line (Purple, Green, Pink, etc.)
+        "boundary_type",  # Heritage: protected / prohibited / regulated
+        "Category", "category",
+        "Landuse", "landuse",  # Puducherry master plan: zone type (before layer!)
+        "PLU", "PLU_NAME",  # Warangal / Telangana master plan
+        "Layer Name",  # Karnataka Bengaluru master plan (exact key with space)
+        "LAYER", "layer", "classtext",  # Gurgaon / Faridabad / Yamuna Expressway
+        "ppt_full", "plot_categ", "symbology",  # Greater Noida: zone type (before name!)
+        "LANDUSE_CA", "LANDUSE_CATEGORY", "LANDUSE_SUBCAT_LEVEL_1",
+        "NAME", "Name", "name",  # Delhi master plan uses NAME
+        "class",
+        "Pemissible Height", "Permissible Height", "Height", "Zone",
+        "zone_name", "zone_category",
+    )
+    # Fallback: use filename stem (e.g. Agriculture_Land.geojson -> "Agriculture Land") when no prop
+    file_stem = geojson_path.stem.replace("_", " ")
+
+    for feature in features:
+        props = feature.get("properties") or {}
+        name = ""
+        for key in name_keys:
+            val = props.get(key)
+            if val is not None:
+                s = str(val).strip()
+                if s:
+                    name = s
+                    break
+        if not name:
+            name = file_stem
+        # Lookup: legend is stored with lowercase keys; normalize spaces for case-insensitive match
+        lookup_key = " ".join((name or "").strip().lower().split()) if name else ""
+        fill = category_to_fill.get(lookup_key) if lookup_key else None
+        if fill is not None:
+            # Only add/update fill_color; do not change any other properties
+            props["fill_color"] = fill
+            updated += 1
+        else:
+            missing += 1
+            if collect_missing is not None and name:
+                collect_missing.add(name)
+
+    if not dry_run:
+        with open(geojson_path, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+
+    return updated, missing
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(
+        description="Add fill_color from legend.csv to every feature in GeoJSON files in a directory.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=__doc__,
+    )
+    parser.add_argument(
+        "--legend",
+        type=Path,
+        required=True,
+        help="Path to legend CSV (must have columns: category, fill_color)",
+    )
+    parser.add_argument(
+        "--data-dir",
+        type=Path,
+        required=True,
+        help="Directory containing .geojson files (or parent of subdirs if --recursive)",
+    )
+    parser.add_argument(
+        "--recursive",
+        action="store_true",
+        help="Search for .geojson files in subdirectories of data-dir",
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Do not write files; only report what would be updated",
+    )
+    parser.add_argument(
+        "--report-missing",
+        action="store_true",
+        help="Print unique category values that had no match in the legend (add these to legend.csv to fix)",
+    )
+    args = parser.parse_args()
+
+    legend_path = args.legend.resolve()
+    data_dir = args.data_dir.resolve()
+
+    if not legend_path.exists():
+        raise SystemExit(f"Legend not found: {legend_path}")
+
+    if not data_dir.is_dir():
+        raise SystemExit(f"Data directory not found or not a directory: {data_dir}")
+
+    category_to_fill = load_legend_fill_colors(legend_path)
+    print(f"Loaded {len(category_to_fill)} category -> fill_color from {legend_path.name}")
+
+    if args.recursive:
+        geojson_files = sorted(data_dir.rglob("*.geojson"))
+    else:
+        geojson_files = sorted(data_dir.glob("*.geojson"))
+
+    if not geojson_files:
+        scope = "and subdirs" if args.recursive else ""
+        raise SystemExit(f"No .geojson files found in {data_dir} {scope}")
+
+    print(f"Found {len(geojson_files)} .geojson file(s)")
+    if args.dry_run:
+        print("(dry run — no files will be modified)\n")
+
+    total_updated = 0
+    total_missing = 0
+    missing_values: set[str] = set() if args.report_missing else set()
+    for path in geojson_files:
+        updated, missing = add_fill_color_to_geojson(
+            path,
+            category_to_fill,
+            dry_run=args.dry_run,
+            collect_missing=missing_values if args.report_missing else None,
+        )
+        total_updated += updated
+        total_missing += missing
+        try:
+            rel = path.relative_to(data_dir)
+        except ValueError:
+            rel = path.name
+        status = "ok" if missing == 0 else f"missing_color={missing}"
+        print(f"  {rel}: {updated} feature(s) updated, {status}")
+
+    print(f"\nDone: {total_updated} features got fill_color, {total_missing} without match in legend.")
+    if args.report_missing and missing_values:
+        print("\nUnique category values with no legend match (add to legend.csv):")
+        for val in sorted(missing_values):
+            print(f"  {val!r}")
+
+
+if __name__ == "__main__":
+    main()

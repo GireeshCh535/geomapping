@@ -1,24 +1,48 @@
 from django.shortcuts import get_object_or_404
 from django.db.models import Count, Q, Prefetch
+from django.db import connection, close_old_connections
+from django.core.exceptions import ImproperlyConfigured
 from django.utils import timezone
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.permissions import AllowAny
 from django.conf import settings
+from django.core.cache import cache
+import hashlib
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from django.http import HttpResponseRedirect, HttpResponse
-from django.contrib.gis.geos import Point
+from django.contrib.gis.geos import Point, Polygon
 from django.contrib.gis.db.models.functions import Distance
 from drf_spectacular.utils import extend_schema, extend_schema_view, OpenApiParameter, OpenApiExample
 from .models import *
 from .serializers import *
 from .tile_path_service import TilePathService
+import copy
 import logging
+import json
+from urllib.parse import quote
 import boto3
 import requests
+import psycopg2
+from psycopg2 import OperationalError, DatabaseError
 
 logger = logging.getLogger(__name__)
+
+# SVG template for master plan fill color indicator (use {color} placeholder)
+MASTERPLAN_FILL_COLOR_SVG = (
+    '<svg width="16" height="16" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg">'
+    '<rect x="0" y="0" width="16" height="16" rx="4" ry="4" fill="{color}"/>'
+    '</svg>'
+)
+
+
+def _masterplan_fill_color_svg_data_uri(hex_color):
+    """Return SVG as a data URI so frontend can use in <img src={fill_color} /> without JSON escaping issues."""
+    if not hex_color:
+        return ''
+    svg_str = MASTERPLAN_FILL_COLOR_SVG.format(color=hex_color)
+    return f"data:image/svg+xml,{quote(svg_str)}"
 
 # ================================
 # VIEWSETS (Router endpoints)
@@ -412,8 +436,28 @@ class CoordinateSearchTestView(APIView):
     - Geographic properties (area, color, etc.)
     - Administrative boundaries
     - Nearby features
+    
+    Optimized with:
+    - Redis caching for repeated queries
+    - Optimized spatial queries
+    - Reduced database round trips
     """
     permission_classes = [AllowAny]
+    
+    # Cache settings
+    CACHE_TTL = 300  # 5 minutes for successful results
+    CACHE_TTL_EMPTY = 60  # 1 minute for empty results
+    COORDINATE_PRECISION = 5  # Decimal places for cache key (roughly 1.1m precision)
+    
+    def _generate_cache_key(self, slug, lat, lng, radius):
+        """Generate cache key with coordinate precision rounding"""
+        # Round coordinates to reduce cache misses for nearby points
+        rounded_lat = round(lat, self.COORDINATE_PRECISION)
+        rounded_lng = round(lng, self.COORDINATE_PRECISION)
+        rounded_radius = int(radius)
+        
+        key_string = f"coord_search:{slug or 'global'}:{rounded_lat}:{rounded_lng}:{rounded_radius}"
+        return hashlib.md5(key_string.encode()).hexdigest()
     
     def get(self, request, city_slug=None):
         try:
@@ -458,6 +502,18 @@ class CoordinateSearchTestView(APIView):
                     'message': 'Radius must be between 0 and 10,000 meters'
                 }, status=400)
             
+            # Generate cache key
+            cache_key = self._generate_cache_key(city_slug, latitude, longitude, radius_meters)
+            
+            # Try cache first
+            cached_result = cache.get(cache_key)
+            if cached_result is not None:
+                cached_result['metadata']['from_cache'] = True
+                logger.debug(f"Cache HIT for coordinate search: {cache_key}")
+                return Response(cached_result)
+            
+            logger.debug(f"Cache MISS for coordinate search: {cache_key}")
+            
             # Create point geometry
             search_point = Point(longitude, latitude, srid=4326)
             
@@ -484,14 +540,36 @@ class CoordinateSearchTestView(APIView):
                 # Search across all states and cities
                 result = self._search_across_all_cities(search_point, latitude, longitude, radius_meters)
             
-            # Add metadata to response
+            # When returning simple format (data + fill_color), strip default color from features so client never sees it
+            if isinstance(result, dict) and 'fill_color' in result and result.get('features'):
+                for f in result['features']:
+                    if isinstance(f, dict):
+                        f.pop('color', None)
+                        dc = f.get('detailed_category') or {}
+                        if isinstance(dc, dict) and 'layer_category' in dc and isinstance(dc.get('layer_category'), dict):
+                            dc['layer_category'].pop('default_color', None)
+            
+            # Add metadata to response (simple format has 'data' + 'fill_color' but no 'features' list)
+            total_found = len(result.get('features', []))
+            if total_found == 0 and result.get('data') is not None and 'fill_color' in result:
+                total_found = 1
             result['metadata'] = {
                 'search_timestamp': timezone.now().isoformat(),
                 'search_radius_meters': radius_meters,
-                'total_features_found': len(result.get('features', [])),
+                'total_features_found': total_found,
                 'total_nearby_features': len(result.get('nearby_features', [])),
-                'api_version': '2.0'
+                'api_version': '2.0',
+                'from_cache': False
             }
+            
+            # Cache the result
+            # Use shorter TTL for empty results, longer for successful results
+            ttl = self.CACHE_TTL_EMPTY if not result.get('found') and not result.get('features') else self.CACHE_TTL
+            try:
+                cache.set(cache_key, result, ttl)
+                logger.debug(f"Cached result for {cache_key} with TTL {ttl}s")
+            except Exception as e:
+                logger.warning(f"Failed to cache result: {e}")
             
             return Response(result)
             
@@ -568,6 +646,7 @@ class CoordinateSearchTestView(APIView):
         """Search for features across all states and cities"""
         try:
             # Find all features that contain the point
+            # Optimized with field limiting and result cap
             features = GeoFeature.objects.filter(
                 layer__city__is_active=True,
                 layer__city__state_ref__is_active=True,
@@ -579,7 +658,15 @@ class CoordinateSearchTestView(APIView):
                 'layer__category', 
                 'layer__city', 
                 'layer__city__state_ref'
-            ).order_by('-area')
+            ).only(
+                'id', 'name', 'zone_category', 'zone_subcategory',
+                'plu_primary_code', 'plu_secondary_1', 'plot_category',
+                'symbology', 'area', 'properties', 'geometry',
+                'layer__id', 'layer__slug', 'layer__name', 'layer__description',
+                'layer__category__code', 'layer__category__name',
+                'layer__city__slug', 'layer__city__name',
+                'layer__city__state_ref__slug', 'layer__city__state_ref__name', 'layer__city__state_ref__code'
+            ).order_by('-area')[:20]  # Limit to top 20 features
             
             if not features.exists():
                 # Try nearby search across all cities if radius > 0
@@ -707,12 +794,23 @@ class CoordinateSearchTestView(APIView):
         search_buffer = point.buffer(0.0001)  # ~10m buffer
         
         # Query features that intersect with the buffered point
+        # Optimized with field limiting and result cap
         features = GeoFeature.objects.filter(
             layer__city=city,
             layer__is_processed=True,
             is_valid=True,
             geometry__intersects=search_buffer
-        ).select_related('layer', 'layer__category').order_by('-area')
+        ).select_related(
+            'layer', 'layer__category', 'layer__city', 'layer__city__state_ref'
+        ).only(
+            'id', 'name', 'zone_category', 'zone_subcategory',
+            'plu_primary_code', 'plu_secondary_1', 'plot_category',
+            'symbology', 'area', 'properties', 'geometry',
+            'layer__id', 'layer__slug', 'layer__name', 'layer__description',
+            'layer__category__code', 'layer__category__name',
+            'layer__city__slug', 'layer__city__name',
+            'layer__city__state_ref__slug', 'layer__city__state_ref__name'
+        ).order_by('-area')[:20]  # Limit to top 20 features
         
         for feature in features:
             feature_data = self._process_feature_data(feature)
@@ -768,12 +866,23 @@ class CoordinateSearchTestView(APIView):
         buffered_area.transform(4326)  # Back to WGS84
         
         # Find features that intersect with the buffer
+        # Optimized with field limiting and result cap
         features = GeoFeature.objects.filter(
             layer__city=city,
             layer__is_processed=True,
             is_valid=True,
             geometry__intersects=buffered_area
-        ).select_related('layer', 'layer__category')
+        ).select_related(
+            'layer', 'layer__category', 'layer__city', 'layer__city__state_ref'
+        ).only(
+            'id', 'name', 'zone_category', 'zone_subcategory',
+            'plu_primary_code', 'plu_secondary_1', 'plot_category',
+            'symbology', 'area', 'properties', 'geometry',
+            'layer__id', 'layer__slug', 'layer__name',
+            'layer__category__code', 'layer__category__name',
+            'layer__city__slug', 'layer__city__name',
+            'layer__city__state_ref__slug', 'layer__city__state_ref__name'
+        )[:10]  # Limit to 10 nearby features
         
         for feature in features:
             try:
@@ -917,7 +1026,7 @@ class CoordinateSearchTestView(APIView):
                 'code': feature.layer.category.code,
                 'name': feature.layer.category.name,
                 'description': feature.layer.category.description or '',
-                'default_color': feature.layer.category.default_color or '#666666',
+                'default_color': feature.layer.category.default_color or '',
                 'default_opacity': feature.layer.category.default_opacity or 0.8
             }
         
@@ -959,10 +1068,11 @@ class CoordinateSearchTestView(APIView):
             # Use the existing config system from your codebase
             from .config import get_city_config
             
-            category_code = feature.derived_category
+            category_code = feature.zone_category
             
             # Get city-specific color from config
-            city_config = get_city_config(city_slug)
+            state_slug = feature.layer.city.state_ref.slug if feature.layer.city.state_ref else None
+            city_config = get_city_config(state_slug, city_slug) if state_slug else None
             if city_config and 'colors' in city_config:
                 color = city_config['colors'].get(category_code)
                 if color:
@@ -972,21 +1082,21 @@ class CoordinateSearchTestView(APIView):
             try:
                 style = feature.layer.get_style()
                 if isinstance(style, dict):
-                    return style.get('fill_color', '#666666')
+                    return style.get('fill_color', '') or ''
                 elif hasattr(style, 'fill_color'):
-                    return style.fill_color
+                    return style.fill_color or ''
             except:
                 pass
             
-            # Fallback to category color or default
+            # Fallback to category color; no default - keep "" if none
             if feature.layer.category:
-                return feature.layer.category.color or '#0066CC'
+                return feature.layer.category.color or ''
             
-            return '#0066CC'  # Default blue
+            return ''
             
         except Exception as e:
             logger.error(f"Error getting feature color: {e}")
-            return '#0066CC'
+            return ''
     
     def _create_search_summary(self, containing_features, nearby_features):
         """Create a human-readable summary of the search results"""
@@ -1009,27 +1119,97 @@ class CoordinateSearchTestView(APIView):
     def _search_in_layer(self, layer, search_point, latitude, longitude, radius_meters):
         """Search for features within a specific layer"""
         try:
-            # Use a small buffer around the point to handle LineStrings and other geometries
-            search_buffer = search_point.buffer(0.0001)  # ~10m buffer
+            # Check if this is a master plan layer (by checking if slug contains 'masterplan' or 'master_plan')
+            is_masterplan = 'masterplan' in layer.slug.lower() or 'master_plan' in layer.slug.lower()
+            
+            # Check if this is a roads/linear layer
+            is_road_layer = any(keyword in layer.slug.lower() for keyword in ['road', 'highway', 'metro', 'railway', 'rail', 'line'])
+            
+            # For road/linear layers, always use a buffer for meaningful results
+            # For polygon master plan layers, use exact point containment
+            # For other layers, use a small buffer to handle various geometries
+            if is_road_layer:
+                # Roads are LineStrings - use a 10m buffer to find nearby roads
+                search_geometry = search_point.buffer(0.00001)  # ~1m buffer
+            elif is_masterplan:
+                # Polygon-based master plans (land use zones) - exact point containment
+                search_geometry = search_point
+            else:
+                # Other layers - use a small buffer
+                search_geometry = search_point.buffer(0.0001)  # ~10m buffer
             
             # Search for features in the specific layer that intersect with the point
+            # Optimized query with field limiting and result cap
             features = GeoFeature.objects.filter(
                 layer=layer,
                 is_valid=True,
-                geometry__intersects=search_buffer
-            ).order_by('-area')  # Order by area (largest first)
+                geometry__intersects=search_geometry
+            ).select_related(
+                'layer', 'layer__category', 'layer__city', 'layer__city__state_ref'
+            ).only(
+                'id', 'name', 'zone_category', 'zone_subcategory',
+                'plu_primary_code', 'plu_secondary_1', 'plot_category',
+                'symbology', 'area', 'properties', 'geometry',
+                'layer__id', 'layer__slug', 'layer__name', 'layer__description',
+                'layer__category__code', 'layer__category__name',
+                'layer__city__slug', 'layer__city__name',
+                'layer__city__state_ref__slug', 'layer__city__state_ref__name'
+            ).order_by('-area')[:20]  # Limit to top 20 features
             
             if not features.exists():
+                # Skip nearby search for layers that should only return exact matches
+                # For polygon-based master plan layers and heritage sites, never search nearby - only exact coordinate match
+                # But for road layers, we already used a buffer above, so if no results, truly nothing nearby
+                is_polygon_masterplan = is_masterplan and not is_road_layer
+                is_heritage_site = layer.slug in ['hyderabad_heritage_sites', 'bengaluru_heritage_sites']
+                
+                if is_polygon_masterplan or is_heritage_site:
+                    return {
+                        'search_point': {
+                            'latitude': latitude,
+                            'longitude': longitude,
+                            'coordinates': [longitude, latitude],
+                            'wkt': f'POINT({longitude} {latitude})'
+                        },
+                        'found': False,
+                        'layer': {
+                            'slug': layer.slug,
+                            'name': layer.name,
+                            'city': layer.city.slug,
+                            'city_name': layer.city.name,
+                            'state': layer.city.state_ref.slug if layer.city.state_ref else '',
+                            'state_name': layer.city.state_ref.name if layer.city.state_ref else ''
+                        },
+                        'features': [],
+                        'nearby_features': [],
+                        'administrative_boundaries': {},
+                        'summary': 'No features found in the specified layer',
+                        'search_scope': 'layer_specific',
+                        'search_radius_meters': 0 if is_masterplan else radius_meters,
+                        'status': 'no_data_found'
+                    }
+                
                 # If no exact intersection found, search for nearby features within 100m buffer
+                # Skip this for all master plan layers and heritage sites - they should never reach here due to check above
                 buffer_100m = search_point.buffer(0.0009)  # ~100m buffer (0.0009 degrees ≈ 100m)
                 
                 nearby_features = GeoFeature.objects.filter(
                     layer=layer,
                     is_valid=True,
                     geometry__intersects=buffer_100m
+                ).select_related(
+                    'layer', 'layer__category', 'layer__city', 'layer__city__state_ref'
+                ).only(
+                    'id', 'name', 'zone_category', 'zone_subcategory',
+                    'plu_primary_code', 'plu_secondary_1', 'plot_category',
+                    'symbology', 'area', 'properties', 'geometry',
+                    'layer__id', 'layer__slug', 'layer__name',
+                    'layer__category__code', 'layer__category__name',
+                    'layer__city__slug', 'layer__city__name',
+                    'layer__city__state_ref__slug', 'layer__city__state_ref__name'
                 ).annotate(
                     distance=Distance('geometry', search_point)
-                ).order_by('distance')
+                ).order_by('distance')[:10]  # Limit to closest 10
                 
                 if nearby_features.exists():
                     # Found nearby features within 100m, return the closest one
@@ -1051,9 +1231,15 @@ class CoordinateSearchTestView(APIView):
                         
                         # Return as comma-separated string
                         data_string = f"{notation}, Status: {current_status}"
-                        
+                        fill_color = (
+                            properties.get('fill_color') or properties.get('fillColor') or
+                            properties.get('FillColor') or properties.get('color')
+                        ) or ''
                         return {
-                            'data': data_string
+                            'data': data_string,
+                            'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
+                            'found': True,
+                            'features': [feature_data],
                         }
                     
                     elif layer.slug == 'bengaluru_metro':
@@ -1061,17 +1247,63 @@ class CoordinateSearchTestView(APIView):
                         properties = detailed_category.get('properties', {})
                         
                         linecolour = properties.get('linecolour', '')
-                        name = properties.get('Name ', '')  # Note the space after 'Name'
+                        name = properties.get('Name ', '') or properties.get('Name', '')
                         remarks = properties.get('remarks', '')
                         
                         # Format: "linecolour" + Line, name, Status: remarks
                         line_name = f"{linecolour} Line" if linecolour else "Line"
                         data_string = f"{line_name}, {name}, Status: {remarks}"
-                        
+                        fill_color = (
+                            properties.get('fill_color') or properties.get('fillColor') or
+                            properties.get('FillColor') or properties.get('color')
+                        ) or ''
                         return {
-                            'data': data_string
+                            'data': data_string,
+                            'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
+                            'found': True,
+                            'features': [feature_data],
                         }
                     
+                    elif layer.slug == 'hyderabad_metro':
+                        detailed_category = feature_data.get('detailed_category', {})
+                        properties = detailed_category.get('properties', {})
+
+                        name = properties.get('name', '')
+                        status = properties.get('Status', '')
+                        linecolour = properties.get('linecolour', '')
+                        from_junct = properties.get('from_junct', '')
+                        to_junct = properties.get('to_junct', '')
+
+                        route_parts = []
+                        if from_junct:
+                            route_parts.append(from_junct)
+                        if to_junct:
+                            if route_parts:
+                                route_parts.append('to')
+                            route_parts.append(to_junct)
+                        route = ' '.join(route_parts)
+
+                        parts = []
+                        if name:
+                            parts.append(name)
+                        if status:
+                            parts.append(f"Status: {status}")
+                        if linecolour:
+                            parts.append(linecolour)
+                        if route:
+                            parts.append(route)
+                        data_string = ', '.join(parts)
+                        fill_color = (
+                            properties.get('fill_color') or properties.get('fillColor') or
+                            properties.get('FillColor') or properties.get('color')
+                        ) or ''
+                        return {
+                            'data': data_string,
+                            'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
+                            'found': True,
+                            'features': [feature_data],
+                        }
+
                     elif layer.slug == 'bengaluru_highways':
                         detailed_category = feature_data.get('detailed_category', {})
                         properties = detailed_category.get('properties', {})
@@ -1081,9 +1313,15 @@ class CoordinateSearchTestView(APIView):
                         
                         # Format: "Name, Notation"
                         data_string = f"{name}, {notation}"
-                        
+                        fill_color = (
+                            properties.get('fill_color') or properties.get('fillColor') or
+                            properties.get('FillColor') or properties.get('color')
+                        ) or ''
                         return {
-                            'data': data_string
+                            'data': data_string,
+                            'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
+                            'found': True,
+                            'features': [feature_data],
                         }
                     
                     elif layer.slug == 'hyderabad_highways':
@@ -1095,9 +1333,15 @@ class CoordinateSearchTestView(APIView):
                         
                         # Format: "Name, Notation"
                         data_string = f"{name}, {notation}"
-                        
+                        fill_color = (
+                            properties.get('fill_color') or properties.get('fillColor') or
+                            properties.get('FillColor') or properties.get('color')
+                        ) or ''
                         return {
-                            'data': data_string
+                            'data': data_string,
+                            'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
+                            'found': True,
+                            'features': [feature_data],
                         }
                     
                     elif layer.slug == 'hyderabad_rrr':
@@ -1110,9 +1354,15 @@ class CoordinateSearchTestView(APIView):
                         # Format: "Proposed, Status: Alignment"
                         proposed_notation = f"Proposed {notation}" if notation else "Proposed"
                         data_string = f"{proposed_notation}, Status: {alignment}"
-                        
+                        fill_color = (
+                            properties.get('fill_color') or properties.get('fillColor') or
+                            properties.get('FillColor') or properties.get('color')
+                        ) or ''
                         return {
-                            'data': data_string
+                            'data': data_string,
+                            'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
+                            'found': True,
+                            'features': [feature_data],
                         }
                     
                     elif layer.slug == 'hyderabad_ratan_tata_road':
@@ -1123,9 +1373,15 @@ class CoordinateSearchTestView(APIView):
                         
                         # Format: "Name"
                         data_string = name
-                        
+                        fill_color = (
+                            properties.get('fill_color') or properties.get('fillColor') or
+                            properties.get('FillColor') or properties.get('color')
+                        ) or ''
                         return {
-                            'data': data_string
+                            'data': data_string,
+                            'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
+                            'found': True,
+                            'features': [feature_data],
                         }
                     
                     elif layer.slug == 'hyderabad_future_city':
@@ -1139,12 +1395,70 @@ class CoordinateSearchTestView(APIView):
                             data_string = name
                         else:
                             data_string = "Unknown"
-                        
+                        fill_color = (
+                            properties.get('fill_color') or properties.get('fillColor') or
+                            properties.get('FillColor') or properties.get('color')
+                        ) or ''
                         return {
-                            'data': data_string
+                            'data': data_string,
+                            'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
+                            'found': True,
+                            'features': [feature_data],
                         }
                     
-                    elif layer.slug in ['bengaluru_anekal_masterplan', 'bengaluru_chikkaballapura_masterplan', 'bengaluru_hosakote_masterplan', 'bengaluru_nelamangala_masterplan']:
+                    # Special handling for all air funnel zones layers (nearby features)
+                    elif layer.slug in [
+                        'bhubaneswar_air_funnel_zones'
+                        'bengaluru_air_funnel_zones',
+                        'hyderabad_air_funnel_zones',
+                        'kozhikode_air_funnel_zones',
+                        'ayodhya_air_funnel_zones',
+                        'raipur_air_funnel_zones',
+                        'ahmedabad_air_funnel_zones',
+                        'warangal_air_funnel_zones',
+                        'nagpur_air_funnel_zones',
+                        'bhubaneshwar_air_funnel_zones',
+                        'chennai_air_funnel_zones',
+                        'delhi_air_funnel_zones',
+                        'diu_air_funnel_zones',
+                        'dholera_air_funnel_zones',
+                        'guwahati_air_funnel_zones',
+                        'jaipur_air_funnel_zones',
+                        'tirupati_air_funnel_zones',
+                        'kochi_air_funnel_zones',
+                        'lucknow_air_funnel_zones',
+                        'mumbai_air_funnel_zones',
+                        'noida_air_funnel_zones',
+                        'patna_air_funnel_zones',
+                        'raigarh_air_funnel_zones'
+                    ]:
+                        detailed_category = feature_data.get('detailed_category', {})
+                        properties = detailed_category.get('properties', {}) or {}
+                        height_value = properties.get('Pemissible Height', '') or properties.get('Permissible Height', '')
+                        data_str = f"Permissible Height : {height_value}" if height_value else "Permissible Height : "
+                        fill_color = (
+                            properties.get('fill_color') or properties.get('fillColor') or
+                            properties.get('FillColor') or properties.get('color')
+                        ) or ''
+                        return {
+                            'data': data_str,
+                            'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
+                        }
+                    
+                    elif layer.slug in ['bengaluru_anekal_masterplan', 'bengaluru_chikkaballapura_masterplan', 'bengaluru_hosakote_masterplan', 'bengaluru_nelamangala_masterplan',
+            'coimbatore_master_plan', 'hosur_master_plan', 'kochi_master_plan', 'chennai_master_plan',
+            'tirupati_masterplan', 'cuttack_masterplan', 'vgtm_masterplan', 'kakinada_masterplan',
+            'mandideep_masterplan', 'ajmer_masterplan', 'pithampur_masterplan', 'bhopal_masterplan',
+            'varanasi_masterplan', 'ahmedabad_masterplan', 'vadodara_masterplan', 'gift_city_masterplan',
+            'mohali_sas_nagar_masterplan', 'daman_and_diu_masterplan', 'patna_masterplan', 'ayodhya_masterplan',
+            'lucknow_masterplan', 'srinagar_masterplan', 'guwahati_masterplan','dadra_and_nagar_haveli_masterplan',
+            "kannur_masterplan", 'kollam_masterplan', 'kozhikode_masterplan', "derabassi_masterplan", 'banur_masterplan', 'mullanpur_masterplan', 'kharar_masterplan',
+            'sonipat_kundli_masterplan', 'arogya_dham_badsa_masterplan', 'palwal_masterplan', 'prithla_masterplan', 'loni_masterplan', 'bhagpat_baraut_khekra_masterplan', 'modinagar_masterplan', 'kharkhauda_masterplan', 'ghaziabad_masterplan',
+            'pinjore_kalka_masterplan', 'panchkula_extension_1_masterplan', 'panchkula_masterplan', 'dharuhera_masterplan', 'zirakpur_masterplan', 'sonipat_masterplan', 'new_raipur_masterplan',
+            'biappa_masterplan', 'port_blair_masterplan', 'itanagar_masterplan', 'thiruvananthapuram_masterplan', 'thrissur_masterplan',
+            'nuh_masterplan', 'jhajjar_masterplan', 'meerut_masterplan', 'hodal_masterplan', 'rewari_masterplan',
+            'gohana_masterplan', 'bhiwadi_masterplan', 'alwar_masterplan',
+            'mumbai_masterplan', 'pune_city_pmc_masterplan', 'pimpri_chinchwad_masterplan', 'pmrda-masterplan-pmrda_masterplan', 'nagpur_masterplan']:
                         # Return just the layer name as plain string
                         return {
                             'data': layer.slug,
@@ -1219,55 +1533,179 @@ class CoordinateSearchTestView(APIView):
                 feature_data = self._process_feature_data(feature)
                 containing_features.append(feature_data)
             
+            # Special handling for jagdalpur_masterplan - select correct feature when multiple overlap
+            if layer.slug == 'jagdalpur_masterplan' and containing_features:
+                # For jagdalpur, when multiple features overlap, use properties.Name as source of truth
+                # All features should have consistent Name, PLU_2021, and zone_subcategory
+                # When multiple features overlap, prioritize by data consistency and area
+                # Roads are infrastructure that typically cover larger areas and should be prioritized
+                # when they overlap with smaller land-use zones
+                best_feature = None
+                best_score = -1
+                
+                for feature_data in containing_features:
+                    detailed_category = feature_data.get('detailed_category', {})
+                    properties = detailed_category.get('properties', {}) or {}
+                    zone_subcategory = feature_data.get('zone_subcategory', '')
+                    plu_2021 = properties.get('PLU_2021', '')
+                    name = properties.get('Name', '')
+                    area = feature_data.get('area', {}).get('square_meters', 0)
+                    
+                    score = 0
+                    
+                    # Check data consistency - all three should match
+                    if name and plu_2021 and zone_subcategory:
+                        if name == plu_2021 == zone_subcategory:
+                            score += 20  # Perfect consistency - highest priority
+                        elif name == plu_2021:
+                            score += 15  # Name and PLU match
+                        elif name == zone_subcategory:
+                            score += 15  # Name and filename match
+                        elif plu_2021 == zone_subcategory:
+                            score += 15  # PLU and filename match
+                    
+                    # For jagdalpur: Roads are infrastructure features that should be prioritized
+                    # when they overlap with smaller land-use zones (Commercial, Residential)
+                    # Roads typically have larger areas (> 50 sq meters)
+                    if name == 'Existing Roads' or plu_2021 == 'Existing Roads':
+                        score += 10  # Prioritize Roads when they overlap with other features
+                    
+                    # Prefer features with complete Name property
+                    if name:
+                        score += 1
+                    
+                    if score > best_score:
+                        best_score = score
+                        best_feature = feature_data
+                
+                # Reorder so the best feature is first
+                if best_feature and best_feature != containing_features[0]:
+                    containing_features.remove(best_feature)
+                    containing_features.insert(0, best_feature)
             
             # Special handling for bengaluru_strr layer
             if layer.slug == 'bengaluru_strr' and containing_features:
                 primary_feature = containing_features[0]
                 detailed_category = primary_feature.get('detailed_category', {})
-                properties = detailed_category.get('properties', {})
+                properties = detailed_category.get('properties', {}) or {}
                 
                 notation = properties.get('Notation', '')
                 current_status = properties.get('Current_St', '')
-                
-                # Return as comma-separated string
                 data_string = f"{notation}, Status: {current_status}"
-                
+                fill_color = (
+                    properties.get('fill_color') or properties.get('fillColor') or
+                    properties.get('FillColor') or properties.get('color')
+                ) or ''
                 return {
-                    'data': data_string
+                    'data': data_string,
+                    'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
+                    'found': True,
+                    'features': containing_features[:1],
                 }
             
             # Special handling for bengaluru_metro layer
             if layer.slug == 'bengaluru_metro' and containing_features:
                 primary_feature = containing_features[0]
                 detailed_category = primary_feature.get('detailed_category', {})
-                properties = detailed_category.get('properties', {})
+                properties = detailed_category.get('properties', {}) or {}
                 
                 linecolour = properties.get('linecolour', '')
-                name = properties.get('Name ', '')  # Note the space after 'Name'
+                name = properties.get('Name ', '') or properties.get('Name', '')
                 remarks = properties.get('remarks', '')
-                
-                # Format: "linecolour" + Line, name, Status: remarks
                 line_name = f"{linecolour} Line" if linecolour else "Line"
                 data_string = f"{line_name}, {name}, Status: {remarks}"
-                
+                fill_color = (
+                    properties.get('fill_color') or properties.get('fillColor') or
+                    properties.get('FillColor') or properties.get('color')
+                ) or ''
+                return {
+                    'data': data_string,
+                    'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
+                    'found': True,
+                    'features': containing_features[:1],
+                }
+            
+            # Special handling for bengaluru_masterplan_roads
+            if layer.slug == 'bengaluru_masterplan_roads' and containing_features:
+                primary_feature = containing_features[0]
+                detailed_category = primary_feature.get('detailed_category', {})
+                properties = detailed_category.get('properties', {}) or {}
+
+                name = str(properties.get('Name', '')) if properties.get('Name') else ''
+                road_width_feet = properties.get('Road Width (in feet)')
+                road_width_meters = properties.get('Road Width (in meters)')
+                data_parts = []
+                if name:
+                    data_parts.append(name)
+                if road_width_feet:
+                    data_parts.append(f"Road Width (in feet) - {str(road_width_feet)}")
+                elif road_width_meters:
+                    data_parts.append(f"Road Width (in meters) - {str(road_width_meters)}")
+                data_string = ', '.join(data_parts) if data_parts else 'Masterplan Road'
+                fill_color = (
+                    properties.get('fill_color') or properties.get('fillColor') or
+                    properties.get('FillColor') or properties.get('color')
+                ) or ''
+                return {
+                    'data': data_string,
+                    'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
+                    'found': True,
+                    'features': containing_features[:1],
+                }
+            
+            if layer.slug == 'hyderabad_metro' and containing_features:
+                primary_feature = containing_features[0]
+                detailed_category = primary_feature.get('detailed_category', {})
+                properties = detailed_category.get('properties', {})
+
+                name = properties.get('name', '')
+                status = properties.get('Status', '')
+                linecolour = properties.get('linecolour', '')
+                from_junct = properties.get('from_junct', '')
+                to_junct = properties.get('to_junct', '')
+
+                route_parts = []
+                if from_junct:
+                    route_parts.append(from_junct)
+                if to_junct:
+                    if route_parts:
+                        route_parts.append('to')
+                    route_parts.append(to_junct)
+                route = ' '.join(route_parts)
+
+                parts = []
+                if name:
+                    parts.append(name)
+                if status:
+                    parts.append(f"Status: {status}")
+                if linecolour:
+                    parts.append(linecolour)
+                if route:
+                    parts.append(route)
+                data_string = ', '.join(parts)
+
                 return {
                     'data': data_string
                 }
-            
+
             # Special handling for bengaluru_highways layer
             if layer.slug == 'bengaluru_highways' and containing_features:
                 primary_feature = containing_features[0]
                 detailed_category = primary_feature.get('detailed_category', {})
-                properties = detailed_category.get('properties', {})
+                properties = detailed_category.get('properties', {}) or {}
                 
                 name = properties.get('Name', '')
                 notation = properties.get('Notation', '')
-                
-                # Format: "Name, Notation"
                 data_string = f"{name}, {notation}"
-                
+                fill_color = (
+                    properties.get('fill_color') or properties.get('fillColor') or
+                    properties.get('FillColor') or properties.get('color')
+                ) or ''
                 return {
-                    'data': data_string
+                    'data': data_string,
+                    'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
+                    'found': True,
+                    'features': containing_features[:1],
                 }
             
             # Special handling for hyderabad_highways layer
@@ -1319,25 +1757,132 @@ class CoordinateSearchTestView(APIView):
                 }
             
             # Special handling for hyderabad_future_city layer
+            if layer.slug == 'hyderabad_hmda_extended_area':
+                return {
+                    'data': layer.name
+                }
+
+            # Special handling for hyderabad_masterplan - return data (name) and fill_color as SVG
+            if layer.slug == 'hyderabad_masterplan' and containing_features:
+                primary_feature = containing_features[0]
+                detailed_category = primary_feature.get('detailed_category', {})
+                properties = detailed_category.get('properties', {}) or {}
+                name = properties.get('Name', '')
+                fill_color = properties.get('fill_color', '') or properties.get('fillColor', '') or properties.get('FillColor', '') or properties.get('color', '')
+                return {
+                    'data': name,
+                    'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
+                }
+
+            # Special handling for amaravati_master_plan - return data (plot_category/feature_name) and fill_color as SVG
+            if layer.slug == 'amaravati_master_plan' and containing_features:
+                primary_feature = containing_features[0]
+                detailed_category = primary_feature.get('detailed_category', {})
+                properties = detailed_category.get('properties', {}) or {}
+                feature_name = (
+                    primary_feature.get('feature_name') or
+                    detailed_category.get('plot_category') or
+                    properties.get('symbology') or properties.get('plot_categ') or
+                    properties.get('Name') or properties.get('name', '') or
+                    'Unknown'
+                )
+                fill_color = (
+                    properties.get('fill_color') or properties.get('fillColor') or
+                    properties.get('FillColor') or properties.get('color')
+                ) or ''
+                return {
+                    'data': feature_name,
+                    'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
+                }
+
             if layer.slug == 'hyderabad_future_city' and containing_features:
                 primary_feature = containing_features[0]
                 detailed_category = primary_feature.get('detailed_category', {})
-                properties = detailed_category.get('properties', {})
-                
-                name = properties.get('Name', '')
-                
-                # Return just the Name
-                if name:
-                    data = name
-                else:
-                    data = "Unknown"
-                
+                properties = detailed_category.get('properties', {}) or {}
+                name = properties.get('Name', '') or 'Unknown'
+                fill_color = (
+                    properties.get('fill_color') or properties.get('fillColor') or
+                    properties.get('FillColor') or properties.get('color')
+                ) or ''
                 return {
-                    'data': data
+                    'data': name,
+                    'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
+                }
+            
+            # Special handling for all air funnel zones layers
+            air_funnel_zones_layers = [
+                'bhubaneswar_air_funnel_zones',
+                'bengaluru_air_funnel_zones',
+                'hyderabad_air_funnel_zones',
+                'kozhikode_air_funnel_zones',
+                'ayodhya_air_funnel_zones',
+                'raipur_air_funnel_zones',
+                'ahmedabad_air_funnel_zones',
+                'warangal_air_funnel_zones',
+                'nagpur_air_funnel_zones',
+                'bhubaneshwar_air_funnel_zones',
+                'chennai_air_funnel_zones',
+                'delhi_air_funnel_zones',
+                'diu_air_funnel_zones',
+                'dholera_air_funnel_zones',
+                'guwahati_air_funnel_zones',
+                'jaipur_air_funnel_zones',
+                'tirupati_air_funnel_zones',
+                'kochi_air_funnel_zones',
+                'lucknow_air_funnel_zones',
+                'mumbai_air_funnel_zones',
+                'noida_air_funnel_zones',
+                'patna_air_funnel_zones',
+                'raigarh_air_funnel_zones'
+            ]
+            
+            if layer.slug in air_funnel_zones_layers and containing_features:
+                primary_feature = containing_features[0]
+                detailed_category = primary_feature.get('detailed_category', {})
+                properties = detailed_category.get('properties', {}) or {}
+                height_value = properties.get('Pemissible Height', '') or properties.get('Permissible Height', '')
+                data_str = f"Permissible Height : {height_value}" if height_value else "Permissible Height : "
+                fill_color = (
+                    properties.get('fill_color') or properties.get('fillColor') or
+                    properties.get('FillColor') or properties.get('color')
+                ) or ''
+                return {
+                    'data': data_str,
+                    'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
+                }
+
+            # Special handling for heritage site layers
+            if layer.slug in ['hyderabad_heritage_sites', 'bengaluru_heritage_sites'] and containing_features:
+                primary_feature = containing_features[0]
+                detailed_category = primary_feature.get('detailed_category', {})
+                properties = detailed_category.get('properties', {}) or {}
+                mon_name = properties.get('mon_name', '')
+                boundary_type = properties.get('boundary_type', '')
+                data_string = f"{mon_name}, {boundary_type}".strip()
+                fill_color = (
+                    properties.get('fill_color') or properties.get('fillColor') or
+                    properties.get('FillColor') or properties.get('color')
+                ) or ''
+                return {
+                    'data': data_string,
+                    'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
                 }
             
             # Special handling for BMRDA boundary layers
-            if layer.slug in ['bengaluru_anekal_masterplan', 'bengaluru_chikkaballapura_masterplan', 'bengaluru_hosakote_masterplan', 'bengaluru_nelamangala_masterplan'] and containing_features:
+            if layer.slug in ['bengaluru_anekal_masterplan', 'bengaluru_chikkaballapura_masterplan', 'bengaluru_hosakote_masterplan', 'bengaluru_nelamangala_masterplan',
+            'coimbatore_master_plan', 'hosur_master_plan', 'kochi_master_plan', 'chennai_master_plan',
+            'tirupati_masterplan', 'cuttack_masterplan', 'vgtm_masterplan', 'kakinada_masterplan',
+            'mandideep_masterplan', 'ajmer_masterplan', 'pithampur_masterplan', 'bhopal_masterplan',
+            'varanasi_masterplan', 'ahmedabad_masterplan', 'vadodara_masterplan', 'gift_city_masterplan',
+            'mohali_sas_nagar_masterplan', 'daman_and_diu_masterplan', 'patna_masterplan', 'ayodhya_masterplan',
+            'lucknow_masterplan', 'srinagar_masterplan', 'guwahati_masterplan','dadra_and_nagar_haveli_masterplan',
+            "kannur_masterplan", 'kollam_masterplan', 'kozhikode_masterplan', "derabassi_masterplan", 'banur_masterplan', 'mullanpur_masterplan', 'kharar_masterplan',
+            'sonipat_kundli_masterplan', 'arogya_dham_badsa_masterplan', 'palwal_masterplan', 'prithla_masterplan', 'loni_masterplan', 'bhagpat_baraut_khekra_masterplan', 'modinagar_masterplan', 'kharkhauda_masterplan', 'ghaziabad_masterplan',
+            'pinjore_kalka_masterplan', 'panchkula_extension_1_masterplan', 'panchkula_masterplan', 'dharuhera_masterplan', 'zirakpur_masterplan', 'panchkula_extension_1_masterplan', 'sonipat_masterplan', 'new_raipur_masterplan',
+            'biappa_masterplan', 'port_blair_masterplan', 'itanagar_masterplan', 'thiruvananthapuram_masterplan', 'thrissur_masterplan',
+            'nuh_masterplan', 'jhajjar_masterplan', 'meerut_masterplan', 'hodal_masterplan', 'rewari_masterplan',
+            'gohana_masterplan', 'bhiwadi_masterplan', 'alwar_masterplan',
+            'mumbai_masterplan', 'pune_city_pmc_masterplan', 'pimpri_chinchwad_masterplan', 'pmrda-masterplan-pmrda_masterplan', 'nagpur_masterplan'] and containing_features:
                 # Return just the layer name as plain string
                 return {
                     'data': layer.slug,
@@ -1347,13 +1892,412 @@ class CoordinateSearchTestView(APIView):
             
             # Special handling for bengaluru_master_plan_2015
             if layer.slug == 'bengaluru_master_plan_2015' and containing_features:
-                # Return just the feature name (Layer Name from properties)
+                primary_feature = containing_features[0]
+                detailed_category = primary_feature.get('detailed_category', {})
+                properties = detailed_category.get('properties', {}) or {}
+                layer_name = properties.get('Layer Name', '')
+                fill_color = (
+                    properties.get('fill_color') or properties.get('fillColor') or
+                    properties.get('FillColor') or properties.get('color')
+                ) or ''
+                return {
+                    'data': layer_name,
+                    'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
+                    'found': True,
+                    'features': containing_features[:1],
+                }
+
+            # Special handling for warangal_master_plan
+            # Warangal: zone name in properties.PLU_NAME/PLU, fill_color in properties (from legend script)
+            if layer.slug == 'warangal_master_plan' and containing_features:
+                primary_feature = containing_features[0]
+                detailed_category = primary_feature.get('detailed_category', {})
+                properties = detailed_category.get('properties', {}) or {}
+                layer_name = properties.get('PLU_NAME', '') or properties.get('PLU', '')
+                fill_color = (
+                    properties.get('fill_color') or properties.get('fillColor') or
+                    properties.get('FillColor') or properties.get('color')
+                ) or ''
+                return {
+                    'data': layer_name,
+                    'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
+                }
+            
+            # Special handling for gurugram_masterplan
+            if layer.slug == 'gurugram_masterplan' and containing_features:
                 primary_feature = containing_features[0]
                 detailed_category = primary_feature.get('detailed_category', {})
                 properties = detailed_category.get('properties', {})
-                layer_name = properties.get('Layer Name', '')
+                layer_value = properties.get('LAYER', '')
+                fill_color = (
+                    properties.get('fill_color') or properties.get('fillColor') or
+                    properties.get('FillColor') or properties.get('color')
+                ) or ''
                 return {
-                    'data': layer_name
+                    'data': layer_value,
+                    'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
+                }
+            
+            # Special handling for delhi_masterplan
+            if layer.slug == 'delhi_masterplan' and containing_features:
+                primary_feature = containing_features[0]
+                detailed_category = primary_feature.get('detailed_category', {})
+                properties = detailed_category.get('properties', {}) 
+                name = properties.get('NAME', '')
+                fill_color = (
+                    properties.get('fill_color') or properties.get('fillColor') or
+                    properties.get('FillColor') or properties.get('color')
+                ) or ''
+                return {
+                    'data': name,
+                    'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
+                }
+            
+            # Special handling for noida_masterplan
+            if layer.slug == 'noida_masterplan' and containing_features:
+                primary_feature = containing_features[0]
+                detailed_category = primary_feature.get('detailed_category', {})
+                properties = detailed_category.get('properties', {})
+                ppt_full = properties.get('ppt_full', '')
+                fill_color = (
+                    properties.get('fill_color') or properties.get('fillColor') or
+                    properties.get('FillColor') or properties.get('color')
+                ) or ''
+                return {
+                    'data': ppt_full,
+                    'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
+                }
+            
+            # Special handling for greater_noida_masterplan
+            if layer.slug == 'greater_noida_masterplan' and containing_features:
+                primary_feature = containing_features[0]
+                detailed_category = primary_feature.get('detailed_category', {})
+                properties = detailed_category.get('properties', {})
+                ppt_full = properties.get('ppt_full', '')
+                fill_color = (
+                    properties.get('fill_color') or properties.get('fillColor') or
+                    properties.get('FillColor') or properties.get('color')
+                ) or ''
+                return {
+                    'data': ppt_full,
+                    'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
+                }
+            
+            # Special handling for yamuna_expressway_masterplan
+            if layer.slug == 'yamuna_expressway_masterplan' and containing_features:
+                layer_value = ''
+                primary_feature = containing_features[0]
+                for feature in containing_features:
+                    detailed_category = feature.get('detailed_category', {})
+                    properties = detailed_category.get('properties', {}) 
+                    layer_val = properties.get('layer', '')
+                    if layer_val:
+                        layer_value = layer_val
+                        primary_feature = feature
+                        break
+                properties = primary_feature.get('detailed_category', {}).get('properties', {}) or {}
+                fill_color = (
+                    properties.get('fill_color') or properties.get('fillColor') or
+                    properties.get('FillColor') or properties.get('color')
+                ) or ''
+                return {
+                    'data': layer_value,
+                    'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
+                }
+            
+            # Special handling for faridabad_masterplan
+            if layer.slug == 'faridabad_masterplan' and containing_features:
+                primary_feature = containing_features[0]
+                detailed_category = primary_feature.get('detailed_category', {})
+                properties = detailed_category.get('properties', {}) or {}
+                layer_value = properties.get('LAYER', '')
+                fill_color = (
+                    properties.get('fill_color') or properties.get('fillColor') or
+                    properties.get('FillColor') or properties.get('color')
+                ) or ''
+                return {
+                    'data': layer_value,
+                    'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
+                }
+            
+            # Special handling for amaravati_masterplan
+            if layer.slug == 'amaravati_masterplan' and containing_features:
+                primary_feature = containing_features[0]
+                detailed_category = primary_feature.get('detailed_category', {})
+                properties = detailed_category.get('properties', {}) or {}
+                symbology = properties.get('symbology', '')
+                fill_color = (
+                    properties.get('fill_color') or properties.get('fillColor') or
+                    properties.get('FillColor') or properties.get('color')
+                ) or ''
+                return {
+                    'data': symbology,
+                    'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
+                }
+            
+            # Special handling for bhubaneswar_masterplan
+            if layer.slug == 'bhubaneswar_masterplan' and containing_features:
+                primary_feature = containing_features[0]
+                detailed_category = primary_feature.get('detailed_category', {})
+                properties = detailed_category.get('properties', {}) or {}
+                landuse = properties.get('LANDUSE', '')
+                fill_color = (
+                    properties.get('fill_color') or properties.get('fillColor') or
+                    properties.get('FillColor') or properties.get('color')
+                ) or ''
+                return {
+                    'data': landuse,
+                    'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
+                }
+            
+            # Special handling for puducherry_masterplan
+            if layer.slug == 'puducherry_masterplan' and containing_features:
+                primary_feature = containing_features[0]
+                detailed_category = primary_feature.get('detailed_category', {})
+                properties = detailed_category.get('properties', {}) or {}
+                landuse = properties.get('Landuse', '')
+                fill_color = (
+                    properties.get('fill_color') or properties.get('fillColor') or
+                    properties.get('FillColor') or properties.get('color')
+                ) or ''
+                return {
+                    'data': landuse,
+                    'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
+                }
+            
+            # Special handling for chandigarh_masterplan (Chandigarh GeoJSON has no Name; use zone_subcategory from file name e.g. Residential, Commercial)
+            if layer.slug == 'chandigarh_masterplan' and containing_features:
+                primary_feature = containing_features[0]
+                detailed_category = primary_feature.get('detailed_category', {})
+                properties = detailed_category.get('properties', {}) or {}
+                name = (
+                    properties.get('Name') or
+                    primary_feature.get('zone_subcategory') or
+                    primary_feature.get('feature_name') or
+                    primary_feature.get('zone_category') or
+                    ''
+                )
+                if isinstance(name, str):
+                    name = name.strip()
+                else:
+                    name = str(name).strip() if name else ''
+                fill_color = (
+                    properties.get('fill_color') or properties.get('fillColor') or
+                    properties.get('FillColor') or properties.get('color')
+                ) or ''
+                return {
+                    'data': name,
+                    'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
+                    'found': True,
+                    'features': containing_features,
+                }
+            
+            # Special handling for rajnandgaon_masterplan
+            if layer.slug == 'rajnandgaon_masterplan' and containing_features:
+                primary_feature = containing_features[0]
+                detailed_category = primary_feature.get('detailed_category', {})
+                properties = detailed_category.get('properties', {}) or {}
+                proposed_t = properties.get('PROPOSED_T', '')
+                fill_color = (
+                    properties.get('fill_color') or properties.get('fillColor') or
+                    properties.get('FillColor') or properties.get('color')
+                ) or ''
+                return {
+                    'data': proposed_t,
+                    'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
+                }
+            
+            # Special handling for durg_bihlai_masterplan
+            if layer.slug == 'durg_bihlai_masterplan' and containing_features:
+                primary_feature = containing_features[0]
+                detailed_category = primary_feature.get('detailed_category', {})
+                properties = detailed_category.get('properties', {}) or {}
+                zone_subcategory = primary_feature.get('zone_subcategory', '')
+                fill_color = (
+                    properties.get('fill_color') or properties.get('fillColor') or
+                    properties.get('FillColor') or properties.get('color')
+                ) or ''
+                return {
+                    'data': zone_subcategory,
+                    'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
+                }
+            
+            # Special handling for jagdalpur_masterplan
+            if layer.slug == 'jagdalpur_masterplan' and containing_features:
+                # Return properties.Name as the primary source of truth
+                # The feature selection logic above ensures we have the correct feature first
+                primary_feature = containing_features[0]
+                detailed_category = primary_feature.get('detailed_category', {})
+                properties = detailed_category.get('properties', {}) or {}
+                
+                # Use properties.Name as primary source (most accurate)
+                name = properties.get('Name', '')
+                
+                # Fallback to PLU_2021 if Name is missing
+                if not name:
+                    name = properties.get('PLU_2021', '')
+                
+                # Final fallback to zone_subcategory (filename)
+                if not name:
+                    name = primary_feature.get('zone_subcategory', '')
+                
+                fill_color = (
+                    properties.get('fill_color') or properties.get('fillColor') or
+                    properties.get('FillColor') or properties.get('color')
+                ) or ''
+                return {
+                    'data': name,
+                    'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
+                }
+            
+            # Special handling for arang_masterplan
+            if layer.slug == 'arang_masterplan' and containing_features:
+                primary_feature = containing_features[0]
+                detailed_category = primary_feature.get('detailed_category', {})
+                properties = detailed_category.get('properties', {}) or {}
+                elu_plu_up = properties.get('ELU_PLU_UP', '')
+                fill_color = (
+                    properties.get('fill_color') or properties.get('fillColor') or
+                    properties.get('FillColor') or properties.get('color')
+                ) or ''
+                return {
+                    'data': elu_plu_up,
+                    'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
+                }
+            
+            # Special handling for mahasamund_masterplan
+            if layer.slug == 'mahasamund_masterplan' and containing_features:
+                primary_feature = containing_features[0]
+                detailed_category = primary_feature.get('detailed_category', {})
+                properties = detailed_category.get('properties', {}) or {}
+                pro_lulc = properties.get('PRO_LULC', '')
+                fill_color = (
+                    properties.get('fill_color') or properties.get('fillColor') or
+                    properties.get('FillColor') or properties.get('color')
+                ) or ''
+                return {
+                    'data': pro_lulc,
+                    'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
+                }
+            
+            # Special handling for balodabazaar_masterplan
+            if layer.slug == 'balodabazaar_masterplan' and containing_features:
+                primary_feature = containing_features[0]
+                detailed_category = primary_feature.get('detailed_category', {})
+                properties = detailed_category.get('properties', {}) or {}
+                proposed_t = properties.get('PROPOSED_T', '')
+                fill_color = (
+                    properties.get('fill_color') or properties.get('fillColor') or
+                    properties.get('FillColor') or properties.get('color')
+                ) or ''
+                return {
+                    'data': proposed_t,
+                    'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
+                }
+            
+            # Special handling for bhatapara_masterplan
+            if layer.slug == 'bhatapara_masterplan' and containing_features:
+                primary_feature = containing_features[0]
+                detailed_category = primary_feature.get('detailed_category', {})
+                properties = detailed_category.get('properties', {}) or {}
+                proposed_t = properties.get('PROPOSED_T', '')
+                fill_color = (
+                    properties.get('fill_color') or properties.get('fillColor') or
+                    properties.get('FillColor') or properties.get('color')
+                ) or ''
+                return {
+                    'data': proposed_t,
+                    'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
+                }
+            
+            # Special handling for raigarh_masterplan
+            if layer.slug == 'raigarh_masterplan' and containing_features:
+                primary_feature = containing_features[0]
+                detailed_category = primary_feature.get('detailed_category', {})
+                properties = detailed_category.get('properties', {}) or {}
+                old_dp_plu = properties.get('OLD_DP_PLU', '')
+                fill_color = (
+                    properties.get('fill_color') or properties.get('fillColor') or
+                    properties.get('FillColor') or properties.get('color')
+                ) or ''
+                return {
+                    'data': old_dp_plu,
+                    'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
+                }
+            
+            # Special handling for udaipur_masterplan
+            # Udaipur: zone name in properties.LANDUSE_CA, fill_color in properties (from legend script)
+            if layer.slug == 'udaipur_masterplan' and containing_features:
+                primary_feature = containing_features[0]
+                detailed_category = primary_feature.get('detailed_category', {})
+                properties = detailed_category.get('properties', {}) or {}
+                landuse_ca = properties.get('LANDUSE_CA', '') or properties.get('LANDUSE_CATEGORY', '')
+                fill_color = (
+                    properties.get('fill_color') or properties.get('fillColor') or
+                    properties.get('FillColor') or properties.get('color')
+                ) or ''
+                return {
+                    'data': landuse_ca,
+                    'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
+                }
+            
+            # Special handling for jodhpur_masterplan
+            # Jodhpur: zone name from LANDUSE_CATEGORY or Name (skip generic "Placemark"), fill_color from properties
+            if layer.slug == 'jodhpur_masterplan' and containing_features:
+                primary_feature = containing_features[0]
+                detailed_category = primary_feature.get('detailed_category', {})
+                properties = detailed_category.get('properties', {}) or {}
+                name = (properties.get('Name', '') or properties.get('name', '') or '').strip()
+                if not name or str(name).upper() == 'PLACEMARK':
+                    name = (
+                        properties.get('LANDUSE_CATEGORY', '') or properties.get('LANDUSE_SUBCAT_LEVEL_1', '') or
+                        properties.get('LANDUSE_CA', '') or primary_feature.get('feature_name', '') or ''
+                    ) or name
+                fill_color = (
+                    properties.get('fill_color') or properties.get('fillColor') or
+                    properties.get('FillColor') or properties.get('color')
+                ) or ''
+                return {
+                    'data': name or 'Placemark',
+                    'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
+                    'found': True,
+                    'features': containing_features[:1],
+                }
+            
+            # Special handling for jaipur_masterplan
+            # Jaipur: zone name in properties.LANDUSE_CATEGORY (or Name), fill_color in properties (from legend script)
+            if layer.slug == 'jaipur_masterplan' and containing_features:
+                primary_feature = containing_features[0]
+                detailed_category = primary_feature.get('detailed_category', {})
+                properties = detailed_category.get('properties', {}) or {}
+                landuse_category = (
+                    properties.get('LANDUSE_CATEGORY', '') or properties.get('LANDUSE_SUBCAT_LEVEL_1', '') or
+                    properties.get('LANDUSE_CA', '') or properties.get('Name', '') or properties.get('name', '')
+                )
+                fill_color = (
+                    properties.get('fill_color') or properties.get('fillColor') or
+                    properties.get('FillColor') or properties.get('color')
+                ) or ''
+                return {
+                    'data': landuse_category or primary_feature.get('feature_name', ''),
+                    'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
+                    'found': True,
+                    'features': containing_features[:1],
+                }
+
+            # Special handling for visakhapatnam_master_plan / visakhapatnam_masterplan
+            # fill_color comes from geojson_add_fill_color_from_legend.py (key: fill_color only)
+            if layer.slug in ('visakhapatnam_master_plan', 'visakhapatnam_masterplan') and containing_features:
+                primary_feature = containing_features[0]
+                detailed_category = primary_feature.get('detailed_category', {})
+                properties = detailed_category.get('properties', {}) or {}
+                category = properties.get('Category', '')
+                fill_color = (properties.get('fill_color') or '').strip() or ''
+                return {
+                    'data': category,
+                    'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
+                    'found': True,
+                    'features': containing_features[:1],
                 }
             
             # Generate summary
@@ -2356,6 +3300,10 @@ class CloudFrontTileView(APIView):
     This API tries CloudFront first, then S3 direct, then local generation as fallback.
     """
     
+    # Class-level cache to track recently logged layer warnings (to reduce log spam)
+    _layer_warning_cache = {}
+    _layer_warning_cache_timeout = 300  # Log same layer warning at most once per 5 minutes
+    
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.tile_path_service = TilePathService()
@@ -2376,10 +3324,31 @@ class CloudFrontTileView(APIView):
             # Get layer information
             layer = self._get_layer_by_hierarchy(state_slug, city_slug, layer_slug)
             if not layer:
-                logger.warning(f"❌ Layer not found: {state_slug}/{city_slug}/{layer_slug}")
+                # Only log layer not found warnings occasionally to reduce log spam
+                layer_key = f"{state_slug}/{city_slug}/{layer_slug}"
+                import time
+                current_time = time.time()
+                
+                # Check if we've logged this layer recently
+                last_logged = self._layer_warning_cache.get(layer_key, 0)
+                if current_time - last_logged > self._layer_warning_cache_timeout:
+                    logger.warning(f"❌ Layer not found: {layer_key} (will suppress similar warnings for 5 minutes)")
+                    self._layer_warning_cache[layer_key] = current_time
+                    # Clean up old entries periodically (keep cache size manageable)
+                    if len(self._layer_warning_cache) > 1000:
+                        # Remove entries older than 1 hour
+                        cutoff_time = current_time - 3600
+                        self._layer_warning_cache = {
+                            k: v for k, v in self._layer_warning_cache.items()
+                            if v > cutoff_time
+                        }
+                else:
+                    # Log at debug level for subsequent requests
+                    logger.debug(f"❌ Layer not found (suppressed): {layer_key}")
+                
                 return self._return_error_tile(f"Layer not found: {state_slug}/{city_slug}/{layer_slug}")
             
-            logger.info(f"🔍 Serving tile: {state_slug}/{city_slug}/{layer_slug}/{z}/{x}/{y}.{format_type}")
+            logger.debug(f"🔍 Serving tile: {state_slug}/{city_slug}/{layer_slug}/{z}/{x}/{y}.{format_type}")
             
             # Try multiple sources in order of preference
             tile_data = self._get_tile_with_fallback(state_slug, city_slug, layer_slug, z, x, y, format_type, layer)
@@ -2391,12 +3360,22 @@ class CloudFrontTileView(APIView):
                 response['Cache-Control'] = 'no-cache, no-store, must-revalidate'
                 response['Pragma'] = 'no-cache'
                 response['Expires'] = '0'
-                logger.info(f"✅ Successfully served tile: {state_slug}/{city_slug}/{layer_slug}/{z}/{x}/{y}.{format_type}")
+                logger.debug(f"✅ Successfully served tile: {state_slug}/{city_slug}/{layer_slug}/{z}/{x}/{y}.{format_type}")
                 return response
             else:
-                logger.warning(f"❌ Tile not found: {state_slug}/{city_slug}/{layer_slug}/{z}/{x}/{y}.{format_type}")
+                logger.debug(f"❌ Tile not found: {state_slug}/{city_slug}/{layer_slug}/{z}/{x}/{y}.{format_type}")
                 return self._return_error_tile(f"Tile not found: {state_slug}/{city_slug}/{layer_slug}/{z}/{x}/{y}.{format_type}")
             
+        except (OperationalError, DatabaseError) as e:
+            error_msg = str(e)
+            if "too many clients" in error_msg.lower():
+                logger.error(f"❌ Database connection pool exhausted: {error_msg}")
+                # Try to close old connections
+                close_old_connections()
+                return self._return_error_tile("Service temporarily unavailable. Please try again.")
+            else:
+                logger.error(f"❌ Database error serving tile: {error_msg}")
+                return self._return_error_tile(f"Database error: {error_msg}")
         except Exception as e:
             logger.error(f"Error serving tile: {str(e)}")
             return self._return_error_tile(f"Error serving tile: {str(e)}")
@@ -2417,7 +3396,7 @@ class CloudFrontTileView(APIView):
         logger.debug(f"🔍 Trying CloudFront: {cloudfront_url}")
         tile_data = self._fetch_url(cloudfront_url)
         if tile_data:
-            logger.info(f"✅ Served from CloudFront: {cloudfront_url}")
+            logger.debug(f"✅ Served from CloudFront: {cloudfront_url}")
             return tile_data
         
         # 2. Try S3 Direct (fallback)
@@ -2428,7 +3407,7 @@ class CloudFrontTileView(APIView):
         logger.debug(f"🔍 Trying S3 Direct: {s3_url}")
         tile_data = self._fetch_url(s3_url)
         if tile_data:
-            logger.info(f"✅ Served from S3: {s3_url}")
+            logger.debug(f"✅ Served from S3: {s3_url}")
             return tile_data
         
         # 3. Generate on-demand (optional - can be disabled for performance)
@@ -2436,10 +3415,10 @@ class CloudFrontTileView(APIView):
             logger.debug(f"🔍 Trying on-demand generation for {z}/{x}/{y}.{format_type}")
             tile_data = self._generate_tile_on_demand(layer, z, x, y, format_type)
             if tile_data:
-                logger.info(f"✅ Generated on-demand: {z}/{x}/{y}.{format_type}")
+                logger.debug(f"✅ Generated on-demand: {z}/{x}/{y}.{format_type}")
                 return tile_data
         
-        logger.warning(f"❌ Tile not found from any source: {state_slug}/{city_slug}/{layer_slug}/{z}/{x}/{y}.{format_type}")
+        logger.debug(f"❌ Tile not found from any source: {state_slug}/{city_slug}/{layer_slug}/{z}/{x}/{y}.{format_type}")
         return None
     
     def _fetch_url(self, url, timeout=5):
@@ -2485,7 +3464,18 @@ class CloudFrontTileView(APIView):
     def _return_error_tile(self, error_message):
         """Return an error response"""
         try:
-            logger.warning(f"❌ Returning error tile: {error_message}")
+            # Suppress logging for routine missing tile/layer errors to reduce log spam
+            # These are normal in tile serving - not every tile coordinate has data
+            if "Tile not found" in error_message or "Layer not found" in error_message:
+                # Already logged at appropriate level above, don't log again here
+                logger.debug(f"Returning 404 for: {error_message[:100]}")
+            elif "Invalid tile coordinates" in error_message:
+                # Invalid coordinates are worth logging but not as warning
+                logger.info(f"Invalid tile coordinates requested")
+            else:
+                # Only log actual errors as warnings
+                logger.warning(f"❌ Returning error tile: {error_message}")
+            
             return Response({
                 'error': error_message,
                 'status': 'error'
@@ -2498,6 +3488,16 @@ class CloudFrontTileView(APIView):
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 class S3DirectTileView(APIView):
+    """
+    S3 Direct Tile Serving API
+    
+    Serves tiles directly from S3 with hierarchical URL structure.
+    Similar to CloudFrontTileView but uses S3 direct access.
+    """
+    
+    # Class-level cache to track recently logged layer warnings (to reduce log spam)
+    _layer_warning_cache = {}
+    _layer_warning_cache_timeout = 300  # Log same layer warning at most once per 5 minutes
     """
     S3 Direct Tile Serving API
     
@@ -2541,10 +3541,31 @@ class S3DirectTileView(APIView):
             # Get layer information
             layer = self._get_layer_by_hierarchy(state_slug, city_slug, layer_slug)
             if not layer:
-                logger.warning(f"❌ Layer not found: {state_slug}/{city_slug}/{layer_slug}")
+                # Only log layer not found warnings occasionally to reduce log spam
+                layer_key = f"{state_slug}/{city_slug}/{layer_slug}"
+                import time
+                current_time = time.time()
+                
+                # Check if we've logged this layer recently
+                last_logged = self._layer_warning_cache.get(layer_key, 0)
+                if current_time - last_logged > self._layer_warning_cache_timeout:
+                    logger.warning(f"❌ Layer not found: {layer_key} (will suppress similar warnings for 5 minutes)")
+                    self._layer_warning_cache[layer_key] = current_time
+                    # Clean up old entries periodically (keep cache size manageable)
+                    if len(self._layer_warning_cache) > 1000:
+                        # Remove entries older than 1 hour
+                        cutoff_time = current_time - 3600
+                        self._layer_warning_cache = {
+                            k: v for k, v in self._layer_warning_cache.items()
+                            if v > cutoff_time
+                        }
+                else:
+                    # Log at debug level for subsequent requests
+                    logger.debug(f"❌ Layer not found (suppressed): {layer_key}")
+                
                 return self._return_error_tile(f"Layer not found: {state_slug}/{city_slug}/{layer_slug}")
             
-            logger.info(f"🔍 Serving S3 direct tile: {state_slug}/{city_slug}/{layer_slug}/{z}/{x}/{y}.{format_type}")
+            logger.debug(f"🔍 Serving S3 direct tile: {state_slug}/{city_slug}/{layer_slug}/{z}/{x}/{y}.{format_type}")
             
             # Get tile directly from S3
             tile_data = self._get_tile_from_s3(state_slug, city_slug, layer_slug, z, x, y, format_type)
@@ -2558,12 +3579,22 @@ class S3DirectTileView(APIView):
                 response['Pragma'] = 'no-cache'
                 response['Expires'] = '0'
                 response['Access-Control-Allow-Origin'] = '*'
-                logger.info(f"✅ Successfully served S3 direct tile: {state_slug}/{city_slug}/{layer_slug}/{z}/{x}/{y}.{format_type}")
+                logger.debug(f"✅ Successfully served S3 direct tile: {state_slug}/{city_slug}/{layer_slug}/{z}/{x}/{y}.{format_type}")
                 return response
             else:
-                logger.warning(f"❌ Tile not found in S3: {state_slug}/{city_slug}/{layer_slug}/{z}/{x}/{y}.{format_type}")
+                logger.debug(f"❌ Tile not found in S3: {state_slug}/{city_slug}/{layer_slug}/{z}/{x}/{y}.{format_type}")
                 return self._return_error_tile(f"Tile not found: {state_slug}/{city_slug}/{layer_slug}/{z}/{x}/{y}.{format_type}")
             
+        except (OperationalError, DatabaseError) as e:
+            error_msg = str(e)
+            if "too many clients" in error_msg.lower():
+                logger.error(f"❌ Database connection pool exhausted: {error_msg}")
+                # Try to close old connections
+                close_old_connections()
+                return self._return_error_tile("Service temporarily unavailable. Please try again.")
+            else:
+                logger.error(f"❌ Database error serving S3 direct tile: {error_msg}")
+                return self._return_error_tile(f"Database error: {error_msg}")
         except Exception as e:
             logger.error(f"Error serving S3 direct tile: {str(e)}")
             return self._return_error_tile(f"Error serving tile: {str(e)}")
@@ -2588,10 +3619,10 @@ class S3DirectTileView(APIView):
             tile_data = response['Body'].read()
             
             if tile_data:
-                logger.info(f"✅ Successfully fetched from S3: s3://{self.bucket_name}/{s3_key}")
+                logger.debug(f"✅ Successfully fetched from S3: s3://{self.bucket_name}/{s3_key}")
                 return tile_data
             else:
-                logger.warning(f"❌ Empty tile data from S3: s3://{self.bucket_name}/{s3_key}")
+                logger.debug(f"❌ Empty tile data from S3: s3://{self.bucket_name}/{s3_key}")
                 return None
                 
         except self.s3_client.exceptions.NoSuchKey:
@@ -2602,22 +3633,63 @@ class S3DirectTileView(APIView):
             return None
     
     def _get_layer_by_hierarchy(self, state_slug, city_slug, layer_slug):
-        """Get layer by hierarchical path"""
-        try:
-            return DataLayer.objects.select_related('city', 'city__state_ref', 'category').get(
-                city__slug=city_slug,
-                city__state_ref__slug=state_slug,
-                slug=layer_slug,
-                city__is_active=True,
-                city__state_ref__is_active=True
-            )
-        except DataLayer.DoesNotExist:
-            return None
+        """Get layer by hierarchical path with connection error handling"""
+        max_retries = 3
+        retry_count = 0
+        
+        while retry_count < max_retries:
+            try:
+                # Close old connections before retry
+                if retry_count > 0:
+                    close_old_connections()
+                
+                return DataLayer.objects.select_related('city', 'city__state_ref', 'category').get(
+                    city__slug=city_slug,
+                    city__state_ref__slug=state_slug,
+                    slug=layer_slug,
+                    city__is_active=True,
+                    city__state_ref__is_active=True
+                )
+            except DataLayer.DoesNotExist:
+                return None
+            except (OperationalError, DatabaseError) as e:
+                retry_count += 1
+                error_msg = str(e)
+                
+                # Check if it's a "too many clients" error
+                if "too many clients" in error_msg.lower():
+                    logger.warning(f"⚠️ Database connection pool exhausted (attempt {retry_count}/{max_retries}). Retrying...")
+                    if retry_count >= max_retries:
+                        logger.error(f"❌ Max retries reached for database connection. Error: {error_msg}")
+                        raise
+                    # Wait a bit before retrying
+                    import time
+                    time.sleep(0.1 * retry_count)  # Exponential backoff
+                else:
+                    # Other database errors - don't retry
+                    logger.error(f"❌ Database error: {error_msg}")
+                    raise
+            except Exception as e:
+                    logger.error(f"❌ Unexpected error in _get_layer_by_hierarchy: {str(e)}")
+                    raise
+        
+        return None
     
     def _return_error_tile(self, error_message):
         """Return an error response"""
         try:
-            logger.warning(f"❌ Returning error tile: {error_message}")
+            # Suppress logging for routine missing tile/layer errors to reduce log spam
+            # These are normal in tile serving - not every tile coordinate has data
+            if "Tile not found" in error_message or "Layer not found" in error_message:
+                # Already logged at appropriate level above, don't log again here
+                logger.debug(f"Returning 404 for: {error_message[:100]}")
+            elif "Invalid tile coordinates" in error_message:
+                # Invalid coordinates are worth logging but not as warning
+                logger.info(f"Invalid tile coordinates requested")
+            else:
+                # Only log actual errors as warnings
+                logger.warning(f"❌ Returning error tile: {error_message}")
+            
             return Response({
                 'error': error_message,
                 'status': 'error'
@@ -2627,6 +3699,454 @@ class S3DirectTileView(APIView):
             return Response({
                 'error': f'Error returning error tile: {str(e)}',
                 'status': 'error'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+@extend_schema_view(
+    get=extend_schema(
+        summary="Find layers near coordinates or bounds",
+        description="Find all layers that have features within 50km of given coordinates or bounding box. Returns layer information including state, city, category, and feature counts.",
+        tags=['layers', 'search'],
+        parameters=[
+            OpenApiParameter(
+                name='lat',
+                location=OpenApiParameter.QUERY,
+                required=False,
+                type=float,
+                description='Latitude coordinate (required if bounds not provided)'
+            ),
+            OpenApiParameter(
+                name='lng',
+                location=OpenApiParameter.QUERY,
+                required=False,
+                type=float,
+                description='Longitude coordinate (required if bounds not provided)'
+            ),
+            OpenApiParameter(
+                name='bounds',
+                location=OpenApiParameter.QUERY,
+                required=False,
+                type=str,
+                description='Bounding box as "west,south,east,north" (required if lat/lng not provided)'
+            ),
+            OpenApiParameter(
+                name='radius_km',
+                location=OpenApiParameter.QUERY,
+                required=False,
+                type=float,
+                description='Search radius in kilometers (default: 50)'
+            ),
+        ],
+        responses={
+            200: {
+                'description': 'Layers found successfully',
+                'examples': [
+                    {
+                        'application/json': {
+                            'success': True,
+                            'search_area': {
+                                'type': 'point',
+                                'center': {
+                                    'lat': 17.3850,
+                                    'lng': 78.4867
+                                },
+                                'radius_km': 50
+                            },
+                            'total_layers_found': 5,
+                            'layers': [
+                                {
+                                    'layer_id': 123,
+                                    'layer_slug': 'hyderabad_metro',
+                                    'layer_name': 'Hyderabad Metro',
+                                    'state': {
+                                        'slug': 'telangana',
+                                        'name': 'Telangana'
+                                    },
+                                    'city': {
+                                        'slug': 'hyderabad',
+                                        'name': 'Hyderabad'
+                                    },
+                                    'category': {
+                                        'code': 'INFRASTRUCTURE',
+                                        'name': 'Infrastructure'
+                                    },
+                                    'feature_count': 150,
+                                    'distance_km': 2.5,
+                                    'bounds': {
+                                        'west': 78.2673,
+                                        'south': 17.2345,
+                                        'east': 78.5678,
+                                        'north': 17.4567
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                ]
+            },
+            400: {
+                'description': 'Invalid request parameters',
+                'examples': [
+                    {
+                        'application/json': {
+                            'success': False,
+                            'error': 'Please provide either lat/lng coordinates or bounds parameter'
+                        }
+                    }
+                ]
+            }
+        }
+    )
+)
+class NearbyLayersAPIView(APIView):
+    """
+    API endpoint to find all layers within 50km of given coordinates or bounds.
+    
+    URL: /api/layers/nearby/?lat={latitude}&lng={longitude}
+    URL: /api/layers/nearby/?bounds={west,south,east,north}
+    
+    Returns all layers that have features within the specified radius (default 50km)
+    of the given point or bounding box.
+    
+    Examples:
+    - /api/layers/nearby/?lat=17.3850&lng=78.4867
+    - /api/layers/nearby/?lat=17.3850&lng=78.4867&radius_km=25
+    - /api/layers/nearby/?bounds=78.0,17.0,79.0,18.0
+    """
+    permission_classes = [AllowAny]
+    
+    def get(self, request):
+        try:
+            # Get query parameters
+            lat = request.GET.get('lat')
+            lng = request.GET.get('lng')
+            bounds_param = request.GET.get('bounds')
+            # For point searches, radius_km is ignored (only exact containment)
+            # For bounds searches, radius_km is still used
+            radius_km = float(request.GET.get('radius_km', 50)) if bounds_param else None
+            
+            # Validate radius only for bounds-based searches
+            if bounds_param and radius_km and (radius_km <= 0 or radius_km > 500):
+                return Response({
+                    'success': False,
+                    'error': 'radius_km must be between 0 and 500'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            # Determine search area - either from point or bounds
+            search_area = None
+            search_type = None
+            
+            if lat and lng:
+                # Point-based search
+                try:
+                    latitude = float(lat)
+                    longitude = float(lng)
+                except ValueError:
+                    return Response({
+                        'success': False,
+                        'error': 'Invalid coordinate format: lat and lng must be valid numbers'
+                    }, status=status.HTTP_400_BAD_REQUEST)
+                
+                # Validate coordinate ranges
+                if not (-90 <= latitude <= 90) or not (-180 <= longitude <= 180):
+                    return Response({
+                        'success': False,
+                        'error': 'Invalid coordinates: lat must be between -90 and 90, lng between -180 and 180'
+                    }, status=status.HTTP_400_BAD_REQUEST)
+                
+                # Create point - no buffer, only check if point is inside features
+                search_point = Point(longitude, latitude, srid=4326)
+                
+                # Use the point directly (no buffer) - only find layers where point is inside features
+                search_area = search_point
+                
+                search_type = 'point'
+                search_center = {'lat': latitude, 'lng': longitude}
+                
+                logger.info(f"Search point: ({latitude}, {longitude}) - checking for exact containment (no radius)")
+                
+            elif bounds_param:
+                # Bounds-based search
+                try:
+                    bounds_coords = [float(x.strip()) for x in bounds_param.split(',')]
+                    if len(bounds_coords) != 4:
+                        raise ValueError("Bounds must have 4 coordinates")
+                    west, south, east, north = bounds_coords
+                except (ValueError, IndexError) as e:
+                    return Response({
+                        'success': False,
+                        'error': f'Invalid bounds format: {str(e)}. Expected format: west,south,east,north'
+                    }, status=status.HTTP_400_BAD_REQUEST)
+                
+                # Validate bounds
+                if not (-90 <= south <= 90) or not (-90 <= north <= 90) or \
+                   not (-180 <= west <= 180) or not (-180 <= east <= 180):
+                    return Response({
+                        'success': False,
+                        'error': 'Invalid bounds: coordinates out of valid range'
+                    }, status=status.HTTP_400_BAD_REQUEST)
+                
+                if west >= east or south >= north:
+                    return Response({
+                        'success': False,
+                        'error': 'Invalid bounds: west must be < east, south must be < north'
+                    }, status=status.HTTP_400_BAD_REQUEST)
+                
+                # Expand bounds by radius_km (if provided, otherwise use default 50km)
+                search_radius_km = radius_km if radius_km else 50
+                # Convert km to degrees (approximate: 1 degree ≈ 111 km)
+                radius_degrees = search_radius_km / 111.0
+                expanded_west = west - radius_degrees
+                expanded_south = south - radius_degrees
+                expanded_east = east + radius_degrees
+                expanded_north = north + radius_degrees
+                
+                # Create polygon from expanded bounds
+                search_area = Polygon.from_bbox((
+                    expanded_west, expanded_south, expanded_east, expanded_north
+                ))
+                search_area.srid = 4326
+                search_type = 'bounds'
+                search_center = {
+                    'lat': (south + north) / 2,
+                    'lng': (west + east) / 2
+                }
+                original_bounds = {
+                    'west': west,
+                    'south': south,
+                    'east': east,
+                    'north': north
+                }
+                # Store search_radius_km for use in response
+                bounds_search_radius_km = search_radius_km
+            else:
+                return Response({
+                    'success': False,
+                    'error': 'Please provide either lat/lng coordinates or bounds parameter'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            # Validate search_area before using it
+            if not search_area:
+                return Response({
+                    'success': False,
+                    'error': 'Failed to create search area geometry'
+                }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            
+            # Ensure search_area has proper SRID
+            if not hasattr(search_area, 'srid') or search_area.srid != 4326:
+                try:
+                    if hasattr(search_area, 'srid') and search_area.srid:
+                        search_area.transform(4326)
+                    else:
+                        search_area.srid = 4326
+                except Exception as e:
+                    logger.warning(f"Could not set SRID on search_area: {e}")
+            
+            # Find all layers that have features containing the point (exact match, no buffer)
+            # Use geometry__contains for polygons and geometry__intersects for all geometry types
+            # This ensures we find features where the point is actually inside/on the feature
+            logger.info(f"Searching for layers with features containing the point (exact match, no radius)...")
+            logger.info(f"Search point: ({search_center.get('lat')}, {search_center.get('lng')})")
+            
+            # Use contains for polygons (most accurate) and intersects for lines/points
+            # This finds features where the point is actually inside or on the feature
+            layers_with_features = GeoFeature.objects.filter(
+                geometry__intersects=search_area,  # Works for all geometry types
+                is_valid=True,
+                layer__is_processed=True,
+                layer__city__is_active=True,
+                layer__city__state_ref__is_active=True
+            ).select_related(
+                'layer',
+                'layer__category',
+                'layer__city',
+                'layer__city__state_ref'
+            ).values(
+                'layer_id',
+                'layer__slug',
+                'layer__name',
+                'layer__description',
+                'layer__category__code',
+                'layer__category__name',
+                'layer__city__slug',
+                'layer__city__name',
+                'layer__city__state_ref__slug',
+                'layer__city__state_ref__name',
+                'layer__bbox_xmin',
+                'layer__bbox_ymin',
+                'layer__bbox_xmax',
+                'layer__bbox_ymax'
+            ).distinct()
+            
+            logger.info(f"Found {layers_with_features.count()} unique layers with features containing the point")
+            
+            # Process results
+            layers_list = []
+            for layer_data in layers_with_features:
+                layer_id = layer_data['layer_id']
+                
+                # Get feature count for this layer within search area
+                feature_count = GeoFeature.objects.filter(
+                    layer_id=layer_id,
+                    geometry__intersects=search_area,
+                    is_valid=True
+                ).count()
+                
+                # Calculate distance from search center to layer center
+                if layer_data['layer__bbox_xmin'] and layer_data['layer__bbox_ymin'] and \
+                   layer_data['layer__bbox_xmax'] and layer_data['layer__bbox_ymax']:
+                    layer_center_lng = (layer_data['layer__bbox_xmin'] + layer_data['layer__bbox_xmax']) / 2
+                    layer_center_lat = (layer_data['layer__bbox_ymin'] + layer_data['layer__bbox_ymax']) / 2
+                    
+                    # Calculate distance in km (Haversine formula approximation)
+                    from math import radians, cos, sin, asin, sqrt
+                    lat1, lon1 = radians(search_center['lat']), radians(search_center['lng'])
+                    lat2, lon2 = radians(layer_center_lat), radians(layer_center_lng)
+                    dlat = lat2 - lat1
+                    dlon = lon2 - lon1
+                    a = sin(dlat/2)**2 + cos(lat1) * cos(lat2) * sin(dlon/2)**2
+                    c = 2 * asin(sqrt(a))
+                    distance_km = 6371 * c  # Earth radius in km
+                else:
+                    distance_km = None
+                    layer_center_lat = None
+                    layer_center_lng = None
+                
+                # Prepare layer bounds
+                layer_bounds = None
+                if layer_data['layer__bbox_xmin'] and layer_data['layer__bbox_ymin'] and \
+                   layer_data['layer__bbox_xmax'] and layer_data['layer__bbox_ymax']:
+                    layer_bounds = {
+                        'west': layer_data['layer__bbox_xmin'],
+                        'south': layer_data['layer__bbox_ymin'],
+                        'east': layer_data['layer__bbox_xmax'],
+                        'north': layer_data['layer__bbox_ymax']
+                    }
+                
+                layer_info = {
+                    'layer_id': layer_id,
+                    'layer_slug': layer_data['layer__slug'],
+                    'layer_name': layer_data['layer__name'],
+                    'layer_description': layer_data['layer__description'] or '',
+                    'meaning': (
+                        'Your point falls inside this layer (inside ' + str(feature_count) + ' feature(s)).'
+                    ),
+                    'state': {
+                        'slug': layer_data['layer__city__state_ref__slug'],
+                        'name': layer_data['layer__city__state_ref__name']
+                    },
+                    'city': {
+                        'slug': layer_data['layer__city__slug'],
+                        'name': layer_data['layer__city__name']
+                    },
+                    'category': {
+                        'code': layer_data['layer__category__code'],
+                        'name': layer_data['layer__category__name']
+                    } if layer_data['layer__category__code'] else None,
+                    'feature_count': feature_count,
+                    'feature_count_description': f'Number of polygons/features in this layer that contain your point.',
+                    'distance_km': round(distance_km, 2) if distance_km is not None else None,
+                    'bounds': layer_bounds,
+                    'center': {
+                        'lat': layer_center_lat,
+                        'lng': layer_center_lng
+                    } if layer_center_lat and layer_center_lng else None
+                }
+                
+                layers_list.append(layer_info)
+            
+            # Sort by distance (closest first)
+            layers_list.sort(key=lambda x: x['distance_km'] if x['distance_km'] is not None else float('inf'))
+            
+            # Build a self-explanatory response
+            total = len(layers_list)
+            if search_type == 'point':
+                summary_message = (
+                    f"Found {total} layer(s) that contain your point. "
+                    "Your coordinates fall inside at least one polygon/feature in each of these layers."
+                )
+                if total == 0:
+                    summary_message = (
+                        "No layers found. Your point does not fall inside any layer's geometry. "
+                        "Try a point inside a city/masterplan area or use bounds search with ?bounds=west,south,east,north"
+                    )
+            else:
+                summary_message = (
+                    f"Found {total} layer(s) within the given bounds (radius {bounds_search_radius_km} km)."
+                )
+            
+            response_data = {
+                'success': True,
+                'summary': {
+                    'message': summary_message,
+                    'total_layers_found': total,
+                    'search_type': search_type,
+                },
+                'request': {
+                    'description': (
+                        'Point search: layers whose geometry contains this exact point (no radius).'
+                        if search_type == 'point'
+                        else f'Bounds search: layers that intersect the area (radius {bounds_search_radius_km} km).'
+                    ),
+                    'coordinates': {
+                        'lat': search_center.get('lat'),
+                        'lng': search_center.get('lng'),
+                        'lat_description': 'Latitude (degrees, -90 to 90)',
+                        'lng_description': 'Longitude (degrees, -180 to 180)',
+                    },
+                },
+                'search_area': {
+                    'type': search_type,
+                    'center': search_center,
+                },
+            }
+            
+            if search_type == 'point':
+                response_data['search_area']['search_type'] = 'exact_containment'
+                response_data['search_area']['note'] = (
+                    'Only layers where your point is inside a feature are returned (no distance radius).'
+                )
+            else:
+                response_data['search_area']['radius_km'] = bounds_search_radius_km
+                response_data['search_area']['original_bounds'] = original_bounds
+                response_data['search_area']['expanded_bounds'] = {
+                    'west': expanded_west,
+                    'south': expanded_south,
+                    'east': expanded_east,
+                    'north': expanded_north,
+                }
+            
+            response_data['layers'] = layers_list
+            response_data['response_guide'] = {
+                'summary': 'Quick human-readable result and what was searched.',
+                'request': 'Echo of your query and what it means.',
+                'layers': (
+                    'Each layer listed has at least one polygon/line that contains (or intersects) your point. '
+                    'Ordered by distance from your point to the layer center (closest first).'
+                ),
+                'layer_fields': {
+                    'layer_id': 'Database ID of the layer.',
+                    'layer_slug': 'URL-safe identifier (use in APIs: state/city/layer_slug).',
+                    'layer_name': 'Human-readable layer name.',
+                    'layer_description': 'Optional description of the layer.',
+                    'state': 'State this layer belongs to (slug and name).',
+                    'city': 'City this layer belongs to (slug and name).',
+                    'category': 'Layer type/category (e.g. PLANNING, TRANSPORT).',
+                    'feature_count': 'Number of polygons/features in this layer that contain your point.',
+                    'distance_km': 'Distance from your point to the layer center in km (0 = point inside layer).',
+                    'bounds': 'Layer extent: west, south, east, north (degrees). Use to zoom map to layer.',
+                    'center': 'Approximate center of the layer (lat, lng).',
+                },
+            }
+            
+            logger.info(f"Returning {len(layers_list)} layers near coordinates ({search_center.get('lat')}, {search_center.get('lng')})")
+            
+            return Response(response_data)
+            
+        except Exception as e:
+            logger.error(f"Error finding nearby layers: {str(e)}")
+            return Response({
+                'success': False,
+                'error': f'Error finding nearby layers: {str(e)}'
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 @extend_schema_view(
@@ -2695,25 +4215,38 @@ class LayerBoundsAPIView(APIView):
     
     Returns the bounding box coordinates (west, south, east, north) for the layer,
     calculated from the actual feature geometries in the database.
+    
+    Optimized for performance with:
+    - Single optimized query with select_related
+    - Caching for bounds calculation
+    - Reduced database hits
     """
     permission_classes = [AllowAny]
     
     def get(self, request, state_slug, city_slug, layer_slug):
         try:
-            # Get the state
-            state = State.objects.get(slug=state_slug, is_active=True)
+            # Create cache key for this layer bounds
+            cache_key = f"layer_bounds_{state_slug}_{city_slug}_{layer_slug}"
             
-            # Get the city within the state
-            city = City.objects.get(slug=city_slug, state_ref=state, is_active=True)
+            # Try to get from cache first
+            cached_result = cache.get(cache_key)
+            if cached_result:
+                return Response(cached_result)
             
-            # Get the specific layer
-            layer = DataLayer.objects.get(
+            # Single optimized query to get layer with all related data
+            layer = DataLayer.objects.select_related(
+                'city__state_ref', 
+                'category'
+            ).get(
                 slug=layer_slug,
-                city=city,
+                city__slug=city_slug,
+                city__state_ref__slug=state_slug,
+                city__is_active=True,
+                city__state_ref__is_active=True,
                 is_processed=True
             )
             
-            # Check if layer has stored bounds
+            # Check if layer has stored bounds (fastest path)
             if all([layer.bbox_xmin, layer.bbox_ymin, layer.bbox_xmax, layer.bbox_ymax]):
                 bounds = {
                     'west': layer.bbox_xmin,
@@ -2722,14 +4255,22 @@ class LayerBoundsAPIView(APIView):
                     'north': layer.bbox_ymax
                 }
                 data_source = 'stored_bounds'
+                feature_count = layer.feature_count  # Use stored count
             else:
-                # Calculate bounds from actual features
+                # Calculate bounds from actual features (optimized query)
                 from django.contrib.gis.db.models import Extent
                 
-                extent = GeoFeature.objects.filter(
+                # Single query to get both extent and count
+                result = GeoFeature.objects.filter(
                     layer=layer,
                     is_valid=True
-                ).aggregate(extent=Extent('geometry'))['extent']
+                ).aggregate(
+                    extent=Extent('geometry'),
+                    count=Count('id')
+                )
+                
+                extent = result['extent']
+                feature_count = result['count']
                 
                 if not extent:
                     return Response({
@@ -2755,17 +4296,11 @@ class LayerBoundsAPIView(APIView):
             width = bounds['east'] - bounds['west']
             height = bounds['north'] - bounds['south']
             
-            # Get feature count
-            feature_count = GeoFeature.objects.filter(
-                layer=layer,
-                is_valid=True
-            ).count()
-            
-            return Response({
+            response_data = {
                 'state': state_slug,
-                'state_name': state.name,
+                'state_name': layer.city.state_ref.name,
                 'city': city_slug,
-                'city_name': city.name,
+                'city_name': layer.city.name,
                 'layer': layer_slug,
                 'layer_name': layer.name,
                 'bounds': bounds,
@@ -2786,22 +4321,13 @@ class LayerBoundsAPIView(APIView):
                     'is_processed': layer.is_processed,
                     'created_at': layer.created_at.isoformat() if layer.created_at else None
                 }
-            })
+            }
             
-        except State.DoesNotExist:
-            return Response({
-                'error': f'State not found: {state_slug}',
-                'state': state_slug,
-                'city': city_slug,
-                'layer': layer_slug
-            }, status=status.HTTP_404_NOT_FOUND)
-        except City.DoesNotExist:
-            return Response({
-                'error': f'City not found: {city_slug} in state: {state_slug}',
-                'state': state_slug,
-                'city': city_slug,
-                'layer': layer_slug
-            }, status=status.HTTP_404_NOT_FOUND)
+            # Cache the result for 1 hour (3600 seconds)
+            cache.set(cache_key, response_data, 3600)
+            
+            return Response(response_data)
+            
         except DataLayer.DoesNotExist:
             return Response({
                 'error': f'Layer not found: {layer_slug} in city: {city_slug}',
@@ -3303,6 +4829,7 @@ class LayerBoundsZoomAPIView(APIView):
     def _calculate_combined_bounds(self, layers):
         """Calculate combined bounds from all features in the specified layers"""
         from django.contrib.gis.db.models import Extent
+        from django.contrib.gis.geos import GEOSGeometry, Polygon
         
         # Get all features from all layers
         features = GeoFeature.objects.filter(
@@ -3319,13 +4846,34 @@ class LayerBoundsZoomAPIView(APIView):
         if not extent:
             return None
         
-        # extent is (xmin, ymin, xmax, ymax) in the geometry's SRID
-        # For 4326 (WGS84), this is (lng_min, lat_min, lng_max, lat_max)
+        # extent is (xmin, ymin, xmax, ymax)
+        xmin, ymin, xmax, ymax = extent
+        
+        # Check if coordinates are in Web Mercator (EPSG:3857) instead of WGS84 (EPSG:4326)
+        # Web Mercator coordinates are in meters and much larger than degree values
+        # If longitude > 180 or < -180, it's likely Web Mercator
+        if abs(xmin) > 180 or abs(xmax) > 180 or abs(ymin) > 90 or abs(ymax) > 90:
+            # Coordinates appear to be in Web Mercator (EPSG:3857)
+            # Create a polygon from the extent and transform it to WGS84
+            bbox = Polygon.from_bbox((xmin, ymin, xmax, ymax))
+            bbox.srid = 3857  # Set as Web Mercator
+            bbox.transform(4326)  # Transform to WGS84
+            
+            # Get the new extent in WGS84
+            extent_wgs84 = bbox.extent
+            return {
+                'west': extent_wgs84[0],   # xmin (longitude)
+                'south': extent_wgs84[1],  # ymin (latitude)
+                'east': extent_wgs84[2],   # xmax (longitude)
+                'north': extent_wgs84[3]   # ymax (latitude)
+            }
+        
+        # Coordinates are already in WGS84
         return {
-            'west': extent[0],   # xmin (longitude)
-            'south': extent[1],  # ymin (latitude)
-            'east': extent[2],   # xmax (longitude)
-            'north': extent[3]   # ymax (latitude)
+            'west': xmin,   # xmin (longitude)
+            'south': ymin,  # ymin (latitude)
+            'east': xmax,   # xmax (longitude)
+            'north': ymax   # ymax (latitude)
         }
     
     def _calculate_optimal_zoom(self, bounds):
@@ -3379,3 +4927,1790 @@ class LayerBoundsZoomAPIView(APIView):
             zoom = 18
         
         return zoom
+
+
+def _webhook_payload_snapshot(data):
+    """
+    Return a deep copy of webhook payload so we store everything exactly as received.
+    Handles QueryDict and nested structures; result is JSON-serializable.
+    """
+    if data is None:
+        return {}
+    if hasattr(data, 'dict'):
+        data = data.dict()
+    elif hasattr(data, 'items') and not isinstance(data, dict):
+        data = dict(data)
+    try:
+        return copy.deepcopy(data)
+    except Exception:
+        return json.loads(json.dumps(data, default=str))
+
+
+def _print_webhook_response(webhook_name, data):
+    """
+    Print the entire webhook request body as clear, readable JSON to console and log.
+    Use for all webhook endpoints so incoming payload is visible for debugging.
+    """
+    try:
+        if data is None:
+            payload = {}
+        elif hasattr(data, 'dict'):
+            payload = data.dict()
+        elif hasattr(data, 'items') and not isinstance(data, dict):
+            payload = dict(data)
+        else:
+            payload = data
+        json_str = json.dumps(payload, indent=2, default=str, ensure_ascii=False)
+    except Exception as e:
+        json_str = f"(could not serialize: {e})"
+    sep = "=" * 80
+    banner = f"\n{sep}\n  WEBHOOK REQUEST BODY: {webhook_name}\n{sep}"
+    print(banner)
+    print(json_str)
+    print(sep + "\n")
+    logger.info("%s\n%s", banner, json_str)
+
+
+class DeveloperListingMediaWebhookView(APIView):
+    """
+    Webhook endpoint to receive notifications when developer listing media files
+    are uploaded and need tile generation.
+    
+    Supports: Developer Land and Developer Plot (listing_type: developerland, developerplot).
+    
+    We store everything from the webhook:
+    - WebhookEvent.payload: full request body (every key/value sent by backend)
+    - DeveloperListing.listing_data: full listing object (unchanged)
+    - DeveloperListingMedia.media_data: full media object per item (unchanged)
+    
+    This endpoint receives POST requests when:
+    - DeveloperLand or DeveloperPlot is created/updated
+    - TIF files are uploaded/updated
+    
+    The service will:
+    1. Save full webhook data to database (no fields dropped)
+    2. Download TIF files from CloudFront URLs
+    3. Generate map tiles from TIF files
+    4. Upload tiles to S3 at the specified path
+    5. Store TIF metadata and bounds
+    """
+    permission_classes = [AllowAny]  # Public endpoint (webhook)
+    authentication_classes = []  # No authentication required
+    http_method_names = ['post']  # Only allow POST requests
+    
+    def post(self, request):
+        """Process webhook and generate tiles for TIF files"""
+        from .models import (
+            DeveloperListing, DeveloperListingMedia, WebhookEvent
+        )
+        from django.utils import timezone
+        
+        logger.info(f"[WEBHOOK_RECEIVE] ===== Webhook POST request received =====")
+        logger.info(f"[WEBHOOK_RECEIVE] Request method: {request.method}")
+        logger.info(f"[WEBHOOK_RECEIVE] Content-Type: {request.content_type}")
+        logger.info(f"[WEBHOOK_RECEIVE] Headers: {dict(request.headers)}")
+        
+        webhook_event = None
+        try:
+            # Read body once (stream can only be read once); use it for both parsing and raw storage
+            raw_body_full = ''
+            try:
+                raw_body_full = request.body.decode('utf-8', errors='replace')
+            except Exception:
+                pass
+            import json
+            data = {}
+            if raw_body_full:
+                try:
+                    data = json.loads(raw_body_full)
+                except Exception:
+                    pass
+            raw_body_str = raw_body_full[:50000] if len(raw_body_full) > 50000 else raw_body_full
+            # Snapshot full payload so we store everything (no keys dropped)
+            payload_snapshot = _webhook_payload_snapshot(data)
+            # Print entire webhook JSON clearly for debugging
+            _print_webhook_response("developer-listing-media", data)
+            
+            # Validate required fields
+            event_type = data.get('event_type')
+            listing_type = data.get('listing_type')
+            listing_id = data.get('listing_id')
+            tif_files = data.get('tif_files', [])
+            listing_data = data.get('listing_data', {}) or {}
+            media_items = data.get('media_items', []) or []
+            action = data.get('action', '')
+            
+            if not all([event_type, listing_type, listing_id]):
+                logger.warning(f"Webhook received with missing required fields: {data}")
+                return Response(
+                    {"error": "Missing required fields: event_type, listing_type, listing_id"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Validate event type
+            valid_event_types = [
+                'developer_listing_created',
+                'developer_listing_updated',
+                'developer_listing_media_uploaded',
+                'developer_listing_media_deleted',
+                'developer_listing_listing_deleted'
+            ]
+            
+            if event_type not in valid_event_types:
+                logger.warning(f"Webhook received with unknown event_type: {event_type}")
+                return Response(
+                    {"error": f"Unknown event_type: {event_type}"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Save webhook event first – store everything: full payload + raw body (already read above)
+            webhook_event = WebhookEvent.objects.create(
+                event_type=event_type,
+                action=action,
+                listing_type=listing_type,
+                listing_id=listing_id,
+                payload=payload_snapshot,
+                raw_body=raw_body_str,
+                request_headers=dict(request.headers),
+                request_ip=self._get_client_ip(request)
+            )
+            
+            # Handle deletion events (listing/media); we already stored the payload above
+            if action == 'listing_deleted':
+                logger.info(f"[WEBHOOK_RECEIVE] 🗑️  Listing deletion event received")
+                return self._handle_listing_deletion(webhook_event, listing_type, listing_id, data)
+            
+            if action == 'media_deleted':
+                logger.info(f"[WEBHOOK_RECEIVE] 🗑️  Media deletion event received")
+                return self._handle_media_deletion(webhook_event, listing_type, listing_id, data, media_items)
+            
+            logger.info(f"[WEBHOOK_RECEIVE] ===== Webhook received =====")
+            logger.info(f"[WEBHOOK_RECEIVE] 📥 Event: {event_type}")
+            logger.info(f"[WEBHOOK_RECEIVE] 📥 Action: {action}")
+            logger.info(f"[WEBHOOK_RECEIVE] 📥 Listing: {listing_type} ID={listing_id}")
+            logger.info(f"[WEBHOOK_RECEIVE] 📥 Media items: {len(media_items)}")
+            logger.info(f"[WEBHOOK_RECEIVE] 📥 TIF files: {len(tif_files)}")
+            logger.info(f"[WEBHOOK_RECEIVE] 📥 Webhook Event ID: {webhook_event.id}")
+            
+            # Save/update listing data
+            logger.info(f"[WEBHOOK_RECEIVE] 💾 Saving/updating DeveloperListing in database...")
+            
+            # Extract city from division list if available
+            city_name = ''
+            if listing_data.get('city'):
+                city_name = listing_data.get('city', '')
+            elif listing_data.get('division'):
+                # division is a list, get first item's name if exists
+                division = listing_data.get('division', [])
+                if isinstance(division, list) and len(division) > 0:
+                    city_name = division[0].get('name', '') if isinstance(division[0], dict) else ''
+                elif isinstance(division, dict):
+                    city_name = division.get('name', '')
+            
+            # Store full listing_data (every field from backend; we only extract a few for querying)
+            listing_data_stored = _webhook_payload_snapshot(listing_data)
+            listing, created = DeveloperListing.objects.update_or_create(
+                listing_type=listing_type,
+                backend_listing_id=listing_id,
+                defaults={
+                    'listing_data': listing_data_stored,
+                    'name': listing_data.get('name', '') or listing_data.get('title', ''),
+                    'description': listing_data.get('description', ''),
+                    'location': listing_data.get('location', ''),
+                    'city': city_name,
+                    'state': listing_data.get('state', ''),
+                    'last_webhook_event': event_type,
+                    'backend_created_at': self._parse_datetime(listing_data.get('created_at')),
+                    'backend_updated_at': self._parse_datetime(listing_data.get('updated_at')),
+                }
+            )
+            # Sync location_point from listing_data for layer enrichment
+            point = listing.get_listing_point()
+            if point is not None and (listing.location_point is None or listing.location_point.wkt != point.wkt):
+                listing.location_point = point
+                listing.save(update_fields=['location_point'])
+            logger.info(f"[WEBHOOK_RECEIVE] ✅ DeveloperListing {'created' if created else 'updated'}: ID={listing.id}, Name={listing.name}")
+
+            # Sync into SyncedDeveloperLand / SyncedDeveloperPlot so the 4 Synced* tables stay in sync
+            from .models import SyncedDeveloperLand, SyncedDeveloperPlot
+            from .sync_utils import defaults_for_developer_land, defaults_for_developer_plot
+            listing_data_for_sync = dict(listing_data_stored) if listing_data_stored else {}
+            listing_data_for_sync['id'] = listing_id
+            if listing_type == 'developerland':
+                defaults = defaults_for_developer_land(listing_data_for_sync)
+                SyncedDeveloperLand.objects.update_or_create(
+                    backend_id=listing_id,
+                    defaults=defaults,
+                )
+                logger.info(f"[WEBHOOK_RECEIVE] Synced SyncedDeveloperLand backend_id={listing_id}")
+            elif listing_type == 'developerplot':
+                defaults = defaults_for_developer_plot(listing_data_for_sync)
+                SyncedDeveloperPlot.objects.update_or_create(
+                    backend_id=listing_id,
+                    defaults=defaults,
+                )
+                logger.info(f"[WEBHOOK_RECEIVE] Synced SyncedDeveloperPlot backend_id={listing_id}")
+
+            # Run enrichment (state-filtered); no coords or no nearby layers -> enriched_layers=[], enriched_at=None or now
+            try:
+                from maps.listing_layer_enrichment_service import enrich_listing
+                if enrich_listing(listing, update_location_point=True):
+                    logger.info(f"[WEBHOOK_RECEIVE] Enriched DeveloperListing {listing_type} {listing_id}")
+                else:
+                    logger.info(f"[WEBHOOK_RECEIVE] Enrichment skipped/cleared (no coords or no layers) for {listing_type} {listing_id}")
+            except Exception as enr_err:
+                logger.warning(f"[WEBHOOK_RECEIVE] Enrichment failed for {listing_type} {listing_id}: {enr_err}", exc_info=True)
+
+            # Save/update media files
+            logger.info(f"[WEBHOOK_RECEIVE] 💾 Saving/updating {len(media_items)} media files...")
+            
+            # Track media IDs from webhook payload
+            webhook_media_ids = set()
+            
+            # Import tile service for cleanup (only if needed)
+            tile_service_for_cleanup = None
+            
+            for idx, media_item in enumerate(media_items, 1):
+                media_id = media_item.get('id')
+                if not media_id:
+                    logger.warning(f"[WEBHOOK_RECEIVE] ⚠️  Media item {idx}: No ID found, skipping")
+                    continue
+                
+                webhook_media_ids.add(media_id)
+                
+                is_tif = media_item.get('is_tif', False)
+                file_name = media_item.get('file_name', 'unknown')
+                new_s3_tile_path = media_item.get('s3_tile_path', '')
+                
+                logger.info(f"[WEBHOOK_RECEIVE] 📄 Media {idx}/{len(media_items)}: ID={media_id}, File={file_name}, TIF={is_tif}")
+                
+                # Check if media already exists and has a different tile path
+                # This handles the case where a media is deleted and recreated with same ID but different file/path
+                old_media = None
+                old_s3_tile_path = None
+                try:
+                    old_media = DeveloperListingMedia.objects.get(
+                        listing=listing,
+                        backend_media_id=media_id
+                    )
+                    old_s3_tile_path = old_media.s3_tile_path
+                    
+                    # If it's a TIF file, delete old tiles before updating
+                    # This handles both cases:
+                    # 1. File updated with same name (same path) - need to delete old tiles before generating new ones
+                    # 2. File updated with different name (different path) - delete old path, generate to new path
+                    if is_tif and old_s3_tile_path:
+                        if old_s3_tile_path == new_s3_tile_path:
+                            logger.info(f"[WEBHOOK_RECEIVE] 🔄 Media file updated with same name/path: {old_s3_tile_path}")
+                            logger.info(f"[WEBHOOK_RECEIVE] 🗑️  Deleting old tiles before generating new ones (same path)...")
+                        else:
+                            logger.info(f"[WEBHOOK_RECEIVE] 🔄 Media tile path changed: {old_s3_tile_path} → {new_s3_tile_path}")
+                            logger.info(f"[WEBHOOK_RECEIVE] 🗑️  Deleting old tiles from old path before updating...")
+                        
+                        logger.info(f"[WEBHOOK_RECEIVE]    ⚠️  Will ONLY delete tiles for this specific media (ID={media_id}), not other listings/media")
+                        
+                        if not tile_service_for_cleanup:
+                            from .developer_listing_tile_service import DeveloperListingTileService
+                            tile_service_for_cleanup = DeveloperListingTileService()
+                        
+                        # Always delete old tiles, even if path is the same (file replaced with same name)
+                        deleted_tiles = tile_service_for_cleanup._delete_s3_tiles(old_s3_tile_path)
+                        logger.info(f"[WEBHOOK_RECEIVE] ✅ Deleted {deleted_tiles} old tiles from {old_s3_tile_path} (ONLY for media ID={media_id}, listing #{listing_id})")
+                        logger.info(f"[WEBHOOK_RECEIVE] 🆕 New tiles will be generated after this update")
+                        
+                except DeveloperListingMedia.DoesNotExist:
+                    # New media, no cleanup needed
+                    pass
+                
+                # Store full media item (every field from backend)
+                media_data_stored = _webhook_payload_snapshot(media_item)
+                media_obj, created = DeveloperListingMedia.objects.update_or_create(
+                    listing=listing,
+                    backend_media_id=media_id,
+                    defaults={
+                        'media_type': media_item.get('media_type', 'file'),
+                        'category': media_item.get('category', ''),
+                        'file_name': file_name,
+                        'file_url': media_item.get('url', ''),
+                        's3_path': media_item.get('s3_path', ''),
+                        'is_tif': is_tif,
+                        's3_tile_path': new_s3_tile_path,
+                        'media_data': media_data_stored,
+                    }
+                )
+                logger.info(f"[WEBHOOK_RECEIVE] ✅ Media {'created' if created else 'updated'}: ID={media_obj.id}")
+            
+            # Handle deleted media: if action is 'updated', delete media records (and their tiles) 
+            # that exist in DB but are not in the webhook payload
+            if action in ['updated', 'media_uploaded'] and webhook_media_ids:
+                existing_media = DeveloperListingMedia.objects.filter(listing=listing)
+                deleted_count = 0
+                
+                for existing_media_obj in existing_media:
+                    if existing_media_obj.backend_media_id not in webhook_media_ids:
+                        # This media was deleted from the backend
+                        logger.info(f"[WEBHOOK_RECEIVE] 🗑️  Media deleted: ID={existing_media_obj.backend_media_id}, File={existing_media_obj.file_name}")
+                        
+                        # Delete tiles from S3 if it's a TIF file (ONLY for this specific deleted media)
+                        if existing_media_obj.is_tif and existing_media_obj.s3_tile_path:
+                            logger.info(f"[WEBHOOK_RECEIVE]    ⚠️  Will ONLY delete tiles for this specific media (ID={existing_media_obj.backend_media_id}), not other files")
+                            from .developer_listing_tile_service import DeveloperListingTileService
+                            tile_service = DeveloperListingTileService()
+                            deleted_tiles = tile_service._delete_s3_tiles(existing_media_obj.s3_tile_path)
+                            logger.info(f"[WEBHOOK_RECEIVE] 🗑️  Deleted {deleted_tiles} tiles from S3 for deleted media (ONLY for media ID={existing_media_obj.backend_media_id}, listing #{listing_id})")
+                        
+                        # Delete the media record
+                        existing_media_obj.delete()
+                        deleted_count += 1
+                
+                if deleted_count > 0:
+                    logger.info(f"[WEBHOOK_RECEIVE] ✅ Cleaned up {deleted_count} deleted media records and their tiles")
+            
+            logger.info(f"[WEBHOOK_RECEIVE] ✅ All media files saved")
+            
+            # Process TIF files if any
+            if tif_files:
+                logger.info(f"[WEBHOOK_RECEIVE] 🗺️  Processing {len(tif_files)} TIF files for tile generation...")
+                from .developer_listing_tile_service import DeveloperListingTileService
+                tile_service = DeveloperListingTileService()
+                
+                logger.info(f"[WEBHOOK_RECEIVE] 🚀 Starting tile generation service...")
+                # Process webhook asynchronously (in background)
+                # For now, process synchronously - can be moved to Celery/background task later
+                result = tile_service.process_webhook(data, listing=listing, webhook_event=webhook_event)
+                logger.info(f"[WEBHOOK_RECEIVE] ✅ Tile generation completed: {result.get('total_tiles_generated', 0)} tiles")
+                
+                # Update webhook event with results
+                webhook_event.processed = True
+                webhook_event.processed_at = timezone.now()
+                webhook_event.tiles_generated = result.get('total_tiles_generated', 0)
+                webhook_event.tif_files_processed = result.get('tif_files_processed', 0)
+                webhook_event.processing_result = result
+                webhook_event.save()
+                
+                if result.get('success'):
+                    logger.info(
+                        f"Successfully processed webhook: "
+                        f"{result.get('total_tiles_generated', 0)} tiles generated"
+                    )
+                    return Response(
+                        {
+                            "status": "success",
+                            "message": f"Webhook processed for {listing_type} {listing_id}",
+                            "tiles_generated": result.get('total_tiles_generated', 0),
+                            "tif_files_processed": result.get('tif_files_processed', 0),
+                            "details": result
+                        },
+                        status=status.HTTP_200_OK
+                    )
+                else:
+                    error_msg = result.get('error', 'Unknown error')
+                    logger.error(f"[WEBHOOK_RECEIVE] ❌ Error processing tiles: {error_msg}")
+                    webhook_event.processing_error = error_msg
+                    webhook_event.save()
+                    logger.error(f"[WEBHOOK_RECEIVE] ===== Webhook processing failed =====")
+                    return Response(
+                        {
+                            "status": "error",
+                            "message": f"Error processing tiles: {result.get('error')}",
+                            "details": result
+                        },
+                        status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                    )
+            else:
+                # No TIF files to process - mark as processed
+                logger.info(f"[WEBHOOK_RECEIVE] ⚠️  No TIF files to process for {listing_type} {listing_id}")
+                logger.info(f"[WEBHOOK_RECEIVE] 💾 Marking webhook event as processed...")
+                webhook_event.processed = True
+                webhook_event.processed_at = timezone.now()
+                webhook_event.save()
+                logger.info(f"[WEBHOOK_RECEIVE] ✅ Webhook event marked as processed")
+                logger.info(f"[WEBHOOK_RECEIVE] ===== Webhook processing completed (no TIF files) =====")
+                return Response(
+                    {
+                        "status": "success",
+                        "message": f"Webhook received for {listing_type} {listing_id}",
+                        "tiles_generated": 0,
+                        "note": "No TIF files found in webhook payload"
+                    },
+                    status=status.HTTP_200_OK
+                )
+                
+        except Exception as e:
+            logger.error(f"[WEBHOOK_RECEIVE] ❌ Exception processing developer listing webhook: {e}", exc_info=True)
+            if webhook_event:
+                logger.error(f"[WEBHOOK_RECEIVE] 💾 Saving error to webhook event...")
+                webhook_event.processing_error = str(e)
+                webhook_event.save()
+                logger.error(f"[WEBHOOK_RECEIVE] ✅ Error saved")
+            logger.error(f"[WEBHOOK_RECEIVE] ===== Webhook processing failed with exception =====")
+            return Response(
+                {
+                    "error": "Internal server error processing webhook",
+                    "details": str(e)
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+    
+    def _handle_listing_deletion(self, webhook_event, listing_type, listing_id, data):
+        """
+        Handle listing deletion webhook
+        Deletes all tiles and removes listing from database
+        """
+        from django.utils import timezone
+        from .models import DeveloperListing, DeveloperListingMedia
+        from .developer_listing_tile_service import DeveloperListingTileService
+        
+        logger.info(f"[WEBHOOK_DELETE] ===== Processing listing deletion =====")
+        logger.info(f"[WEBHOOK_DELETE] Listing: {listing_type} ID={listing_id}")
+        
+        try:
+            # Find the listing
+            try:
+                listing = DeveloperListing.objects.get(
+                    listing_type=listing_type,
+                    backend_listing_id=listing_id
+                )
+            except DeveloperListing.DoesNotExist:
+                logger.warning(f"[WEBHOOK_DELETE] ⚠️  Listing not found: {listing_type} {listing_id}")
+                # Mark as processed even if not found (might have been deleted already)
+                webhook_event.processed = True
+                webhook_event.processed_at = timezone.now()
+                webhook_event.processing_result = {'note': 'Listing not found in database'}
+                webhook_event.save()
+                return Response(
+                    {
+                        "status": "success",
+                        "message": f"Listing {listing_type} {listing_id} not found (may have been deleted already)",
+                        "tiles_deleted": 0
+                    },
+                    status=status.HTTP_200_OK
+                )
+            
+            # Get all media for this SPECIFIC listing only (e.g., listing ID 70)
+            # This ensures we only delete tiles for this listing, not all listings
+            all_media = DeveloperListingMedia.objects.filter(listing=listing)
+            total_tiles_deleted = 0
+            
+            logger.info(f"[WEBHOOK_DELETE] 📋 Found {all_media.count()} media files for listing {listing_type} #{listing_id}")
+            
+            # Delete tiles for each TIF media file (ONLY for this specific listing)
+            tile_service = DeveloperListingTileService()
+            for media in all_media:
+                if media.is_tif and media.s3_tile_path:
+                    logger.info(f"[WEBHOOK_DELETE] 🗑️  Deleting tiles for media: {media.file_name} (path: {media.s3_tile_path})")
+                    logger.info(f"[WEBHOOK_DELETE]    ⚠️  This will ONLY delete tiles for this specific media file, not other listings")
+                    deleted_count = tile_service._delete_s3_tiles(media.s3_tile_path)
+                    total_tiles_deleted += deleted_count
+                    logger.info(f"[WEBHOOK_DELETE] ✅ Deleted {deleted_count} tiles for {media.file_name} (ONLY for listing #{listing_id})")
+            
+            # Delete all media records (CASCADE will handle this, but we do it explicitly for logging)
+            media_count = all_media.count()
+            all_media.delete()
+            logger.info(f"[WEBHOOK_DELETE] ✅ Deleted {media_count} media records")
+
+            # Delete the listing record
+            listing.delete()
+            logger.info(f"[WEBHOOK_DELETE] ✅ Deleted listing record")
+
+            # Keep SyncedDeveloperLand / SyncedDeveloperPlot in sync
+            from .models import SyncedDeveloperLand, SyncedDeveloperPlot
+            if listing_type == 'developerland':
+                SyncedDeveloperLand.objects.filter(backend_id=listing_id).delete()
+                logger.info(f"[WEBHOOK_DELETE] Deleted SyncedDeveloperLand backend_id={listing_id}")
+            elif listing_type == 'developerplot':
+                SyncedDeveloperPlot.objects.filter(backend_id=listing_id).delete()
+                logger.info(f"[WEBHOOK_DELETE] Deleted SyncedDeveloperPlot backend_id={listing_id}")
+            
+            # Mark webhook as processed
+            webhook_event.processed = True
+            webhook_event.processed_at = timezone.now()
+            webhook_event.tiles_generated = 0  # No tiles generated, but we track deletions
+            webhook_event.processing_result = {
+                'tiles_deleted': total_tiles_deleted,
+                'media_records_deleted': media_count,
+                'listing_deleted': True
+            }
+            webhook_event.save()
+            
+            logger.info(f"[WEBHOOK_DELETE] ✅ Listing deletion completed")
+            logger.info(f"[WEBHOOK_DELETE]    - Tiles deleted: {total_tiles_deleted}")
+            logger.info(f"[WEBHOOK_DELETE]    - Media records deleted: {media_count}")
+            logger.info(f"[WEBHOOK_DELETE] ===== Listing deletion processing completed =====")
+            
+            return Response(
+                {
+                    "status": "success",
+                    "message": f"Listing {listing_type} {listing_id} deleted successfully",
+                    "tiles_deleted": total_tiles_deleted,
+                    "media_records_deleted": media_count
+                },
+                status=status.HTTP_200_OK
+            )
+            
+        except Exception as e:
+            logger.error(f"[WEBHOOK_DELETE] ❌ Error processing listing deletion: {e}", exc_info=True)
+            webhook_event.processing_error = str(e)
+            webhook_event.save()
+            return Response(
+                {
+                    "status": "error",
+                    "message": f"Error processing listing deletion: {str(e)}"
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+    
+    def _handle_media_deletion(self, webhook_event, listing_type, listing_id, data, media_items):
+        """
+        Handle media deletion webhook
+        Deletes tiles for deleted media and removes media records from database
+        """
+        from django.utils import timezone
+        from .models import DeveloperListing, DeveloperListingMedia
+        from .developer_listing_tile_service import DeveloperListingTileService
+        
+        logger.info(f"[WEBHOOK_DELETE] ===== Processing media deletion =====")
+        logger.info(f"[WEBHOOK_DELETE] Listing: {listing_type} ID={listing_id}")
+        logger.info(f"[WEBHOOK_DELETE] Media items in payload: {len(media_items)}")
+        
+        try:
+            # Find the listing
+            try:
+                listing = DeveloperListing.objects.get(
+                    listing_type=listing_type,
+                    backend_listing_id=listing_id
+                )
+            except DeveloperListing.DoesNotExist:
+                logger.warning(f"[WEBHOOK_DELETE] ⚠️  Listing not found: {listing_type} {listing_id}")
+                webhook_event.processed = True
+                webhook_event.processed_at = timezone.now()
+                webhook_event.processing_result = {'note': 'Listing not found in database'}
+                webhook_event.save()
+                return Response(
+                    {
+                        "status": "success",
+                        "message": f"Listing {listing_type} {listing_id} not found",
+                        "tiles_deleted": 0
+                    },
+                    status=status.HTTP_200_OK
+                )
+            
+            # Find deleted media items (those marked with 'deleted': true)
+            # This ensures we ONLY delete tiles for the specific deleted media files, not all media
+            deleted_media_items = [m for m in media_items if m.get('deleted', False)]
+            logger.info(f"[WEBHOOK_DELETE] Found {len(deleted_media_items)} deleted media items (will ONLY delete tiles for these specific files)")
+            
+            total_tiles_deleted = 0
+            deleted_media_count = 0
+            
+            tile_service = DeveloperListingTileService()
+            
+            # Process each deleted media item (ONLY these specific files)
+            for deleted_media in deleted_media_items:
+                media_id = deleted_media.get('id')
+                file_name = deleted_media.get('file_name', 'unknown')
+                s3_tile_path = deleted_media.get('s3_tile_path', '')
+                is_tif = deleted_media.get('is_tif', False)
+                
+                logger.info(f"[WEBHOOK_DELETE] 🗑️  Processing deleted media: ID={media_id}, File={file_name}, TIF={is_tif}")
+                logger.info(f"[WEBHOOK_DELETE]    ⚠️  Will ONLY delete tiles for this specific media file (ID={media_id}), not other files")
+                
+                # Delete tiles from S3 if it's a TIF file (ONLY for this specific media)
+                if is_tif and s3_tile_path:
+                    logger.info(f"[WEBHOOK_DELETE] 🗑️  Deleting tiles from S3 path: {s3_tile_path}")
+                    logger.info(f"[WEBHOOK_DELETE]    ⚠️  This will ONLY delete tiles matching this path prefix, not other listings/media")
+                    deleted_count = tile_service._delete_s3_tiles(s3_tile_path)
+                    total_tiles_deleted += deleted_count
+                    logger.info(f"[WEBHOOK_DELETE] ✅ Deleted {deleted_count} tiles for {file_name} (ONLY for media ID={media_id}, listing #{listing_id})")
+                elif is_tif:
+                    logger.warning(f"[WEBHOOK_DELETE] ⚠️  TIF file {file_name} has no s3_tile_path, skipping tile deletion")
+                
+                # Delete the media record from database
+                try:
+                    media_obj = DeveloperListingMedia.objects.get(
+                        listing=listing,
+                        backend_media_id=media_id
+                    )
+                    media_obj.delete()
+                    deleted_media_count += 1
+                    logger.info(f"[WEBHOOK_DELETE] ✅ Deleted media record: ID={media_id}")
+                except DeveloperListingMedia.DoesNotExist:
+                    logger.warning(f"[WEBHOOK_DELETE] ⚠️  Media record not found: ID={media_id} (may have been deleted already)")
+            
+            # Update remaining media items (those not deleted)
+            remaining_media_items = [m for m in media_items if not m.get('deleted', False)]
+            logger.info(f"[WEBHOOK_DELETE] Updating {len(remaining_media_items)} remaining media items...")
+            
+            for media_item in remaining_media_items:
+                media_id = media_item.get('id')
+                if not media_id:
+                    continue
+                
+                DeveloperListingMedia.objects.update_or_create(
+                    listing=listing,
+                    backend_media_id=media_id,
+                    defaults={
+                        'media_type': media_item.get('media_type', 'file'),
+                        'category': media_item.get('category', ''),
+                        'file_name': media_item.get('file_name', ''),
+                        'file_url': media_item.get('url', ''),
+                        's3_path': media_item.get('s3_path', ''),
+                        'is_tif': media_item.get('is_tif', False),
+                        's3_tile_path': media_item.get('s3_tile_path', ''),
+                        'media_data': media_item,
+                    }
+                )
+            
+            logger.info(f"[WEBHOOK_DELETE] ✅ Updated remaining media items")
+            
+            # Mark webhook as processed
+            webhook_event.processed = True
+            webhook_event.processed_at = timezone.now()
+            webhook_event.tiles_generated = 0
+            webhook_event.processing_result = {
+                'tiles_deleted': total_tiles_deleted,
+                'media_records_deleted': deleted_media_count,
+                'remaining_media_count': len(remaining_media_items)
+            }
+            webhook_event.save()
+            
+            logger.info(f"[WEBHOOK_DELETE] ✅ Media deletion completed")
+            logger.info(f"[WEBHOOK_DELETE]    - Tiles deleted: {total_tiles_deleted}")
+            logger.info(f"[WEBHOOK_DELETE]    - Media records deleted: {deleted_media_count}")
+            logger.info(f"[WEBHOOK_DELETE]    - Remaining media: {len(remaining_media_items)}")
+            logger.info(f"[WEBHOOK_DELETE] ===== Media deletion processing completed =====")
+            
+            return Response(
+                {
+                    "status": "success",
+                    "message": f"Media deletion processed for {listing_type} {listing_id}",
+                    "tiles_deleted": total_tiles_deleted,
+                    "media_records_deleted": deleted_media_count,
+                    "remaining_media_count": len(remaining_media_items)
+                },
+                status=status.HTTP_200_OK
+            )
+            
+        except Exception as e:
+            logger.error(f"[WEBHOOK_DELETE] ❌ Error processing media deletion: {e}", exc_info=True)
+            webhook_event.processing_error = str(e)
+            webhook_event.save()
+            return Response(
+                {
+                    "status": "error",
+                    "message": f"Error processing media deletion: {str(e)}"
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+    
+    def _get_client_ip(self, request):
+        """Get client IP address from request"""
+        x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
+        if x_forwarded_for:
+            ip = x_forwarded_for.split(',')[0]
+        else:
+            ip = request.META.get('REMOTE_ADDR')
+        return ip
+    
+    def _parse_datetime(self, dt_string):
+        """Parse datetime string from backend"""
+        if not dt_string:
+            return None
+        from django.utils.dateparse import parse_datetime
+        return parse_datetime(dt_string)
+
+
+class LandPlotWebhookView(APIView):
+    """
+    Webhook endpoint for Land and Plot (regular listings) from 1acre-be.
+    Receives create/update/delete events with full listing_data.
+    Same pattern as DeveloperListingMediaWebhookView.
+    """
+    permission_classes = [AllowAny]
+    authentication_classes = []
+    http_method_names = ['post']
+
+    def post(self, request):
+        from .models import LandPlotWebhookEvent, SyncedLand, SyncedPlot
+        from .sync_utils import defaults_for_land, defaults_for_plot
+
+        logger.info("[LAND_PLOT_WEBHOOK] ===== Land/Plot webhook POST received =====")
+        try:
+            # Read raw body first (only one read allowed; request.data would consume the stream)
+            raw_body = ''
+            try:
+                _req = getattr(request, '_request', request)
+                raw_body = (_req.body.decode('utf-8', errors='replace')
+                            if getattr(_req, 'body', None) else '')
+            except Exception:
+                pass
+            # Parse JSON from raw body so we never touch request.body again
+            data = {}
+            if raw_body and raw_body.strip():
+                try:
+                    data = json.loads(raw_body)
+                except (json.JSONDecodeError, ValueError) as e:
+                    logger.warning(f"[LAND_PLOT_WEBHOOK] Could not parse JSON body: {e}")
+                    return Response(
+                        {"error": "Invalid JSON body"},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+            if not isinstance(data, dict):
+                data = {}
+            # Snapshot full payload so we save everything (same pattern as developer listing webhook)
+            payload_snapshot = _webhook_payload_snapshot(data)
+            # Print entire webhook JSON clearly for debugging
+            _print_webhook_response("land-plot", data)
+            # Truncate raw_body for storage if needed (already have full string above)
+            if len(raw_body) > 50000:
+                raw_body = raw_body[:50000]
+
+            event_type = data.get('event_type')
+            action = data.get('action')
+            listing_type = data.get('listing_type')
+            listing_id = data.get('listing_id')
+            listing_data = data.get('listing_data', {})
+
+            if not all([event_type, action, listing_type, listing_id is not None]):
+                return Response(
+                    {"error": "Missing required fields: event_type, action, listing_type, listing_id"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            if event_type not in ('listing_created', 'listing_updated', 'listing_deleted'):
+                return Response(
+                    {"error": f"Unknown event_type: {event_type}"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            if listing_type not in ('land', 'plot'):
+                return Response(
+                    {"error": f"Unknown listing_type: {listing_type}"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            ip = self._get_client_ip(request)
+            LandPlotWebhookEvent.objects.create(
+                event_type=event_type,
+                action=action,
+                listing_type=listing_type,
+                listing_id=listing_id,
+                payload=payload_snapshot,
+                raw_body=raw_body,
+                request_headers=dict(request.headers),
+                request_ip=ip,
+            )
+            logger.info(f"[LAND_PLOT_WEBHOOK] Saved: {action} {listing_type} {listing_id}")
+
+            # Sync into SyncedLand / SyncedPlot so DB stays in sync with 1acre-be
+            if action in ('created', 'updated'):
+                item = dict(listing_data) if listing_data else {}
+                item['id'] = listing_id  # ensure id present for payload
+                if listing_type == 'land':
+                    defaults = defaults_for_land(item)
+                    record, _ = SyncedLand.objects.update_or_create(
+                        backend_id=listing_id,
+                        defaults=defaults,
+                    )
+                    logger.info(f"[LAND_PLOT_WEBHOOK] Synced SyncedLand backend_id={listing_id}")
+                else:
+                    defaults = defaults_for_plot(item)
+                    record, _ = SyncedPlot.objects.update_or_create(
+                        backend_id=listing_id,
+                        defaults=defaults,
+                    )
+                    logger.info(f"[LAND_PLOT_WEBHOOK] Synced SyncedPlot backend_id={listing_id}")
+                # Run enrichment (state-filtered); no coords or no nearby layers -> enriched_layers=[], enriched_at=None or now
+                try:
+                    from maps.listing_layer_enrichment_service import enrich_synced_record
+                    if enrich_synced_record(record, update_location_point=True):
+                        logger.info(f"[LAND_PLOT_WEBHOOK] Enriched {listing_type} {listing_id}")
+                    else:
+                        logger.info(f"[LAND_PLOT_WEBHOOK] Enrichment skipped/cleared (no coords or no layers) for {listing_type} {listing_id}")
+                except Exception as enr_err:
+                    logger.warning(f"[LAND_PLOT_WEBHOOK] Enrichment failed for {listing_type} {listing_id}: {enr_err}", exc_info=True)
+            elif action == 'deleted':
+                if listing_type == 'land':
+                    deleted, _ = SyncedLand.objects.filter(backend_id=listing_id).delete()
+                    if deleted:
+                        logger.info(f"[LAND_PLOT_WEBHOOK] Deleted SyncedLand backend_id={listing_id}")
+                else:
+                    deleted, _ = SyncedPlot.objects.filter(backend_id=listing_id).delete()
+                    if deleted:
+                        logger.info(f"[LAND_PLOT_WEBHOOK] Deleted SyncedPlot backend_id={listing_id}")
+
+            return Response(
+                {"status": "success", "event_type": event_type, "listing_type": listing_type, "listing_id": listing_id},
+                status=status.HTTP_200_OK
+            )
+        except Exception as e:
+            logger.error(f"[LAND_PLOT_WEBHOOK] Error: {e}", exc_info=True)
+            return Response(
+                {"error": "Internal server error", "details": str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+    def _get_client_ip(self, request):
+        x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
+        if x_forwarded_for:
+            return x_forwarded_for.split(',')[0].strip()
+        return request.META.get('REMOTE_ADDR')
+
+
+class DeveloperListingDetailAPIView(APIView):
+    """
+    API endpoint to retrieve complete developer listing details
+    including media files, TIF metadata, and webhook events.
+    
+    GET /api/developer-listings/{listing_type}/{listing_id}/
+    
+    Returns:
+    - Complete listing data
+    - All media files with TIF metadata
+    - Tile generation status
+    - Recent webhook events
+    - Media and tile summaries
+    """
+    permission_classes = [AllowAny]  # Make public or add authentication as needed
+    
+    def get(self, request, listing_type, listing_id):
+        """Get complete details for a developer listing"""
+        from .models import DeveloperListing
+        from .serializers import DeveloperListingDetailSerializer
+        
+        try:
+            # Validate listing_type
+            if listing_type not in ['developerland', 'developerplot']:
+                return Response(
+                    {'error': f'Invalid listing_type. Must be "developerland" or "developerplot"'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Get listing
+            try:
+                listing = DeveloperListing.objects.prefetch_related(
+                    'media_files',
+                    'media_files__tif_metadata'
+                ).get(
+                    listing_type=listing_type,
+                    backend_listing_id=listing_id
+                )
+            except DeveloperListing.DoesNotExist:
+                return Response(
+                    {
+                        'error': f'Listing not found',
+                        'listing_type': listing_type,
+                        'listing_id': listing_id
+                    },
+                    status=status.HTTP_404_NOT_FOUND
+                )
+            
+            # Serialize and return
+            serializer = DeveloperListingDetailSerializer(listing)
+            
+            return Response(
+                {
+                    'success': True,
+                    'listing': serializer.data
+                },
+                status=status.HTTP_200_OK
+            )
+            
+        except Exception as e:
+            logger.error(f"Error retrieving developer listing details: {e}", exc_info=True)
+            return Response(
+                {
+                    'error': 'Internal server error',
+                    'details': str(e)
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+class DeveloperListingListAPIView(APIView):
+    """
+    API endpoint to list all developer listings with filtering
+    
+    GET /api/developer-listings/
+    
+    Query parameters:
+    - listing_type: Filter by type (developerland, developerplot)
+    - city: Filter by city name
+    - state: Filter by state name
+    - is_active: Filter by active status (true/false)
+    - has_tiles: Filter listings with TIF tiles (true/false)
+    - page: Page number (default: 1)
+    - page_size: Items per page (default: 20, max: 100)
+    """
+    permission_classes = [AllowAny]
+    
+    def get(self, request):
+        """List developer listings with filtering"""
+        from .models import DeveloperListing
+        from .serializers import DeveloperListingSerializer
+        
+        try:
+            # Get query parameters
+            listing_type = request.query_params.get('listing_type')
+            city = request.query_params.get('city')
+            state = request.query_params.get('state')
+            is_active = request.query_params.get('is_active')
+            has_tiles = request.query_params.get('has_tiles')
+            page = int(request.query_params.get('page', 1))
+            page_size = min(int(request.query_params.get('page_size', 20)), 100)
+            
+            # Build queryset
+            queryset = DeveloperListing.objects.prefetch_related('media_files').all()
+            
+            # Apply filters
+            if listing_type:
+                if listing_type not in ['developerland', 'developerplot']:
+                    return Response(
+                        {'error': 'Invalid listing_type. Must be "developerland" or "developerplot"'},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+                queryset = queryset.filter(listing_type=listing_type)
+            
+            if city:
+                queryset = queryset.filter(city__icontains=city)
+            
+            if state:
+                queryset = queryset.filter(state__icontains=state)
+            
+            if is_active is not None:
+                is_active_bool = is_active.lower() == 'true'
+                queryset = queryset.filter(is_active=is_active_bool)
+            
+            if has_tiles is not None:
+                has_tiles_bool = has_tiles.lower() == 'true'
+                if has_tiles_bool:
+                    # Filter listings that have at least one TIF with generated tiles
+                    queryset = queryset.filter(
+                        media_files__is_tif=True,
+                        media_files__tiles_generated=True
+                    ).distinct()
+                else:
+                    # Filter listings without any generated TIF tiles
+                    from django.db.models import Q
+                    queryset = queryset.exclude(
+                        media_files__is_tif=True,
+                        media_files__tiles_generated=True
+                    ).distinct()
+            
+            # Order by most recent
+            queryset = queryset.order_by('-created_at')
+            
+            # Pagination
+            total_count = queryset.count()
+            start = (page - 1) * page_size
+            end = start + page_size
+            listings = queryset[start:end]
+            
+            # Serialize
+            serializer = DeveloperListingSerializer(listings, many=True)
+            
+            return Response(
+                {
+                    'success': True,
+                    'pagination': {
+                        'page': page,
+                        'page_size': page_size,
+                        'total_count': total_count,
+                        'total_pages': (total_count + page_size - 1) // page_size,
+                        'has_next': end < total_count,
+                        'has_previous': page > 1
+                    },
+                    'filters': {
+                        'listing_type': listing_type,
+                        'city': city,
+                        'state': state,
+                        'is_active': is_active,
+                        'has_tiles': has_tiles
+                    },
+                    'listings': serializer.data
+                },
+                status=status.HTTP_200_OK
+            )
+            
+        except Exception as e:
+            logger.error(f"Error listing developer listings: {e}", exc_info=True)
+            return Response(
+                {
+                    'error': 'Internal server error',
+                    'details': str(e)
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+class EnrichmentLookupAPIView(APIView):
+    """
+    POST API: return enrichment and full record data for land/plot/developer_land/developer_plot by IDs.
+
+    POST /api/enrichment-lookup/
+    Body: { "listing_type": "land"|"plot"|"developer_land"|"developer_plot", "ids": [1, 2, 3] }
+    ids can be either Django primary keys (id) or backend_id (1acre-be API id); both are matched.
+
+    Returns: { "results": [ {...}, ... ], "count": N } with enrichment (enriched_layers, enriched_at, location_point)
+    and all other model fields + payload.
+    """
+    permission_classes = [AllowAny]
+
+    # Map listing_type -> (Model, backend_id field name)
+    _MODEL_MAP = None
+
+    @classmethod
+    def _get_model_map(cls):
+        if cls._MODEL_MAP is None:
+            from .models import SyncedLand, SyncedPlot, SyncedDeveloperLand, SyncedDeveloperPlot
+            cls._MODEL_MAP = {
+                'land': SyncedLand,
+                'plot': SyncedPlot,
+                'developer_land': SyncedDeveloperLand,
+                'developer_plot': SyncedDeveloperPlot,
+            }
+        return cls._MODEL_MAP
+
+    @staticmethod
+    def _serialize_point(point):
+        if point is None:
+            return None
+        try:
+            return {'type': 'Point', 'coordinates': [point.x, point.y]}
+        except Exception:
+            return None
+
+    def _record_to_dict(self, obj):
+        """Build a dict with all fields + enrichment for one synced record."""
+        from django.forms.models import model_to_dict
+        d = model_to_dict(obj, exclude=['location_point'])
+        d['id'] = obj.pk
+        d['backend_id'] = getattr(obj, 'backend_id', None)
+        raw_layers = getattr(obj, 'enriched_layers', []) or []
+        d['enriched_layers'] = [dict(entry) for entry in raw_layers]
+        d['enriched_at'] = obj.enriched_at.isoformat() if getattr(obj, 'enriched_at', None) else None
+        d['location_point'] = self._serialize_point(getattr(obj, 'location_point', None))
+        if hasattr(obj, 'lat') and obj.lat is not None:
+            d['lat'] = obj.lat
+        if hasattr(obj, 'long') and obj.long is not None:
+            d['long'] = obj.long
+        d['payload'] = getattr(obj, 'payload', {}) or {}
+        d['synced_at'] = obj.synced_at.isoformat() if getattr(obj, 'synced_at', None) else None
+        # True when no coordinates -> enrichment not run or cleared; client can treat as null/false
+        has_point = getattr(obj, 'location_point', None) is not None
+        if not has_point and hasattr(obj, 'lat') and hasattr(obj, 'long'):
+            has_point = obj.lat is not None and obj.long is not None
+        if not has_point and hasattr(obj, 'payload') and obj.payload:
+            p = obj.payload
+            has_point = (p.get('lat') or p.get('latitude')) is not None and (p.get('long') or p.get('lng') or p.get('longitude')) is not None
+        d['enrichment_skipped'] = not has_point
+        return d
+
+    def post(self, request):
+        from .models import SyncedLand, SyncedPlot, SyncedDeveloperLand, SyncedDeveloperPlot
+
+        try:
+            data = request.data if getattr(request, 'data', None) is not None else {}
+            if not isinstance(data, dict):
+                return Response(
+                    {'error': 'Request body must be JSON with listing_type and ids'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            listing_type = (data.get('listing_type') or '').strip().lower()
+            ids = data.get('ids')
+            if not listing_type:
+                return Response(
+                    {'error': 'Missing listing_type. Use one of: land, plot, developer_land, developer_plot'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            model_map = self._get_model_map()
+            if listing_type not in model_map:
+                return Response(
+                    {'error': f'Invalid listing_type "{listing_type}". Use one of: land, plot, developer_land, developer_plot'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            if ids is None:
+                ids = []
+            if not isinstance(ids, list):
+                ids = [ids] if ids is not None else []
+            ids = [int(x) for x in ids if x is not None and str(x).strip() != '']
+            ids = list(dict.fromkeys(ids))
+
+            model = model_map[listing_type]
+            if ids:
+                qs = model.objects.filter(
+                    Q(backend_id__in=ids) | Q(pk__in=ids)
+                ).distinct()
+            else:
+                qs = model.objects.none()
+            records = list(qs)
+            results = [self._record_to_dict(r) for r in records]
+
+            # Resolve "place" (specific feature) for each enriched layer, like CoordinateSearchTestView
+            from .listing_layer_enrichment_service import get_place_for_point_in_layer
+            from django.contrib.gis.geos import Point
+            for record, result in zip(records, results):
+                point = getattr(record, 'location_point', None)
+                if point is None and getattr(record, 'long', None) is not None and getattr(record, 'lat', None) is not None:
+                    try:
+                        point = Point(float(record.long), float(record.lat), srid=4326)
+                    except (TypeError, ValueError):
+                        point = None
+                if point is None:
+                    continue
+                enriched = result.get('enriched_layers') or []
+                for layer_entry in enriched:
+                    layer_id = layer_entry.get('layer_id')
+                    distance_km = layer_entry.get('distance_km', 0)
+                    if layer_id is not None:
+                        place = get_place_for_point_in_layer(point, layer_id, distance_km)
+                        layer_entry['place'] = place
+
+            return Response(
+                {
+                    'listing_type': listing_type,
+                    'count': len(results),
+                    'results': results,
+                },
+                status=status.HTTP_200_OK
+            )
+        except (ValueError, TypeError) as e:
+            return Response(
+                {'error': 'ids must be a list of integers', 'details': str(e)},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        except Exception as e:
+            logger.error(f"Enrichment lookup error: {e}", exc_info=True)
+            return Response(
+                {'error': 'Internal server error', 'details': str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+class LayerPointCountsAPIView(APIView):
+    """
+    Point counts and optional details per layer: for each layer, how many listing points
+    (from all 5 tables) overlap (inside layer geometry) or are nearby (within within_km),
+    and optionally the list of those records (source, id, backend_id, lat, lng).
+    POST /api/layer-point-counts/  Body: { "layer_ids": [1,2], "within_km": 30, "include_details": true, "detail_limit": 200 }
+    GET  /api/layer-point-counts/?layer_ids=1,2&within_km=30&include_details=true&detail_limit=200
+    """
+    permission_classes = [AllowAny]
+
+    def _parse_request(self, request):
+        layer_ids = None
+        within_km = 30.0
+        include_details = True
+        detail_limit = 200
+        data = None
+        if request.method == 'POST' and getattr(request, 'data', None) and isinstance(request.data, dict):
+            data = request.data
+        else:
+            data = dict(request.query_params) if hasattr(request, 'query_params') else {}
+            # query_params values are lists
+            for k, v in data.items():
+                if isinstance(v, list) and len(v) == 1:
+                    data[k] = v[0]
+        if data:
+            layer_ids = data.get('layer_ids')
+            if isinstance(layer_ids, str) and layer_ids:
+                try:
+                    layer_ids = [int(x.strip()) for x in layer_ids.split(',') if x.strip()]
+                except (ValueError, TypeError):
+                    layer_ids = None
+            elif not isinstance(layer_ids, list):
+                layer_ids = None
+            if data.get('within_km') is not None:
+                try:
+                    within_km = float(data.get('within_km'))
+                except (TypeError, ValueError):
+                    within_km = 30.0
+            if data.get('include_details') is not None:
+                include_details = str(data.get('include_details')).lower() in ('1', 'true', 'yes')
+            if data.get('detail_limit') is not None:
+                try:
+                    detail_limit = max(0, min(1000, int(data.get('detail_limit'))))
+                except (TypeError, ValueError):
+                    detail_limit = 200
+        if request.method == 'GET' and not data:
+            layer_ids_str = request.query_params.get('layer_ids', '')
+            if layer_ids_str:
+                try:
+                    layer_ids = [int(x.strip()) for x in layer_ids_str.split(',') if x.strip()]
+                except (ValueError, TypeError):
+                    layer_ids = None
+            w = request.query_params.get('within_km')
+            if w is not None:
+                try:
+                    within_km = float(w)
+                except (TypeError, ValueError):
+                    within_km = 30.0
+            include_details = str(request.query_params.get('include_details', 'true')).lower() in ('1', 'true', 'yes')
+            try:
+                detail_limit = max(0, min(1000, int(request.query_params.get('detail_limit', 200))))
+            except (TypeError, ValueError):
+                detail_limit = 200
+        return layer_ids, within_km, include_details, detail_limit
+
+    def get(self, request):
+        layer_ids, within_km, include_details, detail_limit = self._parse_request(request)
+        try:
+            from .listing_layer_enrichment_service import get_point_counts_per_layer
+            counts = get_point_counts_per_layer(
+                layer_ids=layer_ids, within_km=within_km,
+                include_details=include_details, detail_limit=detail_limit,
+            )
+            return Response({'counts': counts}, status=status.HTTP_200_OK)
+        except Exception as e:
+            logger.error(f"Layer point counts error: {e}", exc_info=True)
+            return Response(
+                {'error': 'Internal server error', 'details': str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+    def post(self, request):
+        layer_ids, within_km, include_details, detail_limit = self._parse_request(request)
+        try:
+            from .listing_layer_enrichment_service import get_point_counts_per_layer
+            counts = get_point_counts_per_layer(
+                layer_ids=layer_ids, within_km=within_km,
+                include_details=include_details, detail_limit=detail_limit,
+            )
+            return Response({'counts': counts}, status=status.HTTP_200_OK)
+        except Exception as e:
+            logger.error(f"Layer point counts error: {e}", exc_info=True)
+            return Response(
+                {'error': 'Internal server error', 'details': str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+class DeveloperListingMediaDetailAPIView(APIView):
+    """
+    API endpoint to retrieve detailed information about a specific media file
+    including TIF metadata if applicable
+    
+    GET /api/developer-listing-media/{media_id}/
+    """
+    permission_classes = [AllowAny]
+    
+    def get(self, request, media_id):
+        """Get detailed information for a media file"""
+        from .models import DeveloperListingMedia
+        from .serializers import DeveloperListingMediaSerializer
+        
+        try:
+            # Get media
+            try:
+                media = DeveloperListingMedia.objects.select_related(
+                    'listing',
+                    'tif_metadata'
+                ).get(id=media_id)
+            except DeveloperListingMedia.DoesNotExist:
+                return Response(
+                    {'error': f'Media file not found with id {media_id}'},
+                    status=status.HTTP_404_NOT_FOUND
+                )
+            
+            # Serialize and return
+            serializer = DeveloperListingMediaSerializer(media)
+            
+            return Response(
+                {
+                    'success': True,
+                    'media': serializer.data,
+                    'listing': {
+                        'id': media.listing.id,
+                        'listing_type': media.listing.listing_type,
+                        'backend_listing_id': media.listing.backend_listing_id,
+                        'name': media.listing.name
+                    }
+                },
+                status=status.HTTP_200_OK
+            )
+            
+        except Exception as e:
+            logger.error(f"Error retrieving media details: {e}", exc_info=True)
+            return Response(
+                {
+                    'error': 'Internal server error',
+                    'details': str(e)
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+class WebhookEventListAPIView(APIView):
+    """
+    API endpoint to list webhook events with filtering
+    
+    GET /api/webhook-events/
+    
+    Query parameters:
+    - listing_type: Filter by listing type
+    - listing_id: Filter by listing ID
+    - event_type: Filter by event type
+    - processed: Filter by processed status (true/false)
+    - page: Page number (default: 1)
+    - page_size: Items per page (default: 20, max: 100)
+    """
+    permission_classes = [AllowAny]
+    
+    def get(self, request):
+        """List webhook events with filtering"""
+        from .models import WebhookEvent
+        from .serializers import WebhookEventSerializer
+        
+        try:
+            # Get query parameters
+            listing_type = request.query_params.get('listing_type')
+            listing_id = request.query_params.get('listing_id')
+            event_type = request.query_params.get('event_type')
+            processed = request.query_params.get('processed')
+            page = int(request.query_params.get('page', 1))
+            page_size = min(int(request.query_params.get('page_size', 20)), 100)
+            
+            # Build queryset
+            queryset = WebhookEvent.objects.all()
+            
+            # Apply filters
+            if listing_type:
+                queryset = queryset.filter(listing_type=listing_type)
+            
+            if listing_id:
+                try:
+                    listing_id_int = int(listing_id)
+                    queryset = queryset.filter(listing_id=listing_id_int)
+                except ValueError:
+                    return Response(
+                        {'error': 'Invalid listing_id. Must be an integer'},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+            
+            if event_type:
+                queryset = queryset.filter(event_type=event_type)
+            
+            if processed is not None:
+                processed_bool = processed.lower() == 'true'
+                queryset = queryset.filter(processed=processed_bool)
+            
+            # Order by most recent
+            queryset = queryset.order_by('-received_at')
+            
+            # Pagination
+            total_count = queryset.count()
+            start = (page - 1) * page_size
+            end = start + page_size
+            events = queryset[start:end]
+            
+            # Serialize
+            serializer = WebhookEventSerializer(events, many=True)
+            
+            return Response(
+                {
+                    'success': True,
+                    'pagination': {
+                        'page': page,
+                        'page_size': page_size,
+                        'total_count': total_count,
+                        'total_pages': (total_count + page_size - 1) // page_size,
+                        'has_next': end < total_count,
+                        'has_previous': page > 1
+                    },
+                    'filters': {
+                        'listing_type': listing_type,
+                        'listing_id': listing_id,
+                        'event_type': event_type,
+                        'processed': processed
+                    },
+                    'events': serializer.data
+                },
+                status=status.HTTP_200_OK
+            )
+            
+        except Exception as e:
+            logger.error(f"Error listing webhook events: {e}", exc_info=True)
+            return Response(
+                {
+                    'error': 'Internal server error',
+                    'details': str(e)
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+@extend_schema(
+    summary="Check if point is inside Hyderabad HMDA Extended Area",
+    description="Check whether a given coordinate point is inside the Hyderabad HMDA Extended Area boundary. Returns true if inside, false if outside.",
+    parameters=[
+        OpenApiParameter(
+            name='lat',
+            type=float,
+            location=OpenApiParameter.QUERY,
+            required=True,
+            description='Latitude of the point to check'
+        ),
+        OpenApiParameter(
+            name='lng',
+            type=float,
+            location=OpenApiParameter.QUERY,
+            required=True,
+            description='Longitude of the point to check'
+        )
+    ],
+    responses={
+        200: extend_schema(
+            description="Successfully checked point location",
+            examples=[
+                OpenApiExample(
+                    'Point Inside Boundary',
+                    value={
+                        "success": True,
+                        "is_inside": True,
+                        "message": "Point is inside Hyderabad HMDA Extended Area",
+                        "point": {
+                            "latitude": 17.3850,
+                            "longitude": 78.4867,
+                            "coordinates": [78.4867, 17.3850]
+                        },
+                        "layer": {
+                            "slug": "hyderabad_hmda_extended_area",
+                            "name": "Hyderabad HMDA Extended Area",
+                            "city": "hyderabad",
+                            "state": "telangana"
+                        }
+                    }
+                ),
+                OpenApiExample(
+                    'Point Outside Boundary',
+                    value={
+                        "success": True,
+                        "is_inside": False,
+                        "message": "Point is outside Hyderabad HMDA Extended Area",
+                        "point": {
+                            "latitude": 12.9716,
+                            "longitude": 77.5946,
+                            "coordinates": [77.5946, 12.9716]
+                        },
+                        "layer": {
+                            "slug": "hyderabad_hmda_extended_area",
+                            "name": "Hyderabad HMDA Extended Area",
+                            "city": "hyderabad",
+                            "state": "telangana"
+                        }
+                    }
+                )
+            ]
+        ),
+        400: extend_schema(
+            description="Invalid request parameters",
+            examples=[
+                OpenApiExample(
+                    'Missing Parameters',
+                    value={
+                        "success": False,
+                        "error": "Missing required parameters: lat and lng"
+                    }
+                ),
+                OpenApiExample(
+                    'Invalid Coordinates',
+                    value={
+                        "success": False,
+                        "error": "Invalid coordinates: lat must be between -90 and 90, lng between -180 and 180"
+                    }
+                )
+            ]
+        ),
+        404: extend_schema(
+            description="Layer not found",
+            examples=[
+                OpenApiExample(
+                    'Layer Not Found',
+                    value={
+                        "success": False,
+                        "error": "Hyderabad HMDA Extended Area layer not found"
+                    }
+                )
+            ]
+        )
+    },
+    tags=['boundary-check']
+)
+class HyderabadHMDABoundaryCheckAPIView(APIView):
+    """
+    API endpoint to check if a point is inside the Hyderabad HMDA Extended Area boundary.
+    
+    URL: /api/check-hmda-boundary/?lat={latitude}&lng={longitude}
+    
+    Returns:
+    - is_inside: boolean - true if point is inside boundary, false if outside
+    - message: descriptive message
+    - point: coordinates that were checked
+    - layer: information about the HMDA boundary layer
+    
+    Example:
+    - /api/check-hmda-boundary/?lat=17.3850&lng=78.4867
+    """
+    permission_classes = [AllowAny]
+    
+    def get(self, request):
+        """Check if point is inside Hyderabad HMDA Extended Area"""
+        try:
+            # Get query parameters
+            lat = request.GET.get('lat')
+            lng = request.GET.get('lng')
+            
+            # Validate required parameters
+            if not lat or not lng:
+                return Response({
+                    'success': False,
+                    'error': 'Missing required parameters: lat and lng'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            # Validate and convert coordinates
+            try:
+                latitude = float(lat)
+                longitude = float(lng)
+            except ValueError:
+                return Response({
+                    'success': False,
+                    'error': 'Invalid coordinate format: lat and lng must be valid numbers'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            # Validate coordinate ranges
+            if not (-90 <= latitude <= 90) or not (-180 <= longitude <= 180):
+                return Response({
+                    'success': False,
+                    'error': 'Invalid coordinates: lat must be between -90 and 90, lng between -180 and 180'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            # Get the Hyderabad HMDA Extended Area layer
+            try:
+                layer = DataLayer.objects.select_related('city', 'city__state_ref').get(
+                    slug='hyderabad_hmda_extended_area',
+                    is_processed=True
+                )
+            except DataLayer.DoesNotExist:
+                return Response({
+                    'success': False,
+                    'error': 'Hyderabad HMDA Extended Area layer not found'
+                }, status=status.HTTP_404_NOT_FOUND)
+            
+            # Create point geometry
+            search_point = Point(longitude, latitude, srid=4326)
+            
+            # Check if point is inside any feature of the HMDA boundary layer
+            # Use contains for exact boundary check (no buffer)
+            is_inside = GeoFeature.objects.filter(
+                layer=layer,
+                is_valid=True,
+                geometry__contains=search_point
+            ).exists()
+            
+            # Prepare response
+            response_data = {
+                'success': True,
+                'is_inside': is_inside,
+                'message': f"Point is {'inside' if is_inside else 'outside'} Hyderabad HMDA Extended Area",
+                'point': {
+                    'latitude': latitude,
+                    'longitude': longitude,
+                    'coordinates': [longitude, latitude]
+                },
+                'layer': {
+                    'slug': layer.slug,
+                    'name': layer.name,
+                    'city': layer.city.slug,
+                    'city_name': layer.city.name,
+                    'state': layer.city.state_ref.slug if layer.city.state_ref else None,
+                    'state_name': layer.city.state_ref.name if layer.city.state_ref else None
+                }
+            }
+            
+            logger.info(
+                f"HMDA Boundary Check: Point ({latitude}, {longitude}) is "
+                f"{'inside' if is_inside else 'outside'} boundary"
+            )
+            
+            return Response(response_data, status=status.HTTP_200_OK)
+            
+        except Exception as e:
+            logger.error(f"Error in HyderabadHMDABoundaryCheckAPIView: {e}", exc_info=True)
+            return Response({
+                'success': False,
+                'error': 'Internal server error',
+                'details': str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class DeveloperListingMapDataAPIView(APIView):
+    """
+    Lightweight API endpoint to get only map-related data for a developer listing.
+    Returns bounds, zoom level, and S3 tile paths - everything needed to display on map.
+    
+    GET /api/developer-listings/{listing_type}/{listing_id}/map-data/
+    
+    Returns:
+    - Bounds (west, south, east, north)
+    - Zoom levels (min, max, recommended)
+    - Center coordinates
+    - S3 tile paths for all TIF files
+    - Minimal listing info (name, location)
+    
+    Much lighter and faster than the full detail API.
+    """
+    permission_classes = [AllowAny]
+    
+    def get(self, request, listing_type, listing_id):
+        """Get map data for a developer listing"""
+        from .models import DeveloperListing, TIFMetadata, DeveloperListingMedia
+        
+        try:
+            # Validate listing_type
+            if listing_type not in ['developerland', 'developerplot']:
+                return Response(
+                    {'error': f'Invalid listing_type. Must be "developerland" or "developerplot"'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Get listing
+            try:
+                listing = DeveloperListing.objects.get(
+                    listing_type=listing_type,
+                    backend_listing_id=listing_id
+                )
+            except DeveloperListing.DoesNotExist:
+                return Response(
+                    {
+                        'error': f'Listing not found',
+                        'listing_type': listing_type,
+                        'listing_id': listing_id
+                    },
+                    status=status.HTTP_404_NOT_FOUND
+                )
+            
+            # Get all TIF metadata for this listing
+            tif_metadata_list = TIFMetadata.objects.filter(
+                media__listing=listing,
+                media__is_tif=True,
+                media__tiles_generated=True
+            ).select_related('media')
+            
+            if not tif_metadata_list.exists():
+                return Response(
+                    {
+                        'success': False,
+                        'error': 'No TIF files have been processed yet',
+                        'listing': {
+                            'id': listing.id,
+                            'listing_type': listing.listing_type,
+                            'backend_listing_id': listing.backend_listing_id,
+                            'name': listing.name
+                        }
+                    },
+                    status=status.HTTP_200_OK
+                )
+            
+            # Calculate combined bounds from all TIF files
+            west = min([tm.bounds_west for tm in tif_metadata_list if tm.bounds_west is not None])
+            south = min([tm.bounds_south for tm in tif_metadata_list if tm.bounds_south is not None])
+            east = max([tm.bounds_east for tm in tif_metadata_list if tm.bounds_east is not None])
+            north = max([tm.bounds_north for tm in tif_metadata_list if tm.bounds_north is not None])
+            
+            # Get zoom levels
+            min_zoom = min([tm.min_zoom for tm in tif_metadata_list])
+            max_zoom = max([tm.max_zoom for tm in tif_metadata_list])
+            
+            # Calculate recommended zoom based on area
+            width = east - west
+            height = north - south
+            area = width * height
+            
+            if area < 0.0001:
+                recommended_zoom = 17
+            elif area < 0.001:
+                recommended_zoom = 15
+            elif area < 0.01:
+                recommended_zoom = 13
+            elif area < 0.1:
+                recommended_zoom = 11
+            else:
+                recommended_zoom = 9
+            
+            # Ensure within bounds
+            recommended_zoom = max(min_zoom, min(recommended_zoom, max_zoom))
+            
+            # Calculate center
+            center_lat = (south + north) / 2
+            center_lng = (west + east) / 2
+            
+            # Get S3 tile paths and file info for each TIF
+            tif_files = []
+            for tif_meta in tif_metadata_list:
+                media = tif_meta.media
+                
+                # CloudFront URL template
+                cloudfront_domain = 'https://d17yosovmfjm4.cloudfront.net'
+                tile_url_template = f"{cloudfront_domain}/{media.s3_tile_path}/{{z}}/{{x}}/{{y}}.png"
+                
+                tif_files.append({
+                    'file_name': media.file_name,
+                    's3_tile_path': media.s3_tile_path,
+                    'tile_url_template': tile_url_template,
+                    'tiles_generated': media.total_tiles_generated,
+                    'bounds': {
+                        'west': tif_meta.bounds_west,
+                        'south': tif_meta.bounds_south,
+                        'east': tif_meta.bounds_east,
+                        'north': tif_meta.bounds_north
+                    }
+                })
+            
+            # Return lightweight response
+            return Response(
+                {
+                    'success': True,
+                    'listing': {
+                        'id': listing.id,
+                        'listing_type': listing.listing_type,
+                        'backend_listing_id': listing.backend_listing_id,
+                        'name': listing.name,
+                        'location': listing.location,
+                        'city': listing.city,
+                        'state': listing.state
+                    },
+                    'bounds': {
+                        'west': west,
+                        'south': south,
+                        'east': east,
+                        'north': north,
+                        'bbox': [west, south, east, north],
+                        'leaflet_bounds': [[south, west], [north, east]]
+                    },
+                    'center': {
+                        'lat': center_lat,
+                        'lng': center_lng,
+                        'coordinates': [center_lng, center_lat]
+                    },
+                    'zoom': {
+                        'min': min_zoom,
+                        'max': max_zoom,
+                        'default': recommended_zoom,
+                        'recommended': recommended_zoom
+                    },
+                    'tif_files': tif_files,
+                    'summary': {
+                        'total_tif_files': len(tif_files),
+                        'total_tiles': sum(tf['tiles_generated'] for tf in tif_files)
+                    }
+                },
+                status=status.HTTP_200_OK
+            )
+            
+        except Exception as e:
+            logger.error(f"Error retrieving map data: {e}", exc_info=True)
+            return Response(
+                {
+                    'error': 'Internal server error',
+                    'details': str(e)
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )

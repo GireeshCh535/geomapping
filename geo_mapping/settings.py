@@ -11,14 +11,25 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = "django-insecure-9xdea)mc6dhr@)lrhn65!&!uc+#z6nlajj8j091eswp$$2jf!#"
 
 # DEBUG
-DEBUG = os.getenv('DJANGO_DEBUG', 'False').lower() == 'true'
+DEBUG = os.getenv('DJANGO_DEBUG', 'True').lower() == 'true'
 
-# ALLOWED HOSTS
-ALLOWED_HOSTS = ['*']
+# ALLOWED HOSTS (include IP with ports when Host header has port, e.g. behind nginx)
+_required_hosts = ['*', '3.108.10.59', '3.108.10.59:80', '3.108.10.59:443', 'layers.1acre.in']
+_allowed = os.getenv('DJANGO_ALLOWED_HOSTS')
+if _allowed:
+    ALLOWED_HOSTS = list(dict.fromkeys(
+        [h.strip() for h in _allowed.split(',') if h.strip()] + _required_hosts
+    ))
+else:
+    ALLOWED_HOSTS = _required_hosts
 
 CSRF_TRUSTED_ORIGINS = [
-    'https://gis-map.1acre.in',
-    'http://gis-map.1acre.in',  # if you also use HTTP
+    'https://layers.1acre.in',
+    'http://layers.1acre.in',  # if you also use HTTP
+    'https://gis-map.1acre.in',  # Legacy domain (keep for backward compatibility)
+    'https://lita-unsarcastic-serina.ngrok-free.dev',  # ngrok domain for testing
+    'http://3.108.10.59',  # Direct IP access
+    'https://3.108.10.59',  # Direct IP access (HTTPS)
 ]
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 USE_X_FORWARDED_HOST = True
@@ -97,32 +108,72 @@ TEMPLATES = [
 
 WSGI_APPLICATION = "geo_mapping.wsgi.application"
 
-# DATABASE
+# DATABASE - Using django-db-connection-pool for high concurrency
+# This provides proper connection pooling for 1000+ concurrent users
 DATABASES = {
     'default': {
-        'ENGINE': 'django.contrib.gis.db.backends.postgis',
+        'ENGINE': 'dj_db_conn_pool.backends.postgis',
         'NAME': os.getenv('DJANGO_DB_NAME', 'geo_mapping_db'),
         'USER': os.getenv('DJANGO_DB_USER', 'postgres'),
         'PASSWORD': os.getenv('DJANGO_DB_PASSWORD', 'postgres'),
-        # 'HOST': os.getenv('DJANGO_DB_HOST', 'localhost'),
-        'HOST': os.getenv('DJANGO_DB_HOST', 'db'),
+        'HOST': os.getenv('DJANGO_DB_HOST', 'localhost'),
+        # 'HOST': os.getenv('DJANGO_DB_HOST', 'db'),
         'PORT': os.getenv('DJANGO_DB_PORT', '5432'),
-        'CONN_MAX_AGE': 0,
+        'CONN_MAX_AGE': 0,  # Set to 0 when using connection pool
+        'CONN_HEALTH_CHECKS': True,  # Django 4.1+: Check connection health
+        'OPTIONS': {
+            'connect_timeout': 10,
+        },
+        # Connection pool settings for high concurrency
+        'POOL_OPTIONS': {
+            'POOL_SIZE': 20,  # Number of connections per worker process
+            'MAX_OVERFLOW': 10,  # Additional connections beyond pool_size
+            'POOL_RECYCLE': 3600,  # Recycle connections after 1 hour
+            'POOL_PRE_PING': True,  # Verify connections before using
+            'ECHO': False,  # Set to True for SQL debugging
+        },
     }
 }
 
 # REDIS CACHE
-# CACHES = {
-#     'default': {
-#         'BACKEND': 'django_redis.cache.RedisCache',
-#         'LOCATION': os.getenv('REDIS_URL', 'redis://redis:6379/1'),
-#         'OPTIONS': {
-#             'CLIENT_CLASS': 'django_redis.client.DefaultClient',
-#             'COMPRESSOR': 'django_redis.compressors.zlib.ZlibCompressor',
-#             'IGNORE_EXCEPTIONS': True,
-#         }
-#     }
-# }
+# Get Redis URL from environment (docker-compose sets this)
+REDIS_URL = os.getenv('REDIS_URL', 'redis://redis:6379/1')
+
+CACHES = {
+    'default': {
+        'BACKEND': 'django_redis.cache.RedisCache',
+        'LOCATION': REDIS_URL,
+        'OPTIONS': {
+            'CLIENT_CLASS': 'django_redis.client.DefaultClient',
+            # Connection pool settings for better performance
+            'CONNECTION_POOL_KWARGS': {
+                'max_connections': 50,
+                'retry_on_timeout': True,
+            },
+            # Socket timeout settings
+            'SOCKET_CONNECT_TIMEOUT': 5,
+            'SOCKET_TIMEOUT': 5,
+            'COMPRESSOR': 'django_redis.compressors.zlib.ZlibCompressor',
+            'IGNORE_EXCEPTIONS': True,
+        },
+        'KEY_PREFIX': 'geomapping',
+        'TIMEOUT': 300,  # Default cache timeout: 5 minutes
+    },
+    # Separate cache for coordinate searches (optional, for isolation)
+    'coordinates': {
+        'BACKEND': 'django_redis.cache.RedisCache',
+        'LOCATION': REDIS_URL.replace('/1', '/2') if '/1' in REDIS_URL else REDIS_URL,
+        'OPTIONS': {
+            'CLIENT_CLASS': 'django_redis.client.DefaultClient',
+            'CONNECTION_POOL_KWARGS': {
+                'max_connections': 100,  # More connections for high-traffic endpoint
+                'retry_on_timeout': True,
+            },
+        },
+        'KEY_PREFIX': 'coord_search',
+        'TIMEOUT': 300,
+    }
+}
 
 # REST FRAMEWORK
 REST_FRAMEWORK = {
@@ -158,9 +209,8 @@ USE_TZ = True
 # STATIC FILES
 STATIC_URL = '/static/'
 STATIC_ROOT = BASE_DIR / 'staticfiles'
-STATICFILES_DIRS = [
-    BASE_DIR / 'static',
-]
+_static_dir = BASE_DIR / 'static'
+STATICFILES_DIRS = [_static_dir] if _static_dir.exists() else []
 
 # Custom StaticFiles configuration to explicitly exclude all tile files
 STATICFILES_FINDERS = [
@@ -208,8 +258,10 @@ AWS_STORAGE_BUCKET_NAME = 'prod-gis-layers'
 AWS_S3_CUSTOM_DOMAIN = f'{AWS_STORAGE_BUCKET_NAME}.s3.{AWS_S3_REGION_NAME}.amazonaws.com'
 
 # CloudFront Configuration - TILES ONLY
-CLOUDFRONT_DOMAIN = 'df77x5vpgut6a.cloudfront.net'
+CLOUDFRONT_DOMAIN = 'd17yosovmfjm4.cloudfront.net'
+CLOUDFRONT_DISTRIBUTION_ID = os.getenv('CLOUDFRONT_DISTRIBUTION_ID', '')  # Set via environment variable
 USE_CLOUDFRONT = os.getenv('USE_CLOUDFRONT', 'True').lower() == 'true'
+ENABLE_CLOUDFRONT_INVALIDATION = os.getenv('ENABLE_CLOUDFRONT_INVALIDATION', 'True').lower() == 'true'
 
 # S3-Only Tile Serving Configuration
 S3_ONLY_TILE_SERVING = True
@@ -265,12 +317,12 @@ LOGGING = {
     },
     'handlers': {
         'console': {
-            'level': 'INFO',
+            'level': 'INFO',  # INFO and above (INFO, WARNING, ERROR) to console
             'class': 'logging.StreamHandler',
             'formatter': 'verbose',
         },
         'file': {
-            'level': 'ERROR',
+            'level': 'INFO',  # INFO and above to file (not only errors)
             'class': 'logging.FileHandler',
             'filename': os.path.join(BASE_DIR, 'logs', 'django_errors.log'),
             'formatter': 'verbose',
@@ -281,6 +333,19 @@ LOGGING = {
             'handlers': ['console', 'file'],
             'level': 'INFO',
             'propagate': True,
+        },
+        # Suppress 404 warnings for tile endpoints (normal in tile serving)
+        # Missing tiles are expected - not every coordinate has data
+        'django.request': {
+            'handlers': ['console', 'file'],
+            'level': 'ERROR',  # Only log errors, not 404 warnings
+            'propagate': False,
+        },
+        # Suppress general Django 404 warnings (they're logged by our views at appropriate levels)
+        'django.server': {
+            'handlers': ['console'],
+            'level': 'ERROR',  # Only log errors, suppress 404 warnings
+            'propagate': False,
         },
         'maps.tile_generation': {
             'handlers': ['console'],
@@ -294,9 +359,14 @@ LOGGING = {
         },
         'maps.views': {
             'handlers': ['console'],
-            'level': 'INFO',
+            'level': 'INFO',  # Change to DEBUG to see cache hits/misses
             'propagate': True,
-        }
+        },
+        # Log slow database queries
+        'django.db.backends': {
+            'level': 'WARNING',  # Change to DEBUG to see all queries
+            'handlers': ['console'],
+        },
     },
 }
 
@@ -330,3 +400,28 @@ SPECTACULAR_SETTINGS = {
         {'name': 'hierarchy', 'description': 'Hierarchical data structure'},
     ],
 }
+
+# ============================================
+# COORDINATE SEARCH SPECIFIC SETTINGS
+# ============================================
+
+# Custom settings for coordinate search optimization
+COORDINATE_SEARCH_SETTINGS = {
+    'CACHE_TTL': 300,  # Cache results for 5 minutes
+    'CACHE_TTL_EMPTY': 60,  # Cache empty results for 1 minute
+    'COORDINATE_PRECISION': 5,  # Decimal places (5 = ~1.1m precision)
+    'MAX_CONTAINING_FEATURES': 20,  # Max features to return
+    'MAX_NEARBY_FEATURES': 10,
+    'DEFAULT_NEARBY_RADIUS_METERS': 100,
+    'MAX_NEARBY_RADIUS_METERS': 10000,
+}
+
+# ============================================
+# DEVELOPER LISTING TILE GENERATION SETTINGS
+# ============================================
+
+# Backend API URL for fetching developer listing data
+DEVELOPER_BACKEND_API_URL = os.getenv(
+    'DEVELOPER_BACKEND_API_URL',
+    'http://be.staging.1acre.in'  # Default to staging, can be overridden via env var
+)
