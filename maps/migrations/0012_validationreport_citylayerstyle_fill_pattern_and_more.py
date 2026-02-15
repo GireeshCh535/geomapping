@@ -7,7 +7,7 @@ import django.db.models.deletion
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('maps', '0011_alter_plucodemapping_plu_code'),
+        ('maps', '0013_citylayerstyle_fill_pattern_and_more'),
     ]
 
     operations = [
@@ -33,36 +33,7 @@ class Migration(migrations.Migration):
                 'ordering': ['-generated_at'],
             },
         ),
-        migrations.AddField(
-            model_name='citylayerstyle',
-            name='fill_pattern',
-            field=models.CharField(choices=[('solid', 'Solid Fill'), ('hatch', 'Hatch Fill'), ('dot', 'Dot Fill'), ('diagonal_hatch', 'Diagonal Hatch'), ('cross_hatch', 'Cross Hatch')], default='solid', max_length=20),
-        ),
-        migrations.AddField(
-            model_name='citylayerstyle',
-            name='pattern_color',
-            field=models.CharField(blank=True, max_length=7),
-        ),
-        migrations.AddField(
-            model_name='citylayerstyle',
-            name='pattern_density',
-            field=models.IntegerField(default=5, help_text='Pattern density (1-10, lower = denser)'),
-        ),
-        migrations.AddField(
-            model_name='citylayerstyle',
-            name='pattern_rotation',
-            field=models.FloatField(default=0.0),
-        ),
-        migrations.AddField(
-            model_name='citylayerstyle',
-            name='pattern_size',
-            field=models.IntegerField(default=3, help_text='Pattern element size in pixels'),
-        ),
-        migrations.AddField(
-            model_name='citylayerstyle',
-            name='render_notes',
-            field=models.TextField(blank=True),
-        ),
+        # CityLayerStyle fill_pattern, pattern_*, render_notes added by 0013; no duplicate AddFields here
         migrations.AddField(
             model_name='geofeature',
             name='data_completeness',

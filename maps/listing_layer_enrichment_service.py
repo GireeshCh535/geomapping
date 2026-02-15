@@ -17,8 +17,10 @@ import logging
 import re
 from django.utils import timezone
 from django.contrib.gis.geos import Point, Polygon
+from django.contrib.gis.db.models import GeometryField
 from django.db.models import Exists, FloatField, OuterRef, Q
 from django.db.models.expressions import RawSQL
+from django.db.models.functions import Cast
 
 from maps.models import (
     DeveloperListing,
@@ -567,17 +569,19 @@ def get_point_counts_per_layer(layer_ids=None, within_km=None, include_details=F
         layer_type = (layer['category__code'] or 'UNCLASSIFIED')
         city_name = layer['city__name'] or ''
 
+        # Cast location_point (geography) to geometry so ST_Contains(geometry, geometry) works
+        location_point_geom = Cast(OuterRef('location_point'), GeometryField())
         # Subquery: any GeoFeature of this layer contains the point
         contained_subq = GeoFeature.objects.filter(
             layer_id=layer_id,
             is_valid=True,
-            geometry__contains=OuterRef('location_point'),
+            geometry__contains=location_point_geom,
         )
         # Subquery: any GeoFeature of this layer is within distance of the point
         dwithin_subq = GeoFeature.objects.filter(
             layer_id=layer_id,
             is_valid=True,
-            geometry__dwithin=(OuterRef('location_point'), deg),
+            geometry__dwithin=(location_point_geom, deg),
         )
 
         def overlapping_qs(qs):
