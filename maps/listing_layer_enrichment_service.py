@@ -565,7 +565,10 @@ def get_point_counts_per_layer(layer_ids=None, within_km=None, include_details=F
         layers_qs = layers_qs.filter(id__in=layer_ids)
     else:
         layers_qs = layers_qs.order_by('id')[:MAX_LAYERS_DEFAULT]
-    layers = list(layers_qs.select_related('city', 'category').values('id', 'slug', 'category__code', 'city__name'))
+    layers = list(layers_qs.select_related('city', 'category').values(
+        'id', 'slug', 'category__code', 'city__name',
+        'bbox_xmin', 'bbox_ymin', 'bbox_xmax', 'bbox_ymax',
+    ))
 
     result = []
     for layer in layers:
@@ -573,6 +576,28 @@ def get_point_counts_per_layer(layer_ids=None, within_km=None, include_details=F
         slug = layer['slug'] or ''
         layer_type = (layer['category__code'] or 'UNCLASSIFIED')
         city_name = layer['city__name'] or ''
+
+        # Pre-filter by layer bbox (expanded by within_km) so we only run expensive spatial
+        # subqueries on points that could possibly overlap or be nearby. Huge speedup.
+        expanded = None
+        if all([
+            layer.get('bbox_xmin') is not None, layer.get('bbox_ymin') is not None,
+            layer.get('bbox_xmax') is not None, layer.get('bbox_ymax') is not None,
+        ]):
+            delta = within_km / 111.0
+            expanded = Polygon.from_bbox((
+                layer['bbox_xmin'] - delta,
+                layer['bbox_ymin'] - delta,
+                layer['bbox_xmax'] + delta,
+                layer['bbox_ymax'] + delta,
+            ))
+            expanded.srid = 4326
+
+        def _base_qs(model_qs):
+            qs = model_qs.filter(location_point__isnull=False)
+            if expanded is not None:
+                qs = qs.filter(location_point__within=expanded)
+            return qs
 
         # Cast location_point (geography) to geometry so ST_Contains(geometry, geometry) works
         location_point_geom = Cast(OuterRef('location_point'), GeometryField())
@@ -590,27 +615,32 @@ def get_point_counts_per_layer(layer_ids=None, within_km=None, include_details=F
         )
 
         def overlapping_qs(qs):
-            return qs.filter(location_point__isnull=False).annotate(
-                contained=Exists(contained_subq),
-            ).filter(contained=True)
+            return qs.annotate(contained=Exists(contained_subq)).filter(contained=True)
 
         def nearby_qs(qs):
-            return qs.filter(location_point__isnull=False).annotate(
+            return qs.annotate(
                 contained=Exists(contained_subq),
                 within_dist=Exists(dwithin_subq),
             ).filter(within_dist=True, contained=False)
 
-        # Counts
-        land_over_q = overlapping_qs(SyncedLand.objects.all())
-        land_near_q = nearby_qs(SyncedLand.objects.all())
-        plot_over_q = overlapping_qs(SyncedPlot.objects.all())
-        plot_near_q = nearby_qs(SyncedPlot.objects.all())
-        dev_land_over_q = overlapping_qs(SyncedDeveloperLand.objects.all())
-        dev_land_near_q = nearby_qs(SyncedDeveloperLand.objects.all())
-        dev_plot_over_q = overlapping_qs(SyncedDeveloperPlot.objects.all())
-        dev_plot_near_q = nearby_qs(SyncedDeveloperPlot.objects.all())
-        dev_listing_over_q = overlapping_qs(DeveloperListing.objects.filter(is_active=True))
-        dev_listing_near_q = nearby_qs(DeveloperListing.objects.filter(is_active=True))
+        # Base querysets restricted to points in layer's expanded bbox (fast index filter)
+        land_base = _base_qs(SyncedLand.objects.all())
+        plot_base = _base_qs(SyncedPlot.objects.all())
+        dev_land_base = _base_qs(SyncedDeveloperLand.objects.all())
+        dev_plot_base = _base_qs(SyncedDeveloperPlot.objects.all())
+        dev_listing_base = _base_qs(DeveloperListing.objects.filter(is_active=True))
+
+        # Counts (spatial subqueries run only on bbox-filtered rows)
+        land_over_q = overlapping_qs(land_base)
+        land_near_q = nearby_qs(land_base)
+        plot_over_q = overlapping_qs(plot_base)
+        plot_near_q = nearby_qs(plot_base)
+        dev_land_over_q = overlapping_qs(dev_land_base)
+        dev_land_near_q = nearby_qs(dev_land_base)
+        dev_plot_over_q = overlapping_qs(dev_plot_base)
+        dev_plot_near_q = nearby_qs(dev_plot_base)
+        dev_listing_over_q = overlapping_qs(dev_listing_base)
+        dev_listing_near_q = nearby_qs(dev_listing_base)
 
         land_over = land_over_q.count()
         land_near = land_near_q.count()
