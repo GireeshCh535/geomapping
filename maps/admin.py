@@ -212,7 +212,7 @@ class CityLayerStyleAdmin(AuditFieldsMixin, admin.ModelAdmin):
 @admin.register(DataLayer)
 class DataLayerAdmin(AuditFieldsMixin, admin.ModelAdmin):
     list_display = (
-        "id",
+        "layer_id_display",
         "name",
         "city",
         "category",
@@ -481,6 +481,10 @@ class DataLayerAdmin(AuditFieldsMixin, admin.ModelAdmin):
     def mark_as_processed(self, request, queryset):
         queryset.update(is_processed=True)
 
+    @admin.display(description="Layer ID", ordering="id")
+    def layer_id_display(self, obj):
+        return obj.id
+
 @admin.register(GeoFeature)
 class GeoFeatureAdmin(AuditFieldsMixin, gis_admin.GISModelAdmin):
     gis_widget_kwargs = {
@@ -491,6 +495,7 @@ class GeoFeatureAdmin(AuditFieldsMixin, gis_admin.GISModelAdmin):
 
     list_display = (
         "id",
+        "layer_id",
         "layer",
         "city_name",
         "source_layer_name",
@@ -570,6 +575,8 @@ class PLUCodeMappingAdmin(AuditFieldsMixin, admin.ModelAdmin):
 @admin.register(VectorTileLayer)
 class VectorTileLayerAdmin(AuditFieldsMixin, admin.ModelAdmin):
     list_display = (
+        "id",
+        "layer_id",
         "layer",
         "is_generated",
         "total_tiles",
@@ -585,6 +592,7 @@ class ValidationLogAdmin(AuditFieldsMixin, admin.ModelAdmin):
     list_display = (
         "id",
         "city",
+        "layer_id",
         "layer",
         "validation_type",
         "is_valid",
