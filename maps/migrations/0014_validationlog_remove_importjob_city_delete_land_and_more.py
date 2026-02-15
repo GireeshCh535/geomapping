@@ -8,7 +8,7 @@ import django.utils.timezone
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('maps', '0012_validationreport_citylayerstyle_fill_pattern_and_more'),
+        ('maps', '0013_citylayerstyle_fill_pattern_and_more'),
     ]
 
     operations = [
