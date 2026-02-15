@@ -6087,18 +6087,18 @@ class EnrichmentLookupAPIView(APIView):
 
 class LayerPointCountsAPIView(APIView):
     """
-    Point counts and optional details per layer: for each layer, how many listing points
-    (from all 5 tables) overlap (inside layer geometry) or are nearby (within within_km),
-    and optionally the list of those records (source, id, backend_id, lat, lng).
-    POST /api/layer-point-counts/  Body: { "layer_ids": [1,2], "within_km": 30, "include_details": true, "detail_limit": 200 }
-    GET  /api/layer-point-counts/?layer_ids=1,2&within_km=30&include_details=true&detail_limit=200
+    Point counts (and optional details) per layer. Fast default: counts only, no details.
+    - GET /api/layer-point-counts/  → counts for first 50 layers (include_details=false by default).
+    - GET /api/layer-point-counts/?layer_ids=1,2,3  → counts for those layers only.
+    - Add ?include_details=true for overlapping_details and nearby_details (slower).
+    POST body: { "layer_ids": [1,2], "within_km": 30, "include_details": false, "detail_limit": 200 }
     """
     permission_classes = [AllowAny]
 
     def _parse_request(self, request):
         layer_ids = None
         within_km = 30.0
-        include_details = True
+        include_details = False  # default False for faster response; pass include_details=true for details
         detail_limit = 200
         data = None
         if request.method == 'POST' and getattr(request, 'data', None) and isinstance(request.data, dict):
@@ -6143,7 +6143,7 @@ class LayerPointCountsAPIView(APIView):
                     within_km = float(w)
                 except (TypeError, ValueError):
                     within_km = 30.0
-            include_details = str(request.query_params.get('include_details', 'true')).lower() in ('1', 'true', 'yes')
+            include_details = str(request.query_params.get('include_details', 'false')).lower() in ('1', 'true', 'yes')
             try:
                 detail_limit = max(0, min(1000, int(request.query_params.get('detail_limit', 200))))
             except (TypeError, ValueError):

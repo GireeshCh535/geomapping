@@ -49,6 +49,9 @@ _DEGREES_BUFFER = NEARBY_THRESHOLD_KM / 111.0
 # Batch size for bulk_update when enriching synced tables (fewer round-trips)
 ENRICH_BULK_BATCH_SIZE = 250
 
+# When layer_ids is not provided, limit layers to avoid timeouts (layer-point-counts API)
+MAX_LAYERS_DEFAULT = 50
+
 
 def _get_state_name_from_payload(payload):
     """
@@ -560,6 +563,8 @@ def get_point_counts_per_layer(layer_ids=None, within_km=None, include_details=F
     )
     if layer_ids is not None:
         layers_qs = layers_qs.filter(id__in=layer_ids)
+    else:
+        layers_qs = layers_qs.order_by('id')[:MAX_LAYERS_DEFAULT]
     layers = list(layers_qs.select_related('city', 'category').values('id', 'slug', 'category__code', 'city__name'))
 
     result = []
