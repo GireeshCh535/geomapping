@@ -9,6 +9,8 @@
 
 Staging and production use different versions of these three files. Do not overwrite production config with staging config when merging **main** → **master**.
 
+**Merging main → master (production):** run `./scripts/merge-main-to-master.sh` from the repo root (or: merge main, then `git checkout HEAD^1 -- run_play.sh deploy.yml nginx/conf.d/default.conf`). The three files stay as production versions; commit when ready.
+
 ## Getting started
 
 To make it easy for you to get started with GitLab, here's a list of recommended next steps.
