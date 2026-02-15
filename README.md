@@ -1,6 +1,13 @@
 # geomapping
 
+## Branches & environments
 
+| Branch   | Environment | Deploy with |
+|----------|-------------|-------------|
+| **main** | Staging     | `deploy.yml`, `run_play.sh`, `nginx/conf.d/default.conf` on **main** |
+| **master** | Production | `deploy.yml`, `run_play.sh`, `nginx/conf.d/default.conf` on **master** |
+
+Staging and production use different versions of these three files. Do not overwrite production config with staging config when merging **main** → **master**.
 
 ## Getting started
 
