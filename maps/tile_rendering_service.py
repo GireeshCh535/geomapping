@@ -774,9 +774,6 @@ class TileRenderingService:
                     }
                     color = color_map.get(source_layer_name, '#CCCCCC')
             
-            # Debug logging (commented out for production)
-            # print(f"DEBUG: Feature source_layer_name='{source_layer_name}' -> color='{color}'")
-            
             return {
                 'fill_color': color,
                 'stroke_color': '#000000',

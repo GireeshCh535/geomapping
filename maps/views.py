@@ -4304,8 +4304,6 @@ class NearbyLayersAPIView(APIView):
                 search_type = 'point'
                 search_center = {'lat': latitude, 'lng': longitude}
                 
-                logger.info(f"Search point: ({latitude}, {longitude}) - checking for exact containment (no radius)")
-                
             elif bounds_param:
                 # Bounds-based search
                 try:
@@ -4385,10 +4383,6 @@ class NearbyLayersAPIView(APIView):
             
             # Find all layers that have features containing the point (exact match, no buffer)
             # Use geometry__contains for polygons and geometry__intersects for all geometry types
-            # This ensures we find features where the point is actually inside/on the feature
-            logger.info(f"Searching for layers with features containing the point (exact match, no radius)...")
-            logger.info(f"Search point: ({search_center.get('lat')}, {search_center.get('lng')})")
-            
             # Use contains for polygons (most accurate) and intersects for lines/points
             # This finds features where the point is actually inside or on the feature
             layers_with_features = GeoFeature.objects.filter(
@@ -4419,7 +4413,6 @@ class NearbyLayersAPIView(APIView):
                 'layer__bbox_ymax'
             ).distinct()
             
-            logger.info(f"Found {layers_with_features.count()} unique layers with features containing the point")
             
             # Process results
             layers_list = []
@@ -5390,7 +5383,7 @@ def _webhook_payload_snapshot(data):
 
 def _print_webhook_response(webhook_name, data):
     """
-    Print the entire webhook request body as clear, readable JSON to console and log.
+    Log the entire webhook request body as clear, readable JSON.
     Use for all webhook endpoints so incoming payload is visible for debugging.
     """
     try:
@@ -5407,9 +5400,6 @@ def _print_webhook_response(webhook_name, data):
         json_str = f"(could not serialize: {e})"
     sep = "=" * 80
     banner = f"\n{sep}\n  WEBHOOK REQUEST BODY: {webhook_name}\n{sep}"
-    print(banner)
-    print(json_str)
-    print(sep + "\n")
     logger.info("%s\n%s", banner, json_str)
 
 
@@ -5447,10 +5437,7 @@ class DeveloperListingMediaWebhookView(APIView):
         )
         from django.utils import timezone
         
-        logger.info(f"[WEBHOOK_RECEIVE] ===== Webhook POST request received =====")
-        logger.info(f"[WEBHOOK_RECEIVE] Request method: {request.method}")
-        logger.info(f"[WEBHOOK_RECEIVE] Content-Type: {request.content_type}")
-        logger.info(f"[WEBHOOK_RECEIVE] Headers: {dict(request.headers)}")
+        logger.info(f"[WEBHOOK_RECEIVE] POST received (developer-listing-media)")
         
         webhook_event = None
         try:
@@ -5519,23 +5506,16 @@ class DeveloperListingMediaWebhookView(APIView):
             
             # Handle deletion events (listing/media); we already stored the payload above
             if action == 'listing_deleted':
-                logger.info(f"[WEBHOOK_RECEIVE] 🗑️  Listing deletion event received")
+                logger.info(f"[WEBHOOK_RECEIVE] Listing deletion event")
                 return self._handle_listing_deletion(webhook_event, listing_type, listing_id, data)
             
             if action == 'media_deleted':
-                logger.info(f"[WEBHOOK_RECEIVE] 🗑️  Media deletion event received")
+                logger.info(f"[WEBHOOK_RECEIVE] Media deletion event")
                 return self._handle_media_deletion(webhook_event, listing_type, listing_id, data, media_items)
             
-            logger.info(f"[WEBHOOK_RECEIVE] ===== Webhook received =====")
-            logger.info(f"[WEBHOOK_RECEIVE] 📥 Event: {event_type}")
-            logger.info(f"[WEBHOOK_RECEIVE] 📥 Action: {action}")
-            logger.info(f"[WEBHOOK_RECEIVE] 📥 Listing: {listing_type} ID={listing_id}")
-            logger.info(f"[WEBHOOK_RECEIVE] 📥 Media items: {len(media_items)}")
-            logger.info(f"[WEBHOOK_RECEIVE] 📥 TIF files: {len(tif_files)}")
-            logger.info(f"[WEBHOOK_RECEIVE] 📥 Webhook Event ID: {webhook_event.id}")
+            logger.info(f"[WEBHOOK_RECEIVE] event={event_type} action={action} listing={listing_type} id={listing_id} media={len(media_items)} tif={len(tif_files)}")
             
             # Save/update listing data
-            logger.info(f"[WEBHOOK_RECEIVE] 💾 Saving/updating DeveloperListing in database...")
             
             # Extract city from division list if available
             city_name = ''
@@ -5584,22 +5564,17 @@ class DeveloperListingMediaWebhookView(APIView):
                     backend_id=listing_id,
                     defaults=defaults,
                 )
-                logger.info(f"[WEBHOOK_RECEIVE] Synced SyncedDeveloperLand backend_id={listing_id}")
             elif listing_type == 'developerplot':
                 defaults = defaults_for_developer_plot(listing_data_for_sync)
                 SyncedDeveloperPlot.objects.update_or_create(
                     backend_id=listing_id,
                     defaults=defaults,
                 )
-                logger.info(f"[WEBHOOK_RECEIVE] Synced SyncedDeveloperPlot backend_id={listing_id}")
 
             # Run enrichment (state-filtered); no coords or no nearby layers -> enriched_layers=[], enriched_at=None or now
             try:
                 from maps.listing_layer_enrichment_service import enrich_listing
-                if enrich_listing(listing, update_location_point=True):
-                    logger.info(f"[WEBHOOK_RECEIVE] Enriched DeveloperListing {listing_type} {listing_id}")
-                else:
-                    logger.info(f"[WEBHOOK_RECEIVE] Enrichment skipped/cleared (no coords or no layers) for {listing_type} {listing_id}")
+                enrich_listing(listing, update_location_point=True)
             except Exception as enr_err:
                 logger.warning(f"[WEBHOOK_RECEIVE] Enrichment failed for {listing_type} {listing_id}: {enr_err}", exc_info=True)
 
@@ -5621,8 +5596,6 @@ class DeveloperListingMediaWebhookView(APIView):
                 logger.warning(f"[WEBHOOK_RECEIVE] Layer point count cache refresh failed: {cache_err}", exc_info=True)
 
             # Save/update media files
-            logger.info(f"[WEBHOOK_RECEIVE] 💾 Saving/updating {len(media_items)} media files...")
-            
             # Track media IDs from webhook payload
             webhook_media_ids = set()
             
@@ -5632,7 +5605,7 @@ class DeveloperListingMediaWebhookView(APIView):
             for idx, media_item in enumerate(media_items, 1):
                 media_id = media_item.get('id')
                 if not media_id:
-                    logger.warning(f"[WEBHOOK_RECEIVE] ⚠️  Media item {idx}: No ID found, skipping")
+                    logger.warning(f"[WEBHOOK_RECEIVE] Media item {idx}: No ID found, skipping")
                     continue
                 
                 webhook_media_ids.add(media_id)
@@ -5640,8 +5613,6 @@ class DeveloperListingMediaWebhookView(APIView):
                 is_tif = media_item.get('is_tif', False)
                 file_name = media_item.get('file_name', 'unknown')
                 new_s3_tile_path = media_item.get('s3_tile_path', '')
-                
-                logger.info(f"[WEBHOOK_RECEIVE] 📄 Media {idx}/{len(media_items)}: ID={media_id}, File={file_name}, TIF={is_tif}")
                 
                 # Check if media already exists and has a different tile path
                 # This handles the case where a media is deleted and recreated with same ID but different file/path
@@ -5659,23 +5630,10 @@ class DeveloperListingMediaWebhookView(APIView):
                     # 1. File updated with same name (same path) - need to delete old tiles before generating new ones
                     # 2. File updated with different name (different path) - delete old path, generate to new path
                     if is_tif and old_s3_tile_path:
-                        if old_s3_tile_path == new_s3_tile_path:
-                            logger.info(f"[WEBHOOK_RECEIVE] 🔄 Media file updated with same name/path: {old_s3_tile_path}")
-                            logger.info(f"[WEBHOOK_RECEIVE] 🗑️  Deleting old tiles before generating new ones (same path)...")
-                        else:
-                            logger.info(f"[WEBHOOK_RECEIVE] 🔄 Media tile path changed: {old_s3_tile_path} → {new_s3_tile_path}")
-                            logger.info(f"[WEBHOOK_RECEIVE] 🗑️  Deleting old tiles from old path before updating...")
-                        
-                        logger.info(f"[WEBHOOK_RECEIVE]    ⚠️  Will ONLY delete tiles for this specific media (ID={media_id}), not other listings/media")
-                        
                         if not tile_service_for_cleanup:
                             from .developer_listing_tile_service import DeveloperListingTileService
                             tile_service_for_cleanup = DeveloperListingTileService()
-                        
-                        # Always delete old tiles, even if path is the same (file replaced with same name)
-                        deleted_tiles = tile_service_for_cleanup._delete_s3_tiles(old_s3_tile_path)
-                        logger.info(f"[WEBHOOK_RECEIVE] ✅ Deleted {deleted_tiles} old tiles from {old_s3_tile_path} (ONLY for media ID={media_id}, listing #{listing_id})")
-                        logger.info(f"[WEBHOOK_RECEIVE] 🆕 New tiles will be generated after this update")
+                        tile_service_for_cleanup._delete_s3_tiles(old_s3_tile_path)
                         
                 except DeveloperListingMedia.DoesNotExist:
                     # New media, no cleanup needed
@@ -5697,7 +5655,6 @@ class DeveloperListingMediaWebhookView(APIView):
                         'media_data': media_data_stored,
                     }
                 )
-                logger.info(f"[WEBHOOK_RECEIVE] ✅ Media {'created' if created else 'updated'}: ID={media_obj.id}")
             
             # Handle deleted media: if action is 'updated', delete media records (and their tiles) 
             # that exist in DB but are not in the webhook payload
@@ -5707,37 +5664,19 @@ class DeveloperListingMediaWebhookView(APIView):
                 
                 for existing_media_obj in existing_media:
                     if existing_media_obj.backend_media_id not in webhook_media_ids:
-                        # This media was deleted from the backend
-                        logger.info(f"[WEBHOOK_RECEIVE] 🗑️  Media deleted: ID={existing_media_obj.backend_media_id}, File={existing_media_obj.file_name}")
-                        
-                        # Delete tiles from S3 if it's a TIF file (ONLY for this specific deleted media)
                         if existing_media_obj.is_tif and existing_media_obj.s3_tile_path:
-                            logger.info(f"[WEBHOOK_RECEIVE]    ⚠️  Will ONLY delete tiles for this specific media (ID={existing_media_obj.backend_media_id}), not other files")
                             from .developer_listing_tile_service import DeveloperListingTileService
                             tile_service = DeveloperListingTileService()
-                            deleted_tiles = tile_service._delete_s3_tiles(existing_media_obj.s3_tile_path)
-                            logger.info(f"[WEBHOOK_RECEIVE] 🗑️  Deleted {deleted_tiles} tiles from S3 for deleted media (ONLY for media ID={existing_media_obj.backend_media_id}, listing #{listing_id})")
-                        
-                        # Delete the media record
+                            tile_service._delete_s3_tiles(existing_media_obj.s3_tile_path)
                         existing_media_obj.delete()
                         deleted_count += 1
-                
-                if deleted_count > 0:
-                    logger.info(f"[WEBHOOK_RECEIVE] ✅ Cleaned up {deleted_count} deleted media records and their tiles")
-            
-            logger.info(f"[WEBHOOK_RECEIVE] ✅ All media files saved")
             
             # Process TIF files if any
             if tif_files:
-                logger.info(f"[WEBHOOK_RECEIVE] 🗺️  Processing {len(tif_files)} TIF files for tile generation...")
                 from .developer_listing_tile_service import DeveloperListingTileService
                 tile_service = DeveloperListingTileService()
-                
-                logger.info(f"[WEBHOOK_RECEIVE] 🚀 Starting tile generation service...")
-                # Process webhook asynchronously (in background)
-                # For now, process synchronously - can be moved to Celery/background task later
                 result = tile_service.process_webhook(data, listing=listing, webhook_event=webhook_event)
-                logger.info(f"[WEBHOOK_RECEIVE] ✅ Tile generation completed: {result.get('total_tiles_generated', 0)} tiles")
+                logger.info(f"[WEBHOOK_RECEIVE] Tile generation completed: {result.get('total_tiles_generated', 0)} tiles")
                 
                 # Update webhook event with results
                 webhook_event.processed = True
@@ -5748,10 +5687,6 @@ class DeveloperListingMediaWebhookView(APIView):
                 webhook_event.save()
                 
                 if result.get('success'):
-                    logger.info(
-                        f"Successfully processed webhook: "
-                        f"{result.get('total_tiles_generated', 0)} tiles generated"
-                    )
                     return Response(
                         {
                             "status": "success",
@@ -5764,10 +5699,9 @@ class DeveloperListingMediaWebhookView(APIView):
                     )
                 else:
                     error_msg = result.get('error', 'Unknown error')
-                    logger.error(f"[WEBHOOK_RECEIVE] ❌ Error processing tiles: {error_msg}")
+                    logger.error(f"[WEBHOOK_RECEIVE] Tile processing failed: {error_msg}")
                     webhook_event.processing_error = error_msg
                     webhook_event.save()
-                    logger.error(f"[WEBHOOK_RECEIVE] ===== Webhook processing failed =====")
                     return Response(
                         {
                             "status": "error",
@@ -5777,14 +5711,9 @@ class DeveloperListingMediaWebhookView(APIView):
                         status=status.HTTP_500_INTERNAL_SERVER_ERROR
                     )
             else:
-                # No TIF files to process - mark as processed
-                logger.info(f"[WEBHOOK_RECEIVE] ⚠️  No TIF files to process for {listing_type} {listing_id}")
-                logger.info(f"[WEBHOOK_RECEIVE] 💾 Marking webhook event as processed...")
                 webhook_event.processed = True
                 webhook_event.processed_at = timezone.now()
                 webhook_event.save()
-                logger.info(f"[WEBHOOK_RECEIVE] ✅ Webhook event marked as processed")
-                logger.info(f"[WEBHOOK_RECEIVE] ===== Webhook processing completed (no TIF files) =====")
                 return Response(
                     {
                         "status": "success",
@@ -5796,13 +5725,10 @@ class DeveloperListingMediaWebhookView(APIView):
                 )
                 
         except Exception as e:
-            logger.error(f"[WEBHOOK_RECEIVE] ❌ Exception processing developer listing webhook: {e}", exc_info=True)
+            logger.error(f"[WEBHOOK_RECEIVE] Exception: {e}", exc_info=True)
             if webhook_event:
-                logger.error(f"[WEBHOOK_RECEIVE] 💾 Saving error to webhook event...")
                 webhook_event.processing_error = str(e)
                 webhook_event.save()
-                logger.error(f"[WEBHOOK_RECEIVE] ✅ Error saved")
-            logger.error(f"[WEBHOOK_RECEIVE] ===== Webhook processing failed with exception =====")
             return Response(
                 {
                     "error": "Internal server error processing webhook",
@@ -5820,8 +5746,7 @@ class DeveloperListingMediaWebhookView(APIView):
         from .models import DeveloperListing, DeveloperListingMedia
         from .developer_listing_tile_service import DeveloperListingTileService
         
-        logger.info(f"[WEBHOOK_DELETE] ===== Processing listing deletion =====")
-        logger.info(f"[WEBHOOK_DELETE] Listing: {listing_type} ID={listing_id}")
+        logger.info(f"[WEBHOOK_DELETE] Listing deletion {listing_type} id={listing_id}")
         
         try:
             # Find the listing
@@ -5850,23 +5775,13 @@ class DeveloperListingMediaWebhookView(APIView):
             # This ensures we only delete tiles for this listing, not all listings
             all_media = DeveloperListingMedia.objects.filter(listing=listing)
             total_tiles_deleted = 0
-            
-            logger.info(f"[WEBHOOK_DELETE] 📋 Found {all_media.count()} media files for listing {listing_type} #{listing_id}")
-            
-            # Delete tiles for each TIF media file (ONLY for this specific listing)
             tile_service = DeveloperListingTileService()
             for media in all_media:
                 if media.is_tif and media.s3_tile_path:
-                    logger.info(f"[WEBHOOK_DELETE] 🗑️  Deleting tiles for media: {media.file_name} (path: {media.s3_tile_path})")
-                    logger.info(f"[WEBHOOK_DELETE]    ⚠️  This will ONLY delete tiles for this specific media file, not other listings")
                     deleted_count = tile_service._delete_s3_tiles(media.s3_tile_path)
                     total_tiles_deleted += deleted_count
-                    logger.info(f"[WEBHOOK_DELETE] ✅ Deleted {deleted_count} tiles for {media.file_name} (ONLY for listing #{listing_id})")
-            
-            # Delete all media records (CASCADE will handle this, but we do it explicitly for logging)
             media_count = all_media.count()
             all_media.delete()
-            logger.info(f"[WEBHOOK_DELETE] ✅ Deleted {media_count} media records")
 
             # Get listing point for cache refresh before deleting
             lat, lng = None, None
@@ -5876,18 +5791,12 @@ class DeveloperListingMediaWebhookView(APIView):
             if point is not None and not point.empty:
                 lat, lng = point.y, point.x
 
-            # Delete the listing record
             listing.delete()
-            logger.info(f"[WEBHOOK_DELETE] ✅ Deleted listing record")
-
-            # Keep SyncedDeveloperLand / SyncedDeveloperPlot in sync
             from .models import SyncedDeveloperLand, SyncedDeveloperPlot
             if listing_type == 'developerland':
                 SyncedDeveloperLand.objects.filter(backend_id=listing_id).delete()
-                logger.info(f"[WEBHOOK_DELETE] Deleted SyncedDeveloperLand backend_id={listing_id}")
             elif listing_type == 'developerplot':
                 SyncedDeveloperPlot.objects.filter(backend_id=listing_id).delete()
-                logger.info(f"[WEBHOOK_DELETE] Deleted SyncedDeveloperPlot backend_id={listing_id}")
 
             # Refresh layer point count cache for layers that contained this point (inside boundaries)
             if lat is not None and lng is not None:
@@ -5913,10 +5822,7 @@ class DeveloperListingMediaWebhookView(APIView):
             }
             webhook_event.save()
             
-            logger.info(f"[WEBHOOK_DELETE] ✅ Listing deletion completed")
-            logger.info(f"[WEBHOOK_DELETE]    - Tiles deleted: {total_tiles_deleted}")
-            logger.info(f"[WEBHOOK_DELETE]    - Media records deleted: {media_count}")
-            logger.info(f"[WEBHOOK_DELETE] ===== Listing deletion processing completed =====")
+            logger.info(f"[WEBHOOK_DELETE] Completed: tiles_deleted={total_tiles_deleted} media_deleted={media_count}")
             
             return Response(
                 {
@@ -5949,9 +5855,7 @@ class DeveloperListingMediaWebhookView(APIView):
         from .models import DeveloperListing, DeveloperListingMedia
         from .developer_listing_tile_service import DeveloperListingTileService
         
-        logger.info(f"[WEBHOOK_DELETE] ===== Processing media deletion =====")
-        logger.info(f"[WEBHOOK_DELETE] Listing: {listing_type} ID={listing_id}")
-        logger.info(f"[WEBHOOK_DELETE] Media items in payload: {len(media_items)}")
+        logger.info(f"[WEBHOOK_DELETE] Media deletion {listing_type} id={listing_id}")
         
         try:
             # Find the listing
@@ -5978,8 +5882,6 @@ class DeveloperListingMediaWebhookView(APIView):
             # Find deleted media items (those marked with 'deleted': true)
             # This ensures we ONLY delete tiles for the specific deleted media files, not all media
             deleted_media_items = [m for m in media_items if m.get('deleted', False)]
-            logger.info(f"[WEBHOOK_DELETE] Found {len(deleted_media_items)} deleted media items (will ONLY delete tiles for these specific files)")
-            
             total_tiles_deleted = 0
             deleted_media_count = 0
             
@@ -5992,16 +5894,9 @@ class DeveloperListingMediaWebhookView(APIView):
                 s3_tile_path = deleted_media.get('s3_tile_path', '')
                 is_tif = deleted_media.get('is_tif', False)
                 
-                logger.info(f"[WEBHOOK_DELETE] 🗑️  Processing deleted media: ID={media_id}, File={file_name}, TIF={is_tif}")
-                logger.info(f"[WEBHOOK_DELETE]    ⚠️  Will ONLY delete tiles for this specific media file (ID={media_id}), not other files")
-                
-                # Delete tiles from S3 if it's a TIF file (ONLY for this specific media)
                 if is_tif and s3_tile_path:
-                    logger.info(f"[WEBHOOK_DELETE] 🗑️  Deleting tiles from S3 path: {s3_tile_path}")
-                    logger.info(f"[WEBHOOK_DELETE]    ⚠️  This will ONLY delete tiles matching this path prefix, not other listings/media")
                     deleted_count = tile_service._delete_s3_tiles(s3_tile_path)
                     total_tiles_deleted += deleted_count
-                    logger.info(f"[WEBHOOK_DELETE] ✅ Deleted {deleted_count} tiles for {file_name} (ONLY for media ID={media_id}, listing #{listing_id})")
                 elif is_tif:
                     logger.warning(f"[WEBHOOK_DELETE] ⚠️  TIF file {file_name} has no s3_tile_path, skipping tile deletion")
                 
@@ -6013,13 +5908,10 @@ class DeveloperListingMediaWebhookView(APIView):
                     )
                     media_obj.delete()
                     deleted_media_count += 1
-                    logger.info(f"[WEBHOOK_DELETE] ✅ Deleted media record: ID={media_id}")
                 except DeveloperListingMedia.DoesNotExist:
-                    logger.warning(f"[WEBHOOK_DELETE] ⚠️  Media record not found: ID={media_id} (may have been deleted already)")
+                    pass
             
-            # Update remaining media items (those not deleted)
             remaining_media_items = [m for m in media_items if not m.get('deleted', False)]
-            logger.info(f"[WEBHOOK_DELETE] Updating {len(remaining_media_items)} remaining media items...")
             
             for media_item in remaining_media_items:
                 media_id = media_item.get('id')
@@ -6041,9 +5933,6 @@ class DeveloperListingMediaWebhookView(APIView):
                     }
                 )
             
-            logger.info(f"[WEBHOOK_DELETE] ✅ Updated remaining media items")
-            
-            # Mark webhook as processed
             webhook_event.processed = True
             webhook_event.processed_at = timezone.now()
             webhook_event.tiles_generated = 0
@@ -6053,12 +5942,7 @@ class DeveloperListingMediaWebhookView(APIView):
                 'remaining_media_count': len(remaining_media_items)
             }
             webhook_event.save()
-            
-            logger.info(f"[WEBHOOK_DELETE] ✅ Media deletion completed")
-            logger.info(f"[WEBHOOK_DELETE]    - Tiles deleted: {total_tiles_deleted}")
-            logger.info(f"[WEBHOOK_DELETE]    - Media records deleted: {deleted_media_count}")
-            logger.info(f"[WEBHOOK_DELETE]    - Remaining media: {len(remaining_media_items)}")
-            logger.info(f"[WEBHOOK_DELETE] ===== Media deletion processing completed =====")
+            logger.info(f"[WEBHOOK_DELETE] Media deletion completed: tiles_deleted={total_tiles_deleted} media_deleted={deleted_media_count}")
             
             return Response(
                 {

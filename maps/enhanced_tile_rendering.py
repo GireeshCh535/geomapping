@@ -51,7 +51,7 @@ class EnhancedTileRenderer:
                     self._draw_feature(draw, feature, default_color)
                     
         except Exception as e:
-            print(f"Error rendering tile: {e}")
+            pass  # Error rendering tile
         
         # Convert to bytes
         img_bytes = io.BytesIO()

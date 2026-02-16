@@ -125,18 +125,12 @@ class DataImportService:
             defaults=config.get('city_info', {'name': city_slug.title()})
         )
         
-        print(f"\n🏙️  Processing {city.name} data from {data_directory}")
-        print(f"📁 Expected files: {len(config.get('file_mappings', {}))}")
-        
         # Import each file based on mapping
         for filename, category_code in config.get('file_mappings', {}).items():
             file_path = data_path / filename
             
             if file_path.exists():
                 try:
-                    print(f"\n📂 Processing: {filename}")
-                    print(f"🎯 Target category: {category_code}")
-                    
                     # Get category
                     category = LayerCategory.objects.get(code=category_code)
                     
@@ -156,10 +150,7 @@ class DataImportService:
                         
                         results.append(result)
                         
-                        print(f"✅ {filename}: {result.get('features_imported', 0)} features imported")
-                        
                 except Exception as e:
-                    print(f"❌ {filename}: Error - {str(e)}")
                     results.append({
                         'filename': filename,
                         'success': False,
@@ -167,7 +158,6 @@ class DataImportService:
                         'category_code': category_code
                     })
             else:
-                print(f"⚠️  {filename}: File not found")
                 results.append({
                     'filename': filename,
                     'success': False,
@@ -178,11 +168,6 @@ class DataImportService:
         # Calculate summary statistics
         successful = len([r for r in results if r.get('success', False)])
         total_features = sum(r.get('features_imported', 0) for r in results)
-        
-        print(f"\n📊 Import Summary:")
-        print(f"   Files processed: {len(results)}")
-        print(f"   Successful: {successful}")
-        print(f"   Total features: {total_features}")
         
         return {
             'success': successful > 0,
@@ -233,10 +218,8 @@ class DataImportService:
                 
                 if detected_format == 'ESRI_JSON':
                     file_format = 'ESRI_JSON'
-                    print(f"🔍 Detected ESRI JSON format")
                 elif detected_format == 'GEOJSON':
                     file_format = 'GEOJSON'
-                    print(f"🔍 Detected standard GeoJSON format")
             
             # Create data layer
             layer = DataLayer.objects.create(
@@ -249,8 +232,6 @@ class DataImportService:
                 categorization_method=self._determine_categorization_method(city.slug, file_format),
                 is_processed=False
             )
-            
-            print(f"📋 Created layer: {layer.name} ({layer.slug})")
             
             # Import data based on format
             if file_format == 'ESRI_JSON':
@@ -282,8 +263,6 @@ class DataImportService:
             if city.slug == 'bengaluru':
                 self._update_plu_mappings(city, self.statistics['plu_codes_found'])
             
-            print(f"✅ Import completed: {features_imported} features")
-            
             return {
                 'success': True,
                 'layer_id': layer.id,
@@ -298,8 +277,6 @@ class DataImportService:
                 self.import_job.status = 'FAILED'
                 self.import_job.error_message = str(e)
                 self.import_job.save()
-            
-            print(f"❌ Import failed: {str(e)}")
             
             return {
                 'success': False,
@@ -329,8 +306,6 @@ class DataImportService:
         Returns:
             dict: Import results with statistics
         """
-        print(f"📁 Importing layer group '{group_name}' for city '{city_slug}'")
-        
         try:
             # Get city
             city = City.objects.get(slug=city_slug)
@@ -373,11 +348,6 @@ class DataImportService:
                 }
             )
             
-            if created:
-                print(f"📁 Created layer group: {layer_group.name} (Category: {group_category.name})")
-            else:
-                print(f"📁 Using existing layer group: {layer_group.name}")
-            
             results = {
                 'group_name': group_name,
                 'city': city_slug,
@@ -392,8 +362,6 @@ class DataImportService:
             
             # Process each expected layer
             for layer_slug, layer_config in expected_layers.items():
-                print(f"  📋 Processing layer: {layer_slug}")
-                
                 try:
                     # Import this specific layer
                     layer_result = self.import_single_layer(
@@ -408,11 +376,9 @@ class DataImportService:
                     if layer_result['success']:
                         results['layers_imported'] += 1
                         results['total_features'] += layer_result.get('features_imported', 0)
-                        print(f"    ✅ {layer_result['features_imported']} features imported")
                     else:
                         results['layers_failed'] += 1
                         results['errors'].append(f"{layer_slug}: {layer_result.get('error')}")
-                        print(f"    ❌ {layer_result.get('error')}")
                     
                     results['layers_processed'] += 1
                     results['layer_results'].append(layer_result)
@@ -421,7 +387,6 @@ class DataImportService:
                     results['layers_failed'] += 1
                     error_msg = f"{layer_slug}: {str(e)}"
                     results['errors'].append(error_msg)
-                    print(f"    ❌ Error: {e}")
             
             return results
             
@@ -502,11 +467,6 @@ class DataImportService:
                     }
                 )
                 
-                if created:
-                    print(f"📁 Created layer group: {layer_group.name}")
-                else:
-                    print(f"📁 Using existing layer group: {layer_group.name}")
-            
             # Create or update layer
             if existing_layer:
                 layer = existing_layer
@@ -822,8 +782,6 @@ class DataImportService:
         features_imported = 0
         features = data.get('features', [])
         
-        print(f"📊 Processing {len(features)} ESRI features")
-        
         for feature in features:
             try:
                 # Extract geometry and attributes
@@ -896,8 +854,6 @@ class DataImportService:
             features = [data]
         else:
             return 0
-        
-        print(f"📊 Processing {len(features)} GeoJSON features")
         
         for feature in features:
             try:
@@ -1005,31 +961,23 @@ class DataImportService:
             # ✅ FIXED: Detect data format based on content structure
             data_format = detect_data_format(data)  # Now uses content, not file path
             
-            print(f"    📄 File: {os.path.basename(file_path)}")
-            print(f"    🎯 Detected format: {data_format}")
-            
             if data_format == 'ESRI_JSON':
                 features_imported = self._import_esri_features(layer, data, city_slug)
-                print(f"    📊 ESRI JSON: {features_imported} features imported")
                 return features_imported
             elif data_format == 'GEOJSON':
                 features_imported = self._import_geojson_features(layer, data, city_slug)
-                print(f"    📊 GeoJSON: {features_imported} features imported")
                 return features_imported
             else:
                 error_msg = f"Unknown data format in {file_path}: {data_format}"
-                print(f"    ❌ {error_msg}")
                 self.errors.append(error_msg)
                 return 0
                 
         except json.JSONDecodeError as e:
             error_msg = f"Invalid JSON in {file_path}: {str(e)}"
-            print(f"    ❌ {error_msg}")
             self.errors.append(error_msg)
             return 0
         except Exception as e:
             error_msg = f"Error importing {file_path}: {str(e)}"
-            print(f"    ❌ {error_msg}")
             self.errors.append(error_msg)
             return 0
 
@@ -1049,7 +997,6 @@ class DataImportService:
         
         # Get features from ESRI JSON
         features = esri_data.get('features', [])
-        print(f"    📊 Processing {len(features)} ESRI features...")
         
         for i, feature_data in enumerate(features):
             try:
@@ -1073,7 +1020,6 @@ class DataImportService:
                     geometry = GEOSGeometry(json.dumps(geojson_geom))
                     self.statistics['geometry_conversions'] += 1
                 except Exception as geom_error:
-                    print(f"    ❌ Geometry error on feature {i}: {geom_error}")
                     self.statistics['features_failed'] += 1
                     continue
                 
@@ -1082,7 +1028,6 @@ class DataImportService:
                 
                 # ✅ FIXED: Validate required fields before creating GeoFeature
                 if not all(key in processed_attrs for key in ['name', 'source_layer_name']):
-                    print(f"    ❌ Missing required attributes on feature {i}")
                     self.statistics['features_failed'] += 1
                     continue
                 
@@ -1097,23 +1042,16 @@ class DataImportService:
                     features_imported += 1
                     self.statistics['features_imported'] += 1
                     self.statistics['features_processed'] += 1
-                    
-                    # Progress indicator for large files
-                    if features_imported % 500 == 0:
-                        print(f"    📈 Progress: {features_imported}/{len(features)} features imported...")
                         
                 except Exception as db_error:
-                    print(f"    ❌ Database error on feature {i}: {db_error}")
                     self.statistics['features_failed'] += 1
                     continue
                     
             except Exception as e:
-                print(f"    ❌ Feature {i} import failed: {str(e)}")
                 self.statistics['features_failed'] += 1
                 self.errors.append(f"Feature {i} import failed: {str(e)}")
                 continue
         
-        print(f"    ✅ ESRI import completed: {features_imported} features imported")
         return features_imported
     def _process_city_attributes(self, attributes, layer, city_slug):
         """
@@ -2043,25 +1981,10 @@ class VectorTileService:
                 is_valid=True
             ).select_related('layer', 'layer__category')
             
-            if features.exists():
-                print(f"   🔍 Found {features.count()} features using buffered bounds")
-        
         feature_count = features.count()
         
         if not features.exists():
-            print(f"🗺️  No features found for tile {z}/{x}/{y} (layer: {layer.slug})")
-            # DEBUG: Check if there are any features in the layer at all
-            total_layer_features = GeoFeature.objects.filter(layer=layer, is_valid=True).count()
-            if total_layer_features > 0:
-                print(f"   🔍 DEBUG: Layer has {total_layer_features} total features, but none intersect tile bounds")
-                # Check if tile bounds are within layer bounds
-                layer_bounds = self._get_layer_bounds(layer)
-                if layer_bounds:
-                    print(f"   🔍 DEBUG: Layer bounds: {layer_bounds}")
-                    print(f"   🔍 DEBUG: Tile bounds: {tile_bounds.extent}")
             return None
-        
-        print(f"🗺️  Generating tile {z}/{x}/{y} with {feature_count} features for layer {layer.slug}")
         
         # CRITICAL FIX: Use layer.slug as the layer name in MVT
         return self._features_to_mvt(features, layer.slug, z, x, y)
@@ -2096,11 +2019,6 @@ class VectorTileService:
                     all_features.extend(features)
                     layers_with_data.append(layer.slug)
             
-            if not all_features:
-                print(f"🗺️  No features found in tile {z}/{x}/{y} for any layer in group")
-                return b''
-            
-            print(f"🗺️  Generating layer group MVT {z}/{x}/{y} with {len(all_features)} features from layers: {layers_with_data}")
             
             # Create layer data structure for MVT encoding
             layer_data = {}
@@ -2115,9 +2033,6 @@ class VectorTileService:
                 return b''
                 
         except Exception as e:
-            print(f"❌ Layer group MVT generation failed: {e}")
-            import traceback
-            traceback.print_exc()
             return b''
     
     def generate_combined_tile(self, layers, z, x, y):
@@ -2143,7 +2058,6 @@ class VectorTileService:
         if not layer_data:
             return None
         
-        print(f"🗺️  Generating combined tile {z}/{x}/{y} with {total_features} features from {len(layer_data)} layers")
         
         return self._layers_to_mvt(layer_data, z, x, y)
     
@@ -2167,8 +2081,6 @@ class VectorTileService:
             mvt_features = []
             simplify_tolerance = self._get_simplify_tolerance(z)
             
-            print(f"🔧 Using simplify tolerance: {simplify_tolerance} for zoom {z}")
-            
             for feature in features:
                 try:
                     # ENHANCED: More careful geometry simplification to prevent edge artifacts
@@ -2185,14 +2097,11 @@ class VectorTileService:
                     # Convert to GeoJSON dict
                     geom_dict = json.loads(simplified_geom.geojson)
                     
-                    # DEBUG: Check if geometry is valid after simplification
                     if not geom_dict.get('coordinates'):
-                        print(f"⚠️  Feature {feature.id}: Empty coordinates after simplification")
                         continue
                     
                     # For MultiLineString features, ensure we preserve the structure
                     if geom_dict.get('type') == 'MultiLineString':
-                        # Ensure we have valid coordinates for each line
                         valid_lines = []
                         for line in geom_dict.get('coordinates', []):
                             if len(line) >= 2:  # At least 2 points for a line
@@ -2201,7 +2110,6 @@ class VectorTileService:
                         if valid_lines:
                             geom_dict['coordinates'] = valid_lines
                         else:
-                            print(f"⚠️  Feature {feature.id}: No valid lines in MultiLineString")
                             continue
                     
                     # Prepare properties
@@ -2223,11 +2131,9 @@ class VectorTileService:
                     mvt_features.append(mvt_feature)
                     
                 except Exception as e:
-                    print(f"Skipping feature {feature.id} due to processing error: {e}")
                     continue
             
             if not mvt_features:
-                print(f"⚠️  No valid features after processing for layer {layer_name}")
                 return None
             
             # Format for mapbox-vector-tile==2.0.1
@@ -2289,14 +2195,9 @@ class VectorTileService:
             
             # Encode the MVT
             mvt_tile = mapbox_vector_tile.encode(layer_data)
-            
-            print(f"✅ MVT encoded successfully: {len(mvt_features)} features, {len(mvt_tile)} bytes, layer_name='{layer_name}'")
             return mvt_tile
             
         except Exception as e:
-            print(f"❌ MVT encoding failed for {layer_name}: {e}")
-            import traceback
-            traceback.print_exc()
             return None
 
     def _layers_to_mvt(self, layer_data, z, x, y):
@@ -2310,8 +2211,6 @@ class VectorTileService:
             # Prepare list of layer dictionaries for encoding
             layers_list = []
             simplify_tolerance = self._get_simplify_tolerance(z)
-            
-            print(f"🔧 Combined MVT: Using simplify tolerance: {simplify_tolerance} for zoom {z}")
             
             first_layer = True
             for layer_slug, features in layer_data.items():
@@ -2332,14 +2231,11 @@ class VectorTileService:
                             
                             geom_dict = json.loads(simplified_geom.geojson)
                             
-                            # DEBUG: Check if geometry is valid after simplification
                             if not geom_dict.get('coordinates'):
-                                print(f"⚠️  Feature {feature.id}: Empty coordinates after simplification")
                                 continue
                             
                             # For MultiLineString features, ensure we preserve the structure
                             if geom_dict.get('type') == 'MultiLineString':
-                                # Ensure we have valid coordinates for each line
                                 valid_lines = []
                                 for line in geom_dict.get('coordinates', []):
                                     if len(line) >= 2:  # At least 2 points for a line
@@ -2348,24 +2244,11 @@ class VectorTileService:
                                 if valid_lines:
                                     geom_dict['coordinates'] = valid_lines
                                 else:
-                                    print(f"⚠️  Feature {feature.id}: No valid lines in MultiLineString")
                                     continue
                             
                             import mercantile
                             bounds = mercantile.bounds(x, y, z)
-                            if first_layer and i == 0:
-                                try:
-                                    print(f"[DEBUG] TILE BOUNDS for {layer_slug} at z={z}, x={x}, y={y}: west={bounds.west}, south={bounds.south}, east={bounds.east}, north={bounds.north}")
-                                    if geom_dict['type'] == 'Polygon' and geom_dict['coordinates']:
-                                        sample_pt = geom_dict['coordinates'][0][0]
-                                        print(f"[DEBUG] Sample input WGS84 coordinate: {sample_pt}")
-                                        tile_pt = self._wgs84_to_tile_coords(sample_pt, bounds)
-                                        print(f"[DEBUG] Sample output tile coordinate: {tile_pt}")
-                                except Exception as e:
-                                    print(f"[DEBUG] Exception during debug print: {e}")
                             transformed_geom = self._transform_geometry_to_tile(geom_dict, bounds)
-                            if first_layer and i == 0:
-                                print(f"[DEBUG] COMBINED TILE: First feature transformed geometry for {layer_slug}: {json.dumps(transformed_geom)[:500]}")
                             properties = {
                                 'name': feature.name or '',
                                 'category': feature.layer.category.name if feature.layer.category else 'Unknown',
@@ -2381,7 +2264,6 @@ class VectorTileService:
                                 'properties': properties
                             })
                         except Exception as e:
-                            print(f"[DEBUG] ❌ Skipping feature {feature.id}: {e}")
                             continue
                     first_layer = False
                     if mvt_features:
@@ -2390,25 +2272,16 @@ class VectorTileService:
                             'features': mvt_features
                         })
                 except Exception as e:
-                    print(f"[DEBUG] Exception in layer {layer_slug}: {e}")
                     continue
             
             if not layers_list:
-                print(f"⚠️  No valid layers after processing")
                 return None
             
             # Encode the list of layers
             mvt_tile = mapbox_vector_tile.encode(layers_list)
-            
-            total_features = sum(len(layer['features']) for layer in layers_list)
-            layer_names = [layer['name'] for layer in layers_list]
-            print(f"✅ Combined MVT encoded: {len(layers_list)} layers ({layer_names}), {total_features} features, {len(mvt_tile)} bytes")
             return mvt_tile
             
         except Exception as e:
-            print(f"❌ Combined MVT encoding failed: {e}")
-            import traceback
-            traceback.print_exc()
             return None
     
     def _get_simplify_tolerance(self, zoom):
@@ -2464,17 +2337,14 @@ class VectorTileService:
             bounds['east'] = bounds['east'] + buffer_distance
             bounds['south'] = bounds['south'] - buffer_distance
             bounds['north'] = bounds['north'] + buffer_distance
-            print(f"🔧 Expanded bounds for LineString features: {bounds}")
         
         # ENHANCED: If target coordinates are provided, ensure they're included in tile generation
         if target_coordinates:
             target_lng, target_lat = target_coordinates
-            # Expand bounds to include target coordinates if they're outside current bounds
             bounds['west'] = min(bounds['west'], target_lng - 0.01)  # Add buffer
             bounds['east'] = max(bounds['east'], target_lng + 0.01)  # Add buffer
             bounds['south'] = min(bounds['south'], target_lat - 0.01)  # Add buffer
             bounds['north'] = max(bounds['north'], target_lat + 0.01)  # Add buffer
-            print(f"🔧 Expanded bounds to include target coordinates: {bounds}")
         
         total_tiles = 0
         
@@ -2486,8 +2356,6 @@ class VectorTileService:
                 zoom
             ))
             
-            print(f"Generating {len(tiles)} tiles for zoom {zoom}")
-            
             # ENHANCED: If target coordinates provided, ensure that specific tile is included
             if target_coordinates:
                 target_lng, target_lat = target_coordinates
@@ -2498,7 +2366,6 @@ class VectorTileService:
                 target_tile_in_list = any(t.z == target_tile.z and t.x == target_tile.x and t.y == target_tile.y for t in tiles)
                 
                 if not target_tile_in_list:
-                    print(f"🔧 Adding target tile {target_tile.z}/{target_tile.x}/{target_tile.y} for zoom {zoom}")
                     tiles.append(target_tile)
             
             for tile in tiles:
@@ -2506,7 +2373,6 @@ class VectorTileService:
                 if mvt_data:
                     total_tiles += 1
         
-        print(f"Generated {total_tiles} tiles for layer {layer.slug}")
         
         return {
             'layer_id': layer.id,
@@ -2582,7 +2448,6 @@ class VectorTileService:
     def generate_tiles_for_area(self, layer, area_bounds, min_zoom=6, max_zoom=14):
         """Generate tiles for a specific area regardless of layer bounds"""
         
-        print(f"🗺️  Generating tiles for specific area: {area_bounds}")
         
         total_tiles = 0
         
@@ -2594,14 +2459,12 @@ class VectorTileService:
                 zoom
             ))
             
-            print(f"Generating {len(tiles)} tiles for zoom {zoom} in specified area")
             
             for tile in tiles:
                 mvt_data = self.generate_tile(layer, tile.z, tile.x, tile.y)
                 if mvt_data:
                     total_tiles += 1
         
-        print(f"Generated {total_tiles} tiles for layer {layer.slug} in specified area")
         
         return {
             'layer_id': layer.id,
@@ -2621,7 +2484,5 @@ class VectorTileService:
             'east': target_lng + radius_degrees,
             'north': target_lat + radius_degrees
         }
-        
-        print(f"🗺️  Generating tiles around coordinates ({target_lng}, {target_lat}) with radius {radius_degrees}°")
         
         return self.generate_tiles_for_area(layer, area_bounds, min_zoom, max_zoom)

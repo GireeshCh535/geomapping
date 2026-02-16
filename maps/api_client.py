@@ -99,28 +99,19 @@ def fetch_bounds_from_api(state_slug, city_slug, layer_slug, base_url='https://l
     
     for attempt in range(1, max_attempts + 1):
         try:
-            logger.info(f"Attempt {attempt}: Trying to fetch bounds from {url}...")
-            
-            # Create session with SSL verification disabled
             session = create_requests_session(verify_ssl=verify_ssl, max_retries=1)
-            
             response = session.get(url, timeout=10, verify=verify_ssl)
             response.raise_for_status()
-            
             data = response.json()
-            logger.info(f"✅ Successfully fetched bounds on attempt {attempt}")
             return data
             
         except requests.exceptions.SSLError as e:
-            logger.warning(f"❌ Attempt {attempt} failed: SSLError: {e}")
+            logger.warning(f"Fetch bounds SSLError (attempt {attempt}): {e}")
             if attempt < max_attempts:
-                logger.info(f"Retrying with SSL verification disabled...")
                 verify_ssl = False
             else:
-                logger.error(f"All SSL attempts failed")
-                # Try urllib3 fallback with SSL disabled
+                logger.error(f"All SSL attempts failed for bounds")
                 try:
-                    logger.info("Trying urllib3 fallback...")
                     import urllib3
                     # Disable SSL warnings
                     urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -136,15 +127,10 @@ def fetch_bounds_from_api(state_slug, city_slug, layer_slug, base_url='https://l
                     if response.status == 200:
                         import json
                         data = json.loads(response.data.decode('utf-8'))
-                        logger.info("✅ urllib3 fallback succeeded")
                         return data
                     else:
-                        logger.error(f"❌ urllib3 fallback failed with status {response.status}")
-                except TypeError as e:
-                    # Handle urllib3 version compatibility issues
-                    logger.error(f"❌ urllib3 fallback failed: {e}")
-                    logger.info("💡 Tip: Update urllib3 or use requests with verify=False")
-                except Exception as fallback_error:
+                        logger.error(f"urllib3 fallback failed: status {response.status}")
+                except (TypeError, Exception) as fallback_error:
                     logger.error(f"❌ urllib3 fallback also failed: {fallback_error}")
                     
         except requests.exceptions.RequestException as e:

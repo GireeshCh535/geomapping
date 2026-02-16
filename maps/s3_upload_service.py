@@ -85,8 +85,6 @@ class S3TileUploadService:
                 'error': f"No {tile_type} files found in {local_base_dir}"
             }
         
-        print(f"📁 Found {len(tile_files)} {tile_type.upper()} files for {city_slug}")
-        
         # Upload files with progress tracking
         uploaded_count = 0
         failed_count = 0
@@ -112,15 +110,11 @@ class S3TileUploadService:
                     if result['success']:
                         uploaded_count += 1
                         total_size += result['size']
-                        if uploaded_count % 100 == 0:
-                            print(f"   ✅ Uploaded {uploaded_count}/{len(tile_files)} tiles...")
                     else:
                         failed_count += 1
-                        print(f"   ❌ Failed: {tile_file.name} - {result['error']}")
                         
                 except Exception as e:
                     failed_count += 1
-                    print(f"   ❌ Exception uploading {tile_file.name}: {e}")
         
         # Summary
         success_rate = (uploaded_count / len(tile_files)) * 100
@@ -157,8 +151,6 @@ class S3TileUploadService:
         if not tile_files:
             return {'success': False, 'error': f"No {tile_format} files found"}
         
-        print(f"📁 Found {len(tile_files)} real estate {tile_format.upper()} files ({data_type})")
-        
         uploaded_count = 0
         failed_count = 0
         
@@ -170,11 +162,8 @@ class S3TileUploadService:
             
             if result['success']:
                 uploaded_count += 1
-                if uploaded_count % 100 == 0:
-                    print(f"   ✅ Uploaded {uploaded_count}/{len(tile_files)} tiles...")
             else:
                 failed_count += 1
-                print(f"   ❌ Failed: {tile_file.name}")
         
         return {
             'success': failed_count == 0,

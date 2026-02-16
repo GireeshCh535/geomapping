@@ -1345,7 +1345,6 @@ def convert_esri_to_geojson_geometry(esri_geometry):
         return None
         
     except Exception as e:
-        print(f"    ❌ Geometry conversion error: {e}")
         return None
 
 # Export commonly used functions for import compatibility

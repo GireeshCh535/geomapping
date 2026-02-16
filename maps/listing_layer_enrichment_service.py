@@ -350,15 +350,8 @@ def refresh_layer_point_count_cache(layer_ids=None, within_km=None):
                 'by_source': row['by_source'],
             },
         )
-    if rows:
-        logger.info(
-            "Refreshed layer point count cache for %d layer(s), within_km=%s",
-            len(rows),
-            within_km,
-        )
     try:
         _populate_layer_point_count_details(layer_ids, within_km)
-        logger.info("Populated layer point count details for %d layer(s)", len(layer_ids))
     except Exception as e:
         logger.warning("Populating layer point count details failed: %s", e, exc_info=True)
 

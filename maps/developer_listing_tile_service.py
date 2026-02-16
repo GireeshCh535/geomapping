@@ -48,15 +48,11 @@ class DeveloperListingTileService:
                     aws_access_key_id=getattr(settings, 'AWS_ACCESS_KEY_ID', None),
                     aws_secret_access_key=getattr(settings, 'AWS_SECRET_ACCESS_KEY', None)
                 )
-                logger.info(f"[CLOUDFRONT] ✅ CloudFront invalidation enabled for distribution: {self.cloudfront_distribution_id}")
             except Exception as e:
-                logger.warning(f"[CLOUDFRONT] ⚠️  Failed to initialize CloudFront client: {e}")
+                logger.warning(f"[CLOUDFRONT] Failed to initialize CloudFront client: {e}")
                 self.cloudfront_client = None
-        else:
-            if not self.cloudfront_distribution_id:
-                logger.warning(f"[CLOUDFRONT] ⚠️  CloudFront distribution ID not configured, invalidation disabled")
-            else:
-                logger.info(f"[CLOUDFRONT] ℹ️  CloudFront invalidation disabled via settings")
+        elif not self.cloudfront_distribution_id:
+            logger.warning(f"[CLOUDFRONT] Distribution ID not configured, invalidation disabled")
         
         self.tile_size = 256
         self.min_zoom = 8
@@ -89,10 +85,7 @@ class DeveloperListingTileService:
             tif_files = webhook_data.get('tif_files', [])
             s3_tile_base_path = webhook_data.get('s3_tile_base_path', '')
             
-            logger.info(f"[TILE_GEN] ===== Starting tile generation process =====")
-            logger.info(f"[TILE_GEN] 📋 Event: {event_type}, Action: {action}")
-            logger.info(f"[TILE_GEN] 📋 Listing: {listing_type} ID={listing_id}")
-            logger.info(f"[TILE_GEN] 📋 TIF files to process: {len(tif_files)}")
+            logger.info(f"[TILE_GEN] Starting listing={listing_type} id={listing_id} tif_files={len(tif_files)}")
             
             # Get listing if not provided
             if not listing:
@@ -106,8 +99,7 @@ class DeveloperListingTileService:
                     logger.warning(f"Listing not found: {listing_type} {listing_id}")
             
             if not tif_files:
-                logger.info(f"[TILE_GEN] ⚠️  No TIF files found for {listing_type} {listing_id}")
-                logger.info(f"[TILE_GEN] ===== Process completed (no TIF files) =====")
+                logger.info(f"[TILE_GEN] No TIF files for {listing_type} {listing_id}")
                 return {
                     'success': True,
                     'message': 'No TIF files to process',
@@ -118,8 +110,6 @@ class DeveloperListingTileService:
             results = []
             for idx, tif_file in enumerate(tif_files, 1):
                 file_name = tif_file.get('file_name', 'unknown')
-                logger.info(f"[TILE_GEN] 📄 Processing TIF {idx}/{len(tif_files)}: {file_name}")
-                
                 result = self.process_tif_file(
                     tif_file=tif_file,
                     listing_type=listing_type,
@@ -130,19 +120,14 @@ class DeveloperListingTileService:
                 results.append(result)
                 
                 if result.get('success'):
-                    logger.info(f"[TILE_GEN] ✅ TIF {idx} processed: {result.get('tiles_generated', 0)} tiles generated")
+                    pass  # success
                 else:
-                    logger.error(f"[TILE_GEN] ❌ TIF {idx} failed: {result.get('error', 'Unknown error')}")
+                    logger.error(f"[TILE_GEN] TIF {file_name} failed: {result.get('error', 'Unknown error')}")
             
             total_tiles = sum(r.get('tiles_generated', 0) for r in results)
             success_count = sum(1 for r in results if r.get('success', False))
             
-            logger.info(f"[TILE_GEN] ===== Tile generation process completed =====")
-            logger.info(f"[TILE_GEN] 📊 Summary:")
-            logger.info(f"[TILE_GEN]    - Files processed: {len(tif_files)}")
-            logger.info(f"[TILE_GEN]    - Successful: {success_count}")
-            logger.info(f"[TILE_GEN]    - Failed: {len(tif_files) - success_count}")
-            logger.info(f"[TILE_GEN]    - Total tiles generated: {total_tiles}")
+            logger.info(f"[TILE_GEN] Completed: files={len(tif_files)} success={success_count} tiles={total_tiles}")
             
             return {
                 'success': success_count == len(results),
@@ -178,9 +163,6 @@ class DeveloperListingTileService:
             Number of files deleted
         """
         try:
-            logger.info(f"[S3_CLEANUP] 🗑️  Deleting tiles from S3: {s3_tile_path}")
-            logger.info(f"[S3_CLEANUP]    ⚠️  This will ONLY delete tiles matching this specific path prefix")
-            
             # Ensure path ends with / for prefix matching
             # This ensures we only delete tiles under this specific path, not other paths
             prefix = s3_tile_path.rstrip('/') + '/'
@@ -195,7 +177,6 @@ class DeveloperListingTileService:
                         objects_to_delete.append({'Key': obj['Key']})
             
             if not objects_to_delete:
-                logger.info(f"[S3_CLEANUP] ℹ️  No existing tiles found at {prefix}")
                 return 0
             
             # Delete in batches of 1000 (S3 limit)
@@ -207,8 +188,6 @@ class DeveloperListingTileService:
                     Delete={'Objects': batch}
                 )
                 deleted_count += len(response.get('Deleted', []))
-            
-            logger.info(f"[S3_CLEANUP] ✅ Deleted {deleted_count} old tiles from {prefix}")
             
             # Invalidate CloudFront cache for deleted tiles
             if deleted_count > 0:
@@ -238,9 +217,6 @@ class DeveloperListingTileService:
             return None
         
         try:
-            logger.info(f"[CLOUDFRONT] 🔄 Creating CloudFront invalidation for {len(paths)} path(s)...")
-            logger.info(f"[CLOUDFRONT]    Paths: {paths}")
-            
             # Create invalidation
             response = self.cloudfront_client.create_invalidation(
                 DistributionId=self.cloudfront_distribution_id,
@@ -254,11 +230,6 @@ class DeveloperListingTileService:
             )
             
             invalidation_id = response.get('Invalidation', {}).get('Id')
-            status = response.get('Invalidation', {}).get('Status')
-            
-            logger.info(f"[CLOUDFRONT] ✅ CloudFront invalidation created: ID={invalidation_id}, Status={status}")
-            logger.info(f"[CLOUDFRONT]    ⚠️  Cache will be cleared in a few minutes")
-            
             return invalidation_id
             
         except ClientError as e:
@@ -306,10 +277,7 @@ class DeveloperListingTileService:
         if not s3_tile_path.startswith('developer_data/'):
             s3_tile_path = f"developer_data/{s3_tile_path}"
         
-        logger.info(f"[TIF_PROCESS] ===== Processing TIF file =====")
-        logger.info(f"[TIF_PROCESS] 📄 File: {file_name}")
-        logger.info(f"[TIF_PROCESS] 🔗 URL: {tif_url}")
-        logger.info(f"[TIF_PROCESS] 📍 S3 tile path: {s3_tile_path}")
+        logger.info(f"[TIF_PROCESS] Processing {file_name}")
         
         # Get media record
         media = None
@@ -323,50 +291,23 @@ class DeveloperListingTileService:
                 # Check if media has an old tile path that's different
                 if media.s3_tile_path and media.s3_tile_path != s3_tile_path:
                     old_s3_tile_path = media.s3_tile_path
-                    logger.info(f"[TIF_PROCESS] 🔄 Media has different old tile path: {old_s3_tile_path}")
             except DeveloperListingMedia.DoesNotExist:
-                logger.warning(f"Media record not found: {media_id}")
+                pass
         
-        # Delete old tiles before generating new ones
-        # This handles cases where:
-        # 1. File updated with same name (same path) - delete old tiles, generate new ones to same path
-        # 2. File updated with different name (different path) - delete old path, generate to new path
-        # 3. Media is updated/recreated (same backend_media_id, potentially different file/path)
-        # 4. File is deleted and recreated
-        logger.info(f"[TIF_PROCESS] 🗑️  Cleaning up old tiles before generating new ones...")
-        
-        # Always delete tiles from new path first (handles case where file is updated with same name)
-        # This ensures we clean up any existing tiles before generating new ones
-        logger.info(f"[TIF_PROCESS]    ⚠️  Deleting tiles from target path: {s3_tile_path}")
         deleted_new = self._delete_s3_tiles(s3_tile_path)
-        
-        # If path changed, also delete from old path
-        # (If path is same, we already deleted above, so this is just for different paths)
         deleted_old = 0
         if old_s3_tile_path and old_s3_tile_path != s3_tile_path:
-            logger.info(f"[TIF_PROCESS]    ⚠️  Path changed, also deleting tiles from old path: {old_s3_tile_path}")
             deleted_old = self._delete_s3_tiles(old_s3_tile_path)
-            logger.info(f"[TIF_PROCESS] 🗑️  Deleted {deleted_old} tiles from old path: {old_s3_tile_path}")
-        elif old_s3_tile_path and old_s3_tile_path == s3_tile_path:
-            logger.info(f"[TIF_PROCESS]    ℹ️  File updated with same name/path - old tiles already deleted above")
-        
-        total_deleted = deleted_new + deleted_old
-        if total_deleted > 0:
-            logger.info(f"[TIF_PROCESS] ✅ Cleanup complete: {total_deleted} old tiles deleted")
-        else:
-            logger.info(f"[TIF_PROCESS] ℹ️  No old tiles found to delete (first time processing)")
         
         start_time = time.time()
         
         # Create temporary directory for processing
         with tempfile.TemporaryDirectory() as temp_dir:
             try:
-                # Download TIF file
-                logger.info(f"[TIF_PROCESS] ⬇️  Downloading TIF file from CloudFront...")
                 tif_path = self._download_tif_file(tif_url, temp_dir, file_name)
                 if not tif_path:
                     error_msg = f'Failed to download TIF file from {tif_url}'
-                    logger.error(f"[TIF_PROCESS] ❌ Download failed: {error_msg}")
+                    logger.error(f"[TIF_PROCESS] Download failed: {error_msg}")
                     if media:
                         media.tiles_generation_error = error_msg
                         media.save()
@@ -376,18 +317,10 @@ class DeveloperListingTileService:
                         'file_name': file_name
                     }
                 
-                logger.info(f"[TIF_PROCESS] ✅ TIF file downloaded: {tif_path}")
-                
-                # Get file size
                 file_size = os.path.getsize(tif_path) if os.path.exists(tif_path) else None
-                logger.info(f"[TIF_PROCESS] 📦 File size: {file_size / (1024*1024):.2f} MB" if file_size else "[TIF_PROCESS] 📦 File size: unknown")
-                
-                # Update media - mark as started
                 if media:
-                    logger.info(f"[TIF_PROCESS] 💾 Updating media record: marking as started...")
                     media.tiles_generation_started_at = timezone.now()
                     media.save()
-                    logger.info(f"[TIF_PROCESS] ✅ Media record updated")
                 
                 # Try to extract location from listing data for fallback bounds
                 fallback_bounds = None
@@ -412,12 +345,9 @@ class DeveloperListingTileService:
                                 'north': lat + 0.005,
                                 'south': lat - 0.005
                             }
-                            logger.info(f"[TIF_PROCESS] 📍 Found listing location: ({lat}, {lng}), using as fallback bounds")
                         except (ValueError, TypeError):
-                            logger.debug(f"[TIF_PROCESS] Could not parse lat/lng from listing data")
+                            pass
                 
-                # Generate tiles and get metadata
-                logger.info(f"[TIF_PROCESS] 🗺️  Starting tile generation (zoom {self.min_zoom}-{self.max_zoom})...")
                 result = self._generate_tiles_from_tif(
                     tif_path=tif_path,
                     s3_tile_base_path=s3_tile_path,
@@ -430,22 +360,16 @@ class DeveloperListingTileService:
                 tiles_by_zoom = result.get('tiles_by_zoom', {})
                 tif_metadata = result.get('tif_metadata', {})
                 
-                logger.info(f"[TIF_PROCESS] ✅ Tile generation completed: {tiles_generated} tiles")
-                logger.info(f"[TIF_PROCESS] 📊 Tiles by zoom: {tiles_by_zoom}")
+                logger.info(f"[TIF_PROCESS] Tiles generated: {tiles_generated}")
                 
-                # Update media record
                 if media:
-                    logger.info(f"[TIF_PROCESS] 💾 Updating media record: marking as completed...")
                     media.tiles_generated = True
                     media.tiles_generation_completed_at = timezone.now()
                     media.total_tiles_generated = tiles_generated
                     media.tiles_generation_error = ''
                     media.save()
-                    logger.info(f"[TIF_PROCESS] ✅ Media record updated: tiles_generated=True, total={tiles_generated}")
                 
-                # Save/update TIF metadata
                 if media and tif_metadata:
-                    logger.info(f"[TIF_PROCESS] 💾 Saving TIF metadata to database...")
                     tif_meta_obj, _ = TIFMetadata.objects.update_or_create(
                         media=media,
                         defaults={
@@ -474,37 +398,16 @@ class DeveloperListingTileService:
                             'tif_data': tif_metadata,
                         }
                     )
-                    logger.info(f"[TIF_PROCESS] ✅ TIF metadata saved")
-                    logger.info(f"[TIF_PROCESS] 📐 Bounds: west={tif_metadata.get('bounds', {}).get('west')}, "
-                              f"east={tif_metadata.get('bounds', {}).get('east')}, "
-                              f"south={tif_metadata.get('bounds', {}).get('south')}, "
-                              f"north={tif_metadata.get('bounds', {}).get('north')}")
-                    
-                    # Create/Update DataLayer and GeoFeature for spatial querying
-                    logger.info(f"[TIF_PROCESS] 🗺️  Creating DataLayer and GeoFeature for spatial queries...")
                     self._create_datalayer_and_geofeature(
                         listing=listing,
                         media=media,
                         tif_metadata=tif_metadata,
                         s3_tile_path=s3_tile_path
                     )
-                    logger.info(f"[TIF_PROCESS] ✅ DataLayer and GeoFeature created")
                 
-                logger.info(f"[TIF_PROCESS] ✅ Successfully processed {file_name}")
-                logger.info(f"[TIF_PROCESS]    - Tiles generated: {tiles_generated}")
-                logger.info(f"[TIF_PROCESS]    - Processing time: {time.time() - start_time:.2f}s")
-                
-                # Invalidate CloudFront cache for newly generated tiles
                 if tiles_generated > 0:
                     invalidation_path = f"{s3_tile_path.rstrip('/')}/*"
-                    logger.info(f"[TIF_PROCESS] 🔄 Invalidating CloudFront cache for new tiles...")
-                    invalidation_id = self._invalidate_cloudfront_paths([invalidation_path])
-                    if invalidation_id:
-                        logger.info(f"[TIF_PROCESS] ✅ CloudFront invalidation created: {invalidation_id}")
-                    else:
-                        logger.warning(f"[TIF_PROCESS] ⚠️  CloudFront invalidation skipped or failed")
-                
-                logger.info(f"[TIF_PROCESS] ===== TIF processing completed =====")
+                    self._invalidate_cloudfront_paths([invalidation_path])
                 
                 return {
                     'success': True,
@@ -515,16 +418,10 @@ class DeveloperListingTileService:
                 
             except Exception as e:
                 error_msg = str(e)
-                logger.error(f"[TIF_PROCESS] ❌ Error processing TIF file {file_name}: {e}", exc_info=True)
-                
-                # Update media
+                logger.error(f"[TIF_PROCESS] Error processing {file_name}: {e}", exc_info=True)
                 if media:
-                    logger.error(f"[TIF_PROCESS] 💾 Updating media record with error...")
                     media.tiles_generation_error = error_msg
                     media.save()
-                    logger.error(f"[TIF_PROCESS] ✅ Media record updated with error")
-                
-                logger.error(f"[TIF_PROCESS] ===== TIF processing failed =====")
                 return {
                     'success': False,
                     'error': error_msg,
@@ -637,7 +534,6 @@ class DeveloperListingTileService:
                 }
             )
             
-            logger.info(f"[DATALAYER] {'✅ Created' if created else '🔄 Updated'} DataLayer: {layer_name}")
             
             # Create bounding box polygon
             # Polygon format: ((west, south), (west, north), (east, north), (east, south), (west, south))
@@ -690,29 +586,18 @@ class DeveloperListingTileService:
                 }
             )
             
-            logger.info(f"[DATALAYER] {'✅ Created' if created else '🔄 Updated'} GeoFeature with bounds polygon")
-            logger.info(f"[DATALAYER] 📍 Polygon: {polygon.wkt[:100]}...")
-            logger.info(f"[DATALAYER] 📊 Area: {area_sqkm:.2f} sq km")
-            logger.info(f"[DATALAYER] ✅ TIF now available for spatial queries!")
-            
         except Exception as e:
-            logger.error(f"[DATALAYER] ❌ Error creating DataLayer/GeoFeature: {e}", exc_info=True)
+            logger.error(f"[DATALAYER] Error creating DataLayer/GeoFeature: {e}", exc_info=True)
     
     def _download_tif_file(self, url: str, temp_dir: str, file_name: str) -> Optional[str]:
         """Download TIF file from CloudFront URL"""
         try:
-            logger.info(f"Downloading TIF file from {url}")
             response = requests.get(url, stream=True, timeout=300)
             response.raise_for_status()
-            
             tif_path = os.path.join(temp_dir, file_name)
             with open(tif_path, 'wb') as f:
                 for chunk in response.iter_content(chunk_size=8192):
                     f.write(chunk)
-            
-            file_size = os.path.getsize(tif_path)
-            logger.info(f"Downloaded {file_name}: {file_size / (1024*1024):.2f} MB")
-            
             return tif_path
             
         except Exception as e:
@@ -733,14 +618,7 @@ class DeveloperListingTileService:
             Tuple of (data_r, data_g, data_b, data_a, bounds, transform) or None on error
         """
         try:
-            logger.info(f"[REPROJECT] 🔄 Loading TIF file...")
             with rasterio.open(geotiff_path) as src:
-                logger.info(f"[REPROJECT] 📄 File: {geotiff_path}")
-                logger.info(f"[REPROJECT] 📐 Source CRS: {src.crs}, Target CRS: {target_crs}")
-                logger.info(f"[REPROJECT] 📐 Source dimensions: {src.width} x {src.height}, Bands: {src.count}")
-                logger.info(f"[REPROJECT] 📐 Source bounds: {src.bounds}")
-                logger.info(f"[REPROJECT] 📐 Source transform: {src.transform}")
-                
                 # Check if file is georeferenced
                 # A file is considered non-georeferenced if:
                 # 1. CRS is None, OR
@@ -765,13 +643,7 @@ class DeveloperListingTileService:
                     is_georeferenced = False
                 
                 if not is_georeferenced:
-                    logger.warning(f"[REPROJECT] ⚠️  TIF file is not georeferenced (no CRS, transform, or GCPs)")
-                    
-                    # If we have fallback bounds, use them to create a georeferenced version
                     if fallback_bounds:
-                        logger.info(f"[REPROJECT] 🔄 Using fallback bounds: {fallback_bounds}")
-                        # Read the image data directly without reprojection
-                        logger.info(f"[REPROJECT] 📖 Reading image data directly (no reprojection needed)...")
                         
                         # Read all bands
                         if src.count >= 4:
@@ -812,28 +684,15 @@ class DeveloperListingTileService:
                             'north': north
                         }
                         
-                        logger.info(f"[REPROJECT] ✅ Using fallback bounds: {bounds}")
-                        logger.info(f"[REPROJECT] ✅ Data bands: R={data_r.shape}, G={data_g.shape}, B={data_b.shape}, A={data_a.shape}")
-                        
                         return data_r, data_g, data_b, data_a, bounds, transform
                     else:
-                        logger.error(f"[REPROJECT] ❌ TIF file is not georeferenced and no fallback bounds provided. Cannot generate map tiles.")
-                        logger.error(f"[REPROJECT] ❌ File must have CRS, geotransform, or GCPs to create map tiles.")
+                        logger.error(f"[REPROJECT] TIF not georeferenced and no fallback bounds")
                         return None
                 
-                # File is georeferenced - proceed with normal reprojection
-                # Calculate transform for target CRS (we already tested this above, but need to recalculate)
                 transform, width, height = calculate_default_transform(
                     src.crs, target_crs, src.width, src.height, *src.bounds
                 )
-                
-                logger.info(f"[REPROJECT] 🔄 Reprojecting to dimensions: {width} x {height}...")
-                
-                # Create destination arrays (use uint8 for efficiency)
                 dst_data = np.zeros((src.count, height, width), dtype=np.uint8)
-                
-                # Reproject with high quality resampling
-                logger.info(f"[REPROJECT] 🔄 Performing reprojection (this may take a while)...")
                 try:
                     reproject(
                         source=rasterio.band(src, list(range(1, src.count + 1))),
@@ -849,10 +708,8 @@ class DeveloperListingTileService:
                     # Check if error is about missing geotransform
                     error_msg = str(reproject_error).lower()
                     if 'no geotransform' in error_msg or 'no affine transformation' in error_msg:
-                        logger.warning(f"[REPROJECT] ⚠️  Reprojection failed - file appears non-georeferenced: {reproject_error}")
-                        # Try fallback handling
+                        logger.warning(f"[REPROJECT] Reprojection failed (non-georeferenced): {reproject_error}")
                         if fallback_bounds:
-                            logger.info(f"[REPROJECT] 🔄 Attempting fallback bounds handling...")
                             # Read image data directly
                             if src.count >= 4:
                                 data_r = src.read(1)
@@ -890,16 +747,13 @@ class DeveloperListingTileService:
                                 'north': north
                             }
                             
-                            logger.info(f"[REPROJECT] ✅ Using fallback bounds: {bounds}")
                             return data_r, data_g, data_b, data_a, bounds, transform
                         else:
-                            logger.error(f"[REPROJECT] ❌ Reprojection failed and no fallback bounds available: {reproject_error}")
+                            logger.error(f"[REPROJECT] Reprojection failed, no fallback bounds: {reproject_error}")
                             return None
                     else:
                         # Different error - re-raise
                         raise
-                
-                logger.info(f"[REPROJECT] ✅ Reprojection completed")
                 
                 # Calculate bounds in target CRS
                 left, bottom = transform * (0, height)
@@ -917,9 +771,6 @@ class DeveloperListingTileService:
                 data_b = dst_data[2] if src.count > 2 else dst_data[0]
                 # Alpha channel: use band 4 if available, otherwise create opaque
                 data_a = dst_data[3] if src.count > 3 else np.full_like(data_r, 255)
-                
-                logger.info(f"[REPROJECT] ✅ Reprojected bounds: {bounds}")
-                logger.info(f"[REPROJECT] ✅ Data bands: R={data_r.shape}, G={data_g.shape}, B={data_b.shape}, A={data_a.shape}")
                 
                 return data_r, data_g, data_b, data_a, bounds, transform
                 
@@ -1070,14 +921,9 @@ class DeveloperListingTileService:
             Dict with tiles_generated, tiles_by_zoom, and tif_metadata
         """
         try:
-            logger.info(f"[TILE_GEN] ===== Starting tile generation =====")
-            logger.info(f"[TILE_GEN] 📄 TIF file: {tif_path}")
-            
-            # Step 1: Load and reproject entire TIF to WGS84 (optimized approach)
-            logger.info(f"[TILE_GEN] 🔄 Step 1: Loading and reprojecting TIF to WGS84...")
             result = self._load_and_reproject_geotiff(tif_path, fallback_bounds=fallback_bounds)
             if not result:
-                logger.error(f"[TILE_GEN] ❌ Failed to load and reproject TIF file")
+                logger.error(f"[TILE_GEN] Failed to load and reproject TIF")
                 return {
                     'tiles_generated': 0,
                     'tiles_by_zoom': {},
@@ -1085,7 +931,6 @@ class DeveloperListingTileService:
                 }
             
             data_r, data_g, data_b, data_a, bounds, transform = result
-            logger.info(f"[TILE_GEN] ✅ TIF loaded and reprojected successfully")
             
             # Get source TIF metadata
             source_metadata = {}
@@ -1114,18 +959,10 @@ class DeveloperListingTileService:
                     }
                 }
             
-            logger.info(f"[TILE_GEN] 📐 Reprojected data shape: {data_r.shape}")
-            logger.info(f"[TILE_GEN] 📐 Bounds: west={bounds['west']:.6f}, east={bounds['east']:.6f}, "
-                      f"south={bounds['south']:.6f}, north={bounds['north']:.6f}")
-            
-            # Step 2: Generate tiles for zoom levels 8-18
-            logger.info(f"[TILE_GEN] 🔄 Step 2: Generating tiles for zoom levels {self.min_zoom}-{self.max_zoom}...")
             total_tiles = 0
             tiles_by_zoom = {}
             
             for zoom in range(self.min_zoom, self.max_zoom + 1):
-                logger.info(f"[TILE_GEN] 🔍 Processing zoom level {zoom}...")
-                
                 # Calculate tile range for this zoom level
                 west_south_tile = mercantile.tile(bounds['west'], bounds['south'], zoom)
                 east_north_tile = mercantile.tile(bounds['east'], bounds['north'], zoom)
@@ -1143,11 +980,6 @@ class DeveloperListingTileService:
                     for y in range(min_y, max_y + 1)
                 ]
                 
-                logger.info(f"[TILE_GEN] 📊 Zoom {zoom}: {len(tiles_to_generate)} potential tiles "
-                          f"(x: {min_x}-{max_x}, y: {min_y}-{max_y})")
-                
-                # Generate tiles in parallel
-                logger.info(f"[TILE_GEN] 🚀 Generating tiles in parallel (workers: {self.max_workers})...")
                 zoom_tiles = 0
                 with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
                     futures = {
@@ -1165,17 +997,11 @@ class DeveloperListingTileService:
                             success = future.result()
                             if success:
                                 zoom_tiles += 1
-                                if zoom_tiles % 100 == 0:
-                                    logger.info(f"[TILE_GEN] 📈 Progress: {zoom_tiles} tiles generated for zoom {zoom}")
                         except Exception as e:
-                            logger.warning(f"[TILE_GEN] ⚠️  Error generating tile {tile_zoom}/{tile_x}/{tile_y}: {e}")
+                            logger.warning(f"[TILE_GEN] Error generating tile {tile_zoom}/{tile_x}/{tile_y}: {e}")
                 
-                logger.info(f"[TILE_GEN] ✅ Zoom {zoom}: Generated {zoom_tiles} tiles")
                 tiles_by_zoom[zoom] = zoom_tiles
                 total_tiles += zoom_tiles
-            
-            logger.info(f"[TILE_GEN] ✅ Total tiles generated: {total_tiles}")
-            logger.info(f"[TILE_GEN] ===== Tile generation completed =====")
             
             return {
                 'tiles_generated': total_tiles,
@@ -1215,8 +1041,6 @@ class DeveloperListingTileService:
             else:
                 logger.error(f"Invalid listing_type: {listing_type}")
                 return None
-            
-            logger.info(f"Fetching listing data from: {endpoint}")
             
             # Fetch listing data
             response = requests.get(endpoint, timeout=30)
@@ -1261,7 +1085,6 @@ class DeveloperListingTileService:
                 tif_files.append(tif_file)
             
             if not tif_files:
-                logger.info(f"No TIF files found for {listing_type} {listing_id}")
                 return None
             
             return {
