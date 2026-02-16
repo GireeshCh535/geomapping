@@ -6744,31 +6744,58 @@ class LayerPointCountsAPIView(APIView):
         id_to_row = {r['layer_id']: r for r in counts}
         return [id_to_row[lid] for lid in layer_ids if lid in id_to_row]
 
+    def _details_from_cache(self, counts, detail_page, detail_page_size):
+        """Attach overlapping_details and nearby_details from LayerPointCountDetail (paginated)."""
+        from .models import LayerPointCountDetail
+        page = max(1, detail_page)
+        page_size = max(1, min(500, detail_page_size))
+        offset = (page - 1) * page_size
+        for row in counts:
+            lid = row['layer_id']
+            over_total = row['overlapping_count']
+            near_total = row['nearby_count']
+            over_pages = (over_total + page_size - 1) // page_size if page_size else 0
+            near_pages = (near_total + page_size - 1) // page_size if page_size else 0
+            overlapping_qs = LayerPointCountDetail.objects.filter(
+                layer_id=lid, is_overlapping=True
+            ).order_by('id')[offset:offset + page_size].values('source', 'point_id', 'backend_id', 'lat', 'lng')
+            overlapping_details = [
+                {'source': d['source'], 'id': d['point_id'], 'backend_id': d['backend_id'], 'lat': d['lat'], 'lng': d['lng']}
+                for d in overlapping_qs
+            ]
+            nearby_qs = LayerPointCountDetail.objects.filter(
+                layer_id=lid, is_overlapping=False
+            ).order_by('id')[offset:offset + page_size].values('source', 'point_id', 'backend_id', 'lat', 'lng')
+            nearby_details = [
+                {'source': d['source'], 'id': d['point_id'], 'backend_id': d['backend_id'], 'lat': d['lat'], 'lng': d['lng']}
+                for d in nearby_qs
+            ]
+            row['overlapping_details'] = overlapping_details
+            row['nearby_details'] = nearby_details
+            row['overlapping_pagination'] = {
+                'page': page,
+                'page_size': page_size,
+                'total_count': over_total,
+                'total_pages': over_pages,
+                'has_next': page < over_pages,
+                'has_previous': page > 1,
+            }
+            row['nearby_pagination'] = {
+                'page': page,
+                'page_size': page_size,
+                'total_count': near_total,
+                'total_pages': near_pages,
+                'has_next': page < near_pages,
+                'has_previous': page > 1,
+            }
+
     def get(self, request):
         layer_ids, within_km, include_details, detail_limit, detail_page, detail_page_size = self._parse_request(request)
         try:
-            if not include_details:
-                counts = self._counts_from_cache(layer_ids, within_km)
-                return Response({'counts': counts}, status=status.HTTP_200_OK)
-            from .listing_layer_enrichment_service import get_point_counts_per_layer
             counts = self._counts_from_cache(layer_ids, within_km)
-            detail_rows = get_point_counts_per_layer(
-                layer_ids=layer_ids,
-                within_km=within_km,
-                include_details=True,
-                detail_limit=detail_limit,
-                detail_page=detail_page,
-                detail_page_size=detail_page_size,
-            )
-            detail_by_id = {r['layer_id']: r for r in detail_rows}
-            for row in counts:
-                lid = row['layer_id']
-                if lid in detail_by_id:
-                    d = detail_by_id[lid]
-                    row['overlapping_details'] = d.get('overlapping_details', [])
-                    row['nearby_details'] = d.get('nearby_details', [])
-                    row['overlapping_pagination'] = d.get('overlapping_pagination', {})
-                    row['nearby_pagination'] = d.get('nearby_pagination', {})
+            if not include_details:
+                return Response({'counts': counts}, status=status.HTTP_200_OK)
+            self._details_from_cache(counts, detail_page, detail_page_size)
             return Response({'counts': counts}, status=status.HTTP_200_OK)
         except Exception as e:
             logger.error(f"Layer point counts error: {e}", exc_info=True)
@@ -6780,28 +6807,10 @@ class LayerPointCountsAPIView(APIView):
     def post(self, request):
         layer_ids, within_km, include_details, detail_limit, detail_page, detail_page_size = self._parse_request(request)
         try:
-            if not include_details:
-                counts = self._counts_from_cache(layer_ids, within_km)
-                return Response({'counts': counts}, status=status.HTTP_200_OK)
-            from .listing_layer_enrichment_service import get_point_counts_per_layer
             counts = self._counts_from_cache(layer_ids, within_km)
-            detail_rows = get_point_counts_per_layer(
-                layer_ids=layer_ids,
-                within_km=within_km,
-                include_details=True,
-                detail_limit=detail_limit,
-                detail_page=detail_page,
-                detail_page_size=detail_page_size,
-            )
-            detail_by_id = {r['layer_id']: r for r in detail_rows}
-            for row in counts:
-                lid = row['layer_id']
-                if lid in detail_by_id:
-                    d = detail_by_id[lid]
-                    row['overlapping_details'] = d.get('overlapping_details', [])
-                    row['nearby_details'] = d.get('nearby_details', [])
-                    row['overlapping_pagination'] = d.get('overlapping_pagination', {})
-                    row['nearby_pagination'] = d.get('nearby_pagination', {})
+            if not include_details:
+                return Response({'counts': counts}, status=status.HTTP_200_OK)
+            self._details_from_cache(counts, detail_page, detail_page_size)
             return Response({'counts': counts}, status=status.HTTP_200_OK)
         except Exception as e:
             logger.error(f"Layer point counts error: {e}", exc_info=True)

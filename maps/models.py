@@ -503,6 +503,34 @@ class LayerPointCountCache(models.Model):
         return f"PointCountCache(layer_id={self.layer_id}, total={self.total_count})"
 
 
+class LayerPointCountDetail(models.Model):
+    """
+    Materialized overlapping/nearby point details per layer for fast paginated /api/layer-point-counts/ with include_details=true.
+    Populated when refresh_layer_point_count_cache runs. Read with LIMIT/OFFSET instead of spatial queries.
+    """
+    layer = models.ForeignKey(
+        DataLayer,
+        on_delete=models.CASCADE,
+        related_name='point_count_details',
+    )
+    source = models.CharField(max_length=32)  # land, plot, developer_land, developer_plot, developer_listing
+    point_id = models.IntegerField(help_text='Internal PK of the listing record')
+    backend_id = models.IntegerField(help_text='External/backend ID')
+    lat = models.FloatField()
+    lng = models.FloatField()
+    is_overlapping = models.BooleanField(help_text='True=inside layer, False=nearby')
+
+    class Meta:
+        db_table = 'maps_layer_point_count_detail'
+        indexes = [
+            models.Index(fields=['layer', 'is_overlapping']),
+        ]
+        ordering = ['id']
+
+    def __str__(self):
+        return f"Detail(layer={self.layer_id}, source={self.source}, backend_id={self.backend_id}, overlap={self.is_overlapping})"
+
+
 # ================================
 # GEO FEATURE MODEL (COMPLETE)
 # ================================

@@ -27,6 +27,7 @@ from maps.models import (
     DataLayer,
     GeoFeature,
     LayerPointCountCache,
+    LayerPointCountDetail,
     SyncedLand,
     SyncedPlot,
     SyncedDeveloperLand,
@@ -52,6 +53,10 @@ ENRICH_BULK_BATCH_SIZE = 250
 
 # When layer_ids is not provided, limit layers to avoid timeouts (layer-point-counts API)
 MAX_LAYERS_DEFAULT = 50
+
+# Max overlapping + nearby details to store per layer (avoids huge tables; pagination still uses real counts)
+MAX_DETAIL_ROWS_OVERLAPPING_PER_LAYER = 5000
+MAX_DETAIL_ROWS_NEARBY_PER_LAYER = 5000
 
 
 def _get_state_name_from_payload(payload):
@@ -160,9 +165,140 @@ def get_layer_ids_containing_point(lat, lng):
     )
 
 
+def _detail_record_to_row(layer_id, record, source, is_overlapping):
+    """Build a dict for LayerPointCountDetail from a listing record."""
+    backend_id = getattr(record, 'backend_id', None) or getattr(record, 'backend_listing_id', record.pk)
+    lat = lng = None
+    pt = getattr(record, 'location_point', None)
+    if pt and not pt.empty:
+        lat, lng = pt.y, pt.x
+    elif getattr(record, 'lat', None) is not None and getattr(record, 'long', None) is not None:
+        lat, lng = float(record.lat), float(record.long)
+    if lat is None or lng is None:
+        return None
+    return {
+        'layer_id': layer_id,
+        'source': source,
+        'point_id': record.pk,
+        'backend_id': backend_id,
+        'lat': lat,
+        'lng': lng,
+        'is_overlapping': is_overlapping,
+    }
+
+
+def _populate_layer_point_count_details(layer_ids, within_km, max_overlapping=None, max_nearby=None):
+    """
+    For each layer, collect overlapping and nearby point details (capped) and bulk_insert LayerPointCountDetail.
+    Uses the same spatial logic as get_point_counts_per_layer. Call after updating LayerPointCountCache.
+    """
+    if max_overlapping is None:
+        max_overlapping = MAX_DETAIL_ROWS_OVERLAPPING_PER_LAYER
+    if max_nearby is None:
+        max_nearby = MAX_DETAIL_ROWS_NEARBY_PER_LAYER
+    if within_km is None:
+        within_km = NEARBY_THRESHOLD_KM
+    deg = within_km / 111.32
+    layers_qs = DataLayer.objects.filter(
+        is_processed=True,
+        city__is_active=True,
+        id__in=layer_ids,
+    ).exclude(category__code='DEVELOPER_LISTING').exclude(
+        bbox_xmin__isnull=True, bbox_ymin__isnull=True,
+        bbox_xmax__isnull=True, bbox_ymax__isnull=True,
+    )
+    layers = list(layers_qs.select_related('city', 'category').values(
+        'id', 'bbox_xmin', 'bbox_ymin', 'bbox_xmax', 'bbox_ymax',
+    ))
+    for layer in layers:
+        layer_id = layer['id']
+        expanded = None
+        if all([
+            layer.get('bbox_xmin') is not None, layer.get('bbox_ymin') is not None,
+            layer.get('bbox_xmax') is not None, layer.get('bbox_ymax') is not None,
+        ]):
+            delta = within_km / 111.0
+            expanded = Polygon.from_bbox((
+                layer['bbox_xmin'] - delta,
+                layer['bbox_ymin'] - delta,
+                layer['bbox_xmax'] + delta,
+                layer['bbox_ymax'] + delta,
+            ))
+            expanded.srid = 4326
+        def _base_qs(model_qs):
+            qs = model_qs.filter(location_point__isnull=False)
+            if expanded is not None:
+                qs = qs.filter(location_point__within=expanded)
+            return qs
+        location_point_geom = Cast(OuterRef('location_point'), GeometryField())
+        contained_subq = GeoFeature.objects.filter(
+            layer_id=layer_id, is_valid=True, geometry__contains=location_point_geom,
+        )
+        dwithin_subq = GeoFeature.objects.filter(
+            layer_id=layer_id, is_valid=True, geometry__dwithin=(location_point_geom, deg),
+        )
+        def overlapping_qs(qs):
+            return qs.annotate(contained=Exists(contained_subq)).filter(contained=True)
+        def nearby_qs(qs):
+            return qs.annotate(
+                contained=Exists(contained_subq),
+                within_dist=Exists(dwithin_subq),
+            ).filter(within_dist=True, contained=False)
+        land_base = _base_qs(SyncedLand.objects.all())
+        plot_base = _base_qs(SyncedPlot.objects.all())
+        dev_land_base = _base_qs(SyncedDeveloperLand.objects.all())
+        dev_plot_base = _base_qs(SyncedDeveloperPlot.objects.all())
+        dev_listing_base = _base_qs(DeveloperListing.objects.filter(is_active=True))
+        over_queries = [
+            (overlapping_qs(land_base), 'land'), (overlapping_qs(plot_base), 'plot'),
+            (overlapping_qs(dev_land_base), 'developer_land'), (overlapping_qs(dev_plot_base), 'developer_plot'),
+            (overlapping_qs(dev_listing_base), 'developer_listing'),
+        ]
+        near_queries = [
+            (nearby_qs(land_base), 'land'), (nearby_qs(plot_base), 'plot'),
+            (nearby_qs(dev_land_base), 'developer_land'), (nearby_qs(dev_plot_base), 'developer_plot'),
+            (nearby_qs(dev_listing_base), 'developer_listing'),
+        ]
+        detail_rows = []
+        for qs, source in over_queries:
+            if len(detail_rows) >= max_overlapping:
+                break
+            for rec in qs.iterator():
+                if len(detail_rows) >= max_overlapping:
+                    break
+                row = _detail_record_to_row(layer_id, rec, source, True)
+                if row:
+                    detail_rows.append(row)
+        count_over = len(detail_rows)
+        for qs, source in near_queries:
+            if len(detail_rows) - count_over >= max_nearby:
+                break
+            for rec in qs.iterator():
+                if len(detail_rows) - count_over >= max_nearby:
+                    break
+                row = _detail_record_to_row(layer_id, rec, source, False)
+                if row:
+                    detail_rows.append(row)
+        LayerPointCountDetail.objects.filter(layer_id=layer_id).delete()
+        if detail_rows:
+            LayerPointCountDetail.objects.bulk_create([
+                LayerPointCountDetail(
+                    layer_id=r['layer_id'],
+                    source=r['source'],
+                    point_id=r['point_id'],
+                    backend_id=r['backend_id'],
+                    lat=r['lat'],
+                    lng=r['lng'],
+                    is_overlapping=r['is_overlapping'],
+                )
+                for r in detail_rows
+            ])
+
+
 def refresh_layer_point_count_cache(layer_ids=None, within_km=None):
     """
     Recompute and upsert LayerPointCountCache for the given layer_ids (or all processed layers).
+    Also populates LayerPointCountDetail so include_details=true responses are fast.
     Call after webhook sync or when a new layer is added.
     """
     if within_km is None:
@@ -206,6 +342,11 @@ def refresh_layer_point_count_cache(layer_ids=None, within_km=None):
             len(rows),
             within_km,
         )
+    try:
+        _populate_layer_point_count_details(layer_ids, within_km)
+        logger.info("Populated layer point count details for %d layer(s)", len(layer_ids))
+    except Exception as e:
+        logger.warning("Populating layer point count details failed: %s", e, exc_info=True)
 
 
 def get_listing_point(listing: DeveloperListing):
