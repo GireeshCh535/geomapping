@@ -165,8 +165,22 @@ def get_layer_ids_containing_point(lat, lng):
     )
 
 
+def _source_for_record(record, default_source):
+    """
+    For DeveloperListing, return developer_land or developer_plot from listing_type.
+    Otherwise return default_source (land, plot, developer_land, developer_plot).
+    """
+    lt = getattr(record, 'listing_type', None)
+    if lt == 'developerland':
+        return 'developer_land'
+    if lt == 'developerplot':
+        return 'developer_plot'
+    return default_source
+
+
 def _detail_record_to_row(layer_id, record, source, is_overlapping):
     """Build a dict for LayerPointCountDetail from a listing record."""
+    source = _source_for_record(record, source)
     backend_id = getattr(record, 'backend_id', None) or getattr(record, 'backend_listing_id', record.pk)
     lat = lng = None
     pt = getattr(record, 'location_point', None)
@@ -951,7 +965,7 @@ def get_point_counts_per_layer(
                     if overlap_seen < skip:
                         overlap_seen += 1
                         continue
-                    overlapping_details.append(_serialize_point_detail(rec, source))
+                    overlapping_details.append(_serialize_point_detail(rec, _source_for_record(rec, source)))
                     overlap_seen += 1
                     overlap_collected += 1
                     if overlap_collected >= page_size:
@@ -971,7 +985,7 @@ def get_point_counts_per_layer(
                     if near_seen < skip:
                         near_seen += 1
                         continue
-                    nearby_details.append(_serialize_point_detail(rec, source))
+                    nearby_details.append(_serialize_point_detail(rec, _source_for_record(rec, source)))
                     near_seen += 1
                     near_collected += 1
                     if near_collected >= page_size:

@@ -39,7 +39,9 @@ class Command(BaseCommand):
             except ValueError:
                 self.stderr.write(self.style.ERROR('Invalid --layer-ids: must be comma-separated integers'))
                 return
-        within_km = options.get('within_km') or NEARBY_THRESHOLD_KM
+        within_km = options.get('within_km')
+        if within_km is None:
+            within_km = NEARBY_THRESHOLD_KM
         self.stdout.write(
             f'Refreshing layer point count cache (within_km={within_km}, '
             f'layers={"all" if layer_ids is None else str(layer_ids)})...'

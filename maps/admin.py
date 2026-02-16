@@ -17,6 +17,7 @@ from .models import (
     LayerCategory,
     LayerGroup,
     LayerPointCountCache,
+    LayerPointCountDetail,
     State,
     SyncedLandPlot,
     SyncedLand,
@@ -231,6 +232,19 @@ class LayerPointCountCacheAdmin(AuditFieldsMixin, admin.ModelAdmin):
 
     def has_add_permission(self, request):
         return False  # Cache is populated by refresh_layer_point_count_cache or management command
+
+
+@admin.register(LayerPointCountDetail)
+class LayerPointCountDetailAdmin(admin.ModelAdmin):
+    list_display = ("id", "layer", "source", "point_id", "backend_id", "lat", "lng", "is_overlapping")
+    list_filter = ("layer", "source", "is_overlapping")
+    search_fields = ("layer__name", "layer__slug", "source")
+    list_select_related = ("layer",)
+    autocomplete_fields = ("layer",)
+    readonly_fields = ("layer", "source", "point_id", "backend_id", "lat", "lng", "is_overlapping")
+
+    def has_add_permission(self, request):
+        return False  # Details are populated by refresh_layer_point_count_cache
 
 
 @admin.register(DataLayer)
