@@ -16,7 +16,7 @@ from .models import (
     LandPlotWebhookEvent,
     LayerCategory,
     LayerGroup,
-    PLUCodeMapping,
+    LayerPointCountCache,
     State,
     SyncedLandPlot,
     SyncedLand,
@@ -24,8 +24,6 @@ from .models import (
     SyncedDeveloperLand,
     SyncedDeveloperPlot,
     TIFMetadata,
-    ValidationLog,
-    VectorTileLayer,
     WebhookEvent,
 )
 
@@ -208,6 +206,32 @@ class CityLayerStyleAdmin(AuditFieldsMixin, admin.ModelAdmin):
             {"fields": ("is_visible", "min_zoom", "max_zoom")},
         ),
     )
+
+@admin.register(LayerPointCountCache)
+class LayerPointCountCacheAdmin(AuditFieldsMixin, admin.ModelAdmin):
+    list_display = (
+        "id",
+        "layer",
+        "within_km",
+        "overlapping_count",
+        "nearby_count",
+        "total_count",
+        "updated_at",
+    )
+    list_filter = ("within_km",)
+    search_fields = ("layer__name", "layer__slug", "layer__city__name")
+    list_select_related = ("layer", "layer__city", "layer__category")
+    autocomplete_fields = ("layer",)
+    readonly_fields = ("overlapping_count", "nearby_count", "total_count", "by_source", "updated_at")
+    fieldsets = (
+        (None, {"fields": ("layer", "within_km")}),
+        ("Counts", {"fields": ("overlapping_count", "nearby_count", "total_count", "by_source")}),
+        ("Metadata", {"fields": ("updated_at",)}),
+    )
+
+    def has_add_permission(self, request):
+        return False  # Cache is populated by refresh_layer_point_count_cache or management command
+
 
 @admin.register(DataLayer)
 class DataLayerAdmin(AuditFieldsMixin, admin.ModelAdmin):
@@ -555,66 +579,6 @@ class CityZoneMappingAdmin(AuditFieldsMixin, admin.ModelAdmin):
     search_fields = ("zone_name", "zone_code", "city__name")
     list_filter = ("city", "category", "is_active")
     autocomplete_fields = ("city", "category", "style")
-
-
-@admin.register(PLUCodeMapping)
-class PLUCodeMappingAdmin(AuditFieldsMixin, admin.ModelAdmin):
-    list_display = (
-        "plu_code",
-        "city",
-        "mapped_category",
-        "feature_count",
-        "is_active",
-        "created_at",
-    )
-    search_fields = ("plu_code", "plu_description", "city__name")
-    list_filter = ("city", "mapped_category", "is_active")
-    autocomplete_fields = ("city", "mapped_category")
-
-
-@admin.register(VectorTileLayer)
-class VectorTileLayerAdmin(AuditFieldsMixin, admin.ModelAdmin):
-    list_display = (
-        "id",
-        "layer_id",
-        "layer",
-        "is_generated",
-        "total_tiles",
-        "cache_size_mb",
-        "generated_at",
-    )
-    list_filter = ("is_generated", "generated_at")
-    autocomplete_fields = ("layer",)
-
-
-@admin.register(ValidationLog)
-class ValidationLogAdmin(AuditFieldsMixin, admin.ModelAdmin):
-    list_display = (
-        "id",
-        "city",
-        "layer_id",
-        "layer",
-        "validation_type",
-        "is_valid",
-        "error_count",
-        "warning_count",
-        "created_at",
-    )
-    search_fields = ("validation_type", "city__name", "layer__name")
-    list_filter = ("city", "validation_type", "is_valid")
-    autocomplete_fields = ("city", "layer")
-    readonly_fields = ("formatted_report",)
-    fieldsets = (
-        ("Scope", {"fields": ("city", "layer", "validation_type", "is_valid")}),
-        ("Counts", {"fields": ("total_features", "valid_features", "error_count", "warning_count")}),
-        ("Report", {"fields": ("formatted_report",)}),
-    )
-
-    @admin.display(description="Validation report")
-    def formatted_report(self, obj):
-        if not obj.validation_report:
-            return "—"
-        return json.dumps(obj.validation_report, indent=2)
 
 
 @admin.register(LayerGroup)
