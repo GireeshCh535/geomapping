@@ -16,6 +16,7 @@ from maps.listing_layer_enrichment_service import (
     get_synced_listings_near_layer,
     enrich_listings_queryset,
     enrich_synced_queryset,
+    refresh_layer_point_count_cache,
     NEARBY_THRESHOLD_KM,
 )
 
@@ -62,6 +63,11 @@ def _enrich_listings_near_layer_after_commit(layer_id: int):
             )
         else:
             logger.debug("No listings near layer id=%s, skipping enrichment", layer_id)
+        # Refresh layer point count cache for this layer so /api/layer-point-counts/ is up to date
+        try:
+            refresh_layer_point_count_cache(layer_ids=[layer_id])
+        except Exception as refresh_err:
+            logger.warning("Layer point count cache refresh for layer id=%s failed: %s", layer_id, refresh_err)
     except Exception as e:
         logger.exception("Auto-enrichment for layer id=%s failed: %s", layer_id, e)
 

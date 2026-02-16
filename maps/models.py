@@ -474,6 +474,35 @@ class DataLayer(models.Model):
                 'opacity': self.category.default_opacity
             }
 
+
+class LayerPointCountCache(models.Model):
+    """
+    Cached overlapping/nearby point counts per layer for fast /api/layer-point-counts/ responses.
+    Refreshed when webhook data is synced or a new layer is added (insert_masterplan_layer / DataLayer post_save).
+    """
+    layer = models.OneToOneField(
+        DataLayer,
+        on_delete=models.CASCADE,
+        related_name='point_count_cache',
+    )
+    within_km = models.FloatField(default=30.0)
+    overlapping_count = models.IntegerField(default=0)
+    nearby_count = models.IntegerField(default=0)
+    total_count = models.IntegerField(default=0)
+    by_source = models.JSONField(
+        default=dict,
+        help_text='Counts by source: land, plot, developer_land, developer_plot, developer_listing',
+    )
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'maps_layer_point_count_cache'
+        indexes = [models.Index(fields=['updated_at'])]
+
+    def __str__(self):
+        return f"PointCountCache(layer_id={self.layer_id}, total={self.total_count})"
+
+
 # ================================
 # GEO FEATURE MODEL (COMPLETE)
 # ================================

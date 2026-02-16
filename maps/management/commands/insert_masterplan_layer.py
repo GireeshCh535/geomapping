@@ -386,7 +386,15 @@ class Command(BaseCommand):
             self.stdout.write(f'\n  📍 Layer bounding box: {bbox}')
         
         self.layer.save()
-        
+
+        # Refresh layer point count cache for the new/updated layer
+        try:
+            from maps.listing_layer_enrichment_service import refresh_layer_point_count_cache
+            refresh_layer_point_count_cache(layer_ids=[self.layer.id])
+            self.stdout.write('  Refreshed layer point count cache for this layer')
+        except Exception as e:
+            self.stdout.write(self.style.WARNING(f'  Layer point count cache refresh failed: {e}'))
+
         self.stdout.write(f'\n✅ Layer populated with {self.total_features_imported:,} features from {len(self.processed_files)} files')
 
     def process_file_into_layer(self, file_path):

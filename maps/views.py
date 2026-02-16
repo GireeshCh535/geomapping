@@ -5603,6 +5603,23 @@ class DeveloperListingMediaWebhookView(APIView):
             except Exception as enr_err:
                 logger.warning(f"[WEBHOOK_RECEIVE] Enrichment failed for {listing_type} {listing_id}: {enr_err}", exc_info=True)
 
+            # Refresh layer point count cache for affected layers
+            try:
+                from maps.listing_layer_enrichment_service import (
+                    get_layer_ids_affected_by_point,
+                    refresh_layer_point_count_cache,
+                )
+                point = listing.get_listing_point() if hasattr(listing, 'get_listing_point') else None
+                if point is None and getattr(listing, 'location_point', None) and not listing.location_point.empty:
+                    point = listing.location_point
+                if point is not None and not point.empty:
+                    lat, lng = point.y, point.x
+                    affected = get_layer_ids_affected_by_point(lat, lng)
+                    if affected:
+                        refresh_layer_point_count_cache(layer_ids=affected)
+            except Exception as cache_err:
+                logger.warning(f"[WEBHOOK_RECEIVE] Layer point count cache refresh failed: {cache_err}", exc_info=True)
+
             # Save/update media files
             logger.info(f"[WEBHOOK_RECEIVE] 💾 Saving/updating {len(media_items)} media files...")
             
@@ -5851,6 +5868,14 @@ class DeveloperListingMediaWebhookView(APIView):
             all_media.delete()
             logger.info(f"[WEBHOOK_DELETE] ✅ Deleted {media_count} media records")
 
+            # Get listing point for cache refresh before deleting
+            lat, lng = None, None
+            point = listing.get_listing_point() if hasattr(listing, 'get_listing_point') else None
+            if point is None and getattr(listing, 'location_point', None) and not listing.location_point.empty:
+                point = listing.location_point
+            if point is not None and not point.empty:
+                lat, lng = point.y, point.x
+
             # Delete the listing record
             listing.delete()
             logger.info(f"[WEBHOOK_DELETE] ✅ Deleted listing record")
@@ -5863,7 +5888,20 @@ class DeveloperListingMediaWebhookView(APIView):
             elif listing_type == 'developerplot':
                 SyncedDeveloperPlot.objects.filter(backend_id=listing_id).delete()
                 logger.info(f"[WEBHOOK_DELETE] Deleted SyncedDeveloperPlot backend_id={listing_id}")
-            
+
+            # Refresh layer point count cache for affected layers
+            if lat is not None and lng is not None:
+                try:
+                    from maps.listing_layer_enrichment_service import (
+                        get_layer_ids_affected_by_point,
+                        refresh_layer_point_count_cache,
+                    )
+                    affected = get_layer_ids_affected_by_point(lat, lng)
+                    if affected:
+                        refresh_layer_point_count_cache(layer_ids=affected)
+                except Exception as cache_err:
+                    logger.warning(f"[WEBHOOK_DELETE] Layer point count cache refresh failed: {cache_err}", exc_info=True)
+
             # Mark webhook as processed
             webhook_event.processed = True
             webhook_event.processed_at = timezone.now()
@@ -6169,15 +6207,52 @@ class LandPlotWebhookView(APIView):
                         logger.info(f"[LAND_PLOT_WEBHOOK] Enrichment skipped/cleared (no coords or no layers) for {listing_type} {listing_id}")
                 except Exception as enr_err:
                     logger.warning(f"[LAND_PLOT_WEBHOOK] Enrichment failed for {listing_type} {listing_id}: {enr_err}", exc_info=True)
+                # Refresh layer point count cache for affected layers
+                try:
+                    from maps.listing_layer_enrichment_service import (
+                        get_layer_ids_affected_by_point,
+                        refresh_layer_point_count_cache,
+                    )
+                    lat, lng = None, None
+                    if getattr(record, 'location_point', None) and not record.location_point.empty:
+                        lat, lng = record.location_point.y, record.location_point.x
+                    if lat is None or lng is None:
+                        item = dict(listing_data) if listing_data else {}
+                        lat = item.get('lat') or item.get('latitude')
+                        lng = item.get('long') or item.get('lng') or item.get('longitude') or item.get('lon')
+                    if lat is not None and lng is not None:
+                        affected = get_layer_ids_affected_by_point(lat, lng)
+                        if affected:
+                            refresh_layer_point_count_cache(layer_ids=affected)
+                except Exception as cache_err:
+                    logger.warning(f"[LAND_PLOT_WEBHOOK] Layer point count cache refresh failed: {cache_err}", exc_info=True)
             elif action == 'deleted':
+                lat, lng = None, None
                 if listing_type == 'land':
+                    rec = SyncedLand.objects.filter(backend_id=listing_id).first()
+                    if rec and getattr(rec, 'location_point', None) and not rec.location_point.empty:
+                        lat, lng = rec.location_point.y, rec.location_point.x
                     deleted, _ = SyncedLand.objects.filter(backend_id=listing_id).delete()
                     if deleted:
                         logger.info(f"[LAND_PLOT_WEBHOOK] Deleted SyncedLand backend_id={listing_id}")
                 else:
+                    rec = SyncedPlot.objects.filter(backend_id=listing_id).first()
+                    if rec and getattr(rec, 'location_point', None) and not rec.location_point.empty:
+                        lat, lng = rec.location_point.y, rec.location_point.x
                     deleted, _ = SyncedPlot.objects.filter(backend_id=listing_id).delete()
                     if deleted:
                         logger.info(f"[LAND_PLOT_WEBHOOK] Deleted SyncedPlot backend_id={listing_id}")
+                if lat is not None and lng is not None:
+                    try:
+                        from maps.listing_layer_enrichment_service import (
+                            get_layer_ids_affected_by_point,
+                            refresh_layer_point_count_cache,
+                        )
+                        affected = get_layer_ids_affected_by_point(lat, lng)
+                        if affected:
+                            refresh_layer_point_count_cache(layer_ids=affected)
+                    except Exception as cache_err:
+                        logger.warning(f"[LAND_PLOT_WEBHOOK] Layer point count cache refresh failed: {cache_err}", exc_info=True)
 
             return Response(
                 {"status": "success", "event_type": event_type, "listing_type": listing_type, "listing_id": listing_id},
@@ -6533,7 +6608,10 @@ class LayerPointCountsAPIView(APIView):
     - GET /api/layer-point-counts/  → counts for first 50 layers (include_details=false by default).
     - GET /api/layer-point-counts/?layer_ids=1,2,3  → counts for those layers only.
     - Add ?include_details=true for overlapping_details and nearby_details (slower).
-    POST body: { "layer_ids": [1,2], "within_km": 30, "include_details": false, "detail_limit": 200 }
+    - When include_details=true, details are paginated: detail_page (default 1), detail_page_size (default 100, max 500).
+    - Response includes overlapping_pagination and nearby_pagination (page, page_size, total_count, total_pages, has_next, has_previous).
+    GET example: ?layer_ids=492&include_details=true&detail_page=1&detail_page_size=100
+    POST body: { "layer_ids": [1,2], "within_km": 30, "include_details": false, "detail_limit": 200, "detail_page": 1, "detail_page_size": 100 }
     """
     permission_classes = [AllowAny]
 
@@ -6542,6 +6620,8 @@ class LayerPointCountsAPIView(APIView):
         within_km = 30.0
         include_details = False  # default False for faster response; pass include_details=true for details
         detail_limit = 200
+        detail_page = 1
+        detail_page_size = 100
         data = None
         if request.method == 'POST' and getattr(request, 'data', None) and isinstance(request.data, dict):
             data = request.data
@@ -6572,6 +6652,16 @@ class LayerPointCountsAPIView(APIView):
                     detail_limit = max(0, min(1000, int(data.get('detail_limit'))))
                 except (TypeError, ValueError):
                     detail_limit = 200
+            if data.get('detail_page') is not None:
+                try:
+                    detail_page = max(1, int(data.get('detail_page')))
+                except (TypeError, ValueError):
+                    detail_page = 1
+            if data.get('detail_page_size') is not None:
+                try:
+                    detail_page_size = max(1, min(500, int(data.get('detail_page_size'))))
+                except (TypeError, ValueError):
+                    detail_page_size = 100
         if request.method == 'GET' and not data:
             layer_ids_str = request.query_params.get('layer_ids', '')
             if layer_ids_str:
@@ -6590,16 +6680,95 @@ class LayerPointCountsAPIView(APIView):
                 detail_limit = max(0, min(1000, int(request.query_params.get('detail_limit', 200))))
             except (TypeError, ValueError):
                 detail_limit = 200
-        return layer_ids, within_km, include_details, detail_limit
+            try:
+                detail_page = max(1, int(request.query_params.get('detail_page', 1)))
+            except (TypeError, ValueError):
+                detail_page = 1
+            try:
+                detail_page_size = max(1, min(500, int(request.query_params.get('detail_page_size', 100))))
+            except (TypeError, ValueError):
+                detail_page_size = 100
+        return layer_ids, within_km, include_details, detail_limit, detail_page, detail_page_size
+
+    def _counts_from_cache(self, layer_ids, within_km):
+        """Resolve layer_ids if None, then return list of count dicts from LayerPointCountCache with lazy refresh on miss."""
+        from .models import DataLayer, LayerPointCountCache
+        from .listing_layer_enrichment_service import (
+            refresh_layer_point_count_cache,
+            NEARBY_THRESHOLD_KM,
+            MAX_LAYERS_DEFAULT,
+        )
+        if layer_ids is None:
+            layer_ids = list(
+                DataLayer.objects.filter(
+                    is_processed=True,
+                    city__is_active=True,
+                )
+                .exclude(category__code='DEVELOPER_LISTING')
+                .exclude(
+                    bbox_xmin__isnull=True, bbox_ymin__isnull=True,
+                    bbox_xmax__isnull=True, bbox_ymax__isnull=True,
+                )
+                .order_by('id')
+                .values_list('id', flat=True)[:MAX_LAYERS_DEFAULT]
+            )
+        if not layer_ids:
+            return []
+        w_km = within_km if within_km is not None else NEARBY_THRESHOLD_KM
+        cache_qs = LayerPointCountCache.objects.filter(
+            layer_id__in=layer_ids,
+            within_km=w_km,
+        ).select_related('layer', 'layer__city', 'layer__category')
+        cached_layer_ids = set(cache_qs.values_list('layer_id', flat=True))
+        missing = [lid for lid in layer_ids if lid not in cached_layer_ids]
+        if missing:
+            refresh_layer_point_count_cache(layer_ids=missing, within_km=w_km)
+            cache_qs = LayerPointCountCache.objects.filter(
+                layer_id__in=layer_ids,
+                within_km=w_km,
+            ).select_related('layer', 'layer__city', 'layer__category')
+        counts = []
+        for c in cache_qs:
+            layer = c.layer
+            counts.append({
+                'layer_id': layer.id,
+                'layer_slug': layer.slug or '',
+                'layer_type': (getattr(layer.category, 'code', None) or 'UNCLASSIFIED'),
+                'city': (layer.city.name if layer.city else ''),
+                'overlapping_count': c.overlapping_count,
+                'nearby_count': c.nearby_count,
+                'total_count': c.total_count,
+                'by_source': c.by_source or {},
+            })
+        # Preserve requested order
+        id_to_row = {r['layer_id']: r for r in counts}
+        return [id_to_row[lid] for lid in layer_ids if lid in id_to_row]
 
     def get(self, request):
-        layer_ids, within_km, include_details, detail_limit = self._parse_request(request)
+        layer_ids, within_km, include_details, detail_limit, detail_page, detail_page_size = self._parse_request(request)
         try:
+            if not include_details:
+                counts = self._counts_from_cache(layer_ids, within_km)
+                return Response({'counts': counts}, status=status.HTTP_200_OK)
             from .listing_layer_enrichment_service import get_point_counts_per_layer
-            counts = get_point_counts_per_layer(
-                layer_ids=layer_ids, within_km=within_km,
-                include_details=include_details, detail_limit=detail_limit,
+            counts = self._counts_from_cache(layer_ids, within_km)
+            detail_rows = get_point_counts_per_layer(
+                layer_ids=layer_ids,
+                within_km=within_km,
+                include_details=True,
+                detail_limit=detail_limit,
+                detail_page=detail_page,
+                detail_page_size=detail_page_size,
             )
+            detail_by_id = {r['layer_id']: r for r in detail_rows}
+            for row in counts:
+                lid = row['layer_id']
+                if lid in detail_by_id:
+                    d = detail_by_id[lid]
+                    row['overlapping_details'] = d.get('overlapping_details', [])
+                    row['nearby_details'] = d.get('nearby_details', [])
+                    row['overlapping_pagination'] = d.get('overlapping_pagination', {})
+                    row['nearby_pagination'] = d.get('nearby_pagination', {})
             return Response({'counts': counts}, status=status.HTTP_200_OK)
         except Exception as e:
             logger.error(f"Layer point counts error: {e}", exc_info=True)
@@ -6609,13 +6778,30 @@ class LayerPointCountsAPIView(APIView):
             )
 
     def post(self, request):
-        layer_ids, within_km, include_details, detail_limit = self._parse_request(request)
+        layer_ids, within_km, include_details, detail_limit, detail_page, detail_page_size = self._parse_request(request)
         try:
+            if not include_details:
+                counts = self._counts_from_cache(layer_ids, within_km)
+                return Response({'counts': counts}, status=status.HTTP_200_OK)
             from .listing_layer_enrichment_service import get_point_counts_per_layer
-            counts = get_point_counts_per_layer(
-                layer_ids=layer_ids, within_km=within_km,
-                include_details=include_details, detail_limit=detail_limit,
+            counts = self._counts_from_cache(layer_ids, within_km)
+            detail_rows = get_point_counts_per_layer(
+                layer_ids=layer_ids,
+                within_km=within_km,
+                include_details=True,
+                detail_limit=detail_limit,
+                detail_page=detail_page,
+                detail_page_size=detail_page_size,
             )
+            detail_by_id = {r['layer_id']: r for r in detail_rows}
+            for row in counts:
+                lid = row['layer_id']
+                if lid in detail_by_id:
+                    d = detail_by_id[lid]
+                    row['overlapping_details'] = d.get('overlapping_details', [])
+                    row['nearby_details'] = d.get('nearby_details', [])
+                    row['overlapping_pagination'] = d.get('overlapping_pagination', {})
+                    row['nearby_pagination'] = d.get('nearby_pagination', {})
             return Response({'counts': counts}, status=status.HTTP_200_OK)
         except Exception as e:
             logger.error(f"Layer point counts error: {e}", exc_info=True)

@@ -26,6 +26,7 @@ from maps.models import (
     DeveloperListing,
     DataLayer,
     GeoFeature,
+    LayerPointCountCache,
     SyncedLand,
     SyncedPlot,
     SyncedDeveloperLand,
@@ -104,6 +105,82 @@ def _layer_ids_near_point(point: Point, state_name=None):
     return list(
         qs.exclude(category__code='DEVELOPER_LISTING').values_list('id', flat=True)
     )
+
+
+def get_layer_ids_affected_by_point(lat, lng, within_km=None):
+    """
+    Return DataLayer IDs whose expanded bbox (by within_km) contains the point (lat, lng).
+    Used to decide which layer caches to refresh after a webhook sync.
+    """
+    if lat is None or lng is None:
+        return []
+    if within_km is None:
+        within_km = NEARBY_THRESHOLD_KM
+    delta = within_km / 111.0
+    return list(
+        DataLayer.objects.filter(
+            is_processed=True,
+            city__is_active=True,
+            bbox_xmin__isnull=False,
+            bbox_ymin__isnull=False,
+            bbox_xmax__isnull=False,
+            bbox_ymax__isnull=False,
+            bbox_xmin__lte=lng + delta,
+            bbox_xmax__gte=lng - delta,
+            bbox_ymin__lte=lat + delta,
+            bbox_ymax__gte=lat - delta,
+        )
+        .exclude(category__code='DEVELOPER_LISTING')
+        .values_list('id', flat=True)
+    )
+
+
+def refresh_layer_point_count_cache(layer_ids=None, within_km=None):
+    """
+    Recompute and upsert LayerPointCountCache for the given layer_ids (or all processed layers).
+    Call after webhook sync or when a new layer is added.
+    """
+    if within_km is None:
+        within_km = NEARBY_THRESHOLD_KM
+    if layer_ids is not None and not layer_ids:
+        return
+    if layer_ids is None:
+        layer_ids = list(
+            DataLayer.objects.filter(
+                is_processed=True,
+                city__is_active=True,
+            )
+            .exclude(category__code='DEVELOPER_LISTING')
+            .exclude(
+                bbox_xmin__isnull=True, bbox_ymin__isnull=True,
+                bbox_xmax__isnull=True, bbox_ymax__isnull=True,
+            )
+            .values_list('id', flat=True)
+        )
+        if not layer_ids:
+            return
+    rows = get_point_counts_per_layer(
+        layer_ids=layer_ids,
+        within_km=within_km,
+        include_details=False,
+    )
+    for row in rows:
+        LayerPointCountCache.objects.update_or_create(
+            layer_id=row['layer_id'],
+            defaults={
+                'within_km': within_km,
+                'overlapping_count': row['overlapping_count'],
+                'nearby_count': row['nearby_count'],
+                'total_count': row['total_count'],
+                'by_source': row['by_source'],
+            },
+        )
+    if rows:
+        logger.info(
+            "Refreshed layer point count cache for %d layer(s), within_km=%s",
+            len(rows),
+            within_km,
+        )
 
 
 def get_listing_point(listing: DeveloperListing):
@@ -541,14 +618,21 @@ def _serialize_point_detail(record, source):
     return out
 
 
-def get_point_counts_per_layer(layer_ids=None, within_km=None, include_details=False, detail_limit=200):
+def get_point_counts_per_layer(
+    layer_ids=None,
+    within_km=None,
+    include_details=False,
+    detail_limit=200,
+    detail_page=1,
+    detail_page_size=100,
+):
     """
     For each layer (or all processed layers if layer_ids omitted), return counts of listing
-    points (from DeveloperListing + SyncedLand, SyncedPlot, SyncedDeveloperLand, SyncedDeveloperPlot)
-    that overlap (point inside layer geometry) or are nearby (within within_km, not overlapping).
-    Same spatial rules as enrichment. Counts only records with non-null location_point.
-    When include_details is True, also return overlapping_details and nearby_details (list of
-    { source, id, backend_id, lat, lng }) per layer, limited to detail_limit items each.
+    points (from DeveloperListing + SyncedLand, SyncedPlot, etc.) that overlap or are nearby.
+    When include_details is True, also return overlapping_details and nearby_details (paginated).
+    detail_limit: max items to consider per list when building details (cap for performance).
+    detail_page, detail_page_size: pagination for details (default page 1, 100 per page).
+    Returns pagination metadata (overlapping_pagination, nearby_pagination) when include_details.
     """
     if within_km is None:
         within_km = NEARBY_THRESHOLD_KM
@@ -674,6 +758,9 @@ def get_point_counts_per_layer(layer_ids=None, within_km=None, include_details=F
         }
 
         if include_details and detail_limit > 0:
+            page = max(1, int(detail_page))
+            page_size = max(1, min(500, int(detail_page_size)))
+            skip = (page - 1) * page_size
             overlapping_details = []
             nearby_details = []
             over_queries = [
@@ -686,22 +773,66 @@ def get_point_counts_per_layer(layer_ids=None, within_km=None, include_details=F
                 (dev_land_near_q, 'developer_land'), (dev_plot_near_q, 'developer_plot'),
                 (dev_listing_near_q, 'developer_listing'),
             ]
+            # Paginated overlapping: skip then take page_size
+            overlap_seen = 0
+            overlap_collected = 0
             for qs, source in over_queries:
-                if len(overlapping_details) >= detail_limit:
+                if overlap_collected >= page_size:
                     break
-                for rec in qs[: detail_limit - len(overlapping_details)]:
+                for rec in qs.iterator():
+                    if overlap_seen >= skip + page_size:
+                        break
+                    if overlap_seen < skip:
+                        overlap_seen += 1
+                        continue
                     overlapping_details.append(_serialize_point_detail(rec, source))
-                    if len(overlapping_details) >= detail_limit:
+                    overlap_seen += 1
+                    overlap_collected += 1
+                    if overlap_collected >= page_size:
                         break
+                else:
+                    continue
+                break
+            # Paginated nearby: skip then take page_size
+            near_seen = 0
+            near_collected = 0
             for qs, source in near_queries:
-                if len(nearby_details) >= detail_limit:
+                if near_collected >= page_size:
                     break
-                for rec in qs[: detail_limit - len(nearby_details)]:
-                    nearby_details.append(_serialize_point_detail(rec, source))
-                    if len(nearby_details) >= detail_limit:
+                for rec in qs.iterator():
+                    if near_seen >= skip + page_size:
                         break
+                    if near_seen < skip:
+                        near_seen += 1
+                        continue
+                    nearby_details.append(_serialize_point_detail(rec, source))
+                    near_seen += 1
+                    near_collected += 1
+                    if near_collected >= page_size:
+                        break
+                else:
+                    continue
+                break
+            total_over_pages = (overlapping_total + page_size - 1) // page_size if page_size else 0
+            total_near_pages = (nearby_total + page_size - 1) // page_size if page_size else 0
             row['overlapping_details'] = overlapping_details
             row['nearby_details'] = nearby_details
+            row['overlapping_pagination'] = {
+                'page': page,
+                'page_size': page_size,
+                'total_count': overlapping_total,
+                'total_pages': total_over_pages,
+                'has_next': page < total_over_pages,
+                'has_previous': page > 1,
+            }
+            row['nearby_pagination'] = {
+                'page': page,
+                'page_size': page_size,
+                'total_count': nearby_total,
+                'total_pages': total_near_pages,
+                'has_next': page < total_near_pages,
+                'has_previous': page > 1,
+            }
 
         result.append(row)
     return result
