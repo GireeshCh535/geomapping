@@ -110,7 +110,7 @@ def _layer_ids_near_point(point: Point, state_name=None):
 def get_layer_ids_affected_by_point(lat, lng, within_km=None):
     """
     Return DataLayer IDs whose expanded bbox (by within_km) contains the point (lat, lng).
-    Used to decide which layer caches to refresh after a webhook sync.
+    Kept for callers that need bbox-based "affected" (e.g. optional wider refresh).
     """
     if lat is None or lng is None:
         return []
@@ -132,6 +132,31 @@ def get_layer_ids_affected_by_point(lat, lng, within_km=None):
         )
         .exclude(category__code='DEVELOPER_LISTING')
         .values_list('id', flat=True)
+    )
+
+
+def get_layer_ids_containing_point(lat, lng):
+    """
+    Return DataLayer IDs where the point (lat, lng) is inside or on the layer's geometry.
+    No distance limit: only layers that actually contain the point (inside boundaries).
+    Used for cache refresh so we only refresh layers that have this point.
+    """
+    if lat is None or lng is None:
+        return []
+    try:
+        point = Point(float(lng), float(lat), srid=4326)
+    except (TypeError, ValueError):
+        return []
+    return list(
+        GeoFeature.objects.filter(
+            layer__is_processed=True,
+            layer__city__is_active=True,
+            is_valid=True,
+            geometry__contains=point,
+        )
+        .exclude(layer__category__code='DEVELOPER_LISTING')
+        .values_list('layer_id', flat=True)
+        .distinct()
     )
 
 

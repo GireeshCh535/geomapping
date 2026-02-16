@@ -5603,10 +5603,10 @@ class DeveloperListingMediaWebhookView(APIView):
             except Exception as enr_err:
                 logger.warning(f"[WEBHOOK_RECEIVE] Enrichment failed for {listing_type} {listing_id}: {enr_err}", exc_info=True)
 
-            # Refresh layer point count cache for affected layers
+                # Refresh layer point count cache for layers that contain this point (inside boundaries)
             try:
                 from maps.listing_layer_enrichment_service import (
-                    get_layer_ids_affected_by_point,
+                    get_layer_ids_containing_point,
                     refresh_layer_point_count_cache,
                 )
                 point = listing.get_listing_point() if hasattr(listing, 'get_listing_point') else None
@@ -5614,7 +5614,7 @@ class DeveloperListingMediaWebhookView(APIView):
                     point = listing.location_point
                 if point is not None and not point.empty:
                     lat, lng = point.y, point.x
-                    affected = get_layer_ids_affected_by_point(lat, lng)
+                    affected = get_layer_ids_containing_point(lat, lng)
                     if affected:
                         refresh_layer_point_count_cache(layer_ids=affected)
             except Exception as cache_err:
@@ -5889,14 +5889,14 @@ class DeveloperListingMediaWebhookView(APIView):
                 SyncedDeveloperPlot.objects.filter(backend_id=listing_id).delete()
                 logger.info(f"[WEBHOOK_DELETE] Deleted SyncedDeveloperPlot backend_id={listing_id}")
 
-            # Refresh layer point count cache for affected layers
+            # Refresh layer point count cache for layers that contained this point (inside boundaries)
             if lat is not None and lng is not None:
                 try:
                     from maps.listing_layer_enrichment_service import (
-                        get_layer_ids_affected_by_point,
+                        get_layer_ids_containing_point,
                         refresh_layer_point_count_cache,
                     )
-                    affected = get_layer_ids_affected_by_point(lat, lng)
+                    affected = get_layer_ids_containing_point(lat, lng)
                     if affected:
                         refresh_layer_point_count_cache(layer_ids=affected)
                 except Exception as cache_err:
@@ -6207,10 +6207,10 @@ class LandPlotWebhookView(APIView):
                         logger.info(f"[LAND_PLOT_WEBHOOK] Enrichment skipped/cleared (no coords or no layers) for {listing_type} {listing_id}")
                 except Exception as enr_err:
                     logger.warning(f"[LAND_PLOT_WEBHOOK] Enrichment failed for {listing_type} {listing_id}: {enr_err}", exc_info=True)
-                # Refresh layer point count cache for affected layers
+                # Refresh layer point count cache for layers that contain this point (inside boundaries)
                 try:
                     from maps.listing_layer_enrichment_service import (
-                        get_layer_ids_affected_by_point,
+                        get_layer_ids_containing_point,
                         refresh_layer_point_count_cache,
                     )
                     lat, lng = None, None
@@ -6221,7 +6221,7 @@ class LandPlotWebhookView(APIView):
                         lat = item.get('lat') or item.get('latitude')
                         lng = item.get('long') or item.get('lng') or item.get('longitude') or item.get('lon')
                     if lat is not None and lng is not None:
-                        affected = get_layer_ids_affected_by_point(lat, lng)
+                        affected = get_layer_ids_containing_point(lat, lng)
                         if affected:
                             refresh_layer_point_count_cache(layer_ids=affected)
                 except Exception as cache_err:
@@ -6245,10 +6245,10 @@ class LandPlotWebhookView(APIView):
                 if lat is not None and lng is not None:
                     try:
                         from maps.listing_layer_enrichment_service import (
-                            get_layer_ids_affected_by_point,
+                            get_layer_ids_containing_point,
                             refresh_layer_point_count_cache,
                         )
-                        affected = get_layer_ids_affected_by_point(lat, lng)
+                        affected = get_layer_ids_containing_point(lat, lng)
                         if affected:
                             refresh_layer_point_count_cache(layer_ids=affected)
                     except Exception as cache_err:
