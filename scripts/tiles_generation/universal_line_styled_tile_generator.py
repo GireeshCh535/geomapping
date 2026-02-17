@@ -17,7 +17,7 @@ Legend CSV format (optional):
 Usage:
   python universal_line_styled_tile_generator.py data/49\ \(2\).geojson output_tiles
   python universal_line_styled_tile_generator.py data/49\ \(2\).geojson output_tiles --legend data/49_ring_roads/legend.csv
-  python universal_line_styled_tile_generator.py geojson_path output_dir [--legend path] [--force] [--min-zoom 5] [--max-zoom 18]
+  python universal_line_styled_tile_generator.py geojson_path output_dir [--legend path] [--force] [--swap-xy] [--min-zoom 5] [--max-zoom 18]
 """
 
 import argparse
@@ -29,8 +29,10 @@ import time
 from pathlib import Path
 from typing import Tuple, List, Optional, Dict, Any
 
+import pandas as pd
 import mercantile
 from shapely.geometry import LineString, MultiLineString, Polygon, MultiPolygon, box
+from shapely.ops import transform
 from shapely.validation import make_valid
 from PIL import Image, ImageDraw
 
@@ -58,11 +60,18 @@ if logger:
 # Draw order: outer first, then inner (same as RRR)
 STYLE_ORDER = {'outer': 0, 'inner': 1}
 
+# Base line width per zoom. Kept smaller for thinner lines; higher resolution comes from supersampling.
 ZOOM_RESOLUTION = {
-    5: 1.0, 6: 1.3, 7: 1.6, 8: 2.0, 9: 2.5, 10: 3.0, 11: 3.5, 12: 4.5,
-    13: 5.5, 14: 6.5, 15: 8.0, 16: 10.0, 17: 12.0, 18: 15.0,
+    5: 0.8, 6: 1.0, 7: 1.2, 8: 1.5, 9: 1.8, 10: 2.2, 11: 2.6, 12: 3.2,
+    13: 3.8, 14: 4.5, 15: 5.5, 16: 6.5, 17: 8.0, 18: 9.5,
 }
 REFERENCE_STROKE_WIDTH = 3.0
+
+# Cap stroke at high zoom so lines stay thin and don't merge.
+ZOOM_MAX_STROKE_PX = {17: 14, 18: 17}
+
+# Render at 2x then downsample to 256 for sharper, higher-resolution result.
+SUPERSAMPLE = 2
 
 
 def load_legend(legend_path: Path) -> Dict[str, Dict[str, Any]]:
@@ -118,6 +127,7 @@ class UniversalLineStyledTileGenerator:
         output_dir: str,
         legend_path: Optional[str] = None,
         skip_existing: bool = True,
+        swap_xy: bool = False,
     ):
         self.geojson_path = Path(geojson_path)
         self.output_dir = Path(output_dir)
@@ -125,6 +135,7 @@ class UniversalLineStyledTileGenerator:
         self.tile_size = 256
         self.skip_existing = skip_existing
         self.buffer_factor = 0.15
+        self._swap_xy = swap_xy
         self.bounds = None
         self.gdf = None
         self.legend = load_legend(self.legend_path) if self.legend_path else {}
@@ -162,6 +173,20 @@ class UniversalLineStyledTileGenerator:
         self.gdf['geometry'] = self.gdf.geometry.apply(fix_geom)
         self.gdf = self.gdf[self.gdf.geometry.notna() & self.gdf.geometry.is_valid].copy()
 
+        # Optionally fix coordinate order: (lat,lon) -> (lon,lat) for correct tile alignment
+        b = self.gdf.total_bounds
+        minx, miny, maxx, maxy = b[0], b[1], b[2], b[3]
+        do_swap = getattr(self, '_swap_xy', False)
+        if not do_swap:
+            x_in_lat_range = -90 <= minx and maxx <= 90
+            y_span_large = (maxy - miny) > 100
+            do_swap = x_in_lat_range and y_span_large
+        if do_swap:
+            def swap_xy(x, y):
+                return (y, x)
+            self.gdf['geometry'] = self.gdf.geometry.apply(lambda g: transform(swap_xy, g) if g and not g.is_empty else g)
+            log_info("Swapped coordinates to (lon,lat) for correct alignment")
+
         # Normalize property names (Style_role vs _style_role, stroke-width vs stroke_width)
         if 'Style_role' in self.gdf.columns:
             self.gdf['_style_role'] = self.gdf['Style_role'].astype(str).str.strip().str.lower()
@@ -173,6 +198,21 @@ class UniversalLineStyledTileGenerator:
             lambda x: STYLE_ORDER.get(str(x).strip().lower() if isinstance(x, str) else str(x).lower(), 0)
         )
         self.gdf = self.gdf.sort_values('_draw_order').reset_index(drop=True)
+
+        # If legend has both outer and inner but all features are "inner", draw two layers (outer then inner) from same geometry
+        legend_roles = set(self.legend.keys())
+        all_inner = (self.gdf['_style_role'].astype(str).str.strip().str.lower() == 'inner').all()
+        if legend_roles >= {'outer', 'inner'} and all_inner and len(self.gdf) > 0:
+            parts = []
+            for role in ('outer', 'inner'):
+                part = self.gdf.copy()
+                part['_style_role'] = role
+                part['_draw_order'] = STYLE_ORDER.get(role, 0)
+                parts.append(part)
+            self.gdf = gpd.GeoDataFrame(pd.concat(parts, ignore_index=True), crs=self.gdf.crs)
+            self.gdf = self.gdf.sort_values('_draw_order').reset_index(drop=True)
+            log_info("Legend has outer+inner: drawing two layers (outer white, then inner) from same geometry")
+
         self.bounds = self.gdf.total_bounds
         self.spatial_index = self.gdf.sindex
 
@@ -262,8 +302,8 @@ class UniversalLineStyledTileGenerator:
         lat = max(-85.051129, min(85.051129, lat))
         tile_lon = (lon + 180) / 360 * (2 ** zoom)
         tile_lat = (1 - math.asinh(math.tan(math.radians(lat))) / math.pi) / 2 * (2 ** zoom)
-        pixel_x = int((tile_lon - tile_x) * 256)
-        pixel_y = int((tile_lat - tile_y) * 256)
+        pixel_x = round((tile_lon - tile_x) * 256)
+        pixel_y = round((tile_lat - tile_y) * 256)
         return pixel_x, pixel_y
 
     def draw_line(
@@ -274,6 +314,7 @@ class UniversalLineStyledTileGenerator:
         width: int,
         tile_x: int, tile_y: int, zoom: int,
         offset_x: int = 0, offset_y: int = 0,
+        scale: int = 1,
     ):
         if len(coordinates) < 2:
             return
@@ -284,23 +325,28 @@ class UniversalLineStyledTileGenerator:
             else:
                 continue
             px, py = self.wgs84_to_tile_pixel(lon, lat, tile_x, tile_y, zoom)
-            pixel_coords.append((px + offset_x, py + offset_y))
+            if scale > 1:
+                px, py = px * scale + offset_x, py * scale + offset_y
+            else:
+                px, py = px + offset_x, py + offset_y
+            pixel_coords.append((px, py))
         if len(pixel_coords) < 2:
             return
+        w = max(1, round(width * scale)) if scale > 1 else width
         try:
-            draw.line(pixel_coords, fill=color, width=width, joint="curve")
+            draw.line(pixel_coords, fill=color, width=w, joint="curve")
             return
         except TypeError:
             pass
         try:
             ls = LineString(pixel_coords)
             if ls.is_empty or not ls.is_valid:
-                draw.line(pixel_coords, fill=color, width=width)
+                draw.line(pixel_coords, fill=color, width=w)
                 return
-            half = max(0.5, width / 2.0)
+            half = max(0.5, w / 2.0)
             buffered = ls.buffer(half, cap_style=2, join_style=2)
             if buffered.is_empty:
-                draw.line(pixel_coords, fill=color, width=width)
+                draw.line(pixel_coords, fill=color, width=w)
                 return
             geoms = buffered.geoms if hasattr(buffered, "geoms") else [buffered]
             for geom in geoms:
@@ -312,11 +358,11 @@ class UniversalLineStyledTileGenerator:
                     draw.polygon(poly_coords, fill=color)
         except Exception:
             try:
-                draw.line(pixel_coords, fill=color, width=width)
+                draw.line(pixel_coords, fill=color, width=w)
             except Exception:
                 for i in range(len(pixel_coords) - 1):
                     try:
-                        draw.line([pixel_coords[i], pixel_coords[i + 1]], fill=color, width=width)
+                        draw.line([pixel_coords[i], pixel_coords[i + 1]], fill=color, width=w)
                     except Exception:
                         continue
 
@@ -324,9 +370,11 @@ class UniversalLineStyledTileGenerator:
         return Image.new('RGBA', (self.tile_size, self.tile_size), (0, 0, 0, 0))
 
     def generate_tile(self, x: int, y: int, zoom: int) -> Image.Image:
+        scale = SUPERSAMPLE
         line_width_base = max(1, int(self.get_line_width(zoom)))
         bleed_px = max(2, line_width_base * 2)
-        canvas_size = 256 + 2 * bleed_px
+        canvas_size = (256 + 2 * bleed_px) * scale
+        bleed_scaled = bleed_px * scale
         img = Image.new('RGBA', (canvas_size, canvas_size), (0, 0, 0, 0))
         draw = ImageDraw.Draw(img)
 
@@ -343,7 +391,6 @@ class UniversalLineStyledTileGenerator:
             tile_bounds.north + buffer_lat,
         )
 
-        # Use spatial index: only consider features whose bbox intersects the tile
         candidate_idxs = list(self.spatial_index.intersection(tile_box.bounds))
         for idx in candidate_idxs:
             row = self.gdf.iloc[idx]
@@ -352,11 +399,19 @@ class UniversalLineStyledTileGenerator:
                 continue
             color = row['_stroke_color']
             width_px = max(1, int(line_width_base * row['_stroke_width_ratio']))
+            max_px = ZOOM_MAX_STROKE_PX.get(zoom)
+            if max_px is not None:
+                width_px = min(width_px, max_px)
             for coords in row['_line_coords']:
                 if len(coords) >= 2:
-                    self.draw_line(draw, coords, color, width_px, x, y, zoom, bleed_px, bleed_px)
+                    self.draw_line(
+                        draw, coords, color, width_px, x, y, zoom,
+                        bleed_scaled, bleed_scaled, scale=scale,
+                    )
 
-        cropped = img.crop((bleed_px, bleed_px, bleed_px + 256, bleed_px + 256))
+        cropped = img.crop((bleed_scaled, bleed_scaled, bleed_scaled + 256 * scale, bleed_scaled + 256 * scale))
+        if scale > 1:
+            cropped = cropped.resize((256, 256), Image.LANCZOS)
         return cropped
 
     def generate_tiles(self, min_zoom: int = 5, max_zoom: int = 18):
@@ -408,6 +463,79 @@ class UniversalLineStyledTileGenerator:
         (self.output_dir / "tilejson.json").write_text(json.dumps(tilejson, indent=2))
         log_info("TileJSON: %s/tilejson.json", self.output_dir)
 
+    def generate_html_viewer(
+        self,
+        layer_name: str = "Line Styled",
+        min_zoom: int = 5,
+        max_zoom: int = 18,
+    ):
+        """Generate HTML viewer: fit to data bounds, use actual zoom range, restrict pan to avoid 404s."""
+        minx, miny, maxx, maxy = self.bounds
+        center_lat = (miny + maxy) / 2
+        center_lon = (minx + maxx) / 2
+        # Slightly expand bounds so maxBounds doesn't feel clamped; Leaflet wants [southWest, northEast]
+        pad = 0.02
+        sw_lat = miny - pad
+        sw_lon = minx - pad
+        ne_lat = maxy + pad
+        ne_lon = maxx + pad
+        default_zoom = max(min_zoom, min(11, max_zoom))
+
+        html = f"""<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>{layer_name} - Seamless Tiles</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <style>
+    body, html, #map {{ margin:0; padding:0; height:100%; }}
+    .info {{ padding: 10px; background: white; border-radius: 5px; box-shadow: 0 0 15px rgba(0,0,0,0.2); }}
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script>
+    const bounds = [[{sw_lat:.6f}, {sw_lon:.6f}], [{ne_lat:.6f}, {ne_lon:.6f}]];
+    const map = L.map('map', {{
+      center: [{center_lat:.6f}, {center_lon:.6f}],
+      zoom: {default_zoom},
+      maxBounds: bounds,
+      maxBoundsViscosity: 1.0
+    }});
+    map.fitBounds(bounds, {{ padding: [30, 30], maxZoom: {max_zoom} }});
+
+    L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{{z}}/{{y}}/{{x}}', {{
+      attribution: 'Esri',
+      maxZoom: 19
+    }}).addTo(map);
+
+    L.tileLayer('./{{z}}/{{x}}/{{y}}.png', {{
+      minZoom: {min_zoom},
+      maxZoom: {max_zoom},
+      opacity: 0.9,
+      attribution: '{layer_name}'
+    }}).addTo(map);
+
+    const info = L.control({{position: 'topright'}});
+    info.onAdd = function() {{
+      this._div = L.DomUtil.create('div', 'info');
+      this._div.innerHTML = '<b>{layer_name}</b><br/>Seamless tiles<br/>Zoom: ' + map.getZoom();
+      return this._div;
+    }};
+    info.addTo(map);
+
+    map.on('zoomend', function() {{
+      info._div.innerHTML = '<b>{layer_name}</b><br/>Seamless tiles<br/>Zoom: ' + map.getZoom();
+    }});
+  </script>
+</body>
+</html>"""
+
+        viewer_path = self.output_dir / "index.html"
+        viewer_path.write_text(html, encoding="utf-8")
+        log_info("Viewer saved: %s", viewer_path)
+
 
 def main():
     parser = argparse.ArgumentParser(
@@ -417,6 +545,7 @@ def main():
     parser.add_argument("output_dir", help="Output directory for tiles")
     parser.add_argument("--legend", "-l", help="Path to legend CSV (style_role, stroke, stroke_width)")
     parser.add_argument("--force", "-f", action="store_true", help="Regenerate all tiles")
+    parser.add_argument("--swap-xy", action="store_true", help="Force (lat,lon)->(lon,lat) if overlay aligns wrong")
     parser.add_argument("--min-zoom", type=int, default=5)
     parser.add_argument("--max-zoom", type=int, default=18)
     args = parser.parse_args()
@@ -431,9 +560,15 @@ def main():
             args.output_dir,
             legend_path=args.legend,
             skip_existing=not args.force,
+            swap_xy=args.swap_xy,
         )
         gen.generate_tiles(min_zoom=args.min_zoom, max_zoom=args.max_zoom)
         gen.create_tilejson(name=Path(args.geojson).stem)
+        gen.generate_html_viewer(
+            layer_name=Path(args.geojson).stem,
+            min_zoom=args.min_zoom,
+            max_zoom=args.max_zoom,
+        )
         log_info("Tiles written to %s", args.output_dir)
     except Exception as e:
         if logger:
