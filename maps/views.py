@@ -2905,6 +2905,19 @@ class CompleteHierarchyAPIView(APIView):
     def get(self, request):
         """Get complete hierarchy with comprehensive statistics and metadata"""
         try:
+            # Bulk feature count for all layers (avoids N+1: one query instead of per-layer COUNT)
+            layer_ids = list(DataLayer.objects.filter(
+                city__state_ref__is_active=True,
+                city__is_active=True
+            ).values_list('id', flat=True))
+            feature_count_map = {}
+            if layer_ids:
+                counts = GeoFeature.objects.filter(
+                    layer_id__in=layer_ids,
+                    is_valid=True
+                ).values('layer_id').annotate(cnt=Count('id'))
+                feature_count_map = {r['layer_id']: r['cnt'] for r in counts}
+
             # Get all active states with their cities, layer groups, and layers
             states = State.objects.filter(is_active=True).prefetch_related(
                 Prefetch(
@@ -2964,7 +2977,7 @@ class CompleteHierarchyAPIView(APIView):
                         
                         for layer in city.layers.all():
                             if layer.layer_group == layer_group:
-                                layer_data = self._get_layer_data(layer, state.slug, city.slug)
+                                layer_data = self._get_layer_data(layer, state.slug, city.slug, feature_count_map)
                                 group_layers.append(layer_data)
                                 group_feature_count += layer_data['statistics']['feature_count']
                                 city_total_features += layer_data['statistics']['feature_count']
@@ -3007,7 +3020,7 @@ class CompleteHierarchyAPIView(APIView):
                     standalone_layers = []
                     for layer in city.layers.all():
                         if not layer.layer_group:
-                            layer_data = self._get_layer_data(layer, state.slug, city.slug)
+                            layer_data = self._get_layer_data(layer, state.slug, city.slug, feature_count_map)
                             standalone_layers.append(layer_data)
                             city_total_features += layer_data['statistics']['feature_count']
                             city_total_layers += 1
@@ -3125,9 +3138,12 @@ class CompleteHierarchyAPIView(APIView):
                 'message': str(e)
             }, status=500)
     
-    def _get_layer_data(self, layer, state_slug, city_slug):
-        """Get comprehensive layer data"""
-        layer_feature_count = GeoFeature.objects.filter(layer=layer, is_valid=True).count()
+    def _get_layer_data(self, layer, state_slug, city_slug, feature_count_map=None):
+        """Get comprehensive layer data. feature_count_map avoids N+1 (layer_id -> count)."""
+        if feature_count_map is not None:
+            layer_feature_count = feature_count_map.get(layer.id, 0)
+        else:
+            layer_feature_count = GeoFeature.objects.filter(layer=layer, is_valid=True).count()
         
         # Get tile URLs if tiles are generated
         tile_urls = None
