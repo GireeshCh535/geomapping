@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Land / Plot Map Test (all lands/plots, 3 price tiers)</title>
+  <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+  <link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet" />
+  <style>
+    body { margin: 0; font-family: system-ui, sans-serif; }
+    #map { width: 100vw; height: 100vh; }
+    .maplibregl-popup-content {
+      padding: 10px 14px;
+      min-width: 180px;
+      border-radius: 8px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+    }
+    .popup-title { font-weight: 600; text-transform: capitalize; margin-bottom: 6px; color: #1a1a1a; }
+    .popup-row { font-size: 13px; color: #444; margin: 4px 0; }
+    .popup-price { font-weight: 600; color: #0d9488; }
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+  <script>
+    (function() {
+      var origin = window.location.origin;
+      var geojsonUrl = origin + '/api/geojson/land-plot/all.geojson';
+
+      var map = new maplibregl.Map({
+        container: 'map',
+        style: {
+          version: 8,
+          sources: {
+            'osm': {
+              type: 'raster',
+              tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
+              tileSize: 256,
+              attribution: '© OpenStreetMap'
+            },
+            'landplot': {
+              type: 'geojson',
+              data: geojsonUrl
+            }
+          },
+          layers: [
+            { id: 'osm', type: 'raster', source: 'osm', minzoom: 0, maxzoom: 19 },
+            {
+              id: 'landplot-circles',
+              type: 'circle',
+              source: 'landplot',
+              minzoom: 0,
+              paint: {
+                'circle-radius': ['interpolate', ['linear'], ['zoom'], 8, 4, 12, 8, 16, 14],
+                'circle-color': [
+                  'match', ['get', 'tier'],
+                  1, '#22c55e',
+                  2, '#eab308',
+                  3, '#ef4444',
+                  '#94a3b8'
+                ],
+                'circle-stroke-width': 1.5,
+                'circle-stroke-color': '#fff'
+              }
+            }
+          ]
+        },
+        center: [77.59, 12.97],
+        zoom: 10
+      });
+
+      var popup = new maplibregl.Popup({ closeButton: true, closeOnClick: false });
+
+      function formatPrice(n) {
+        if (n == null || n === undefined) return '—';
+        var x = Number(n);
+        if (x >= 1e7) return (x / 1e7).toFixed(1) + ' Cr';
+        if (x >= 1e5) return (x / 1e5).toFixed(1) + ' L';
+        if (x >= 1e3) return (x / 1e3).toFixed(1) + ' K';
+        return String(x);
+      }
+
+      map.on('mousemove', 'landplot-circles', function(e) {
+        map.getCanvas().style.cursor = 'pointer';
+        var f = e.features && e.features[0];
+        if (!f) return;
+        var p = f.properties;
+        var type = (p.type || '').toLowerCase();
+        var tier = p.tier;
+        var tierLabel = tier === 1 ? 'Low' : tier === 2 ? 'Mid' : 'High';
+        var price = formatPrice(p.total_price);
+        var size = p.size != null && p.size > 0 ? p.size + ' ' + (p.size_label || '') : '—';
+        var status = p.status || '—';
+        var slug = p.slug ? (p.slug.length > 30 ? p.slug.slice(0, 30) + '…' : p.slug) : '—';
+        var html = '<div class="popup-title">' + (type === 'land' ? 'Land' : 'Plot') + ' (Tier: ' + tierLabel + ')</div>' +
+          '<div class="popup-row popup-price">Price: ' + price + '</div>' +
+          '<div class="popup-row">Size: ' + size + '</div>' +
+          '<div class="popup-row">Status: ' + status + '</div>' +
+          (slug !== '—' ? '<div class="popup-row">' + slug + '</div>' : '');
+        popup.setLngLat(e.lngLat).setHTML(html).addTo(map);
+      });
+
+      map.on('mouseleave', 'landplot-circles', function() {
+        map.getCanvas().style.cursor = '';
+        popup.remove();
+      });
+    })();
+  </script>
+</body>
+</html>

@@ -6080,10 +6080,10 @@ class LandPlotWebhookView(APIView):
             )
             logger.info(f"[LAND_PLOT_WEBHOOK] Saved: {action} {listing_type} {listing_id}")
 
-            # Sync into SyncedLand / SyncedPlot so DB stays in sync with 1acre-be
+            # Sync into SyncedLand / SyncedPlot so DB stays in sync with 1acre-be (full listing_data stored in payload)
             if action in ('created', 'updated'):
                 item = dict(listing_data) if listing_data else {}
-                item['id'] = listing_id  # ensure id present for payload
+                item['id'] = listing_id  # ensure id present for payload; payload = full listing_data
                 if listing_type == 'land':
                     defaults = defaults_for_land(item)
                     record, _ = SyncedLand.objects.update_or_create(

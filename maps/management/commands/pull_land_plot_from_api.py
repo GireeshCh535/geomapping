@@ -2,20 +2,27 @@
 Pull Land, Plot, Developer Land and Developer Plot data from 1acre-be API and store in geomapping.
 
 Uses:
-  - GET /lands/                     (LandListSerializer)
-  - GET /plots/                     (PlotListSerializer)
-  - GET /developer-lands-listings/  (DeveloperLandListSerializer)
-  - GET /developer-plots-listings/  (DeveloperPlotListSerializer)
+  - GET /lands/                     (LandListSerializer)  → optional GET /lands/{id}/ (LandSerializer) with --fetch-detail
+  - GET /plots/                     (PlotListSerializer) → optional GET /plots/{id}/ (PlotSerializer) with --fetch-detail
+  - GET /developer-lands-listings/  → optional GET /developer-lands/{id}/ with --fetch-detail
+  - GET /developer-plots-listings/  → optional GET /developer-plots/{id}/ with --fetch-detail
 
 Data is stored in per-type tables: SyncedLand, SyncedPlot, SyncedDeveloperLand, SyncedDeveloperPlot.
+The full API response (list item or detail when --fetch-detail) is stored in each row's payload JSONField.
 
-Usage:
-  python manage.py pull_land_plot_from_api --token "eyJ..."
-  python manage.py pull_land_plot_from_api --clear-first --token "eyJ..."   # clear all 5 tables then pull fresh
-  python manage.py pull_land_plot_from_api --lands-only
-  python manage.py pull_land_plot_from_api --plots-only
-  python manage.py pull_land_plot_from_api --developer-lands-only
-  python manage.py pull_land_plot_from_api --developer-plots-only
+Usage (clear and fetch again):
+  # Clear ALL 5 tables and fetch lands + plots + developer lands + developer plots (one token)
+  python manage.py pull_land_plot_from_api --clear-first --token "YOUR_TOKEN"
+
+  # Clear and fetch only one type at a time (--clear-before-fetch clears only that table)
+  python manage.py pull_land_plot_from_api --clear-before-fetch --lands-only --token "USER_TOKEN"
+  python manage.py pull_land_plot_from_api --clear-before-fetch --plots-only --token "USER_TOKEN"
+  python manage.py pull_land_plot_from_api --clear-before-fetch --developer-lands-only --token "DEV_TOKEN"
+  python manage.py pull_land_plot_from_api --clear-before-fetch --developer-plots-only --token "DEV_TOKEN"
+
+Other:
+  python manage.py pull_land_plot_from_api --fetch-detail --token "eyJ..."   # store full detail API response in payload
+  python manage.py pull_land_plot_from_api --lands-only --plots-only         # fetch only lands and plots (no clear)
   export ONECRE_BE_TOKEN="eyJ..." && python manage.py pull_land_plot_from_api
 """
 
@@ -49,6 +56,14 @@ DEFAULTS_BUILDER = {
 
 DEFAULT_BASE_URL = 'https://prod-be.1acre.in'
 DEFAULT_PAGE_SIZE = 50  # 1acre-be CustomPagination max_page_size is 50
+
+# When --fetch-detail: for each list path, fetch this detail path (use {id} for backend_id)
+LIST_PATH_TO_DETAIL_PATH = {
+    '/lands/': '/lands/{id}/',
+    '/plots/': '/plots/{id}/',
+    '/developer-lands-listings/': '/developer-lands/{id}/',
+    '/developer-plots-listings/': '/developer-plots/{id}/',
+}
 
 
 class Command(BaseCommand):
@@ -96,12 +111,22 @@ class Command(BaseCommand):
         parser.add_argument(
             '--clear-first',
             action='store_true',
-            help='Delete all rows from SyncedLandPlot, SyncedLand, SyncedPlot, SyncedDeveloperLand, SyncedDeveloperPlot before pulling (fresh sync).',
+            help='Delete all rows from SyncedLandPlot, SyncedLand, SyncedPlot, SyncedDeveloperLand, SyncedDeveloperPlot before pulling (full fresh sync).',
+        )
+        parser.add_argument(
+            '--clear-before-fetch',
+            action='store_true',
+            help='Clear only the synced table(s) that will be fetched in this run (e.g. with --lands-only clear only SyncedLand), then fetch. Use for per-type clear + refetch.',
         )
         parser.add_argument(
             '--dry-run',
             action='store_true',
             help='Log requests and counts only, do not save to DB',
+        )
+        parser.add_argument(
+            '--fetch-detail',
+            action='store_true',
+            help='For each list item, fetch detail API (/lands/{id}/, /plots/{id}/, etc.) and store that full response in payload (slower but complete data).',
         )
 
     def handle(self, *args, **options):
@@ -113,6 +138,7 @@ class Command(BaseCommand):
         developer_lands_only = options['developer_lands_only']
         developer_plots_only = options['developer_plots_only']
         dry_run = options['dry_run']
+        fetch_detail = options.get('fetch_detail', False)
 
         any_only = lands_only or plots_only or developer_lands_only or developer_plots_only
         fetch_lands = lands_only or not any_only
@@ -120,9 +146,12 @@ class Command(BaseCommand):
         fetch_dev_lands = developer_lands_only or not any_only
         fetch_dev_plots = developer_plots_only or not any_only
         clear_first = options['clear_first']
+        clear_before_fetch = options.get('clear_before_fetch', False)
 
         if clear_first and not dry_run:
             self._clear_all_synced_tables()
+        elif clear_before_fetch and not dry_run:
+            self._clear_tables_before_fetch(fetch_lands, fetch_plots, fetch_dev_lands, fetch_dev_plots)
 
         if not token:
             self.stdout.write(
@@ -130,9 +159,11 @@ class Command(BaseCommand):
             )
             return
 
+        # JWT tokens (start with eyJ) use Bearer; Django REST Token auth uses Token
+        auth_header = f'Bearer {token}' if token.strip().startswith('eyJ') else f'Token {token}'
         headers = {
             'Content-Type': 'application/json',
-            'Authorization': f'Token {token}',
+            'Authorization': auth_header,
         }
 
         total_lands = 0
@@ -149,6 +180,7 @@ class Command(BaseCommand):
                 headers=headers,
                 page_size=page_size,
                 dry_run=dry_run,
+                fetch_detail=fetch_detail,
             )
             self.stdout.write(self.style.SUCCESS(f'Lands: {total_lands} items'))
 
@@ -161,6 +193,7 @@ class Command(BaseCommand):
                 headers=headers,
                 page_size=page_size,
                 dry_run=dry_run,
+                fetch_detail=fetch_detail,
             )
             self.stdout.write(self.style.SUCCESS(f'Plots: {total_plots} items'))
 
@@ -173,6 +206,7 @@ class Command(BaseCommand):
                 headers=headers,
                 page_size=page_size,
                 dry_run=dry_run,
+                fetch_detail=fetch_detail,
             )
             self.stdout.write(self.style.SUCCESS(f'Developer lands: {total_dev_lands} items'))
 
@@ -185,6 +219,7 @@ class Command(BaseCommand):
                 headers=headers,
                 page_size=page_size,
                 dry_run=dry_run,
+                fetch_detail=fetch_detail,
             )
             self.stdout.write(self.style.SUCCESS(f'Developer plots: {total_dev_plots} items'))
 
@@ -198,10 +233,22 @@ class Command(BaseCommand):
                 )
             )
 
-    def _fetch_and_save(self, base_url, path, model_class, headers, page_size, dry_run):
+    def _fetch_detail(self, base_url, detail_path, headers):
+        """Fetch a single detail API response. Returns dict or None on failure."""
+        url = f'{base_url}{detail_path}'
+        try:
+            resp = requests.get(url, headers=headers, timeout=30)
+            resp.raise_for_status()
+            return resp.json()
+        except requests.RequestException as e:
+            logger.warning('Detail fetch failed: %s error=%s', url, e)
+            return None
+
+    def _fetch_and_save(self, base_url, path, model_class, headers, page_size, dry_run, fetch_detail=False):
         url = f'{base_url}{path}'
         count = 0
         page = 1
+        detail_path_template = LIST_PATH_TO_DETAIL_PATH.get(path)
 
         while True:
             params = {'page': page, 'page_size': page_size}
@@ -225,6 +272,13 @@ class Command(BaseCommand):
                     continue
                 count += 1
                 if not dry_run:
+                    # Optionally fetch full detail so payload = /lands/{id}/ etc.
+                    if fetch_detail and detail_path_template:
+                        detail_path = detail_path_template.format(id=backend_id)
+                        detail_item = self._fetch_detail(base_url, detail_path, headers)
+                        if detail_item is not None:
+                            item = detail_item
+                        # else keep list item so we still persist something
                     builder = DEFAULTS_BUILDER.get(model_class)
                     defaults = builder(item) if builder else {'payload': item}
                     model_class.objects.update_or_create(
@@ -252,3 +306,24 @@ class Command(BaseCommand):
             n, _ = model.objects.all().delete()
             self.stdout.write(self.style.WARNING(f'Cleared {label}: {n} rows deleted.'))
         self.stdout.write(self.style.SUCCESS('All synced tables cleared. Starting fresh pull.'))
+
+    def _clear_tables_before_fetch(self, fetch_lands, fetch_plots, fetch_dev_lands, fetch_dev_plots):
+        """Clear only the per-type table(s) that will be fetched in this run."""
+        cleared = []
+        if fetch_lands:
+            n, _ = SyncedLand.objects.all().delete()
+            cleared.append(f'SyncedLand({n})')
+        if fetch_plots:
+            n, _ = SyncedPlot.objects.all().delete()
+            cleared.append(f'SyncedPlot({n})')
+        if fetch_dev_lands:
+            n, _ = SyncedDeveloperLand.objects.all().delete()
+            cleared.append(f'SyncedDeveloperLand({n})')
+        if fetch_dev_plots:
+            n, _ = SyncedDeveloperPlot.objects.all().delete()
+            cleared.append(f'SyncedDeveloperPlot({n})')
+        if cleared:
+            self.stdout.write(self.style.WARNING('Cleared (rows): ' + ', '.join(cleared)))
+            self.stdout.write(self.style.SUCCESS('Cleared tables for this run. Fetching...'))
+        else:
+            self.stdout.write(self.style.WARNING('No tables selected to clear (use e.g. --lands-only).'))
