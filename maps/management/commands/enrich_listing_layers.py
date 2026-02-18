@@ -6,31 +6,32 @@ SyncedDeveloperLand, SyncedDeveloperPlot) with overlapping and nearby (≤30 km)
 data layers. Stores unified enriched_layers: [{ layer_id, layer_slug, layer_type, distance_km }].
 distance_km = 0 means overlap; 0.01–30 means nearby.
 
+Run after pull_land_plot_from_api when new listings are synced. Safe to run
+incremental daily; use --refresh occasionally to keep enrichment fully in sync.
+
 Modes:
-  incremental (default): Skip if already done. Only process: new (enriched_at null),
-                         stale (synced_at/updated_at > enriched_at), and listings
+  incremental (default): Only process: new (enriched_at null), stale
+                         (synced_at/updated_at > enriched_at), and listings
                          near layers created in last 24h.
   full: Re-enrich all listings that have coordinates.
-  refresh: Clear existing enrichment (enriched_layers, enriched_at) then run full
-           enrichment to keep data fresh.
+  refresh: Clear enriched_layers/enriched_at then run full enrichment.
   new-listings-only: Only never-enriched (enriched_at is null).
   new-layers-only: Only re-enrich listings near layers created in the last 24 hours.
 
-Scheduled: Run daily at off-peak (e.g. cron: 0 2 * * * for 2 AM).
-
 Usage:
-  python manage.py enrich_listing_layers                    # incremental, skip if done
-  python manage.py enrich_listing_layers --refresh          # clear + full re-run (fresh)
+  python manage.py enrich_listing_layers                    # incremental
+  python manage.py enrich_listing_layers --refresh         # clear + full re-run
   python manage.py enrich_listing_layers --full
-  python manage.py enrich_listing_layers --update-four-tables  # update all 4 Synced* tables (sync coords + enrichment)
+  python manage.py enrich_listing_layers --update-four-tables  # 4 Synced* only: sync coords + enrich
   python manage.py enrich_listing_layers --new-listings-only
   python manage.py enrich_listing_layers --new-layers-only
   python manage.py enrich_listing_layers --developer-only   # only DeveloperListing
-  python manage.py enrich_listing_layers --synced-only      # only 4 Synced* tables
+  python manage.py enrich_listing_layers --synced-only     # only 4 Synced* tables
   python manage.py enrich_listing_layers --dry-run
 """
 
 import logging
+import sys
 import time
 from datetime import timedelta
 from django.utils import timezone
@@ -132,25 +133,33 @@ class Command(BaseCommand):
 
         total_processed = 0
         total_skipped = 0
+        errors = []
 
         if options['refresh']:
             cleared = self._clear_enrichment(dry_run, do_developer, do_synced)
             self._log(f'Cleared enrichment for {cleared} records. Running full enrichment...')
-            total_processed, total_skipped = self._enrich_full(dry_run, do_developer, do_synced)
+            total_processed, total_skipped, errors = self._enrich_full(dry_run, do_developer, do_synced)
         elif options['new_layers_only']:
-            total_processed, total_skipped = self._enrich_for_new_layers(dry_run, do_developer, do_synced)
+            total_processed, total_skipped, errors = self._enrich_for_new_layers(dry_run, do_developer, do_synced)
         elif options['full']:
-            total_processed, total_skipped = self._enrich_full(dry_run, do_developer, do_synced)
+            total_processed, total_skipped, errors = self._enrich_full(dry_run, do_developer, do_synced)
         elif options['new_listings_only']:
-            total_processed, total_skipped = self._enrich_new_listings_only(dry_run, do_developer, do_synced)
+            total_processed, total_skipped, errors = self._enrich_new_listings_only(dry_run, do_developer, do_synced)
         else:
-            total_processed, total_skipped = self._enrich_incremental(dry_run, do_developer, do_synced)
+            total_processed, total_skipped, errors = self._enrich_incremental(dry_run, do_developer, do_synced)
+
+        if errors:
+            for msg in errors:
+                self.stdout.write(self.style.ERROR(msg))
+                logger.error(msg)
+            self.stdout.write(self.style.ERROR(f'Enrichment finished with {len(errors)} error(s).'))
+            sys.exit(1)
 
         elapsed = time.time() - start_time
         self._log(f'Enrichment complete: {total_processed} processed, {total_skipped} skipped in {elapsed:.1f}s')
         self.stdout.write(
             self.style.SUCCESS(
-                f'Enrichment complete: {total_processed} listings processed, {total_skipped} skipped.'
+                f'Enrichment complete: {total_processed} listings processed, {total_skipped} skipped in {elapsed:.1f}s'
             )
         )
 
@@ -186,114 +195,139 @@ class Command(BaseCommand):
 
     def _enrich_full(self, dry_run: bool, do_developer: bool, do_synced: bool):
         processed, skipped = 0, 0
+        errors = []
         if do_developer:
             qs = DeveloperListing.objects.filter(is_active=True)
             total = qs.count()
             self._log(f'Processing DeveloperListing (total={total})...')
-            if dry_run:
-                processed += total
-                self._log(f'  [dry-run] Would process {total}')
-            else:
-                p, s = enrich_listings_queryset(qs, update_location_point=True)
-                processed += p
-                skipped += s
-                self._log(f'  DeveloperListing: processed={p}, skipped={s}')
+            try:
+                if dry_run:
+                    processed += total
+                    self._log(f'  [dry-run] Would process {total}')
+                else:
+                    p, s = enrich_listings_queryset(qs, update_location_point=True)
+                    processed += p
+                    skipped += s
+                    self._log(f'  DeveloperListing: processed={p}, skipped={s}')
+            except Exception as e:
+                errors.append(f'DeveloperListing: {e}')
+                logger.exception('Enrich DeveloperListing failed')
         if do_synced:
             for model, label in SYNCED_TABLES:
                 qs = model.objects.all()
                 total = qs.count()
                 self._log(f'Processing {label} (total={total})...')
-                if dry_run:
-                    processed += total
-                    self._log(f'  [dry-run] Would process {total}')
-                else:
-                    p, s = enrich_synced_queryset(qs, update_location_point=True)
-                    processed += p
-                    skipped += s
-                    self._log(f'  {label}: processed={p}, skipped={s}')
-        return processed, skipped
+                try:
+                    if dry_run:
+                        processed += total
+                        self._log(f'  [dry-run] Would process {total}')
+                    else:
+                        p, s = enrich_synced_queryset(qs, update_location_point=True)
+                        processed += p
+                        skipped += s
+                        self._log(f'  {label}: processed={p}, skipped={s}')
+                except Exception as e:
+                    errors.append(f'{label}: {e}')
+                    logger.exception('Enrich %s failed', label)
+        return processed, skipped, errors
 
     def _enrich_new_listings_only(self, dry_run: bool, do_developer: bool, do_synced: bool):
         processed, skipped = 0, 0
+        errors = []
         self._log('Phase: never-enriched only (enriched_at is null)')
         if do_developer:
             qs = DeveloperListing.objects.filter(is_active=True, enriched_at__isnull=True)
             n = qs.count()
             self._log(f'  DeveloperListing never-enriched: {n}')
-            if dry_run:
-                processed += n
-            else:
-                p, s = enrich_listings_queryset(qs, update_location_point=True)
-                processed += p
-                skipped += s
-                self._log(f'  DeveloperListing: processed={p}, skipped={s}')
+            try:
+                if dry_run:
+                    processed += n
+                else:
+                    p, s = enrich_listings_queryset(qs, update_location_point=True)
+                    processed += p
+                    skipped += s
+                    self._log(f'  DeveloperListing: processed={p}, skipped={s}')
+            except Exception as e:
+                errors.append(f'DeveloperListing: {e}')
+                logger.exception('Enrich DeveloperListing failed')
         if do_synced:
             for model, label in SYNCED_TABLES:
                 qs = model.objects.filter(enriched_at__isnull=True)
                 n = qs.count()
                 self._log(f'  {label} never-enriched: {n}')
-                if dry_run:
-                    processed += n
-                else:
-                    p, s = enrich_synced_queryset(qs, update_location_point=True)
-                    processed += p
-                    skipped += s
-                    self._log(f'  {label}: processed={p}, skipped={s}')
-        return processed, skipped
+                try:
+                    if dry_run:
+                        processed += n
+                    else:
+                        p, s = enrich_synced_queryset(qs, update_location_point=True)
+                        processed += p
+                        skipped += s
+                        self._log(f'  {label}: processed={p}, skipped={s}')
+                except Exception as e:
+                    errors.append(f'{label}: {e}')
+                    logger.exception('Enrich %s failed', label)
+        return processed, skipped, errors
 
     def _enrich_incremental(self, dry_run: bool, do_developer: bool, do_synced: bool):
         processed = 0
         skipped = 0
+        errors = []
 
-        self._log('Phase 1: never-enriched (enriched_at is null)')
+        self._log('Phase 1: never-enriched and stale')
         if do_developer:
-            qs_new = DeveloperListing.objects.filter(is_active=True, enriched_at__isnull=True)
-            n = qs_new.count()
-            self._log(f'  DeveloperListing: {n}')
-            if dry_run:
-                processed += n
-            else:
-                p, s = enrich_listings_queryset(qs_new, update_location_point=True)
-                processed += p
-                skipped += s
-            qs_stale = DeveloperListing.objects.filter(
-                is_active=True,
-                enriched_at__isnull=False,
-                updated_at__gt=F('enriched_at'),
-            )
-            n = qs_stale.count()
-            if n:
+            try:
+                qs_new = DeveloperListing.objects.filter(is_active=True, enriched_at__isnull=True)
+                n = qs_new.count()
+                self._log(f'  DeveloperListing new: {n}')
+                if dry_run:
+                    processed += n
+                else:
+                    p, s = enrich_listings_queryset(qs_new, update_location_point=True)
+                    processed += p
+                    skipped += s
+                qs_stale = DeveloperListing.objects.filter(
+                    is_active=True,
+                    enriched_at__isnull=False,
+                    updated_at__gt=F('enriched_at'),
+                )
+                n = qs_stale.count()
                 self._log(f'  DeveloperListing stale: {n}')
-            if dry_run:
-                processed += n
-            else:
-                p, s = enrich_listings_queryset(qs_stale, update_location_point=True)
-                processed += p
-                skipped += s
+                if dry_run:
+                    processed += n
+                else:
+                    p, s = enrich_listings_queryset(qs_stale, update_location_point=True)
+                    processed += p
+                    skipped += s
+            except Exception as e:
+                errors.append(f'DeveloperListing: {e}')
+                logger.exception('Enrich DeveloperListing failed')
 
         if do_synced:
             for model, label in SYNCED_TABLES:
-                qs_new = model.objects.filter(enriched_at__isnull=True)
-                n_new = qs_new.count()
-                if dry_run:
-                    processed += n_new
-                else:
-                    p, s = enrich_synced_queryset(qs_new, update_location_point=True)
-                    processed += p
-                    skipped += s
-                qs_stale = model.objects.filter(
-                    enriched_at__isnull=False,
-                    synced_at__gt=F('enriched_at'),
-                )
-                n_stale = qs_stale.count()
-                if dry_run:
-                    processed += n_stale
-                else:
-                    p, s = enrich_synced_queryset(qs_stale, update_location_point=True)
-                    processed += p
-                    skipped += s
-                if n_new or n_stale:
+                try:
+                    qs_new = model.objects.filter(enriched_at__isnull=True)
+                    n_new = qs_new.count()
+                    if dry_run:
+                        processed += n_new
+                    else:
+                        p, s = enrich_synced_queryset(qs_new, update_location_point=True)
+                        processed += p
+                        skipped += s
+                    qs_stale = model.objects.filter(
+                        enriched_at__isnull=False,
+                        synced_at__gt=F('enriched_at'),
+                    )
+                    n_stale = qs_stale.count()
+                    if dry_run:
+                        processed += n_stale
+                    else:
+                        p, s = enrich_synced_queryset(qs_stale, update_location_point=True)
+                        processed += p
+                        skipped += s
                     self._log(f'  {label}: new={n_new}, stale={n_stale}')
+                except Exception as e:
+                    errors.append(f'{label}: {e}')
+                    logger.exception('Enrich %s failed', label)
 
         since = timezone.now() - timedelta(hours=24)
         new_layers = DataLayer.objects.filter(
@@ -304,64 +338,75 @@ class Command(BaseCommand):
         if num_new_layers:
             self._log(f'Phase 2: listings near new layers (last 24h): {num_new_layers} layers')
         for layer in new_layers:
-            if do_developer:
-                near = get_listings_near_layer(layer, within_km=NEARBY_THRESHOLD_KM)
-                ids = set(near.values_list('id', flat=True))
-                if ids:
-                    qs = DeveloperListing.objects.filter(id__in=ids, is_active=True)
-                    if dry_run:
-                        processed += len(ids)
-                    else:
-                        p, s = enrich_listings_queryset(qs, update_location_point=False)
-                        processed += p
-                        skipped += s
-            if do_synced:
-                land_qs, plot_qs, dev_land_qs, dev_plot_qs = get_synced_listings_near_layer(layer, within_km=NEARBY_THRESHOLD_KM)
-                for qs in (land_qs, plot_qs, dev_land_qs, dev_plot_qs):
-                    if dry_run:
-                        processed += qs.count()
-                    else:
-                        p, s = enrich_synced_queryset(qs, update_location_point=False)
-                        processed += p
-                        skipped += s
+            try:
+                if do_developer:
+                    near = get_listings_near_layer(layer, within_km=NEARBY_THRESHOLD_KM)
+                    ids = set(near.values_list('id', flat=True))
+                    if ids:
+                        qs = DeveloperListing.objects.filter(id__in=ids, is_active=True)
+                        if dry_run:
+                            processed += len(ids)
+                        else:
+                            p, s = enrich_listings_queryset(qs, update_location_point=False)
+                            processed += p
+                            skipped += s
+                if do_synced:
+                    land_qs, plot_qs, dev_land_qs, dev_plot_qs = get_synced_listings_near_layer(layer, within_km=NEARBY_THRESHOLD_KM)
+                    for qs in (land_qs, plot_qs, dev_land_qs, dev_plot_qs):
+                        if dry_run:
+                            processed += qs.count()
+                        else:
+                            p, s = enrich_synced_queryset(qs, update_location_point=False)
+                            processed += p
+                            skipped += s
+            except Exception as e:
+                errors.append(f'Layer {layer.id} ({layer.slug}): {e}')
+                logger.exception('Enrich near layer %s failed', layer.slug)
 
-        return processed, skipped
+        return processed, skipped, errors
 
     def _enrich_for_new_layers(self, dry_run: bool, do_developer: bool, do_synced: bool):
         since = timezone.now() - timedelta(hours=24)
-        new_layers = DataLayer.objects.filter(
-            is_processed=True,
-            created_at__gte=since,
-        ).exclude(category__code='DEVELOPER_LISTING')
-        num_layers = new_layers.count()
+        new_layers = list(
+            DataLayer.objects.filter(
+                is_processed=True,
+                created_at__gte=since,
+            ).exclude(category__code='DEVELOPER_LISTING')
+        )
+        num_layers = len(new_layers)
         self._log(f'Phase: listings near new layers (last 24h): {num_layers} layers')
 
         processed = 0
         skipped = 0
+        errors = []
         for layer in new_layers:
-            if do_developer:
-                near = get_listings_near_layer(layer, within_km=NEARBY_THRESHOLD_KM)
-                ids = set(near.values_list('id', flat=True))
-                if ids:
-                    qs = DeveloperListing.objects.filter(id__in=ids, is_active=True)
-                    if dry_run:
-                        processed += len(ids)
-                    else:
-                        p, s = enrich_listings_queryset(qs, update_location_point=False)
-                        processed += p
-                        skipped += s
-            if do_synced:
-                land_qs, plot_qs, dev_land_qs, dev_plot_qs = get_synced_listings_near_layer(layer, within_km=NEARBY_THRESHOLD_KM)
-                for qs in (land_qs, plot_qs, dev_land_qs, dev_plot_qs):
-                    if dry_run:
-                        processed += qs.count()
-                    else:
-                        p, s = enrich_synced_queryset(qs, update_location_point=False)
-                        processed += p
-                        skipped += s
+            try:
+                if do_developer:
+                    near = get_listings_near_layer(layer, within_km=NEARBY_THRESHOLD_KM)
+                    ids = set(near.values_list('id', flat=True))
+                    if ids:
+                        qs = DeveloperListing.objects.filter(id__in=ids, is_active=True)
+                        if dry_run:
+                            processed += len(ids)
+                        else:
+                            p, s = enrich_listings_queryset(qs, update_location_point=False)
+                            processed += p
+                            skipped += s
+                if do_synced:
+                    land_qs, plot_qs, dev_land_qs, dev_plot_qs = get_synced_listings_near_layer(layer, within_km=NEARBY_THRESHOLD_KM)
+                    for qs in (land_qs, plot_qs, dev_land_qs, dev_plot_qs):
+                        if dry_run:
+                            processed += qs.count()
+                        else:
+                            p, s = enrich_synced_queryset(qs, update_location_point=False)
+                            processed += p
+                            skipped += s
+            except Exception as e:
+                errors.append(f'Layer {layer.id} ({layer.slug}): {e}')
+                logger.exception('Enrich near layer %s failed', layer.slug)
 
-        if processed == 0 and not dry_run:
+        if processed == 0 and not dry_run and not errors:
             self._log('No listings in range of new layers.')
         else:
             self._log(f'Near new layers: processed={processed}, skipped={skipped}')
-        return processed, skipped
+        return processed, skipped, errors
