@@ -1882,7 +1882,7 @@ class CoordinateSearchTestView(APIView):
             'biappa_masterplan', 'port_blair_masterplan', 'itanagar_masterplan', 'thiruvananthapuram_masterplan', 'thrissur_masterplan',
             'nuh_masterplan', 'jhajjar_masterplan', 'meerut_masterplan', 'hodal_masterplan', 'rewari_masterplan',
             'gohana_masterplan', 'bhiwadi_masterplan', 'alwar_masterplan',
-            'mumbai_masterplan', 'pune_city_pmc_masterplan', 'pimpri_chinchwad_masterplan', 'pmrda-masterplan-pmrda_masterplan', 'nagpur_masterplan'] and containing_features:
+            'mumbai_masterplan', 'pune_city_pmc_masterplan', 'pimpri_chinchwad_masterplan', 'pmrda_masterplan', 'nagpur_masterplan'] and containing_features:
                 # Return just the layer name as plain string
                 return {
                     'data': layer.slug,
@@ -7251,3 +7251,146 @@ class DeveloperListingMapDataAPIView(APIView):
                 },
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
+
+
+# ================================
+# LOCAL LAND/PLOT MVT TILES (for testing)
+# ================================
+
+class LandPlotLocalTileView(APIView):
+    """Serve pre-generated land/plot MVT tiles from local land_plot_tiles/ directory."""
+    permission_classes = [AllowAny]
+
+    def get(self, request, z, x, y):
+        from pathlib import Path
+        tile_path = Path(settings.BASE_DIR) / 'land_plot_tiles' / str(z) / str(x) / f'{y}.mvt'
+        if not tile_path.is_file():
+            return Response({'error': 'Tile not found'}, status=404)
+        data = tile_path.read_bytes()
+        return HttpResponse(data, content_type='application/vnd.mapbox-vector-tile')
+
+
+def _land_plot_price_percentiles():
+    """Compute 33rd and 66th percentile of total_price per type for 3 tiers."""
+    land_prices = list(
+        SyncedLand.objects.filter(location_point__isnull=False)
+        .exclude(total_price__isnull=True)
+        .values_list("total_price", flat=True)
+    )
+    land_prices = sorted([float(p) for p in land_prices if p is not None and p > 0])
+    n_land = len(land_prices)
+    land_p33 = land_prices[int(n_land * 0.33)] if n_land else 0
+    land_p66 = land_prices[int(n_land * 0.66)] if n_land else 0
+
+    plot_prices = list(
+        SyncedPlot.objects.filter(location_point__isnull=False)
+        .exclude(total_price__isnull=True)
+        .values_list("total_price", flat=True)
+    )
+    plot_prices = sorted([float(p) for p in plot_prices if p is not None and p > 0])
+    n_plot = len(plot_prices)
+    plot_p33 = plot_prices[int(n_plot * 0.33)] if n_plot else 0
+    plot_p66 = plot_prices[int(n_plot * 0.66)] if n_plot else 0
+    return {"land": (land_p33, land_p66), "plot": (plot_p33, plot_p66)}
+
+
+def _tier_for_price(price, p33, p66):
+    """Return 1=low, 2=mid, 3=high."""
+    if price is None or price <= 0:
+        return 1
+    if price <= p33:
+        return 1
+    if price <= p66:
+        return 2
+    return 3
+
+
+class LandPlotGeoJSONView(APIView):
+    """Return all SyncedLand + SyncedPlot points as one GeoJSON FeatureCollection. Load once, show at all zoom levels."""
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        percentiles = _land_plot_price_percentiles()
+        land_p33, land_p66 = percentiles["land"]
+        plot_p33, plot_p66 = percentiles["plot"]
+
+        features = []
+
+        for obj in SyncedLand.objects.filter(location_point__isnull=False).only(
+            "backend_id", "total_price", "total_land_size", "slug", "status", "location_point"
+        ):
+            pt = obj.location_point
+            if not pt:
+                continue
+            lon, lat = pt.x, pt.y
+            try:
+                price = float(obj.total_price) if obj.total_price is not None else None
+            except (TypeError, ValueError):
+                price = None
+            tier = _tier_for_price(price, land_p33, land_p66)
+            try:
+                size = float(obj.total_land_size) if obj.total_land_size is not None else None
+            except (TypeError, ValueError):
+                size = None
+            features.append({
+                "type": "Feature",
+                "geometry": {"type": "Point", "coordinates": [lon, lat]},
+                "properties": {
+                    "id": obj.backend_id,
+                    "type": "land",
+                    "total_price": price or 0,
+                    "size": size,
+                    "size_label": "acres",
+                    "slug": (obj.slug or "")[:200],
+                    "status": obj.status or "",
+                    "tier": tier,
+                    "sort_key": price or 0,
+                },
+            })
+
+        for obj in SyncedPlot.objects.filter(location_point__isnull=False).only(
+            "backend_id", "total_price", "total_plot_size", "slug", "status", "location_point"
+        ):
+            pt = obj.location_point
+            if not pt:
+                continue
+            lon, lat = pt.x, pt.y
+            try:
+                price = float(obj.total_price) if obj.total_price is not None else None
+            except (TypeError, ValueError):
+                price = None
+            tier = _tier_for_price(price, plot_p33, plot_p66)
+            try:
+                size = float(obj.total_plot_size) if obj.total_plot_size is not None else None
+            except (TypeError, ValueError):
+                size = None
+            features.append({
+                "type": "Feature",
+                "geometry": {"type": "Point", "coordinates": [lon, lat]},
+                "properties": {
+                    "id": obj.backend_id,
+                    "type": "plot",
+                    "total_price": price or 0,
+                    "size": size,
+                    "size_label": "sqyd",
+                    "slug": (obj.slug or "")[:200],
+                    "status": obj.status or "",
+                    "tier": tier,
+                    "sort_key": price or 0,
+                },
+            })
+
+        geojson = {"type": "FeatureCollection", "features": features}
+        return HttpResponse(
+            json.dumps(geojson),
+            content_type="application/geo+json",
+        )
+
+
+class LandPlotMapTestView(APIView):
+    """Serve HTML test page for land/plot MVT map (3 colors by price tier, hover tooltip)."""
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        from django.shortcuts import render
+        return render(request, 'land_plot_map_test.html')
