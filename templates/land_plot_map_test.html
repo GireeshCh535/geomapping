@@ -3,21 +3,34 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Land / Plot Map Test (all lands/plots, 3 price tiers)</title>
+  <title>Land / Plot Map Test (Satellite)</title>
   <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
   <link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet" />
+  <!-- Base: ESRI World Imagery (satellite, no token). For Mapbox satellite use a public token (pk.) in the script below. -->
   <style>
     body { margin: 0; font-family: system-ui, sans-serif; }
     #map { width: 100vw; height: 100vh; }
     .maplibregl-popup-content {
       padding: 10px 14px;
       min-width: 180px;
+      max-width: 90vw;
+      max-height: 85vh;
       border-radius: 8px;
       box-shadow: 0 2px 8px rgba(0,0,0,0.15);
     }
     .popup-title { font-weight: 600; text-transform: capitalize; margin-bottom: 6px; color: #1a1a1a; }
     .popup-row { font-size: 13px; color: #444; margin: 4px 0; }
     .popup-price { font-weight: 600; color: #0d9488; }
+    .detail-popup { min-width: 280px; max-width: 520px; }
+    .detail-popup h3 { margin: 0 0 8px 0; font-size: 15px; color: #0f766e; border-bottom: 1px solid #e2e8f0; padding-bottom: 4px; }
+    .detail-section { margin-bottom: 12px; }
+    .detail-section:last-child { margin-bottom: 0; }
+    .detail-table { width: 100%; font-size: 12px; border-collapse: collapse; }
+    .detail-table th { text-align: left; padding: 2px 8px 2px 0; color: #64748b; font-weight: 500; vertical-align: top; width: 120px; }
+    .detail-table td { padding: 2px 0; color: #1e293b; word-break: break-word; }
+    .detail-json { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 8px 10px; max-height: 280px; overflow: auto; font-size: 11px; font-family: ui-monospace, monospace; white-space: pre-wrap; word-break: break-all; }
+    .detail-loading { color: #64748b; font-style: italic; padding: 12px 0; }
+    .detail-error { color: #dc2626; padding: 8px 0; }
   </style>
 </head>
 <body>
@@ -26,84 +39,163 @@
     (function() {
       var origin = window.location.origin;
       var geojsonUrl = origin + '/api/geojson/land-plot/all.geojson';
+      // Use a Mapbox PUBLIC token (pk.eyJ...) for Mapbox satellite; secret (sk.) does not work in browser.
+      var mapboxPublicToken = 'sk.eyJ1IjoiYXYxYWNyZSIsImEiOiJjbWZncmZtMmwwM203MmtzZmM1aHFocGE2In0.hcobAqmkId8-5t8hlvWtrw'; // e.g. 'pk.eyJ1IjoiYXYxYWNyZSIsImEiOiJjbWZn...'
+      var useMapboxSatellite = mapboxPublicToken && mapboxPublicToken.indexOf('pk.') === 0;
+
+      var defaultStyle = {
+        version: 8,
+        sources: {
+          'esri-satellite': {
+            type: 'raster',
+            tiles: ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'],
+            tileSize: 256,
+            attribution: '&copy; Esri'
+          },
+          'landplot': { type: 'geojson', data: geojsonUrl }
+        },
+        layers: [
+          { id: 'esri-satellite', type: 'raster', source: 'esri-satellite', minzoom: 0, maxzoom: 19 },
+          {
+            id: 'landplot-circles',
+            type: 'circle',
+            source: 'landplot',
+            minzoom: 0,
+            paint: {
+              'circle-radius': ['interpolate', ['linear'], ['zoom'], 8, 4, 12, 8, 16, 14],
+              'circle-color': ['match', ['get', 'tier'], 1, '#22c55e', 2, '#eab308', 3, '#ef4444', '#94a3b8'],
+              'circle-stroke-width': 1.5,
+              'circle-stroke-color': '#fff'
+            }
+          }
+        ]
+      };
 
       var map = new maplibregl.Map({
         container: 'map',
-        style: {
-          version: 8,
-          sources: {
-            'osm': {
-              type: 'raster',
-              tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
-              tileSize: 256,
-              attribution: '© OpenStreetMap'
-            },
-            'landplot': {
-              type: 'geojson',
-              data: geojsonUrl
-            }
-          },
-          layers: [
-            { id: 'osm', type: 'raster', source: 'osm', minzoom: 0, maxzoom: 19 },
-            {
-              id: 'landplot-circles',
-              type: 'circle',
-              source: 'landplot',
-              minzoom: 0,
-              paint: {
-                'circle-radius': ['interpolate', ['linear'], ['zoom'], 8, 4, 12, 8, 16, 14],
-                'circle-color': [
-                  'match', ['get', 'tier'],
-                  1, '#22c55e',
-                  2, '#eab308',
-                  3, '#ef4444',
-                  '#94a3b8'
-                ],
-                'circle-stroke-width': 1.5,
-                'circle-stroke-color': '#fff'
-              }
-            }
-          ]
-        },
+        style: useMapboxSatellite
+          ? 'https://api.mapbox.com/styles/v1/mapbox/satellite-v9?access_token=' + mapboxPublicToken
+          : defaultStyle,
         center: [77.59, 12.97],
         zoom: 10
       });
 
-      var popup = new maplibregl.Popup({ closeButton: true, closeOnClick: false });
+      map.on('load', function() {
+        if (useMapboxSatellite) {
+          map.addSource('landplot', { type: 'geojson', data: geojsonUrl });
+          map.addLayer({
+            id: 'landplot-circles',
+            type: 'circle',
+            source: 'landplot',
+            minzoom: 0,
+            paint: {
+              'circle-radius': ['interpolate', ['linear'], ['zoom'], 8, 4, 12, 8, 16, 14],
+              'circle-color': ['match', ['get', 'tier'], 1, '#22c55e', 2, '#eab308', 3, '#ef4444', '#94a3b8'],
+              'circle-stroke-width': 1.5,
+              'circle-stroke-color': '#fff'
+            }
+          });
+        }
 
-      function formatPrice(n) {
-        if (n == null || n === undefined) return '—';
-        var x = Number(n);
-        if (x >= 1e7) return (x / 1e7).toFixed(1) + ' Cr';
-        if (x >= 1e5) return (x / 1e5).toFixed(1) + ' L';
-        if (x >= 1e3) return (x / 1e3).toFixed(1) + ' K';
-        return String(x);
+        var popup = new maplibregl.Popup({ closeButton: true, closeOnClick: false });
+        function formatPrice(n) {
+          if (n == null || n === undefined) return '—';
+          var x = Number(n);
+          if (x >= 1e7) return (x / 1e7).toFixed(1) + ' Cr';
+          if (x >= 1e5) return (x / 1e5).toFixed(1) + ' L';
+          if (x >= 1e3) return (x / 1e3).toFixed(1) + ' K';
+          return String(x);
+        }
+        map.on('mousemove', 'landplot-circles', function(e) {
+          map.getCanvas().style.cursor = 'pointer';
+          var f = e.features && e.features[0];
+          if (!f) return;
+          var p = f.properties;
+          var type = (p.type || '').toLowerCase();
+          var tier = p.tier;
+          var tierLabel = tier === 1 ? 'Low' : tier === 2 ? 'Mid' : 'High';
+          var price = formatPrice(p.total_price);
+          var size = p.size != null && p.size > 0 ? p.size + ' ' + (p.size_label || '') : '—';
+          var status = p.status || '—';
+          var slug = p.slug ? (p.slug.length > 30 ? p.slug.slice(0, 30) + '…' : p.slug) : '—';
+          var html = '<div class="popup-title">' + (type === 'land' ? 'Land' : 'Plot') + ' (Tier: ' + tierLabel + ')</div>' +
+            '<div class="popup-row popup-price">Price: ' + price + '</div>' +
+            '<div class="popup-row">Size: ' + size + '</div>' +
+            '<div class="popup-row">Status: ' + status + '</div>' +
+            (slug !== '—' ? '<div class="popup-row">' + slug + '</div>' : '');
+          popup.setLngLat(e.lngLat).setHTML(html).addTo(map);
+        });
+        map.on('mouseleave', 'landplot-circles', function() {
+          map.getCanvas().style.cursor = '';
+          popup.remove();
+        });
+
+        var detailPopup = new maplibregl.Popup({ closeButton: true, closeOnClick: false, maxWidth: '520px' });
+        map.on('click', 'landplot-circles', function(e) {
+          var f = e.features && e.features[0];
+          if (!f || !f.properties) return;
+          e.originalEvent.preventDefault();
+          var props = f.properties;
+          var backendId = props.id;
+          var listingType = (props.type || 'land').toLowerCase();
+          var coords = e.lngLat;
+          detailPopup.setLngLat(coords).setHTML('<div class="detail-loading">Loading full details…</div>').addTo(map);
+          fetch(origin + '/api/enrichment-lookup/', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ listing_type: listingType, ids: [backendId] })
+          })
+            .then(function(res) { return res.json(); })
+            .then(function(data) { detailPopup.setHTML(buildDetailHtml(data, listingType)); })
+            .catch(function(err) {
+              detailPopup.setHTML('<div class="detail-error">Failed to load details: ' + err.message + '</div>');
+            });
+        });
+      });
+
+      function renderValue(v) {
+        if (v === null || v === undefined) return '—';
+        if (typeof v === 'boolean') return v ? 'Yes' : 'No';
+        if (typeof v === 'object') return JSON.stringify(v);
+        return String(v);
       }
 
-      map.on('mousemove', 'landplot-circles', function(e) {
-        map.getCanvas().style.cursor = 'pointer';
-        var f = e.features && e.features[0];
-        if (!f) return;
-        var p = f.properties;
-        var type = (p.type || '').toLowerCase();
-        var tier = p.tier;
-        var tierLabel = tier === 1 ? 'Low' : tier === 2 ? 'Mid' : 'High';
-        var price = formatPrice(p.total_price);
-        var size = p.size != null && p.size > 0 ? p.size + ' ' + (p.size_label || '') : '—';
-        var status = p.status || '—';
-        var slug = p.slug ? (p.slug.length > 30 ? p.slug.slice(0, 30) + '…' : p.slug) : '—';
-        var html = '<div class="popup-title">' + (type === 'land' ? 'Land' : 'Plot') + ' (Tier: ' + tierLabel + ')</div>' +
-          '<div class="popup-row popup-price">Price: ' + price + '</div>' +
-          '<div class="popup-row">Size: ' + size + '</div>' +
-          '<div class="popup-row">Status: ' + status + '</div>' +
-          (slug !== '—' ? '<div class="popup-row">' + slug + '</div>' : '');
-        popup.setLngLat(e.lngLat).setHTML(html).addTo(map);
-      });
+      function buildDetailHtml(data, listingType) {
+        var r = data.results && data.results[0];
+        if (!r) return '<div class="detail-error">No record found.</div>';
+        var type = (listingType === 'plot') ? 'Plot' : 'Land';
+        var html = '<div class="detail-popup">';
+        html += '<h3>' + type + ' #' + (r.backend_id || r.id) + '</h3>';
 
-      map.on('mouseleave', 'landplot-circles', function() {
-        map.getCanvas().style.cursor = '';
-        popup.remove();
-      });
+        html += '<div class="detail-section"><h4 style="margin:0 0 6px 0;font-size:13px;">Record fields</h4>';
+        html += '<table class="detail-table">';
+        var skipKeys = { 'payload': 1, 'enriched_layers': 1 };
+        Object.keys(r).forEach(function(k) {
+          if (skipKeys[k]) return;
+          var val = r[k];
+          if (val && typeof val === 'object' && !Array.isArray(val) && (val.type === 'Point' || val.coordinates)) { val = val.coordinates ? val.coordinates.join(', ') : renderValue(val); }
+          else { val = renderValue(val); }
+          html += '<tr><th>' + k + '</th><td>' + val + '</td></tr>';
+        });
+        html += '</table></div>';
+
+        if (r.enriched_layers && r.enriched_layers.length) {
+          html += '<div class="detail-section"><h4 style="margin:0 0 6px 0;font-size:13px;">Enriched layers (' + r.enriched_layers.length + ')</h4>';
+          html += '<table class="detail-table">';
+          r.enriched_layers.slice(0, 15).forEach(function(ly, i) {
+            html += '<tr><th>' + (ly.layer_slug || ly.layer_id || i) + '</th><td>' + (ly.distance_km === 0 ? 'Overlap' : ly.distance_km + ' km') + '</td></tr>';
+          });
+          if (r.enriched_layers.length > 15) html += '<tr><th colspan="2">… and ' + (r.enriched_layers.length - 15) + ' more</th></tr>';
+          html += '</table></div>';
+        }
+
+        if (r.payload && Object.keys(r.payload).length) {
+          html += '<div class="detail-section"><h4 style="margin:0 0 6px 0;font-size:13px;">Full payload (API / webhook data)</h4>';
+          html += '<div class="detail-json">' + JSON.stringify(r.payload, null, 2).replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</div></div>';
+        }
+        html += '</div>';
+        return html;
+      }
     })();
   </script>
 </body>
