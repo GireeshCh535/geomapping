@@ -5416,7 +5416,7 @@ def _print_webhook_response(webhook_name, data):
         json_str = f"(could not serialize: {e})"
     sep = "=" * 80
     banner = f"\n{sep}\n  WEBHOOK REQUEST BODY: {webhook_name}\n{sep}"
-    logger.info("%s\n%s", banner, json_str)
+    # logger.info("%s\n%s", banner, json_str)
 
 
 class DeveloperListingMediaWebhookView(APIView):
