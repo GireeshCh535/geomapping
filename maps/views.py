@@ -7254,20 +7254,64 @@ class DeveloperListingMapDataAPIView(APIView):
 
 
 # ================================
-# LOCAL LAND/PLOT MVT TILES (for testing)
+# LAND/PLOT MVT TILES (CloudFront → S3 → local)
 # ================================
 
-class LandPlotLocalTileView(APIView):
-    """Serve pre-generated land/plot MVT tiles from local land_plot_tiles/ directory."""
+class LandPlotTileView(APIView):
+    """
+    Serve land/plot MVT tiles from CloudFront, S3, or local disk (same pattern as PNG tiles).
+    Order: 1) CloudFront, 2) S3 direct, 3) local land_plot_tiles/.
+    Bucket and domain from settings: AWS_STORAGE_BUCKET_NAME, CLOUDFRONT_DOMAIN.
+    """
     permission_classes = [AllowAny]
 
     def get(self, request, z, x, y):
+        z, x, y = int(z), int(x), int(y)
+        tile_path_service = TilePathService()
+        if not tile_path_service.validate_tile_coordinates(z, x, y):
+            return Response({'error': 'Invalid tile coordinates'}, status=400)
+
+        # 1) CloudFront
+        cloudfront_url = tile_path_service.land_plot_cloudfront_url(z, x, y)
+        tile_data = self._fetch_url(cloudfront_url)
+        if tile_data:
+            return self._mvt_response(tile_data)
+
+        # 2) S3 direct
+        s3_url = tile_path_service.land_plot_s3_url(z, x, y)
+        tile_data = self._fetch_url(s3_url)
+        if tile_data:
+            return self._mvt_response(tile_data)
+
+        # 3) Local fallback
         from pathlib import Path
-        tile_path = Path(settings.BASE_DIR) / 'land_plot_tiles' / str(z) / str(x) / f'{y}.mvt'
-        if not tile_path.is_file():
-            return Response({'error': 'Tile not found'}, status=404)
-        data = tile_path.read_bytes()
-        return HttpResponse(data, content_type='application/vnd.mapbox-vector-tile')
+        local_path = Path(settings.BASE_DIR) / 'land_plot_tiles' / str(z) / str(x) / f'{y}.mvt'
+        if local_path.is_file():
+            return self._mvt_response(local_path.read_bytes())
+
+        return Response({'error': 'Tile not found'}, status=404)
+
+    def _fetch_url(self, url, timeout=5):
+        try:
+            resp = requests.get(url, timeout=timeout)
+            if resp.status_code == 200:
+                return resp.content
+        except Exception:
+            pass
+        return None
+
+    def _mvt_response(self, data):
+        headers = TilePathService().get_tile_cache_headers('mvt')
+        response = HttpResponse(data, content_type=headers['ContentType'])
+        response['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+        response['Pragma'] = 'no-cache'
+        response['Expires'] = '0'
+        response['Access-Control-Allow-Origin'] = '*'
+        return response
+
+
+# Alias for backward compatibility (URL still uses this name)
+LandPlotLocalTileView = LandPlotTileView
 
 
 def _land_plot_price_percentiles():
@@ -7305,6 +7349,22 @@ def _tier_for_price(price, p33, p66):
     return 3
 
 
+def _marker_id_for_listing(obj, listing_type):
+    """
+    Get marker_id for 1acre-icons path: use stored column if set, else payload.
+    Icons: land|plot / base|owner|1acre / {marker_id}.svg
+    """
+    mid = (getattr(obj, 'marker_id', None) or '').strip()
+    if mid:
+        return mid
+    payload = getattr(obj, 'payload', None) or {}
+    if isinstance(payload, dict):
+        mid = (payload.get('marker_id') or '').strip()
+        if mid:
+            return mid
+    return 'land-0' if listing_type == 'land' else 'plot-0'
+
+
 class LandPlotGeoJSONView(APIView):
     """Return all SyncedLand + SyncedPlot points as one GeoJSON FeatureCollection. Load once, show at all zoom levels."""
     permission_classes = [AllowAny]
@@ -7317,12 +7377,19 @@ class LandPlotGeoJSONView(APIView):
         features = []
 
         for obj in SyncedLand.objects.filter(location_point__isnull=False).only(
-            "backend_id", "total_price", "total_land_size", "slug", "status", "location_point"
+            "backend_id", "total_price", "total_land_size", "slug", "status", "location_point", "lat", "long", "marker_id", "payload"
         ):
             pt = obj.location_point
             if not pt:
                 continue
-            lon, lat = pt.x, pt.y
+            # Use scalar columns: long=longitude, lat=latitude (WGS84)
+            if obj.lat is not None and obj.long is not None:
+                try:
+                    lon, lat = float(obj.long), float(obj.lat)
+                except (TypeError, ValueError):
+                    lon, lat = pt.x, pt.y
+            else:
+                lon, lat = pt.x, pt.y
             try:
                 price = float(obj.total_price) if obj.total_price is not None else None
             except (TypeError, ValueError):
@@ -7332,6 +7399,7 @@ class LandPlotGeoJSONView(APIView):
                 size = float(obj.total_land_size) if obj.total_land_size is not None else None
             except (TypeError, ValueError):
                 size = None
+            marker_id = _marker_id_for_listing(obj, "land")
             features.append({
                 "type": "Feature",
                 "geometry": {"type": "Point", "coordinates": [lon, lat]},
@@ -7345,16 +7413,24 @@ class LandPlotGeoJSONView(APIView):
                     "status": obj.status or "",
                     "tier": tier,
                     "sort_key": price or 0,
+                    "marker_id": marker_id,
                 },
             })
 
         for obj in SyncedPlot.objects.filter(location_point__isnull=False).only(
-            "backend_id", "total_price", "total_plot_size", "slug", "status", "location_point"
+            "backend_id", "total_price", "total_plot_size", "slug", "status", "location_point", "lat", "long", "marker_id", "payload"
         ):
             pt = obj.location_point
             if not pt:
                 continue
-            lon, lat = pt.x, pt.y
+            # Use scalar columns: long=longitude, lat=latitude (WGS84)
+            if obj.lat is not None and obj.long is not None:
+                try:
+                    lon, lat = float(obj.long), float(obj.lat)
+                except (TypeError, ValueError):
+                    lon, lat = pt.x, pt.y
+            else:
+                lon, lat = pt.x, pt.y
             try:
                 price = float(obj.total_price) if obj.total_price is not None else None
             except (TypeError, ValueError):
@@ -7364,6 +7440,7 @@ class LandPlotGeoJSONView(APIView):
                 size = float(obj.total_plot_size) if obj.total_plot_size is not None else None
             except (TypeError, ValueError):
                 size = None
+            marker_id = _marker_id_for_listing(obj, "plot")
             features.append({
                 "type": "Feature",
                 "geometry": {"type": "Point", "coordinates": [lon, lat]},
@@ -7377,6 +7454,7 @@ class LandPlotGeoJSONView(APIView):
                     "status": obj.status or "",
                     "tier": tier,
                     "sort_key": price or 0,
+                    "marker_id": marker_id,
                 },
             })
 

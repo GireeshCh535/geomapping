@@ -8,20 +8,53 @@ universal_masterplan_tile_generator:
   causes points to "disappear" (no 404s for requested tiles).
 - Use a small buffer when querying points so edge points are included.
 - 3 price tiers (low / mid / high) per type for coloring.
+
+S3 serving: Upload generated tiles to the same bucket as PNGs (see settings
+AWS_STORAGE_BUCKET_NAME, CLOUDFRONT_DOMAIN). Use S3 key prefix: land-plot/
+(i.e. land-plot/{z}/{x}/{y}.mvt). The API serves tiles from CloudFront → S3
+→ local in that order (LandPlotTileView).
 """
 
+import math
 from pathlib import Path
 
 import mapbox_vector_tile
 import mercantile
 from django.conf import settings
-from django.contrib.gis.geos import Polygon
 from django.core.management.base import BaseCommand
 
 from maps.models import SyncedLand, SyncedPlot
 
 # Small buffer in degrees when querying points (avoids missing points on tile edges)
 TILE_QUERY_BUFFER_DEG = 1e-6
+
+# Earth radius for Web Mercator (EPSG:3857)
+_EARTH_RADIUS = 6378137.0
+
+
+def lon_lat_to_mercator(lon, lat):
+    """
+    Convert WGS84 lon/lat (degrees) to Web Mercator (EPSG:3857) meters.
+    This must be used when encoding MVT tiles so that the projection matches
+    the map renderer's expectation. Using raw lon/lat with linear quantize_bounds
+    causes points to drift north/south at low zoom levels because latitude is
+    NOT linear in Mercator — tiles cover much more area near the equator.
+    """
+    x = math.radians(lon) * _EARTH_RADIUS
+    y = math.log(math.tan(math.pi / 4 + math.radians(lat) / 2)) * _EARTH_RADIUS
+    return x, y
+
+
+def tile_mercator_bounds(x, y, z):
+    """
+    Return the Web Mercator (EPSG:3857) bounding box for tile (z, x, y)
+    as (west_m, south_m, east_m, north_m).
+    Derived from mercantile.bounds() lon/lat via lon_lat_to_mercator().
+    """
+    b = mercantile.bounds(x, y, z)
+    west_m, south_m = lon_lat_to_mercator(b.west, b.south)
+    east_m, north_m = lon_lat_to_mercator(b.east, b.north)
+    return west_m, south_m, east_m, north_m
 
 
 def get_price_percentiles():
@@ -69,6 +102,21 @@ def tier_for_price(price, p33, p66):
     return 3
 
 
+def marker_id_for_listing(obj, listing_type):
+    """
+    Get marker_id for 1acre-icons: use stored column if set, else payload.
+    """
+    mid = (getattr(obj, "marker_id", None) or "").strip()
+    if mid:
+        return mid
+    payload = getattr(obj, "payload", None) or {}
+    if isinstance(payload, dict):
+        mid = (payload.get("marker_id") or "").strip()
+        if mid:
+            return mid
+    return "land-0" if listing_type == "land" else "plot-0"
+
+
 class Command(BaseCommand):
     help = "Generate local MVT tiles for land/plot points with 3 price-tier colors"
 
@@ -113,6 +161,11 @@ class Command(BaseCommand):
             action="store_true",
             help="Skip writing if tile file already exists (like universal generators)",
         )
+        parser.add_argument(
+            "--swap-lat-long",
+            action="store_true",
+            help="Treat DB 'lat' as longitude and 'long' as latitude (use if points appear in ocean/wrong place)",
+        )
 
     def handle(self, *args, **options):
         output_dir = options["output_dir"]
@@ -120,6 +173,7 @@ class Command(BaseCommand):
         max_zoom = options["max_zoom"]
         bounds_str = options["bounds"]
         limit = options["limit"]
+        swap_lat_long = options.get("swap_lat_long", False)
         verbose = options["verbose"]
         skip_existing = options.get("skip_existing", False)
 
@@ -177,31 +231,35 @@ class Command(BaseCommand):
                     continue
 
                 bounds = mercantile.bounds(x, y, z)
-                # Buffered bbox so points on tile edges are included (consistent across zooms)
-                bbox = Polygon.from_bbox(
-                    (
-                        bounds.west - TILE_QUERY_BUFFER_DEG,
-                        bounds.south - TILE_QUERY_BUFFER_DEG,
-                        bounds.east + TILE_QUERY_BUFFER_DEG,
-                        bounds.north + TILE_QUERY_BUFFER_DEG,
-                    )
-                )
+                # Query by scalar lat/long range (no dependency on location_point geometry)
+                south_buf = bounds.south - TILE_QUERY_BUFFER_DEG
+                north_buf = bounds.north + TILE_QUERY_BUFFER_DEG
+                west_buf = bounds.west - TILE_QUERY_BUFFER_DEG
+                east_buf = bounds.east + TILE_QUERY_BUFFER_DEG
 
                 features = []
 
                 # Lands in this tile
                 lands = SyncedLand.objects.filter(
-                    location_point__isnull=False,
-                    location_point__intersects=bbox,
+                    lat__isnull=False,
+                    long__isnull=False,
+                    lat__gte=south_buf,
+                    lat__lte=north_buf,
+                    long__gte=west_buf,
+                    long__lte=east_buf,
                 ).only(
                     "backend_id", "total_price", "total_land_size", "slug", "status",
-                    "location_point", "lat", "long",
+                    "lat", "long", "marker_id", "marker_title", "payload",
                 )
                 for obj in lands:
-                    pt = obj.location_point
-                    if not pt:
+                    # Use scalar columns. If --swap-lat-long: DB 'lat' is longitude, 'long' is latitude.
+                    try:
+                        if swap_lat_long:
+                            lon, lat = float(obj.lat), float(obj.long)
+                        else:
+                            lon, lat = float(obj.long), float(obj.lat)
+                    except (TypeError, ValueError):
                         continue
-                    lon, lat = pt.x, pt.y
                     # Only include if inside strict tile bounds (buffer was for query only)
                     if not (bounds.west <= lon <= bounds.east and bounds.south <= lat <= bounds.north):
                         continue
@@ -218,6 +276,7 @@ class Command(BaseCommand):
                             size = float(size)
                         except (TypeError, ValueError):
                             size = None
+                    marker_id = marker_id_for_listing(obj, "land")
                     features.append({
                         "lon": lon,
                         "lat": lat,
@@ -230,21 +289,31 @@ class Command(BaseCommand):
                         "status": obj.status or "",
                         "tier": t,
                         "sort_key": price or 0,
+                        "marker_id": marker_id,
+                        "marker_label": (obj.marker_title or "")[:200],
                     })
 
                 # Plots in this tile
                 plots = SyncedPlot.objects.filter(
-                    location_point__isnull=False,
-                    location_point__intersects=bbox,
+                    lat__isnull=False,
+                    long__isnull=False,
+                    lat__gte=south_buf,
+                    lat__lte=north_buf,
+                    long__gte=west_buf,
+                    long__lte=east_buf,
                 ).only(
                     "backend_id", "total_price", "total_plot_size", "slug", "status",
-                    "location_point", "lat", "long",
+                    "lat", "long", "marker_id", "marker_title", "payload",
                 )
                 for obj in plots:
-                    pt = obj.location_point
-                    if not pt:
+                    # Use scalar columns. If --swap-lat-long: DB 'lat' is longitude, 'long' is latitude.
+                    try:
+                        if swap_lat_long:
+                            lon, lat = float(obj.lat), float(obj.long)
+                        else:
+                            lon, lat = float(obj.long), float(obj.lat)
+                    except (TypeError, ValueError):
                         continue
-                    lon, lat = pt.x, pt.y
                     if not (bounds.west <= lon <= bounds.east and bounds.south <= lat <= bounds.north):
                         continue
                     price = obj.total_price
@@ -260,6 +329,7 @@ class Command(BaseCommand):
                             size = float(size)
                         except (TypeError, ValueError):
                             size = None
+                    marker_id = marker_id_for_listing(obj, "plot")
                     features.append({
                         "lon": lon,
                         "lat": lat,
@@ -272,26 +342,29 @@ class Command(BaseCommand):
                         "status": obj.status or "",
                         "tier": t,
                         "sort_key": price or 0,
+                        "marker_id": marker_id,
+                        "marker_label": (obj.marker_title or "")[:200],
                     })
 
                 # Sort by sort_key ascending so higher price is drawn last (on top)
                 features.sort(key=lambda f: f["sort_key"])
 
-                # Build MVT: Point geometry in tile coords (0-4096), properties. Always write (empty or not).
+                # Build MVT using Web Mercator (EPSG:3857) coordinates.
+                #
+                # WHY Mercator and not raw lon/lat:
+                #   mapbox_vector_tile with quantize_bounds does LINEAR interpolation
+                #   between the tile's corner coordinates. Longitude is linear, but
+                #   latitude is NOT linear in Web Mercator — at low zoom levels
+                #   (2–7) one tile covers a huge lat range and the Mercator warp is
+                #   large enough to shift points noticeably north/south between zooms.
+                #   Converting to EPSG:3857 meters first makes everything linear, so
+                #   quantize_bounds produces correct pixel positions at every zoom.
                 extent = 4096
+                merc_west, merc_south, merc_east, merc_north = tile_mercator_bounds(x, y, z)
+
                 mvt_features = []
                 for f in features:
-                    lon, lat = f["lon"], f["lat"]
-                    tile_x = int(
-                        (lon - bounds.west) / (bounds.east - bounds.west) * extent
-                    )
-                    tile_y = int(
-                        (bounds.north - lat) / (bounds.north - bounds.south) * extent
-                    )
-                    geom = {
-                        "type": "Point",
-                        "coordinates": [tile_x, tile_y],
-                    }
+                    mx, my = lon_lat_to_mercator(f["lon"], f["lat"])
                     props = {
                         "id": f["backend_id"],
                         "type": f["type"],
@@ -302,19 +375,28 @@ class Command(BaseCommand):
                         "status": f["status"],
                         "tier": f["tier"],
                         "sort_key": f["sort_key"],
+                        "marker_id": f.get("marker_id") or ("land-0" if f["type"] == "land" else "plot-0"),
+                        "marker_label": f.get("marker_label") or "",
                     }
                     mvt_features.append({
-                        "geometry": geom,
+                        # Mercator meters — quantize_bounds maps these linearly to 0..extent
+                        "geometry": {"type": "Point", "coordinates": [mx, my]},
                         "properties": props,
                     })
 
-                layer_data = [{
-                    "name": "landplot",
-                    "features": mvt_features,
-                    "version": 2,
-                    "extent": extent,
-                }]
-                mvt_bytes = mapbox_vector_tile.encode(layer_data)
+                # encode() expects a list of layers with "name" and "features".
+                layer_data = [
+                    {"name": "landplot", "features": mvt_features},
+                ]
+                # quantize_bounds: (west, south, east, north) in same units as geometry
+                # (EPSG:3857 meters). The library linearly maps this range to 0..extents.
+                mvt_bytes = mapbox_vector_tile.encode(
+                    layer_data,
+                    default_options={
+                        "quantize_bounds": (merc_west, merc_south, merc_east, merc_north),
+                        "extents": extent,
+                    },
+                )
 
                 tile_dir.mkdir(parents=True, exist_ok=True)
                 tile_file.write_bytes(mvt_bytes)

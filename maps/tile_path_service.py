@@ -96,6 +96,23 @@ class TilePathService:
         
         return s3_url
     
+    # Land/plot MVT tiles (global, no state/city/layer) – same pattern as PNGs
+    LAND_PLOT_S3_PREFIX = 'land-plot'
+
+    def land_plot_s3_key(self, z: int, x: int, y: int) -> str:
+        """S3 key for land/plot MVT tile: land-plot/{z}/{x}/{y}.mvt"""
+        return f"{self.LAND_PLOT_S3_PREFIX}/{z}/{x}/{y}.mvt"
+
+    def land_plot_cloudfront_url(self, z: int, x: int, y: int) -> str:
+        """CloudFront URL for land/plot MVT tile."""
+        s3_key = self.land_plot_s3_key(z, x, y)
+        return f"https://{self.cloudfront_domain}/{s3_key}"
+
+    def land_plot_s3_url(self, z: int, x: int, y: int) -> str:
+        """Direct S3 URL for land/plot MVT tile (fallback)."""
+        s3_key = self.land_plot_s3_key(z, x, y)
+        return f"https://{self.bucket_name}.s3.{self.region}.amazonaws.com/{s3_key}"
+
     def parse_tile_path(self, tile_path: str) -> Optional[Dict[str, any]]:
         """
         Parse a tile path to extract components

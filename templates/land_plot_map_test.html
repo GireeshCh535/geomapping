@@ -31,17 +31,45 @@
     .detail-json { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 8px 10px; max-height: 280px; overflow: auto; font-size: 11px; font-family: ui-monospace, monospace; white-space: pre-wrap; word-break: break-all; }
     .detail-loading { color: #64748b; font-style: italic; padding: 12px 0; }
     .detail-error { color: #dc2626; padding: 8px 0; }
+    #zoom-display {
+      position: absolute;
+      bottom: 16px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(0,0,0,0.75);
+      color: #fff;
+      padding: 6px 14px;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 500;
+      z-index: 1;
+      pointer-events: none;
+    }
   </style>
 </head>
 <body>
   <div id="map"></div>
+  <div id="zoom-display">Zoom: —</div>
   <script>
     (function() {
       var origin = window.location.origin;
       var geojsonUrl = origin + '/api/geojson/land-plot/all.geojson';
+      var mvtTilesUrl = origin + '/api/tiles/land-plot/{z}/{x}/{y}.mvt';
       // Use a Mapbox PUBLIC token (pk.eyJ...) for Mapbox satellite; secret (sk.) does not work in browser.
       var mapboxPublicToken = 'sk.eyJ1IjoiYXYxYWNyZSIsImEiOiJjbWZncmZtMmwwM203MmtzZmM1aHFocGE2In0.hcobAqmkId8-5t8hlvWtrw'; // e.g. 'pk.eyJ1IjoiYXYxYWNyZSIsImEiOiJjbWZn...'
       var useMapboxSatellite = mapboxPublicToken && mapboxPublicToken.indexOf('pk.') === 0;
+
+      // Icon path: land|plot / base|owner|1acre / {marker_id}.svg (e.g. plot/base/plot-11.svg, plot/owner/plot-owner-12.svg)
+      function iconFolder(markerId) {
+        if (!markerId) return 'base';
+        if (String(markerId).indexOf('-owner-') !== -1) return 'owner';
+        if (String(markerId).indexOf('-1acre-') !== -1) return '1acre';
+        return 'base';
+      }
+      function iconPath(type, markerId) {
+        var folder = iconFolder(markerId);
+        return type + '/' + folder + '/' + markerId + '.svg';
+      }
 
       var defaultStyle = {
         version: 8,
@@ -52,22 +80,15 @@
             tileSize: 256,
             attribution: '&copy; Esri'
           },
-          'landplot': { type: 'geojson', data: geojsonUrl }
+          'landplot-tiles': {
+            type: 'vector',
+            tiles: [mvtTilesUrl],
+            minzoom: 2,
+            maxzoom: 14
+          }
         },
         layers: [
-          { id: 'esri-satellite', type: 'raster', source: 'esri-satellite', minzoom: 0, maxzoom: 19 },
-          {
-            id: 'landplot-circles',
-            type: 'circle',
-            source: 'landplot',
-            minzoom: 0,
-            paint: {
-              'circle-radius': ['interpolate', ['linear'], ['zoom'], 8, 4, 12, 8, 16, 14],
-              'circle-color': ['match', ['get', 'tier'], 1, '#22c55e', 2, '#eab308', 3, '#ef4444', '#94a3b8'],
-              'circle-stroke-width': 1.5,
-              'circle-stroke-color': '#fff'
-            }
-          }
+          { id: 'esri-satellite', type: 'raster', source: 'esri-satellite', minzoom: 0, maxzoom: 19 }
         ]
       };
 
@@ -80,22 +101,113 @@
         zoom: 10
       });
 
+      function updateZoomDisplay() {
+        var el = document.getElementById('zoom-display');
+        if (el) el.textContent = 'Zoom: ' + (map.getZoom() ? map.getZoom().toFixed(1) : '—');
+      }
+      map.on('zoom', updateZoomDisplay);
+      updateZoomDisplay();
+
       map.on('load', function() {
+        updateZoomDisplay();
         if (useMapboxSatellite) {
-          map.addSource('landplot', { type: 'geojson', data: geojsonUrl });
-          map.addLayer({
-            id: 'landplot-circles',
-            type: 'circle',
-            source: 'landplot',
-            minzoom: 0,
-            paint: {
-              'circle-radius': ['interpolate', ['linear'], ['zoom'], 8, 4, 12, 8, 16, 14],
-              'circle-color': ['match', ['get', 'tier'], 1, '#22c55e', 2, '#eab308', 3, '#ef4444', '#94a3b8'],
-              'circle-stroke-width': 1.5,
-              'circle-stroke-color': '#fff'
-            }
+          map.addSource('landplot-tiles', {
+            type: 'vector',
+            tiles: [mvtTilesUrl],
+            minzoom: 2,
+            maxzoom: 14
           });
         }
+
+        var iconBase = origin + '/static/1acre-icons/';
+        function loadImage(id, url) {
+          return new Promise(function(resolve, reject) {
+            var img = new Image();
+            img.onload = function() { resolve({ id: id, img: img }); };
+            img.onerror = function() { resolve({ id: id, img: null }); };
+            img.crossOrigin = 'anonymous';
+            img.src = url;
+          });
+        }
+        // Default marker (circle) for missing/failed icons; size chosen for visibility
+        var size = 40;
+        var defaultCanvas = document.createElement('canvas');
+        defaultCanvas.width = size;
+        defaultCanvas.height = size;
+        var ctx = defaultCanvas.getContext('2d');
+        ctx.fillStyle = '#22c55e';
+        ctx.beginPath();
+        ctx.arc(size / 2, size / 2, size / 2 - 2, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        map.addImage('default-marker', ctx.getImageData(0, 0, size, size), { pixelRatio: 2 });
+
+        // Fetch GeoJSON only to collect unique marker_ids for icon loading; map data comes from MVT tiles
+        fetch(geojsonUrl)
+          .then(function(r) { return r.json(); })
+          .then(function(geojson) {
+            var features = geojson && geojson.features ? geojson.features : [];
+            var seen = {};
+            var toLoad = [];
+            features.forEach(function(f) {
+              var p = f.properties || {};
+              var type = (p.type || 'land').toLowerCase();
+              var markerId = p.marker_id || (type === 'land' ? 'land-0' : 'plot-0');
+              var key = type + '|' + markerId;
+              if (seen[key]) return;
+              seen[key] = true;
+              toLoad.push({ type: type, marker_id: markerId, url: iconBase + iconPath(type, markerId) });
+            });
+            var defaultData = ctx.getImageData(0, 0, size, size);
+            return Promise.all(toLoad.map(function(o) { return loadImage(o.marker_id, o.url); })).then(function(loaded) {
+              loaded.forEach(function(o) {
+                if (o.img && o.img.width && o.img.height) {
+                  map.addImage(o.id, o.img, { pixelRatio: 2 });
+                } else {
+                  map.addImage(o.id, defaultData, { pixelRatio: 2 });
+                }
+              });
+            });
+          })
+          .then(function() {
+            map.addLayer({
+              id: 'landplot-symbols',
+              type: 'symbol',
+              source: 'landplot-tiles',
+              'source-layer': 'landplot',
+              minzoom: 2,
+              maxzoom: 14,
+              layout: {
+                'icon-image': ['coalesce', ['get', 'marker_id'], 'default-marker'],
+                'icon-size': ['interpolate', ['linear'], ['zoom'], 8, 1.0, 12, 1.4, 16, 1.9],
+                'icon-allow-overlap': true,
+                'icon-ignore-placement': true
+              },
+              paint: {}
+            });
+            addLandPlotListeners();
+          })
+          .catch(function(err) {
+            console.error('Land/plot icons load failed:', err);
+            map.addLayer({
+              id: 'landplot-symbols',
+              type: 'symbol',
+              source: 'landplot-tiles',
+              'source-layer': 'landplot',
+              minzoom: 2,
+              maxzoom: 14,
+              layout: {
+                'icon-image': 'default-marker',
+                'icon-size': ['interpolate', ['linear'], ['zoom'], 8, 1.0, 12, 1.4, 16, 1.9],
+                'icon-allow-overlap': true,
+                'icon-ignore-placement': true
+              },
+              paint: {}
+            });
+            addLandPlotListeners();
+          });
 
         var popup = new maplibregl.Popup({ closeButton: true, closeOnClick: false });
         function formatPrice(n) {
@@ -106,51 +218,45 @@
           if (x >= 1e3) return (x / 1e3).toFixed(1) + ' K';
           return String(x);
         }
-        map.on('mousemove', 'landplot-circles', function(e) {
-          map.getCanvas().style.cursor = 'pointer';
-          var f = e.features && e.features[0];
-          if (!f) return;
-          var p = f.properties;
-          var type = (p.type || '').toLowerCase();
-          var tier = p.tier;
-          var tierLabel = tier === 1 ? 'Low' : tier === 2 ? 'Mid' : 'High';
-          var price = formatPrice(p.total_price);
-          var size = p.size != null && p.size > 0 ? p.size + ' ' + (p.size_label || '') : '—';
-          var status = p.status || '—';
-          var slug = p.slug ? (p.slug.length > 30 ? p.slug.slice(0, 30) + '…' : p.slug) : '—';
-          var html = '<div class="popup-title">' + (type === 'land' ? 'Land' : 'Plot') + ' (Tier: ' + tierLabel + ')</div>' +
-            '<div class="popup-row popup-price">Price: ' + price + '</div>' +
-            '<div class="popup-row">Size: ' + size + '</div>' +
-            '<div class="popup-row">Status: ' + status + '</div>' +
-            (slug !== '—' ? '<div class="popup-row">' + slug + '</div>' : '');
-          popup.setLngLat(e.lngLat).setHTML(html).addTo(map);
-        });
-        map.on('mouseleave', 'landplot-circles', function() {
-          map.getCanvas().style.cursor = '';
-          popup.remove();
-        });
+        function addLandPlotListeners() {
+          // Hover: show only marker title (marker_label from MVT)
+          map.on('mousemove', 'landplot-symbols', function(e) {
+            map.getCanvas().style.cursor = 'pointer';
+            var f = e.features && e.features[0];
+            if (!f) return;
+            var markerTitle = (f.properties && (f.properties.marker_label || '')).trim();
+            var html = markerTitle
+              ? '<div class="popup-title">' + markerTitle.replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</div>'
+              : '<div class="popup-title">' + ((f.properties && f.properties.type) === 'plot' ? 'Plot' : 'Land') + '</div>';
+            popup.setLngLat(e.lngLat).setHTML(html).addTo(map);
+          });
+          map.on('mouseleave', 'landplot-symbols', function() {
+            map.getCanvas().style.cursor = '';
+            popup.remove();
+          });
 
-        var detailPopup = new maplibregl.Popup({ closeButton: true, closeOnClick: false, maxWidth: '520px' });
-        map.on('click', 'landplot-circles', function(e) {
-          var f = e.features && e.features[0];
-          if (!f || !f.properties) return;
-          e.originalEvent.preventDefault();
-          var props = f.properties;
-          var backendId = props.id;
-          var listingType = (props.type || 'land').toLowerCase();
-          var coords = e.lngLat;
-          detailPopup.setLngLat(coords).setHTML('<div class="detail-loading">Loading full details…</div>').addTo(map);
-          fetch(origin + '/api/enrichment-lookup/', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ listing_type: listingType, ids: [backendId] })
-          })
-            .then(function(res) { return res.json(); })
-            .then(function(data) { detailPopup.setHTML(buildDetailHtml(data, listingType)); })
-            .catch(function(err) {
-              detailPopup.setHTML('<div class="detail-error">Failed to load details: ' + err.message + '</div>');
-            });
-        });
+          var detailPopup = new maplibregl.Popup({ closeButton: true, closeOnClick: false, maxWidth: '520px' });
+          map.on('click', 'landplot-symbols', function(e) {
+            var f = e.features && e.features[0];
+            if (!f || !f.properties) return;
+            e.originalEvent.preventDefault();
+            var props = f.properties;
+            var backendId = props.id;
+            var listingType = (props.type || 'land').toLowerCase();
+            var coords = e.lngLat;
+            detailPopup.setLngLat(coords).setHTML('<div class="detail-loading">Loading full details…</div>').addTo(map);
+            fetch(origin + '/api/enrichment-lookup/', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ listing_type: listingType, ids: [backendId] })
+            })
+              .then(function(res) { return res.json(); })
+              .then(function(data) { detailPopup.setHTML(buildDetailHtml(data, listingType)); })
+              .catch(function(err) {
+                detailPopup.setHTML('<div class="detail-error">Failed to load details: ' + err.message + '</div>');
+              });
+          });
+        }
       });
 
       function renderValue(v) {

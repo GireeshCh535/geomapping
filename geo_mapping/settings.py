@@ -210,7 +210,13 @@ USE_TZ = True
 STATIC_URL = '/static/'
 STATIC_ROOT = BASE_DIR / 'staticfiles'
 _static_dir = BASE_DIR / 'static'
-STATICFILES_DIRS = [_static_dir] if _static_dir.exists() else []
+_1acre_icons_dir = BASE_DIR / '1acre-icons'
+STATICFILES_DIRS = []
+if _static_dir.exists():
+    STATICFILES_DIRS.append(_static_dir)
+# Serve 1acre-icons at /static/1acre-icons/{type}/{folder}/{marker_id}.svg (e.g. plot/owner/plot-owner-1.svg)
+if _1acre_icons_dir.exists():
+    STATICFILES_DIRS.append(('1acre-icons', _1acre_icons_dir))
 
 # Custom StaticFiles configuration to explicitly exclude all tile files
 STATICFILES_FINDERS = [

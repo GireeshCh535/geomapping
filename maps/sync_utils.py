@@ -77,6 +77,7 @@ def defaults_for_land(item):
         'approach_road_length': _f(p.get('approach_road_length')),
         'lgd_slug': _str_trunc(p.get('lgd_slug'), 500),
         'marker_title': _str_trunc(p.get('marker_title'), 500),
+        'marker_id': _str_trunc(p.get('marker_id'), 80),
     }
     pt = _point_from_lat_lng(lat, lng)
     if pt is not None:
@@ -106,6 +107,7 @@ def defaults_for_plot(item):
         'abutting_road_length': _f(p.get('abutting_road_length')),
         'lgd_slug': _str_trunc(p.get('lgd_slug'), 500),
         'marker_title': _str_trunc(p.get('marker_title'), 500),
+        'marker_id': _str_trunc(p.get('marker_id'), 80),
     }
     pt = _point_from_lat_lng(lat, lng)
     if pt is not None:
