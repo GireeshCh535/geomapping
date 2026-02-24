@@ -6153,13 +6153,17 @@ class LandPlotWebhookView(APIView):
                     except Exception as cache_err:
                         logger.warning(f"[LAND_PLOT_WEBHOOK] Layer point count cache refresh failed: {cache_err}", exc_info=True)
 
-            # Refresh land/plot MVT tiles for this listing's location (S3 + CloudFront)
+            # Refresh land/plot MVT tiles in background so webhook returns 200 quickly (avoids blocking workers)
             if lat is not None and lng is not None:
-                try:
-                    from maps.land_plot_tile_refresh import refresh_tiles_for_listing
-                    refresh_tiles_for_listing(lat, lng)
-                except Exception as tile_err:
-                    logger.warning(f"[LAND_PLOT_WEBHOOK] Tile refresh failed: {tile_err}", exc_info=True)
+                import threading
+                def _run_tile_refresh():
+                    try:
+                        from maps.land_plot_tile_refresh import refresh_tiles_for_listing
+                        refresh_tiles_for_listing(lat, lng)
+                    except Exception as tile_err:
+                        logger.warning(f"[LAND_PLOT_WEBHOOK] Tile refresh failed: {tile_err}", exc_info=True)
+                t = threading.Thread(target=_run_tile_refresh, daemon=True)
+                t.start()
 
             return Response(
                 {"status": "success", "event_type": event_type, "listing_type": listing_type, "listing_id": listing_id},
