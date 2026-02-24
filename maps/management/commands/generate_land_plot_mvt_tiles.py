@@ -58,10 +58,12 @@ def tile_mercator_bounds(x, y, z):
 
 
 def get_price_percentiles():
-    """Compute 33rd and 66th percentile of total_price per type for 3 tiers."""
+    """Compute 33rd and 66th percentile of total_price per type for 3 tiers (active+public only)."""
     land_prices = list(
         SyncedLand.objects.filter(
-            location_point__isnull=False
+            location_point__isnull=False,
+            status='active',
+            exposure_type='public',
         ).exclude(
             total_price__isnull=True
         ).values_list("total_price", flat=True)
@@ -74,7 +76,9 @@ def get_price_percentiles():
 
     plot_prices = list(
         SyncedPlot.objects.filter(
-            location_point__isnull=False
+            location_point__isnull=False,
+            status='active',
+            exposure_type='public',
         ).exclude(
             total_price__isnull=True
         ).values_list("total_price", flat=True)
@@ -115,6 +119,169 @@ def marker_id_for_listing(obj, listing_type):
         if mid:
             return mid
     return "land-0" if listing_type == "land" else "plot-0"
+
+
+def build_land_plot_tile_mvt(z, x, y, percentiles=None, swap_lat_long=False):
+    """
+    Build MVT bytes for a single land/plot tile (z, x, y).
+    Uses active+public filter. If percentiles is None, compute from active+public data.
+    Returns bytes (empty tile encoded as MVT if no features).
+    """
+    if percentiles is None:
+        percentiles = get_price_percentiles()
+    land_p33, land_p66 = percentiles["land"]
+    plot_p33, plot_p66 = percentiles["plot"]
+
+    bounds = mercantile.bounds(x, y, z)
+    south_buf = bounds.south - TILE_QUERY_BUFFER_DEG
+    north_buf = bounds.north + TILE_QUERY_BUFFER_DEG
+    west_buf = bounds.west - TILE_QUERY_BUFFER_DEG
+    east_buf = bounds.east + TILE_QUERY_BUFFER_DEG
+
+    features = []
+
+    lands = SyncedLand.objects.filter(
+        lat__isnull=False,
+        long__isnull=False,
+        lat__gte=south_buf,
+        lat__lte=north_buf,
+        long__gte=west_buf,
+        long__lte=east_buf,
+        status='active',
+        exposure_type='public',
+    ).only(
+        "backend_id", "total_price", "total_land_size", "slug", "status",
+        "lat", "long", "marker_id", "marker_title", "payload",
+    )
+    for obj in lands:
+        try:
+            if swap_lat_long:
+                lon, lat = float(obj.lat), float(obj.long)
+            else:
+                lon, lat = float(obj.long), float(obj.lat)
+        except (TypeError, ValueError):
+            continue
+        if not (bounds.west <= lon <= bounds.east and bounds.south <= lat <= bounds.north):
+            continue
+        price = obj.total_price
+        if price is not None:
+            try:
+                price = float(price)
+            except (TypeError, ValueError):
+                price = None
+        t = tier_for_price(price, land_p33, land_p66)
+        size = obj.total_land_size
+        if size is not None:
+            try:
+                size = float(size)
+            except (TypeError, ValueError):
+                size = None
+        marker_id = marker_id_for_listing(obj, "land")
+        features.append({
+            "lon": lon,
+            "lat": lat,
+            "type": "land",
+            "backend_id": obj.backend_id,
+            "total_price": price or 0,
+            "size": size,
+            "size_label": "acres",
+            "slug": (obj.slug or "")[:200],
+            "status": obj.status or "",
+            "tier": t,
+            "sort_key": price or 0,
+            "marker_id": marker_id,
+            "marker_label": (obj.marker_title or "")[:200],
+        })
+
+    plots = SyncedPlot.objects.filter(
+        lat__isnull=False,
+        long__isnull=False,
+        lat__gte=south_buf,
+        lat__lte=north_buf,
+        long__gte=west_buf,
+        long__lte=east_buf,
+        status='active',
+        exposure_type='public',
+    ).only(
+        "backend_id", "total_price", "total_plot_size", "slug", "status",
+        "lat", "long", "marker_id", "marker_title", "payload",
+    )
+    for obj in plots:
+        try:
+            if swap_lat_long:
+                lon, lat = float(obj.lat), float(obj.long)
+            else:
+                lon, lat = float(obj.long), float(obj.lat)
+        except (TypeError, ValueError):
+            continue
+        if not (bounds.west <= lon <= bounds.east and bounds.south <= lat <= bounds.north):
+            continue
+        price = obj.total_price
+        if price is not None:
+            try:
+                price = float(price)
+            except (TypeError, ValueError):
+                price = None
+        t = tier_for_price(price, plot_p33, plot_p66)
+        size = obj.total_plot_size
+        if size is not None:
+            try:
+                size = float(size)
+            except (TypeError, ValueError):
+                size = None
+        marker_id = marker_id_for_listing(obj, "plot")
+        features.append({
+            "lon": lon,
+            "lat": lat,
+            "type": "plot",
+            "backend_id": obj.backend_id,
+            "total_price": price or 0,
+            "size": size,
+            "size_label": "sqyd",
+            "slug": (obj.slug or "")[:200],
+            "status": obj.status or "",
+            "tier": t,
+            "sort_key": price or 0,
+            "marker_id": marker_id,
+            "marker_label": (obj.marker_title or "")[:200],
+        })
+
+    features.sort(key=lambda f: f["sort_key"])
+
+    extent = 4096
+    merc_west, merc_south, merc_east, merc_north = tile_mercator_bounds(x, y, z)
+    mvt_features = []
+    for f in features:
+        mx, my = lon_lat_to_mercator(f["lon"], f["lat"])
+        props = {
+            "id": f["backend_id"],
+            "type": f["type"],
+            "total_price": f["total_price"],
+            "size": f["size"] if f["size"] is not None else 0,
+            "size_label": f["size_label"],
+            "slug": f["slug"],
+            "status": f["status"],
+            "tier": f["tier"],
+            "sort_key": f["sort_key"],
+            "marker_id": f.get("marker_id") or ("land-0" if f["type"] == "land" else "plot-0"),
+            "marker_label": f.get("marker_label") or "",
+        }
+        mvt_features.append({
+            "geometry": {"type": "Point", "coordinates": [mx, my]},
+            "properties": props,
+        })
+
+    layer_data = [
+        {"name": "landplot", "features": mvt_features},
+    ]
+    mvt_bytes = mapbox_vector_tile.encode(
+        layer_data,
+        default_options={
+            "quantize_bounds": (merc_west, merc_south, merc_east, merc_north),
+            "extents": extent,
+        },
+    )
+    return mvt_bytes
 
 
 class Command(BaseCommand):
@@ -230,180 +397,13 @@ class Command(BaseCommand):
                     skipped_zoom += 1
                     continue
 
-                bounds = mercantile.bounds(x, y, z)
-                # Query by scalar lat/long range (no dependency on location_point geometry)
-                south_buf = bounds.south - TILE_QUERY_BUFFER_DEG
-                north_buf = bounds.north + TILE_QUERY_BUFFER_DEG
-                west_buf = bounds.west - TILE_QUERY_BUFFER_DEG
-                east_buf = bounds.east + TILE_QUERY_BUFFER_DEG
-
-                features = []
-
-                # Lands in this tile
-                lands = SyncedLand.objects.filter(
-                    lat__isnull=False,
-                    long__isnull=False,
-                    lat__gte=south_buf,
-                    lat__lte=north_buf,
-                    long__gte=west_buf,
-                    long__lte=east_buf,
-                ).only(
-                    "backend_id", "total_price", "total_land_size", "slug", "status",
-                    "lat", "long", "marker_id", "marker_title", "payload",
-                )
-                for obj in lands:
-                    # Use scalar columns. If --swap-lat-long: DB 'lat' is longitude, 'long' is latitude.
-                    try:
-                        if swap_lat_long:
-                            lon, lat = float(obj.lat), float(obj.long)
-                        else:
-                            lon, lat = float(obj.long), float(obj.lat)
-                    except (TypeError, ValueError):
-                        continue
-                    # Only include if inside strict tile bounds (buffer was for query only)
-                    if not (bounds.west <= lon <= bounds.east and bounds.south <= lat <= bounds.north):
-                        continue
-                    price = obj.total_price
-                    if price is not None:
-                        try:
-                            price = float(price)
-                        except (TypeError, ValueError):
-                            price = None
-                    t = tier_for_price(price, land_p33, land_p66)
-                    size = obj.total_land_size
-                    if size is not None:
-                        try:
-                            size = float(size)
-                        except (TypeError, ValueError):
-                            size = None
-                    marker_id = marker_id_for_listing(obj, "land")
-                    features.append({
-                        "lon": lon,
-                        "lat": lat,
-                        "type": "land",
-                        "backend_id": obj.backend_id,
-                        "total_price": price or 0,
-                        "size": size,
-                        "size_label": "acres",
-                        "slug": (obj.slug or "")[:200],
-                        "status": obj.status or "",
-                        "tier": t,
-                        "sort_key": price or 0,
-                        "marker_id": marker_id,
-                        "marker_label": (obj.marker_title or "")[:200],
-                    })
-
-                # Plots in this tile
-                plots = SyncedPlot.objects.filter(
-                    lat__isnull=False,
-                    long__isnull=False,
-                    lat__gte=south_buf,
-                    lat__lte=north_buf,
-                    long__gte=west_buf,
-                    long__lte=east_buf,
-                ).only(
-                    "backend_id", "total_price", "total_plot_size", "slug", "status",
-                    "lat", "long", "marker_id", "marker_title", "payload",
-                )
-                for obj in plots:
-                    # Use scalar columns. If --swap-lat-long: DB 'lat' is longitude, 'long' is latitude.
-                    try:
-                        if swap_lat_long:
-                            lon, lat = float(obj.lat), float(obj.long)
-                        else:
-                            lon, lat = float(obj.long), float(obj.lat)
-                    except (TypeError, ValueError):
-                        continue
-                    if not (bounds.west <= lon <= bounds.east and bounds.south <= lat <= bounds.north):
-                        continue
-                    price = obj.total_price
-                    if price is not None:
-                        try:
-                            price = float(price)
-                        except (TypeError, ValueError):
-                            price = None
-                    t = tier_for_price(price, plot_p33, plot_p66)
-                    size = obj.total_plot_size
-                    if size is not None:
-                        try:
-                            size = float(size)
-                        except (TypeError, ValueError):
-                            size = None
-                    marker_id = marker_id_for_listing(obj, "plot")
-                    features.append({
-                        "lon": lon,
-                        "lat": lat,
-                        "type": "plot",
-                        "backend_id": obj.backend_id,
-                        "total_price": price or 0,
-                        "size": size,
-                        "size_label": "sqyd",
-                        "slug": (obj.slug or "")[:200],
-                        "status": obj.status or "",
-                        "tier": t,
-                        "sort_key": price or 0,
-                        "marker_id": marker_id,
-                        "marker_label": (obj.marker_title or "")[:200],
-                    })
-
-                # Sort by sort_key ascending so higher price is drawn last (on top)
-                features.sort(key=lambda f: f["sort_key"])
-
-                # Build MVT using Web Mercator (EPSG:3857) coordinates.
-                #
-                # WHY Mercator and not raw lon/lat:
-                #   mapbox_vector_tile with quantize_bounds does LINEAR interpolation
-                #   between the tile's corner coordinates. Longitude is linear, but
-                #   latitude is NOT linear in Web Mercator — at low zoom levels
-                #   (2–7) one tile covers a huge lat range and the Mercator warp is
-                #   large enough to shift points noticeably north/south between zooms.
-                #   Converting to EPSG:3857 meters first makes everything linear, so
-                #   quantize_bounds produces correct pixel positions at every zoom.
-                extent = 4096
-                merc_west, merc_south, merc_east, merc_north = tile_mercator_bounds(x, y, z)
-
-                mvt_features = []
-                for f in features:
-                    mx, my = lon_lat_to_mercator(f["lon"], f["lat"])
-                    props = {
-                        "id": f["backend_id"],
-                        "type": f["type"],
-                        "total_price": f["total_price"],
-                        "size": f["size"] if f["size"] is not None else 0,
-                        "size_label": f["size_label"],
-                        "slug": f["slug"],
-                        "status": f["status"],
-                        "tier": f["tier"],
-                        "sort_key": f["sort_key"],
-                        "marker_id": f.get("marker_id") or ("land-0" if f["type"] == "land" else "plot-0"),
-                        "marker_label": f.get("marker_label") or "",
-                    }
-                    mvt_features.append({
-                        # Mercator meters — quantize_bounds maps these linearly to 0..extent
-                        "geometry": {"type": "Point", "coordinates": [mx, my]},
-                        "properties": props,
-                    })
-
-                # encode() expects a list of layers with "name" and "features".
-                layer_data = [
-                    {"name": "landplot", "features": mvt_features},
-                ]
-                # quantize_bounds: (west, south, east, north) in same units as geometry
-                # (EPSG:3857 meters). The library linearly maps this range to 0..extents.
-                mvt_bytes = mapbox_vector_tile.encode(
-                    layer_data,
-                    default_options={
-                        "quantize_bounds": (merc_west, merc_south, merc_east, merc_north),
-                        "extents": extent,
-                    },
-                )
-
+                mvt_bytes = build_land_plot_tile_mvt(z, x, y, percentiles=percentiles, swap_lat_long=swap_lat_long)
                 tile_dir.mkdir(parents=True, exist_ok=True)
                 tile_file.write_bytes(mvt_bytes)
                 written_zoom += 1
                 total_written += 1
                 if verbose and total_written <= 5:
-                    self.stdout.write(f"  {z}/{x}/{y}.mvt  features={len(features)}")
+                    self.stdout.write(f"  {z}/{x}/{y}.mvt  size={len(mvt_bytes)} bytes")
 
             self.stdout.write(f"  Zoom {zoom}: wrote {written_zoom} tiles, skipped existing {skipped_zoom}")
 

@@ -6080,6 +6080,7 @@ class LandPlotWebhookView(APIView):
             )
             logger.info(f"[LAND_PLOT_WEBHOOK] Saved: {action} {listing_type} {listing_id}")
 
+            lat, lng = None, None  # for layer cache and tile refresh
             # Sync into SyncedLand / SyncedPlot so DB stays in sync with 1acre-be (full listing_data stored in payload)
             if action in ('created', 'updated'):
                 item = dict(listing_data) if listing_data else {}
@@ -6113,7 +6114,6 @@ class LandPlotWebhookView(APIView):
                         get_layer_ids_containing_point,
                         refresh_layer_point_count_cache,
                     )
-                    lat, lng = None, None
                     if getattr(record, 'location_point', None) and not record.location_point.empty:
                         lat, lng = record.location_point.y, record.location_point.x
                     if lat is None or lng is None:
@@ -6127,7 +6127,6 @@ class LandPlotWebhookView(APIView):
                 except Exception as cache_err:
                     logger.warning(f"[LAND_PLOT_WEBHOOK] Layer point count cache refresh failed: {cache_err}", exc_info=True)
             elif action == 'deleted':
-                lat, lng = None, None
                 if listing_type == 'land':
                     rec = SyncedLand.objects.filter(backend_id=listing_id).first()
                     if rec and getattr(rec, 'location_point', None) and not rec.location_point.empty:
@@ -6153,6 +6152,14 @@ class LandPlotWebhookView(APIView):
                             refresh_layer_point_count_cache(layer_ids=affected)
                     except Exception as cache_err:
                         logger.warning(f"[LAND_PLOT_WEBHOOK] Layer point count cache refresh failed: {cache_err}", exc_info=True)
+
+            # Refresh land/plot MVT tiles for this listing's location (S3 + CloudFront)
+            if lat is not None and lng is not None:
+                try:
+                    from maps.land_plot_tile_refresh import refresh_tiles_for_listing
+                    refresh_tiles_for_listing(lat, lng)
+                except Exception as tile_err:
+                    logger.warning(f"[LAND_PLOT_WEBHOOK] Tile refresh failed: {tile_err}", exc_info=True)
 
             return Response(
                 {"status": "success", "event_type": event_type, "listing_type": listing_type, "listing_id": listing_id},
@@ -7315,9 +7322,11 @@ LandPlotLocalTileView = LandPlotTileView
 
 
 def _land_plot_price_percentiles():
-    """Compute 33rd and 66th percentile of total_price per type for 3 tiers."""
+    """Compute 33rd and 66th percentile of total_price per type for 3 tiers (active+public only)."""
     land_prices = list(
-        SyncedLand.objects.filter(location_point__isnull=False)
+        SyncedLand.objects.filter(
+            location_point__isnull=False, status='active', exposure_type='public'
+        )
         .exclude(total_price__isnull=True)
         .values_list("total_price", flat=True)
     )
@@ -7327,7 +7336,9 @@ def _land_plot_price_percentiles():
     land_p66 = land_prices[int(n_land * 0.66)] if n_land else 0
 
     plot_prices = list(
-        SyncedPlot.objects.filter(location_point__isnull=False)
+        SyncedPlot.objects.filter(
+            location_point__isnull=False, status='active', exposure_type='public'
+        )
         .exclude(total_price__isnull=True)
         .values_list("total_price", flat=True)
     )
@@ -7376,8 +7387,10 @@ class LandPlotGeoJSONView(APIView):
 
         features = []
 
-        for obj in SyncedLand.objects.filter(location_point__isnull=False).only(
-            "backend_id", "total_price", "total_land_size", "slug", "status", "location_point", "lat", "long", "marker_id", "payload"
+        for obj in SyncedLand.objects.filter(
+            location_point__isnull=False, status='active', exposure_type='public'
+        ).only(
+            "backend_id", "total_price", "total_land_size", "slug", "status", "exposure_type", "location_point", "lat", "long", "marker_id", "payload"
         ):
             pt = obj.location_point
             if not pt:
@@ -7417,8 +7430,10 @@ class LandPlotGeoJSONView(APIView):
                 },
             })
 
-        for obj in SyncedPlot.objects.filter(location_point__isnull=False).only(
-            "backend_id", "total_price", "total_plot_size", "slug", "status", "location_point", "lat", "long", "marker_id", "payload"
+        for obj in SyncedPlot.objects.filter(
+            location_point__isnull=False, status='active', exposure_type='public'
+        ).only(
+            "backend_id", "total_price", "total_plot_size", "slug", "status", "exposure_type", "location_point", "lat", "long", "marker_id", "payload"
         ):
             pt = obj.location_point
             if not pt:

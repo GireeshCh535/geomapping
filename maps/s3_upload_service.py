@@ -1,4 +1,5 @@
 # maps/services/s3_upload_service.py
+import io
 import boto3
 import os
 from pathlib import Path
@@ -59,7 +60,51 @@ class S3TileUploadService:
         except Exception as e:
             logger.error(f"Unexpected error uploading {s3_key}: {e}")
             return {'success': False, 'error': str(e)}
-    
+
+    def delete_object(self, s3_key):
+        """Delete a single object from S3. Treat 404 (NoSuchKey) as success."""
+        try:
+            self.s3_client.delete_object(Bucket=self.bucket_name, Key=s3_key)
+            return {'success': True}
+        except ClientError as e:
+            error_code = e.response.get('Error', {}).get('Code', '')
+            if error_code == 'NoSuchKey':
+                return {'success': True}
+            logger.error(f"Failed to delete {s3_key}: {e}")
+            return {'success': False, 'error': str(e)}
+        except Exception as e:
+            logger.error(f"Unexpected error deleting {s3_key}: {e}")
+            return {'success': False, 'error': str(e)}
+
+    def upload_bytes(self, data, s3_key, content_type='application/vnd.mapbox-vector-tile', **extra_args):
+        """Upload bytes to S3 (e.g. MVT tile). Uses no-cache headers by default."""
+        try:
+            default_extra = {
+                'ContentType': content_type,
+                'CacheControl': 'no-cache, no-store, must-revalidate',
+                'Pragma': 'no-cache',
+                'Expires': '0',
+            }
+            default_extra.update(extra_args)
+            file_obj = io.BytesIO(data)
+            self.s3_client.upload_fileobj(
+                file_obj,
+                self.bucket_name,
+                s3_key,
+                ExtraArgs=default_extra,
+            )
+            return {
+                'success': True,
+                's3_key': s3_key,
+                'size': len(data),
+            }
+        except ClientError as e:
+            logger.error(f"Failed to upload bytes to {s3_key}: {e}")
+            return {'success': False, 'error': str(e)}
+        except Exception as e:
+            logger.error(f"Unexpected error uploading bytes to {s3_key}: {e}")
+            return {'success': False, 'error': str(e)}
+
     def upload_city_tiles(self, city_slug, tile_type='png'):
         """Upload all tiles for a specific city"""
         
