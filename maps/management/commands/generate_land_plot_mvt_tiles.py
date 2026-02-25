@@ -9,9 +9,9 @@ universal_masterplan_tile_generator:
 - Use a small buffer when querying points so edge points are included.
 - 3 price tiers (low / mid / high) per type for coloring.
 
-S3 serving: Upload generated tiles to the same bucket as PNGs (see settings
-AWS_STORAGE_BUCKET_NAME, CLOUDFRONT_DOMAIN). Use S3 key prefix: land-plot/
-(i.e. land-plot/{z}/{x}/{y}.mvt). The API serves tiles from CloudFront → S3
+S3 serving: Use --upload to upload generated tiles to S3 after generation.
+Bucket from settings AWS_STORAGE_BUCKET_NAME (e.g. gis-portal-layers), prefix: land-plot/
+(i.e. s3://<bucket>/land-plot/{z}/{x}/{y}.mvt). The API serves tiles from CloudFront → S3
 → local in that order (LandPlotTileView).
 """
 
@@ -71,8 +71,8 @@ def get_price_percentiles():
     land_prices = [float(p) for p in land_prices if p is not None and p > 0]
     land_prices.sort()
     n_land = len(land_prices)
-    land_p33 = land_prices[int(n_land * 0.33)] if n_land else 0
-    land_p66 = land_prices[int(n_land * 0.66)] if n_land else 0
+    land_p33 = land_prices[int(n_land * 0.33)] if n_land > 0 else 0
+    land_p66 = land_prices[int(n_land * 0.66)] if n_land > 0 else 0
 
     plot_prices = list(
         SyncedPlot.objects.filter(
@@ -86,8 +86,8 @@ def get_price_percentiles():
     plot_prices = [float(p) for p in plot_prices if p is not None and p > 0]
     plot_prices.sort()
     n_plot = len(plot_prices)
-    plot_p33 = plot_prices[int(n_plot * 0.33)] if n_plot else 0
-    plot_p66 = plot_prices[int(n_plot * 0.66)] if n_plot else 0
+    plot_p33 = plot_prices[int(n_plot * 0.33)] if n_plot > 0 else 0
+    plot_p66 = plot_prices[int(n_plot * 0.66)] if n_plot > 0 else 0
 
     return {
         "land": (land_p33, land_p66),
@@ -333,6 +333,11 @@ class Command(BaseCommand):
             action="store_true",
             help="Treat DB 'lat' as longitude and 'long' as latitude (use if points appear in ocean/wrong place)",
         )
+        parser.add_argument(
+            "--upload",
+            action="store_true",
+            help="Upload generated tiles to S3 after generation (s3://<bucket>/land-plot/{z}/{x}/{y}.mvt)",
+        )
 
     def handle(self, *args, **options):
         output_dir = options["output_dir"]
@@ -343,6 +348,7 @@ class Command(BaseCommand):
         swap_lat_long = options.get("swap_lat_long", False)
         verbose = options["verbose"]
         skip_existing = options.get("skip_existing", False)
+        do_upload = options.get("upload", False)
 
         try:
             w, s, e, n = [float(x) for x in bounds_str.split(",")]
@@ -412,3 +418,60 @@ class Command(BaseCommand):
                 f"Done. Written {total_written} tiles total, skipped existing {total_skipped_existing}"
             )
         )
+
+        if do_upload:
+            self._upload_tiles_to_s3(out_path)
+
+    def _upload_tiles_to_s3(self, out_path: Path):
+        """Upload all .mvt files under out_path to S3 at land-plot/{z}/{x}/{y}.mvt."""
+        from maps.s3_upload_service import S3TileUploadService
+        from maps.tile_path_service import TilePathService
+
+        tile_path_service = TilePathService()
+        bucket = tile_path_service.bucket_name
+        prefix = tile_path_service.LAND_PLOT_S3_PREFIX
+        self.stdout.write(f"Uploading tiles to s3://{bucket}/{prefix}/ ...")
+
+        s3_service = S3TileUploadService()
+        mvt_files = sorted(out_path.rglob("*.mvt"))
+        if not mvt_files:
+            self.stdout.write(self.style.WARNING("No .mvt files found to upload."))
+            return
+
+        uploaded = 0
+        failed = 0
+        for tile_file in mvt_files:
+            try:
+                # Path structure: out_path / z / x / y.mvt
+                rel = tile_file.relative_to(out_path)
+                parts = rel.parts
+                if len(parts) != 3:
+                    continue
+                z_str, x_str, y_name = parts
+                if not y_name.endswith(".mvt"):
+                    continue
+                z, x = int(z_str), int(x_str)
+                y = int(y_name[:-4])
+                s3_key = tile_path_service.land_plot_s3_key(z, x, y)
+                data = tile_file.read_bytes()
+                result = s3_service.upload_bytes(
+                    data,
+                    s3_key,
+                    content_type="application/vnd.mapbox-vector-tile",
+                )
+                if result.get("success"):
+                    uploaded += 1
+                else:
+                    failed += 1
+                    self.stdout.write(
+                        self.style.ERROR(f"  Upload failed {s3_key}: {result.get('error', 'unknown')}")
+                    )
+            except Exception as e:
+                failed += 1
+                self.stdout.write(self.style.ERROR(f"  Upload failed {tile_file}: {e}"))
+
+        self.stdout.write(
+            self.style.SUCCESS(f"Uploaded {uploaded} tiles to s3://{bucket}/{prefix}/")
+        )
+        if failed:
+            self.stdout.write(self.style.WARNING(f"  {failed} upload(s) failed."))
