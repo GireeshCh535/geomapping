@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 # Zoom range for land/plot tiles (align with command and tile serving)
 LAND_PLOT_MIN_ZOOM = 2
-LAND_PLOT_MAX_ZOOM = 14
+LAND_PLOT_MAX_ZOOM = 18
 
 
 def get_affected_land_plot_tile_keys(

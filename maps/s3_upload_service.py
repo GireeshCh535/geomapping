@@ -32,11 +32,10 @@ class S3TileUploadService:
             if not content_type:
                 content_type = 'application/octet-stream'
             
-            # No caching - always serve fresh content
+            # No caching - always serve fresh content (S3 only allows CacheControl, Expires, etc.)
             extra_args = {
                 'ContentType': content_type,
-                'CacheControl': 'no-cache, no-store, must-revalidate',  # No caching
-                'Pragma': 'no-cache',
+                'CacheControl': 'no-cache, no-store, must-revalidate',
                 'Expires': '0'
             }
             
@@ -82,7 +81,6 @@ class S3TileUploadService:
             default_extra = {
                 'ContentType': content_type,
                 'CacheControl': 'no-cache, no-store, must-revalidate',
-                'Pragma': 'no-cache',
                 'Expires': '0',
             }
             default_extra.update(extra_args)

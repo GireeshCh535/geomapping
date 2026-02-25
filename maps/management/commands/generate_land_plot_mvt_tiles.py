@@ -16,6 +16,7 @@ Bucket from settings AWS_STORAGE_BUCKET_NAME (e.g. gis-portal-layers), prefix: l
 """
 
 import math
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 import mapbox_vector_tile
@@ -297,14 +298,14 @@ class Command(BaseCommand):
         parser.add_argument(
             "--min-zoom",
             type=int,
-            default=8,
-            help="Min zoom (default 8)",
+            default=2,
+            help="Min zoom (default 2)",
         )
         parser.add_argument(
             "--max-zoom",
             type=int,
-            default=14,
-            help="Max zoom (default 14)",
+            default=18,
+            help="Max zoom (default 18)",
         )
         parser.add_argument(
             "--bounds",
@@ -336,7 +337,25 @@ class Command(BaseCommand):
         parser.add_argument(
             "--upload",
             action="store_true",
-            help="Upload generated tiles to S3 after generation (s3://<bucket>/land-plot/{z}/{x}/{y}.mvt)",
+            help="Upload each tile to S3 as it is generated (no local save).",
+        )
+        parser.add_argument(
+            "--s3-bucket",
+            type=str,
+            default="gis-portal-layers",
+            help="S3 bucket for upload (default: gis-portal-layers). Used only with --upload.",
+        )
+        parser.add_argument(
+            "--s3-prefix",
+            type=str,
+            default="land-plot",
+            help="S3 key prefix (default: land-plot). Tiles go to s3://<bucket>/<prefix>/{z}/{x}/{y}.mvt",
+        )
+        parser.add_argument(
+            "--workers",
+            type=int,
+            default=16,
+            help="Number of parallel workers for generate+upload when using --upload (default: 16). Increase for faster uploads.",
         )
 
     def handle(self, *args, **options):
@@ -349,6 +368,9 @@ class Command(BaseCommand):
         verbose = options["verbose"]
         skip_existing = options.get("skip_existing", False)
         do_upload = options.get("upload", False)
+        workers = max(1, int(options.get("workers") or 16))
+        s3_bucket = (options.get("s3_bucket") or "gis-portal-layers").strip()
+        s3_prefix = (options.get("s3_prefix") or "land-plot").strip().rstrip("/")
 
         try:
             w, s, e, n = [float(x) for x in bounds_str.split(",")]
@@ -356,11 +378,21 @@ class Command(BaseCommand):
             self.stdout.write(self.style.ERROR("Invalid --bounds; use west,south,east,north"))
             return
 
-        out_path = Path(output_dir)
-        if not out_path.is_absolute():
-            out_path = Path(settings.BASE_DIR) / out_path
-        out_path.mkdir(parents=True, exist_ok=True)
-        self.stdout.write(f"Output: {out_path}")
+        out_path = None
+        if not do_upload:
+            out_path = Path(output_dir)
+            if not out_path.is_absolute():
+                out_path = Path(settings.BASE_DIR) / out_path
+            out_path.mkdir(parents=True, exist_ok=True)
+            self.stdout.write(f"Output: {out_path}")
+        else:
+            from maps.s3_upload_service import S3TileUploadService
+            s3_service = S3TileUploadService()
+            s3_service.bucket_name = s3_bucket
+            bucket = s3_bucket
+            prefix = s3_prefix
+            self.stdout.write(f"Upload only (no local save): s3://{bucket}/{prefix}/  (workers={workers})")
+
         self.stdout.write(f"Bounds: {w},{s},{e},{n}  Zoom: {min_zoom}-{max_zoom}")
 
         percentiles = get_price_percentiles()
@@ -371,9 +403,6 @@ class Command(BaseCommand):
             f"Plot price tiers (33%%/66%%): {percentiles['plot'][0]:.0f} / {percentiles['plot'][1]:.0f}"
         )
 
-        land_p33, land_p66 = percentiles["land"]
-        plot_p33, plot_p66 = percentiles["plot"]
-
         # Expand bounds slightly (like universal_line_styled) so full tile grid is generated
         tile_size_deg = 360.0 / (2 ** max_zoom)
         buffer_deg = min(tile_size_deg * 2, 0.01)
@@ -382,6 +411,13 @@ class Command(BaseCommand):
 
         total_written = 0
         total_skipped_existing = 0
+        total_uploaded = 0
+        total_upload_failed = 0
+
+        # Progress print interval when uploading (every N tiles)
+        upload_progress_interval = 500
+        # Chunk size for parallel upload (submit this many tiles at a time)
+        upload_chunk_size = 1000
 
         for zoom in range(min_zoom, max_zoom + 1):
             tiles_for_zoom = list(mercantile.tiles(w_exp, s_exp, e_exp, n_exp, zooms=[zoom]))
@@ -389,89 +425,86 @@ class Command(BaseCommand):
                 tiles_for_zoom = tiles_for_zoom[:limit]
                 if limit <= 0:
                     continue
-            zoom_dir = out_path / str(zoom)
-            zoom_dir.mkdir(parents=True, exist_ok=True)
+            num_tiles_zoom = len(tiles_for_zoom)
+            self.stdout.write(f"")
+            self.stdout.write(f"Zoom {zoom}: processing {num_tiles_zoom} tiles...")
+
+            zoom_dir = out_path / str(zoom) if out_path else None
+            if zoom_dir is not None:
+                zoom_dir.mkdir(parents=True, exist_ok=True)
             written_zoom = 0
             skipped_zoom = 0
+            uploaded_zoom = 0
+            failed_zoom = 0
 
-            for tile in tiles_for_zoom:
-                z, x, y = tile.z, tile.x, tile.y
-                tile_dir = zoom_dir / str(x)
-                tile_file = tile_dir / f"{y}.mvt"
-                if skip_existing and tile_file.exists():
-                    total_skipped_existing += 1
-                    skipped_zoom += 1
-                    continue
+            if do_upload:
+                # Parallel: process in chunks, each tile = generate + upload in a worker
+                def process_one_tile(tile):
+                    z, x, y = tile.z, tile.x, tile.y
+                    try:
+                        mvt_bytes = build_land_plot_tile_mvt(
+                            z, x, y, percentiles=percentiles, swap_lat_long=swap_lat_long
+                        )
+                        s3_key = f"{prefix}/{z}/{x}/{y}.mvt"
+                        result = s3_service.upload_bytes(
+                            mvt_bytes,
+                            s3_key,
+                            content_type="application/vnd.mapbox-vector-tile",
+                        )
+                        return result.get("success"), None
+                    except Exception as e:
+                        return False, str(e)
 
-                mvt_bytes = build_land_plot_tile_mvt(z, x, y, percentiles=percentiles, swap_lat_long=swap_lat_long)
-                tile_dir.mkdir(parents=True, exist_ok=True)
-                tile_file.write_bytes(mvt_bytes)
-                written_zoom += 1
-                total_written += 1
-                if verbose and total_written <= 5:
-                    self.stdout.write(f"  {z}/{x}/{y}.mvt  size={len(mvt_bytes)} bytes")
+                processed = 0
+                with ThreadPoolExecutor(max_workers=workers) as executor:
+                    for chunk_start in range(0, len(tiles_for_zoom), upload_chunk_size):
+                        chunk = tiles_for_zoom[chunk_start : chunk_start + upload_chunk_size]
+                        futures = {executor.submit(process_one_tile, t): t for t in chunk}
+                        for future in as_completed(futures):
+                            success, err = future.result()
+                            if success:
+                                total_uploaded += 1
+                                uploaded_zoom += 1
+                            else:
+                                total_upload_failed += 1
+                                failed_zoom += 1
+                                if err:
+                                    self.stdout.write(self.style.ERROR(f"  Upload failed: {err}"))
+                            processed += 1
+                        # Progress every chunk (e.g. every 1000 tiles)
+                        self.stdout.write(f"  Zoom {zoom}: {uploaded_zoom}/{num_tiles_zoom} uploaded (total: {total_uploaded})")
+                self.stdout.write(f"  Zoom {zoom}: done — uploaded {uploaded_zoom}, failed {failed_zoom}")
+            else:
+                for idx, tile in enumerate(tiles_for_zoom):
+                    z, x, y = tile.z, tile.x, tile.y
+                    tile_dir = zoom_dir / str(x)
+                    tile_file = tile_dir / f"{y}.mvt"
+                    if skip_existing and tile_file.exists():
+                        total_skipped_existing += 1
+                        skipped_zoom += 1
+                        continue
 
-            self.stdout.write(f"  Zoom {zoom}: wrote {written_zoom} tiles, skipped existing {skipped_zoom}")
+                    mvt_bytes = build_land_plot_tile_mvt(z, x, y, percentiles=percentiles, swap_lat_long=swap_lat_long)
+                    tile_dir.mkdir(parents=True, exist_ok=True)
+                    tile_file.write_bytes(mvt_bytes)
+                    written_zoom += 1
+                    total_written += 1
 
-        self.stdout.write(
-            self.style.SUCCESS(
-                f"Done. Written {total_written} tiles total, skipped existing {total_skipped_existing}"
-            )
-        )
+                    if verbose and total_written <= 5:
+                        self.stdout.write(f"  {z}/{x}/{y}.mvt  size={len(mvt_bytes)} bytes")
+
+                self.stdout.write(f"  Zoom {zoom}: wrote {written_zoom} tiles, skipped existing {skipped_zoom}")
 
         if do_upload:
-            self._upload_tiles_to_s3(out_path)
-
-    def _upload_tiles_to_s3(self, out_path: Path):
-        """Upload all .mvt files under out_path to S3 at land-plot/{z}/{x}/{y}.mvt."""
-        from maps.s3_upload_service import S3TileUploadService
-        from maps.tile_path_service import TilePathService
-
-        tile_path_service = TilePathService()
-        bucket = tile_path_service.bucket_name
-        prefix = tile_path_service.LAND_PLOT_S3_PREFIX
-        self.stdout.write(f"Uploading tiles to s3://{bucket}/{prefix}/ ...")
-
-        s3_service = S3TileUploadService()
-        mvt_files = sorted(out_path.rglob("*.mvt"))
-        if not mvt_files:
-            self.stdout.write(self.style.WARNING("No .mvt files found to upload."))
-            return
-
-        uploaded = 0
-        failed = 0
-        for tile_file in mvt_files:
-            try:
-                # Path structure: out_path / z / x / y.mvt
-                rel = tile_file.relative_to(out_path)
-                parts = rel.parts
-                if len(parts) != 3:
-                    continue
-                z_str, x_str, y_name = parts
-                if not y_name.endswith(".mvt"):
-                    continue
-                z, x = int(z_str), int(x_str)
-                y = int(y_name[:-4])
-                s3_key = tile_path_service.land_plot_s3_key(z, x, y)
-                data = tile_file.read_bytes()
-                result = s3_service.upload_bytes(
-                    data,
-                    s3_key,
-                    content_type="application/vnd.mapbox-vector-tile",
+            self.stdout.write(
+                self.style.SUCCESS(
+                    f"Done. Uploaded {total_uploaded} tiles to s3://{bucket}/{prefix}/"
+                    + (f", {total_upload_failed} failed." if total_upload_failed else "")
                 )
-                if result.get("success"):
-                    uploaded += 1
-                else:
-                    failed += 1
-                    self.stdout.write(
-                        self.style.ERROR(f"  Upload failed {s3_key}: {result.get('error', 'unknown')}")
-                    )
-            except Exception as e:
-                failed += 1
-                self.stdout.write(self.style.ERROR(f"  Upload failed {tile_file}: {e}"))
-
-        self.stdout.write(
-            self.style.SUCCESS(f"Uploaded {uploaded} tiles to s3://{bucket}/{prefix}/")
-        )
-        if failed:
-            self.stdout.write(self.style.WARNING(f"  {failed} upload(s) failed."))
+            )
+        else:
+            self.stdout.write(
+                self.style.SUCCESS(
+                    f"Done. Written {total_written} tiles total, skipped existing {total_skipped_existing}"
+                )
+            )
