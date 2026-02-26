@@ -54,7 +54,7 @@ services:
       - CLOUDFRONT_DISTRIBUTION_ID=E3VZOEKNMYD012
       - ENABLE_CLOUDFRONT_INVALIDATION=True  # ✅ PROD: Enable CloudFront invalidation
       - DEVELOPER_BACKEND_API_URL=${DEVELOPER_BACKEND_API_URL:-https://be.1acre.in}
-      - WEB_CONCURRENCY=4  # Number of gunicorn workers (adjust based on CPU cores)
+      - WEB_CONCURRENCY=2  # Use 2 on 2-CPU servers to avoid OOM; increase if more CPUs/RAM
     depends_on:
       - db
       - redis

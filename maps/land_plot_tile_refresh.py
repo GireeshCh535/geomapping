@@ -20,9 +20,9 @@ logger = logging.getLogger(__name__)
 LAND_PLOT_MIN_ZOOM = 2
 LAND_PLOT_MAX_ZOOM = 18
 
-# Parallel workers: this many generators and this many uploaders (pipeline)
-REFRESH_GENERATE_WORKERS = 8
-REFRESH_UPLOAD_WORKERS = 8
+# Parallel workers: keep minimal (server often has 2 CPUs + 4 Gunicorn workers; avoid starving API)
+REFRESH_GENERATE_WORKERS = 1
+REFRESH_UPLOAD_WORKERS = 1
 
 
 def get_affected_land_plot_tile_keys(

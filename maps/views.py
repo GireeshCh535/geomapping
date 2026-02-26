@@ -5616,45 +5616,57 @@ class DeveloperListingMediaWebhookView(APIView):
                         existing_media_obj.delete()
                         deleted_count += 1
             
-            # Process TIF files if any
+            # Process TIF files in background so the webhook returns immediately (avoids OOM and blocking API)
             if tif_files:
-                from .developer_listing_tile_service import DeveloperListingTileService
-                tile_service = DeveloperListingTileService()
-                result = tile_service.process_webhook(data, listing=listing, webhook_event=webhook_event)
-                logger.info(f"[WEBHOOK_RECEIVE] Tile generation completed: {result.get('total_tiles_generated', 0)} tiles")
-                
-                # Update webhook event with results
-                webhook_event.processed = True
-                webhook_event.processed_at = timezone.now()
-                webhook_event.tiles_generated = result.get('total_tiles_generated', 0)
-                webhook_event.tif_files_processed = result.get('tif_files_processed', 0)
-                webhook_event.processing_result = result
-                webhook_event.save()
-                
-                if result.get('success'):
-                    return Response(
-                        {
-                            "status": "success",
-                            "message": f"Webhook processed for {listing_type} {listing_id}",
-                            "tiles_generated": result.get('total_tiles_generated', 0),
-                            "tif_files_processed": result.get('tif_files_processed', 0),
-                            "details": result
-                        },
-                        status=status.HTTP_200_OK
-                    )
-                else:
-                    error_msg = result.get('error', 'Unknown error')
-                    logger.error(f"[WEBHOOK_RECEIVE] Tile processing failed: {error_msg}")
-                    webhook_event.processing_error = error_msg
-                    webhook_event.save()
-                    return Response(
-                        {
-                            "status": "error",
-                            "message": f"Error processing tiles: {result.get('error')}",
-                            "details": result
-                        },
-                        status=status.HTTP_500_INTERNAL_SERVER_ERROR
-                    )
+                import threading
+                from django.utils import timezone as tz
+                webhook_event_id = webhook_event.id
+                listing_pk = listing.pk
+                data_snapshot = dict(data)
+
+                def _run_developer_tile_webhook():
+                    try:
+                        from .models import DeveloperListing, WebhookEvent
+                        from .developer_listing_tile_service import DeveloperListingTileService
+                        listing_ref = DeveloperListing.objects.get(pk=listing_pk)
+                        webhook_ref = WebhookEvent.objects.get(pk=webhook_event_id)
+                        tile_service = DeveloperListingTileService()
+                        result = tile_service.process_webhook(
+                            data_snapshot, listing=listing_ref, webhook_event=webhook_ref
+                        )
+                        logger.info(
+                            f"[WEBHOOK_RECEIVE] Tile generation (background) completed: "
+                            f"{result.get('total_tiles_generated', 0)} tiles"
+                        )
+                        webhook_ref.processed = True
+                        webhook_ref.processed_at = tz.now()
+                        webhook_ref.tiles_generated = result.get('total_tiles_generated', 0)
+                        webhook_ref.tif_files_processed = result.get('tif_files_processed', 0)
+                        webhook_ref.processing_result = result
+                        webhook_ref.processing_error = None if result.get('success') else result.get('error', '')
+                        webhook_ref.save()
+                    except Exception as e:
+                        logger.exception(f"[WEBHOOK_RECEIVE] Background tile processing failed: {e}")
+                        try:
+                            from .models import WebhookEvent
+                            webhook_ref = WebhookEvent.objects.get(pk=webhook_event_id)
+                            webhook_ref.processing_error = str(e)
+                            webhook_ref.save()
+                        except Exception:
+                            pass
+
+                t = threading.Thread(target=_run_developer_tile_webhook, daemon=True)
+                t.start()
+                return Response(
+                    {
+                        "status": "success",
+                        "message": "Webhook received; TIF tile generation started in background.",
+                        "tiles_generated": 0,
+                        "tif_files_processed": len(tif_files),
+                        "note": "Check webhook event record for final result.",
+                    },
+                    status=status.HTTP_200_OK
+                )
             else:
                 webhook_event.processed = True
                 webhook_event.processed_at = timezone.now()

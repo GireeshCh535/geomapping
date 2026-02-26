@@ -354,8 +354,8 @@ class Command(BaseCommand):
         parser.add_argument(
             "--workers",
             type=int,
-            default=4,
-            help="Number of parallel workers for generate+upload when using --upload (default: 4).",
+            default=1,
+            help="Parallel workers for --upload (default: 1). Run via 'docker-compose run --rm web ...' so API stays up; do not run with exec in the live web container.",
         )
 
     def handle(self, *args, **options):
@@ -368,7 +368,7 @@ class Command(BaseCommand):
         verbose = options["verbose"]
         skip_existing = options.get("skip_existing", False)
         do_upload = options.get("upload", False)
-        workers = max(1, int(options.get("workers") or 4))
+        workers = max(1, int(options.get("workers") or 1))
         s3_bucket = (options.get("s3_bucket") or "gis-portal-layers").strip()
         s3_prefix = (options.get("s3_prefix") or "land-plot").strip().rstrip("/")
 
@@ -392,6 +392,12 @@ class Command(BaseCommand):
             bucket = s3_bucket
             prefix = s3_prefix
             self.stdout.write(f"Upload only (no local save): s3://{bucket}/{prefix}/  (workers={workers})")
+            self.stdout.write(
+                self.style.WARNING(
+                    "To avoid blocking the live API, run this in a separate container: "
+                    "docker-compose run --rm web python manage.py generate_land_plot_mvt_tiles ..."
+                )
+            )
 
         self.stdout.write(f"Bounds: {w},{s},{e},{n}  Zoom: {min_zoom}-{max_zoom}")
 
