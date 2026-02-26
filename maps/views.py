@@ -3318,7 +3318,7 @@ def _build_layer_data_optimized(layer, state_slug, city_slug, feature_count_map)
 
 
 def _build_layer_data_full_trimmed(layer, state_slug, city_slug, feature_count_map):
-    """Trimmed layer payload for hierarchy v2: no categories object, styling, processing_status, tile_info, metadata, statistics."""
+    """Trimmed layer payload for hierarchy v2: id, name, slug, feature_count; tile_urls only when present."""
     layer_feature_count = feature_count_map.get(layer.id, 0)
     tile_urls = None
     if layer.tiles_generated:
@@ -3331,35 +3331,15 @@ def _build_layer_data_full_trimmed(layer, state_slug, city_slug, feature_count_m
             'cloudfront_base': f"https://{base_url}/{state_slug}/{city_slug}/{layer.slug}/",
             'api_base': f"/api/tiles/{state_slug}/{city_slug}/{layer.slug}/"
         }
-    return {
+    out = {
         'id': layer.id,
         'name': layer.name,
         'slug': layer.slug,
-        'description': layer.description or '',
-        'is_true': layer.is_true,
-        'file_info': {
-            'original_filename': layer.original_filename,
-            'file_format': layer.file_format,
-            'file_path': layer.file_path,
-            'is_directory': layer.is_directory,
-            'file_pattern': layer.file_pattern,
-            'source_files_count': len(layer.source_files) if layer.source_files else 0
-        },
-        'category': layer.category.code if layer.category else None,
-        'geometry_info': {
-            'geometry_type': layer.geometry_type,
-            'has_valid_bbox': layer.has_valid_bbox(),
-            'bounds': {
-                'xmin': layer.bbox_xmin,
-                'ymin': layer.bbox_ymin,
-                'xmax': layer.bbox_xmax,
-                'ymax': layer.bbox_ymax
-            } if layer.has_valid_bbox() else None,
-            'center_point': layer.get_center_point()
-        },
         'feature_count': layer_feature_count,
-        'tile_urls': tile_urls
     }
+    if tile_urls is not None:
+        out['tile_urls'] = tile_urls
+    return out
 
 
 class OptimizedHierarchyAPIView(APIView):
@@ -3368,9 +3348,8 @@ class OptimizedHierarchyAPIView(APIView):
 
     - One bulk query for all layer feature counts (no N+1).
     - Response cached for 5 minutes (invalidate by query param ?refresh=1).
-    - Full response excludes: categories, map_settings, styling, display_settings; per-layer excludes
-      category object, processing_status, tile_info, metadata, statistics (only id, name, slug,
-      description, file_info, geometry_info, category code, feature_count, tile_urls).
+    - Full response: no categories/map_settings/styling; layers have id, name, slug, feature_count,
+      and tile_urls only when tiles exist; layer_groups have id, name, slug, layers only.
     - ?minimal=1 returns a lean payload: no styling, no file_info/metadata, only structure + ids, slugs, bounds, tile URL.
 
     GET /api/hierarchy/v2/           full response (trimmed)
@@ -3563,9 +3542,6 @@ class OptimizedHierarchyAPIView(APIView):
                         'id': layer_group.id,
                         'name': layer_group.name,
                         'slug': layer_group.slug,
-                        'description': layer_group.description or '',
-                        'directory_path': layer_group.directory_path,
-                        'category': layer_group.category.code if layer_group.category else None,
                         'layers': group_layers
                     }
                     city_layer_groups.append(layer_group_data)
