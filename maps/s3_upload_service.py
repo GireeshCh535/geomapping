@@ -60,6 +60,19 @@ class S3TileUploadService:
             logger.error(f"Unexpected error uploading {s3_key}: {e}")
             return {'success': False, 'error': str(e)}
 
+    def object_exists(self, s3_key):
+        """Return True if the S3 object exists, False if 404 / NoSuchKey."""
+        try:
+            self.s3_client.head_object(Bucket=self.bucket_name, Key=s3_key)
+            return True
+        except ClientError as e:
+            code = e.response.get('Error', {}).get('Code', '')
+            if code in ('404', 'NoSuchKey'):
+                return False
+            raise
+        except Exception:
+            raise
+
     def delete_object(self, s3_key):
         """Delete a single object from S3. Treat 404 (NoSuchKey) as success."""
         try:

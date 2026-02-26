@@ -327,7 +327,7 @@ class Command(BaseCommand):
         parser.add_argument(
             "--skip-existing",
             action="store_true",
-            help="Skip writing if tile file already exists (like universal generators)",
+            help="Skip if tile already exists (local file when not using --upload, S3 object when using --upload). Use to resume after a stopped run.",
         )
         parser.add_argument(
             "--swap-lat-long",
@@ -413,6 +413,7 @@ class Command(BaseCommand):
         total_skipped_existing = 0
         total_uploaded = 0
         total_upload_failed = 0
+        total_skipped_s3 = 0
 
         # Progress print interval when uploading (every N tiles)
         upload_progress_interval = 500
@@ -436,44 +437,58 @@ class Command(BaseCommand):
             skipped_zoom = 0
             uploaded_zoom = 0
             failed_zoom = 0
+            skipped_zoom_s3 = 0
 
             if do_upload:
-                # Parallel: process in chunks, each tile = generate + upload in a worker
+                # Parallel: process in chunks, each tile = (optional skip if exists on S3) + generate + upload
                 def process_one_tile(tile):
                     z, x, y = tile.z, tile.x, tile.y
+                    s3_key = f"{prefix}/{z}/{x}/{y}.mvt"
                     try:
+                        if skip_existing:
+                            if s3_service.object_exists(s3_key):
+                                return "skipped", None
                         mvt_bytes = build_land_plot_tile_mvt(
                             z, x, y, percentiles=percentiles, swap_lat_long=swap_lat_long
                         )
-                        s3_key = f"{prefix}/{z}/{x}/{y}.mvt"
                         result = s3_service.upload_bytes(
                             mvt_bytes,
                             s3_key,
                             content_type="application/vnd.mapbox-vector-tile",
                         )
-                        return result.get("success"), None
+                        if result.get("success"):
+                            return "uploaded", None
+                        return "failed", result.get("error", "upload failed")
                     except Exception as e:
-                        return False, str(e)
+                        return "failed", str(e)
 
-                processed = 0
+                skipped_zoom_s3 = 0
                 with ThreadPoolExecutor(max_workers=workers) as executor:
                     for chunk_start in range(0, len(tiles_for_zoom), upload_chunk_size):
                         chunk = tiles_for_zoom[chunk_start : chunk_start + upload_chunk_size]
                         futures = {executor.submit(process_one_tile, t): t for t in chunk}
                         for future in as_completed(futures):
-                            success, err = future.result()
-                            if success:
+                            status, err = future.result()
+                            if status == "uploaded":
                                 total_uploaded += 1
                                 uploaded_zoom += 1
+                            elif status == "skipped":
+                                total_skipped_s3 += 1
+                                skipped_zoom_s3 += 1
                             else:
                                 total_upload_failed += 1
                                 failed_zoom += 1
                                 if err:
                                     self.stdout.write(self.style.ERROR(f"  Upload failed: {err}"))
-                            processed += 1
-                        # Progress every chunk (e.g. every 1000 tiles)
-                        self.stdout.write(f"  Zoom {zoom}: {uploaded_zoom}/{num_tiles_zoom} uploaded (total: {total_uploaded})")
-                self.stdout.write(f"  Zoom {zoom}: done — uploaded {uploaded_zoom}, failed {failed_zoom}")
+                        # Progress every chunk
+                        self.stdout.write(
+                            f"  Zoom {zoom}: {uploaded_zoom}/{num_tiles_zoom} uploaded, "
+                            f"{skipped_zoom_s3} skipped (total uploaded: {total_uploaded})"
+                        )
+                total_skipped_s3 += skipped_zoom_s3
+                self.stdout.write(
+                    f"  Zoom {zoom}: done — uploaded {uploaded_zoom}, skipped {skipped_zoom_s3}, failed {failed_zoom}"
+                )
             else:
                 for idx, tile in enumerate(tiles_for_zoom):
                     z, x, y = tile.z, tile.x, tile.y
@@ -496,12 +511,12 @@ class Command(BaseCommand):
                 self.stdout.write(f"  Zoom {zoom}: wrote {written_zoom} tiles, skipped existing {skipped_zoom}")
 
         if do_upload:
-            self.stdout.write(
-                self.style.SUCCESS(
-                    f"Done. Uploaded {total_uploaded} tiles to s3://{bucket}/{prefix}/"
-                    + (f", {total_upload_failed} failed." if total_upload_failed else "")
-                )
-            )
+            msg = f"Done. Uploaded {total_uploaded} tiles to s3://{bucket}/{prefix}/"
+            if total_skipped_s3:
+                msg += f", skipped {total_skipped_s3} (already on S3)."
+            if total_upload_failed:
+                msg += f" {total_upload_failed} failed."
+            self.stdout.write(self.style.SUCCESS(msg))
         else:
             self.stdout.write(
                 self.style.SUCCESS(
