@@ -354,8 +354,8 @@ class Command(BaseCommand):
         parser.add_argument(
             "--workers",
             type=int,
-            default=16,
-            help="Number of parallel workers for generate+upload when using --upload (default: 16). Increase for faster uploads.",
+            default=4,
+            help="Number of parallel workers for generate+upload when using --upload (default: 4).",
         )
 
     def handle(self, *args, **options):
@@ -368,7 +368,7 @@ class Command(BaseCommand):
         verbose = options["verbose"]
         skip_existing = options.get("skip_existing", False)
         do_upload = options.get("upload", False)
-        workers = max(1, int(options.get("workers") or 16))
+        workers = max(1, int(options.get("workers") or 4))
         s3_bucket = (options.get("s3_bucket") or "gis-portal-layers").strip()
         s3_prefix = (options.get("s3_prefix") or "land-plot").strip().rstrip("/")
 
