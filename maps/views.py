@@ -3910,7 +3910,7 @@ class S3DirectTileView(APIView):
             aws_access_key_id=getattr(settings, 'AWS_ACCESS_KEY_ID', None),
             aws_secret_access_key=getattr(settings, 'AWS_SECRET_ACCESS_KEY', None)
         )
-        self.bucket_name = 'testing-gis-layers'
+        self.bucket_name = 'gis-portal-layers'
     
     def get(self, request, state_slug, city_slug, layer_slug, z, x, y):
         """Serve tiles directly from S3"""
