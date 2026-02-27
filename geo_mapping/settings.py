@@ -431,3 +431,14 @@ DEVELOPER_BACKEND_API_URL = os.getenv(
     'DEVELOPER_BACKEND_API_URL',
     'http://be.staging.1acre.in'  # Default to staging, can be overridden via env var
 )
+
+# --------------------------------------------
+# Lambda-based tile generation (optional)
+# When enabled, webhook invokes Lambda instead of in-process thread.
+# --------------------------------------------
+TILE_USE_LAMBDA = os.getenv('TILE_USE_LAMBDA', 'false').lower() == 'true'
+TILE_GENERATION_LAMBDA_ARN = os.getenv('TILE_GENERATION_LAMBDA_ARN', '')
+TILE_CALLBACK_SECRET = os.getenv('TILE_CALLBACK_SECRET', '')
+# Callback URL is built from request in the webhook view (request.build_absolute_uri).
+# If your app is behind a proxy and build_absolute_uri is wrong, set this to e.g. https://layers.1acre.in
+TILE_CALLBACK_BASE_URL = os.getenv('TILE_CALLBACK_BASE_URL', '')

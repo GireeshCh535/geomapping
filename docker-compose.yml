@@ -55,6 +55,10 @@ services:
       - ENABLE_CLOUDFRONT_INVALIDATION=True  # ✅ PROD: Enable CloudFront invalidation
       - DEVELOPER_BACKEND_API_URL=${DEVELOPER_BACKEND_API_URL:-https://be.1acre.in}
       - WEB_CONCURRENCY=2  # Use 2 on 2-CPU servers to avoid OOM; increase if more CPUs/RAM
+      - TILE_CALLBACK_SECRET=4dc12ebfb1325bb9eee09446efd056ad0f389513876efcfecd22dac6618178bf
+      - TILE_USE_LAMBDA=true
+      - TILE_GENERATION_LAMBDA_ARN=arn:aws:lambda:ap-south-1:471112704924:function:geomapping-tile-gen
+      - TILE_CALLBACK_BASE_URL=https://layers.1acre.in
     depends_on:
       - db
       - redis

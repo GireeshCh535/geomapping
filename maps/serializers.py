@@ -413,13 +413,14 @@ class DeveloperListingMediaMinimalSerializer(serializers.ModelSerializer):
 
 class WebhookEventSerializer(serializers.ModelSerializer):
     """Serializer for webhook events"""
-    
+
     class Meta:
         model = WebhookEvent
         fields = [
             'id', 'event_type', 'action', 'listing_type', 'listing_id',
             'payload', 'processed', 'processed_at', 'processing_error',
             'tiles_generated', 'tif_files_processed', 'processing_result',
+            'tile_generation_logs',
             'request_ip', 'received_at', 'created_at'
         ]
 

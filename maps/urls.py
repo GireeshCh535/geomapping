@@ -101,6 +101,10 @@ urlpatterns = [
     path('webhooks/developer-listing-media/',
          views.DeveloperListingMediaWebhookView.as_view(),
          name='developer-listing-media-webhook'),
+    # Callback for Lambda (or external worker) tile generation result + logs
+    path('webhooks/tile-generation-result/',
+         views.TileGenerationCallbackView.as_view(),
+         name='tile-generation-callback'),
 
     # Webhook endpoint for Land and Plot (regular listings) create/update/delete
     path('webhooks/land-plot/',

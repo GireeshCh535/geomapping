@@ -1033,6 +1033,7 @@ class WebhookEventAdmin(AuditFieldsMixin, admin.ModelAdmin):
         "payload_display",
         "raw_body",
         "processing_result_display",
+        "tile_generation_logs_display",
         "request_headers_display",
         "deletion_summary",
         "received_at",
@@ -1061,6 +1062,11 @@ class WebhookEventAdmin(AuditFieldsMixin, admin.ModelAdmin):
         ("Processing Result", {
             "fields": ("processing_result_display",),
             "classes": ("collapse",)
+        }),
+        ("Tile generation logs (Lambda callback)", {
+            "fields": ("tile_generation_logs_display",),
+            "classes": ("collapse",),
+            "description": "Log lines from Lambda/external tile worker (when using TILE_USE_LAMBDA)"
         }),
     )
     
@@ -1214,6 +1220,24 @@ class WebhookEventAdmin(AuditFieldsMixin, admin.ModelAdmin):
         return format_html(
             '<pre style="max-height: 400px; overflow-y: auto; background: #f5f5f5; padding: 10px; border: 1px solid #ddd; font-size: 0.9em;">{}</pre>',
             result_str
+        )
+    
+    @admin.display(description="Tile generation logs")
+    def tile_generation_logs_display(self, obj):
+        if not obj.tile_generation_logs:
+            return "—"
+        lines = []
+        for entry in obj.tile_generation_logs[:500]:
+            ts = entry.get("ts", "")
+            level = entry.get("level", "info")
+            msg = entry.get("msg", "")
+            lines.append(f"[{ts}] [{level}] {msg}")
+        log_text = "\n".join(lines)
+        if len(obj.tile_generation_logs) > 500:
+            log_text += f"\n... and {len(obj.tile_generation_logs) - 500} more lines"
+        return format_html(
+            '<pre style="max-height: 400px; overflow-y: auto; background: #f0f8ff; padding: 10px; border: 1px solid #ddd; font-size: 0.85em;">{}</pre>',
+            log_text
         )
     
     @admin.display(description="Request Headers (JSON)")

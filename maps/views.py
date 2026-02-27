@@ -5348,6 +5348,59 @@ def _print_webhook_response(webhook_name, data):
     # logger.info("%s\n%s", banner, json_str)
 
 
+class TileGenerationCallbackView(APIView):
+    """
+    Callback endpoint for Lambda (or external tile worker) to report tile generation
+    results and logs. Secured by X-Tile-Callback-Secret header.
+    """
+    authentication_classes = []
+    permission_classes = [AllowAny]
+    http_method_names = ['post']
+
+    def post(self, request):
+        from .models import WebhookEvent
+        secret = request.headers.get('X-Tile-Callback-Secret', '')
+        expected = getattr(settings, 'TILE_CALLBACK_SECRET', '') or ''
+        if expected and secret != expected:
+            logger.warning("[TILE_CALLBACK] Rejected: missing or invalid X-Tile-Callback-Secret")
+            return Response({'error': 'Unauthorized'}, status=status.HTTP_401_UNAUTHORIZED)
+        try:
+            data = request.data if getattr(request.data, 'get', None) else {}
+            if not data and request.body:
+                data = json.loads(request.body.decode('utf-8', errors='replace'))
+        except Exception as e:
+            logger.warning(f"[TILE_CALLBACK] Invalid JSON body: {e}")
+            return Response({'error': 'Invalid JSON'}, status=status.HTTP_400_BAD_REQUEST)
+        webhook_event_id = data.get('webhook_event_id')
+        if webhook_event_id is None:
+            return Response({'error': 'webhook_event_id required'}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            webhook_event = WebhookEvent.objects.get(pk=webhook_event_id)
+        except WebhookEvent.DoesNotExist:
+            logger.warning(f"[TILE_CALLBACK] WebhookEvent id={webhook_event_id} not found")
+            return Response({'error': 'WebhookEvent not found'}, status=status.HTTP_404_NOT_FOUND)
+        webhook_event.processed = True
+        webhook_event.processed_at = timezone.now()
+        webhook_event.tiles_generated = int(data.get('tiles_generated', 0))
+        webhook_event.tif_files_processed = int(data.get('tif_files_processed', 0))
+        webhook_event.processing_result = data.get('processing_result') if isinstance(data.get('processing_result'), dict) else {}
+        webhook_event.processing_error = str(data.get('processing_error', ''))[:65535]
+        logs = data.get('logs')
+        if isinstance(logs, list):
+            webhook_event.tile_generation_logs = [
+                {'ts': str(item.get('ts', '')), 'level': str(item.get('level', 'info')), 'msg': str(item.get('msg', ''))}
+                for item in logs[:10000]
+            ]
+        else:
+            webhook_event.tile_generation_logs = []
+        webhook_event.save()
+        logger.info(
+            f"[TILE_CALLBACK] Updated webhook_event_id={webhook_event_id} "
+            f"tiles_generated={webhook_event.tiles_generated} logs_count={len(webhook_event.tile_generation_logs)}"
+        )
+        return Response({'status': 'ok', 'webhook_event_id': webhook_event_id}, status=status.HTTP_200_OK)
+
+
 class DeveloperListingMediaWebhookView(APIView):
     """
     Webhook endpoint to receive notifications when developer listing media files
@@ -5616,57 +5669,101 @@ class DeveloperListingMediaWebhookView(APIView):
                         existing_media_obj.delete()
                         deleted_count += 1
             
-            # Process TIF files in background so the webhook returns immediately (avoids OOM and blocking API)
+            # Process TIF files: either invoke Lambda (when configured) or run in-process background thread
             if tif_files:
-                import threading
-                from django.utils import timezone as tz
-                webhook_event_id = webhook_event.id
-                listing_pk = listing.pk
-                data_snapshot = dict(data)
-
-                def _run_developer_tile_webhook():
+                use_lambda = getattr(settings, 'TILE_USE_LAMBDA', False) and getattr(settings, 'TILE_GENERATION_LAMBDA_ARN', '')
+                if use_lambda:
+                    # Invoke Lambda asynchronously; Lambda will callback to update WebhookEvent + logs
+                    from django.urls import reverse
+                    callback_path = reverse('tile-generation-callback')
+                    callback_url = request.build_absolute_uri(callback_path)
+                    base_url = getattr(settings, 'TILE_CALLBACK_BASE_URL', '').strip()
+                    if base_url:
+                        callback_url = base_url.rstrip('/') + callback_path
+                    payload = {
+                        'webhook_event_id': webhook_event.id,
+                        'callback_url': callback_url,
+                        'callback_secret': getattr(settings, 'TILE_CALLBACK_SECRET', ''),
+                        'listing_type': listing_type,
+                        'listing_id': listing_id,
+                        'tif_files': tif_files,
+                        's3_tile_base_path': data.get('s3_tile_base_path', ''),
+                        'event_type': data.get('event_type', ''),
+                        'action': data.get('action', ''),
+                        'data_snapshot': dict(data),
+                    }
                     try:
-                        from .models import DeveloperListing, WebhookEvent
-                        from .developer_listing_tile_service import DeveloperListingTileService
-                        listing_ref = DeveloperListing.objects.get(pk=listing_pk)
-                        webhook_ref = WebhookEvent.objects.get(pk=webhook_event_id)
-                        tile_service = DeveloperListingTileService()
-                        result = tile_service.process_webhook(
-                            data_snapshot, listing=listing_ref, webhook_event=webhook_ref
+                        client = boto3.client('lambda')
+                        client.invoke(
+                            FunctionName=settings.TILE_GENERATION_LAMBDA_ARN,
+                            InvocationType='Event',
+                            Payload=json.dumps(payload, default=str),
                         )
-                        logger.info(
-                            f"[WEBHOOK_RECEIVE] Tile generation (background) completed: "
-                            f"{result.get('total_tiles_generated', 0)} tiles"
+                        logger.info(f"[WEBHOOK_RECEIVE] Lambda invoked for webhook_event_id={webhook_event.id}")
+                        return Response(
+                            {
+                                "status": "success",
+                                "message": "Webhook received; TIF tile generation sent to Lambda.",
+                                "tiles_generated": 0,
+                                "tif_files_processed": len(tif_files),
+                                "note": "Lambda will callback to record result and logs.",
+                            },
+                            status=status.HTTP_200_OK
                         )
-                        webhook_ref.processed = True
-                        webhook_ref.processed_at = tz.now()
-                        webhook_ref.tiles_generated = result.get('total_tiles_generated', 0)
-                        webhook_ref.tif_files_processed = result.get('tif_files_processed', 0)
-                        webhook_ref.processing_result = result
-                        webhook_ref.processing_error = '' if result.get('success') else (result.get('error') or '')
-                        webhook_ref.save()
-                    except Exception as e:
-                        logger.exception(f"[WEBHOOK_RECEIVE] Background tile processing failed: {e}")
-                        try:
-                            from .models import WebhookEvent
-                            webhook_ref = WebhookEvent.objects.get(pk=webhook_event_id)
-                            webhook_ref.processing_error = str(e)
-                            webhook_ref.save()
-                        except Exception:
-                            pass
+                    except Exception as lambda_err:
+                        logger.exception(f"[WEBHOOK_RECEIVE] Lambda invoke failed, falling back to in-process thread: {lambda_err}")
+                        use_lambda = False
+                if not use_lambda:
+                    # In-process background thread (original behavior)
+                    import threading
+                    from django.utils import timezone as tz
+                    webhook_event_id = webhook_event.id
+                    listing_pk = listing.pk
+                    data_snapshot = dict(data)
 
-                t = threading.Thread(target=_run_developer_tile_webhook, daemon=True)
-                t.start()
-                return Response(
-                    {
-                        "status": "success",
-                        "message": "Webhook received; TIF tile generation started in background.",
-                        "tiles_generated": 0,
-                        "tif_files_processed": len(tif_files),
-                        "note": "Check webhook event record for final result.",
-                    },
-                    status=status.HTTP_200_OK
-                )
+                    def _run_developer_tile_webhook():
+                        try:
+                            from .models import DeveloperListing, WebhookEvent
+                            from .developer_listing_tile_service import DeveloperListingTileService
+                            listing_ref = DeveloperListing.objects.get(pk=listing_pk)
+                            webhook_ref = WebhookEvent.objects.get(pk=webhook_event_id)
+                            tile_service = DeveloperListingTileService()
+                            result = tile_service.process_webhook(
+                                data_snapshot, listing=listing_ref, webhook_event=webhook_ref
+                            )
+                            logger.info(
+                                f"[WEBHOOK_RECEIVE] Tile generation (background) completed: "
+                                f"{result.get('total_tiles_generated', 0)} tiles"
+                            )
+                            webhook_ref.processed = True
+                            webhook_ref.processed_at = tz.now()
+                            webhook_ref.tiles_generated = result.get('total_tiles_generated', 0)
+                            webhook_ref.tif_files_processed = result.get('tif_files_processed', 0)
+                            webhook_ref.processing_result = result
+                            webhook_ref.processing_error = '' if result.get('success') else (result.get('error') or '')
+                            webhook_ref.save()
+                        except Exception as e:
+                            logger.exception(f"[WEBHOOK_RECEIVE] Background tile processing failed: {e}")
+                            try:
+                                from .models import WebhookEvent
+                                webhook_ref = WebhookEvent.objects.get(pk=webhook_event_id)
+                                webhook_ref.processing_error = str(e)
+                                webhook_ref.save()
+                            except Exception:
+                                pass
+
+                    t = threading.Thread(target=_run_developer_tile_webhook, daemon=True)
+                    t.start()
+                    return Response(
+                        {
+                            "status": "success",
+                            "message": "Webhook received; TIF tile generation started in background.",
+                            "tiles_generated": 0,
+                            "tif_files_processed": len(tif_files),
+                            "note": "Check webhook event record for final result.",
+                        },
+                        status=status.HTTP_200_OK
+                    )
             else:
                 webhook_event.processed = True
                 webhook_event.processed_at = timezone.now()

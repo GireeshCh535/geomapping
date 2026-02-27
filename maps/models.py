@@ -1179,6 +1179,12 @@ class WebhookEvent(models.Model):
         blank=True,
         help_text='Processing results and details'
     )
+    # Logs from Lambda (or external tile worker): list of {"ts": "...", "level": "info|warning|error", "msg": "..."}
+    tile_generation_logs = models.JSONField(
+        default=list,
+        blank=True,
+        help_text='Log lines from tile generation (e.g. Lambda callback) for debugging'
+    )
     
     # Request metadata
     request_headers = models.JSONField(default=dict, blank=True)
