@@ -55,10 +55,52 @@ def _point_from_lat_lng(lat, lng):
         return None
 
 
+def _lat_lng_from_location(location):
+    """
+    Extract (lat, lng) from webhook/API location when lat/long are missing.
+    Handles:
+    - GeoJSON Point: {"type": "Point", "coordinates": [lng, lat]}
+    - String: "lat,lng" or "lat, lng"
+    Returns (lat, lng) or (None, None).
+    """
+    if location is None:
+        return None, None
+    # GeoJSON Point from 1acre-be PointField serialization
+    if isinstance(location, dict):
+        if location.get('type') == 'Point':
+            coords = location.get('coordinates')
+            if isinstance(coords, (list, tuple)) and len(coords) >= 2:
+                try:
+                    lng_f = _f(coords[0])
+                    lat_f = _f(coords[1])
+                    if lng_f is not None and lat_f is not None:
+                        return lat_f, lng_f
+                except (TypeError, ValueError):
+                    pass
+        return None, None
+    # "lat,lng" string (e.g. developer listing style)
+    if isinstance(location, str) and location.strip():
+        import re
+        m = re.match(r'^\s*([-\d.]+)\s*,\s*([-\d.]+)\s*$', location.strip())
+        if m:
+            try:
+                lat_f = float(m.group(1))
+                lng_f = float(m.group(2))
+                return lat_f, lng_f
+            except (ValueError, TypeError):
+                pass
+    return None, None
+
+
 def defaults_for_land(item):
     """Build SyncedLand defaults from API item or webhook listing_data. Full item stored in payload."""
     p = item if isinstance(item, dict) else {}
     lat, lng = _f(p.get('lat')), _f(p.get('long'))
+    if lat is None or lng is None:
+        loc_lat, loc_lng = _lat_lng_from_location(p.get('location'))
+        if loc_lat is not None and loc_lng is not None:
+            lat = loc_lat if lat is None else lat
+            lng = loc_lng if lng is None else lng
     out = {
         'payload': item,
         'lat': lat,
@@ -89,6 +131,11 @@ def defaults_for_plot(item):
     """Build SyncedPlot defaults from API item or webhook listing_data. Full item stored in payload."""
     p = item if isinstance(item, dict) else {}
     lat, lng = _f(p.get('lat')), _f(p.get('long'))
+    if lat is None or lng is None:
+        loc_lat, loc_lng = _lat_lng_from_location(p.get('location'))
+        if loc_lat is not None and loc_lng is not None:
+            lat = loc_lat if lat is None else lat
+            lng = loc_lng if lng is None else lng
     out = {
         'payload': item,
         'lat': lat,

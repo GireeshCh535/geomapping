@@ -340,6 +340,12 @@ class Command(BaseCommand):
             help="Upload each tile to S3 as it is generated (no local save).",
         )
         parser.add_argument(
+            "--force",
+            "-f",
+            action="store_true",
+            help="With --upload: delete each tile from S3 (if present) then upload new tile. Without --upload: overwrite existing local files.",
+        )
+        parser.add_argument(
             "--s3-bucket",
             type=str,
             default="gis-portal-layers",
@@ -355,7 +361,7 @@ class Command(BaseCommand):
             "--workers",
             type=int,
             default=1,
-            help="Parallel workers for --upload (default: 1). Run via 'docker-compose run --rm web ...' so API stays up; do not run with exec in the live web container.",
+            help="Parallel workers for --upload (default: 1). Run via 'docker-compose run --rm web ...' so API stays up.",
         )
 
     def handle(self, *args, **options):
@@ -367,6 +373,9 @@ class Command(BaseCommand):
         swap_lat_long = options.get("swap_lat_long", False)
         verbose = options["verbose"]
         skip_existing = options.get("skip_existing", False)
+        force = options.get("force", False)
+        if force:
+            skip_existing = False
         do_upload = options.get("upload", False)
         workers = max(1, int(options.get("workers") or 1))
         s3_bucket = (options.get("s3_bucket") or "gis-portal-layers").strip()
@@ -392,6 +401,8 @@ class Command(BaseCommand):
             bucket = s3_bucket
             prefix = s3_prefix
             self.stdout.write(f"Upload only (no local save): s3://{bucket}/{prefix}/  (workers={workers})")
+            if force:
+                self.stdout.write(self.style.WARNING("--force: deleting existing S3 tile then uploading new tile for each."))
             self.stdout.write(
                 self.style.WARNING(
                     "To avoid blocking the live API, run this in a separate container: "
@@ -446,7 +457,7 @@ class Command(BaseCommand):
             skipped_zoom_s3 = 0
 
             if do_upload:
-                # Parallel: process in chunks, each tile = (optional skip if exists on S3) + generate + upload
+                # Parallel: process in chunks, each tile = (optional skip if exists on S3) + (optional delete if --force) + generate + upload
                 def process_one_tile(tile):
                     z, x, y = tile.z, tile.x, tile.y
                     s3_key = f"{prefix}/{z}/{x}/{y}.mvt"
@@ -454,6 +465,8 @@ class Command(BaseCommand):
                         if skip_existing:
                             if s3_service.object_exists(s3_key):
                                 return "skipped", None
+                        if force:
+                            s3_service.delete_object(s3_key)
                         mvt_bytes = build_land_plot_tile_mvt(
                             z, x, y, percentiles=percentiles, swap_lat_long=swap_lat_long
                         )
