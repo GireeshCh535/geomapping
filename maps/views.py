@@ -5643,7 +5643,7 @@ class DeveloperListingMediaWebhookView(APIView):
                         webhook_ref.tiles_generated = result.get('total_tiles_generated', 0)
                         webhook_ref.tif_files_processed = result.get('tif_files_processed', 0)
                         webhook_ref.processing_result = result
-                        webhook_ref.processing_error = None if result.get('success') else result.get('error', '')
+                        webhook_ref.processing_error = '' if result.get('success') else (result.get('error') or '')
                         webhook_ref.save()
                     except Exception as e:
                         logger.exception(f"[WEBHOOK_RECEIVE] Background tile processing failed: {e}")
