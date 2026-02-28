@@ -5383,7 +5383,8 @@ class TileGenerationCallbackView(APIView):
         webhook_event.processed_at = timezone.now()
         webhook_event.tiles_generated = int(data.get('tiles_generated', 0))
         webhook_event.tif_files_processed = int(data.get('tif_files_processed', 0))
-        webhook_event.processing_result = data.get('processing_result') if isinstance(data.get('processing_result'), dict) else {}
+        processing_result = data.get('processing_result') if isinstance(data.get('processing_result'), dict) else {}
+        webhook_event.processing_result = processing_result
         webhook_event.processing_error = str(data.get('processing_error', ''))[:65535]
         logs = data.get('logs')
         if isinstance(logs, list):
@@ -5394,11 +5395,83 @@ class TileGenerationCallbackView(APIView):
         else:
             webhook_event.tile_generation_logs = []
         webhook_event.save()
+
+        # Persist TIF data (bounds, zoom levels, tiles_by_zoom) to DeveloperListingMedia and TIFMetadata
+        self._save_tif_data_from_callback(webhook_event, processing_result)
+
         logger.info(
             f"[TILE_CALLBACK] Updated webhook_event_id={webhook_event_id} "
             f"tiles_generated={webhook_event.tiles_generated} logs_count={len(webhook_event.tile_generation_logs)}"
         )
         return Response({'status': 'ok', 'webhook_event_id': webhook_event_id}, status=status.HTTP_200_OK)
+
+    def _save_tif_data_from_callback(self, webhook_event, processing_result):
+        """Update DeveloperListingMedia and TIFMetadata from Lambda callback file_results (bounds, zoom, tiles_by_zoom)."""
+        from .models import DeveloperListing, DeveloperListingMedia, TIFMetadata
+        listing_type = getattr(webhook_event, 'listing_type', None) or (processing_result or {}).get('listing_type')
+        listing_id = getattr(webhook_event, 'listing_id', None) or (processing_result or {}).get('listing_id')
+        if not listing_type or listing_id is None:
+            return
+        try:
+            listing = DeveloperListing.objects.get(
+                listing_type=listing_type,
+                backend_listing_id=listing_id
+            )
+        except DeveloperListing.DoesNotExist:
+            return
+        file_results = (processing_result or {}).get('file_results') or []
+        for fr in file_results:
+            success = fr.get('success')
+            file_name = fr.get('file_name') or ''
+            media_id = fr.get('media_id')
+            tiles_generated = int(fr.get('tiles_generated', 0))
+            bounds = fr.get('bounds') if isinstance(fr.get('bounds'), dict) else None
+            tiles_by_zoom = fr.get('tiles_by_zoom') if isinstance(fr.get('tiles_by_zoom'), dict) else {}
+            min_zoom = fr.get('min_zoom')
+            max_zoom = fr.get('max_zoom')
+            s3_tile_path = fr.get('s3_tile_path') or ''
+
+            media = None
+            if media_id is not None:
+                try:
+                    media = DeveloperListingMedia.objects.get(listing=listing, backend_media_id=media_id)
+                except DeveloperListingMedia.DoesNotExist:
+                    pass
+            if media is None and file_name:
+                try:
+                    media = DeveloperListingMedia.objects.get(listing=listing, file_name=file_name)
+                except (DeveloperListingMedia.DoesNotExist, DeveloperListingMedia.MultipleObjectsReturned):
+                    pass
+
+            if not media:
+                continue
+            if success and (tiles_generated > 0 or bounds or tiles_by_zoom):
+                media.tiles_generated = True
+                media.tiles_generation_completed_at = timezone.now()
+                media.total_tiles_generated = tiles_generated
+                media.tiles_generation_error = ''
+                if s3_tile_path:
+                    media.s3_tile_path = s3_tile_path
+                media.save()
+                if bounds or tiles_by_zoom or min_zoom is not None or max_zoom is not None:
+                    TIFMetadata.objects.update_or_create(
+                        media=media,
+                        defaults={
+                            'bounds_west': bounds.get('west') if bounds else None,
+                            'bounds_south': bounds.get('south') if bounds else None,
+                            'bounds_east': bounds.get('east') if bounds else None,
+                            'bounds_north': bounds.get('north') if bounds else None,
+                            'min_zoom': min_zoom if min_zoom is not None else 8,
+                            'max_zoom': max_zoom if max_zoom is not None else 18,
+                            'total_tiles_generated': tiles_generated,
+                            'tiles_by_zoom': tiles_by_zoom,
+                            'tif_data': {'bounds': bounds, 'tiles_by_zoom': tiles_by_zoom, 'min_zoom': min_zoom, 'max_zoom': max_zoom},
+                        }
+                    )
+            elif not success:
+                err = fr.get('error') or 'Unknown error'
+                media.tiles_generation_error = str(err)[:65535]
+                media.save(update_fields=['tiles_generation_error'])
 
 
 class DeveloperListingMediaWebhookView(APIView):
