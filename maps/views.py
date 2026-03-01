@@ -6081,6 +6081,32 @@ class DeveloperListingMediaWebhookView(APIView):
         from django.utils.dateparse import parse_datetime
         return parse_datetime(dt_string)
 
+class LandPlotMVTBuildView(APIView):
+    """
+    Internal endpoint: build and return raw MVT bytes for a land/plot tile.
+    Called by Lambda during tile refresh. Secured by X-Internal-Secret header.
+    """
+    authentication_classes = []
+    permission_classes = [AllowAny]
+    http_method_names = ['get']
+
+    def get(self, request, z, x, y):
+        secret = request.headers.get('X-Internal-Secret', '')
+        expected = getattr(settings, 'TILE_CALLBACK_SECRET', '')
+        if expected and secret != expected:
+            return Response({'error': 'Unauthorized'}, status=401)
+        try:
+            from maps.management.commands.generate_land_plot_mvt_tiles import build_land_plot_tile_mvt
+            mvt_bytes = build_land_plot_tile_mvt(z, x, y, percentiles=None, swap_lat_long=False)
+            from django.http import HttpResponse
+            return HttpResponse(
+                mvt_bytes,
+                content_type='application/vnd.mapbox-vector-tile',
+                status=200,
+            )
+        except Exception as e:
+            logger.error(f"[MVT_BUILD] Error building {z}/{x}/{y}: {e}", exc_info=True)
+            return Response({'error': str(e)}, status=500)
 
 class LandPlotWebhookView(APIView):
     """
@@ -6235,17 +6261,56 @@ class LandPlotWebhookView(APIView):
                     except Exception as cache_err:
                         logger.warning(f"[LAND_PLOT_WEBHOOK] Layer point count cache refresh failed: {cache_err}", exc_info=True)
 
-            # Refresh land/plot MVT tiles in background so webhook returns 200 quickly (avoids blocking workers)
+            # Refresh land/plot MVT tiles via Lambda (or fallback to background thread)
             if lat is not None and lng is not None:
-                import threading
-                def _run_tile_refresh():
+                use_lambda = (
+                    getattr(settings, 'LAND_PLOT_TILE_USE_LAMBDA', False) and
+                    getattr(settings, 'LAND_PLOT_TILE_LAMBDA_ARN', '')
+                )
+                if use_lambda:
                     try:
-                        from maps.land_plot_tile_refresh import refresh_tiles_for_listing
-                        refresh_tiles_for_listing(lat, lng)
-                    except Exception as tile_err:
-                        logger.warning(f"[LAND_PLOT_WEBHOOK] Tile refresh failed: {tile_err}", exc_info=True)
-                t = threading.Thread(target=_run_tile_refresh, daemon=True)
-                t.start()
+                        import boto3
+                        base_url = getattr(settings, 'TILE_CALLBACK_BASE_URL', '').strip()
+                        callback_url = base_url.rstrip('/') + '/api/webhooks/tile-generation-result/'
+                        mvt_build_base_url = base_url.rstrip('/') + '/api/tiles/land-plot-mvt-build'
+                        lambda_payload = {
+                            'lat': lat,
+                            'lng': lng,
+                            'tiles': [],
+                            'mvt_build_base_url': mvt_build_base_url,
+                            's3_tile_prefix': 'land-plot',
+                            'internal_secret': getattr(settings, 'TILE_CALLBACK_SECRET', ''),
+                            'callback_url': callback_url,
+                            'callback_secret': getattr(settings, 'TILE_CALLBACK_SECRET', ''),
+                            'listing_type': listing_type,
+                            'listing_id': listing_id,
+                        }
+                        boto3_client = boto3.client(
+                            'lambda',
+                            region_name=getattr(settings, 'AWS_DEFAULT_REGION', 'ap-south-1'),
+                        )
+                        boto3_client.invoke(
+                            FunctionName=settings.LAND_PLOT_TILE_LAMBDA_ARN,
+                            InvocationType='Event',
+                            Payload=json.dumps(lambda_payload, default=str),
+                        )
+                        logger.info(f"[LAND_PLOT_WEBHOOK] Lambda invoked for {listing_type} {listing_id} lat={lat} lng={lng}")
+                    except Exception as lambda_err:
+                        logger.warning(
+                            f"[LAND_PLOT_WEBHOOK] Lambda invoke failed, falling back to thread: {lambda_err}",
+                            exc_info=True,
+                        )
+                        use_lambda = False
+                if not use_lambda:
+                    import threading
+                    def _run_tile_refresh():
+                        try:
+                            from maps.land_plot_tile_refresh import refresh_tiles_for_listing
+                            refresh_tiles_for_listing(lat, lng)
+                        except Exception as tile_err:
+                            logger.warning(f"[LAND_PLOT_WEBHOOK] Tile refresh failed: {tile_err}", exc_info=True)
+                    t = threading.Thread(target=_run_tile_refresh, daemon=True)
+                    t.start()
 
             return Response(
                 {"status": "success", "event_type": event_type, "listing_type": listing_type, "listing_id": listing_id},

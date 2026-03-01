@@ -60,6 +60,8 @@ services:
       - TILE_GENERATION_LAMBDA_ARN=arn:aws:lambda:ap-south-1:471112704924:function:geomapping-tile-gen
       - AWS_DEFAULT_REGION=ap-south-1
       - AWS_SECRET_ACCESS_KEY=45QpOp2sGal943rYVef3WSdBv2OkcGA+4i3wkwfQ
+      - LAND_PLOT_TILE_USE_LAMBDA=true
+      - LAND_PLOT_TILE_LAMBDA_ARN=arn:aws:lambda:ap-south-1:471112704924:function:land-plot-tile-gen
       - AWS_ACCESS_KEY_ID=AKIAW3MEBMOOEQKR3BXV
       - TILE_CALLBACK_BASE_URL=https://layers.1acre.in
     depends_on:

@@ -442,3 +442,8 @@ TILE_CALLBACK_SECRET = os.getenv('TILE_CALLBACK_SECRET', '')
 # Callback URL is built from request in the webhook view (request.build_absolute_uri).
 # If your app is behind a proxy and build_absolute_uri is wrong, set this to e.g. https://layers.1acre.in
 TILE_CALLBACK_BASE_URL = os.getenv('TILE_CALLBACK_BASE_URL', '')
+
+# Land/plot MVT tile refresh via Lambda (optional)
+# When enabled, land-plot webhook invokes Lambda for MVT tile refresh; otherwise uses background thread.
+LAND_PLOT_TILE_USE_LAMBDA = os.getenv('LAND_PLOT_TILE_USE_LAMBDA', 'false').lower() == 'true'
+LAND_PLOT_TILE_LAMBDA_ARN = os.getenv('LAND_PLOT_TILE_LAMBDA_ARN', '')

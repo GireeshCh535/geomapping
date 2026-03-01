@@ -164,4 +164,8 @@ urlpatterns = [
     path('land-plot-map-test/',
          views.LandPlotMapTestView.as_view(),
          name='land_plot_map_test'),
+
+     path('tiles/land-plot-mvt-build/<int:z>/<int:x>/<int:y>/',
+     views.LandPlotMVTBuildView.as_view(),
+     name='land_plot_mvt_build'),
 ]
