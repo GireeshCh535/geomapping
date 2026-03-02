@@ -3684,74 +3684,68 @@ class CloudFrontTileView(APIView):
     - /api/tiles/andhra-pradesh/visakhapatnam/master_plan/12/2048/2048.png
     - /api/tiles/telangana/hyderabad/rrr/12/2048/2048.mvt
     
-    This API tries CloudFront first, then S3 direct, then local generation as fallback.
+    By default redirects (302) to CloudFront URL so workers do not block on HTTP fetch.
+    Layer existence is cached (5 min) to avoid DB hit per tile request.
     """
     
     # Class-level cache to track recently logged layer warnings (to reduce log spam)
     _layer_warning_cache = {}
     _layer_warning_cache_timeout = 300  # Log same layer warning at most once per 5 minutes
-    
+    # Cache TTL for "layer exists" / "layer missing" to avoid DB hit on every tile request
+    _layer_cache_ttl = 300  # 5 minutes
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.tile_path_service = TilePathService()
-    
+
+    def _layer_exists_cached(self, state_slug, city_slug, layer_slug):
+        """Return True if layer exists, False otherwise. Uses Django cache to avoid DB hit per tile."""
+        cache_key = f"tile_layer:v1:{state_slug}:{city_slug}:{layer_slug}"
+        cached = cache.get(cache_key)
+        if cached is not None:
+            return bool(cached)
+        layer = self._get_layer_by_hierarchy(state_slug, city_slug, layer_slug)
+        exists = layer is not None
+        cache.set(cache_key, "1" if exists else "0", self._layer_cache_ttl)
+        return exists
+
     def get(self, request, state_slug, city_slug, layer_slug, z, x, y):
-        """Serve tiles with multiple fallback options"""
+        """Serve tiles: redirect to CloudFront (fast path) or return 404 for unknown layer."""
         try:
             z, x, y = int(z), int(x), int(y)
-            
+
             # Validate tile coordinates
             if not self.tile_path_service.validate_tile_coordinates(z, x, y):
                 logger.warning(f"❌ Invalid tile coordinates: {z}/{x}/{y}")
                 return self._return_error_tile("Invalid tile coordinates")
-            
+
             # Determine format from URL
             format_type = 'png' if request.path.endswith('.png') else 'mvt'
-            
-            # Get layer information
-            layer = self._get_layer_by_hierarchy(state_slug, city_slug, layer_slug)
-            if not layer:
-                # Only log layer not found warnings occasionally to reduce log spam
+
+            # Cached layer check (avoids DB hit per tile; cache TTL 5 min)
+            if not self._layer_exists_cached(state_slug, city_slug, layer_slug):
                 layer_key = f"{state_slug}/{city_slug}/{layer_slug}"
                 import time
                 current_time = time.time()
-                
-                # Check if we've logged this layer recently
                 last_logged = self._layer_warning_cache.get(layer_key, 0)
                 if current_time - last_logged > self._layer_warning_cache_timeout:
                     logger.warning(f"❌ Layer not found: {layer_key} (will suppress similar warnings for 5 minutes)")
                     self._layer_warning_cache[layer_key] = current_time
-                    # Clean up old entries periodically (keep cache size manageable)
                     if len(self._layer_warning_cache) > 1000:
-                        # Remove entries older than 1 hour
                         cutoff_time = current_time - 3600
                         self._layer_warning_cache = {
                             k: v for k, v in self._layer_warning_cache.items()
                             if v > cutoff_time
                         }
                 else:
-                    # Log at debug level for subsequent requests
                     logger.debug(f"❌ Layer not found (suppressed): {layer_key}")
-                
                 return self._return_error_tile(f"Layer not found: {state_slug}/{city_slug}/{layer_slug}")
-            
-            logger.debug(f"🔍 Serving tile: {state_slug}/{city_slug}/{layer_slug}/{z}/{x}/{y}.{format_type}")
-            
-            # Try multiple sources in order of preference
-            tile_data = self._get_tile_with_fallback(state_slug, city_slug, layer_slug, z, x, y, format_type, layer)
-            
-            if tile_data:
-                # Return the tile data with no-cache headers
-                headers = self.tile_path_service.get_tile_cache_headers(format_type)
-                response = HttpResponse(tile_data, content_type=headers['ContentType'])
-                response['Cache-Control'] = 'no-cache, no-store, must-revalidate'
-                response['Pragma'] = 'no-cache'
-                response['Expires'] = '0'
-                logger.debug(f"✅ Successfully served tile: {state_slug}/{city_slug}/{layer_slug}/{z}/{x}/{y}.{format_type}")
-                return response
-            else:
-                logger.debug(f"❌ Tile not found: {state_slug}/{city_slug}/{layer_slug}/{z}/{x}/{y}.{format_type}")
-                return self._return_error_tile(f"Tile not found: {state_slug}/{city_slug}/{layer_slug}/{z}/{x}/{y}.{format_type}")
+
+            # Redirect to CloudFront so the worker does not block on HTTP fetch (was causing 5–10s block per request)
+            cloudfront_url = self.tile_path_service.generate_cloudfront_url(
+                state_slug, city_slug, layer_slug, z, x, y, format_type
+            )
+            return HttpResponseRedirect(cloudfront_url)
             
         except (OperationalError, DatabaseError) as e:
             error_msg = str(e)
@@ -3766,7 +3760,7 @@ class CloudFrontTileView(APIView):
         except Exception as e:
             logger.error(f"Error serving tile: {str(e)}")
             return self._return_error_tile(f"Error serving tile: {str(e)}")
-    
+
     def _get_tile_with_fallback(self, state_slug, city_slug, layer_slug, z, x, y, format_type, layer):
         """
         Try to get tile from multiple sources in order:
@@ -3878,16 +3872,6 @@ class S3DirectTileView(APIView):
     """
     S3 Direct Tile Serving API
     
-    Serves tiles directly from S3 with hierarchical URL structure.
-    Similar to CloudFrontTileView but uses S3 direct access.
-    """
-    
-    # Class-level cache to track recently logged layer warnings (to reduce log spam)
-    _layer_warning_cache = {}
-    _layer_warning_cache_timeout = 300  # Log same layer warning at most once per 5 minutes
-    """
-    S3 Direct Tile Serving API
-    
     Serves tiles directly from S3 with hierarchical URL structure:
     GET /api/s3-tiles/<state_slug>/<city_slug>/<layer_slug>/<z>/<x>/<y>.png
     GET /api/s3-tiles/<state_slug>/<city_slug>/<layer_slug>/<z>/<x>/<y>.mvt
@@ -3897,13 +3881,16 @@ class S3DirectTileView(APIView):
     - /api/s3-tiles/andhra-pradesh/visakhapatnam/visakhapatnam_master_plan/12/2048/2048.png
     - /api/s3-tiles/telangana/hyderabad/rrr/12/2048/2048.mvt
     
-    This API serves tiles directly from S3 without CloudFront CDN.
+    Layer existence is cached (5 min) to avoid DB hit per tile request.
     """
     
+    _layer_warning_cache = {}
+    _layer_warning_cache_timeout = 300
+    _layer_cache_ttl = 300  # Same key/TTL as CloudFrontTileView for layer existence
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.tile_path_service = TilePathService()
-        # Initialize S3 client for direct access
         self.s3_client = boto3.client(
             's3',
             region_name=getattr(settings, 'AWS_S3_REGION_NAME', 'ap-south-1'),
@@ -3911,23 +3898,31 @@ class S3DirectTileView(APIView):
             aws_secret_access_key=getattr(settings, 'AWS_SECRET_ACCESS_KEY', None)
         )
         self.bucket_name = 'gis-portal-layers'
-    
+
+    def _layer_exists_cached(self, state_slug, city_slug, layer_slug):
+        """Return True if layer exists, False otherwise. Uses same cache key as CloudFrontTileView."""
+        cache_key = f"tile_layer:v1:{state_slug}:{city_slug}:{layer_slug}"
+        cached = cache.get(cache_key)
+        if cached is not None:
+            return bool(cached)
+        layer = self._get_layer_by_hierarchy(state_slug, city_slug, layer_slug)
+        exists = layer is not None
+        cache.set(cache_key, "1" if exists else "0", self._layer_cache_ttl)
+        return exists
+
     def get(self, request, state_slug, city_slug, layer_slug, z, x, y):
         """Serve tiles directly from S3"""
         try:
             z, x, y = int(z), int(x), int(y)
             
-            # Validate tile coordinates
             if not self.tile_path_service.validate_tile_coordinates(z, x, y):
                 logger.warning(f"❌ Invalid tile coordinates: {z}/{x}/{y}")
                 return self._return_error_tile("Invalid tile coordinates")
             
-            # Determine format from URL
             format_type = 'png' if request.path.endswith('.png') else 'mvt'
             
-            # Get layer information
-            layer = self._get_layer_by_hierarchy(state_slug, city_slug, layer_slug)
-            if not layer:
+            # Cached layer check to avoid DB hit per tile request
+            if not self._layer_exists_cached(state_slug, city_slug, layer_slug):
                 # Only log layer not found warnings occasionally to reduce log spam
                 layer_key = f"{state_slug}/{city_slug}/{layer_slug}"
                 import time
