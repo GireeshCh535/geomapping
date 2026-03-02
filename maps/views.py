@@ -5343,6 +5343,413 @@ def _print_webhook_response(webhook_name, data):
     # logger.info("%s\n%s", banner, json_str)
 
 
+def _parse_datetime_webhook(dt_string):
+    """Parse datetime string from webhook payload (used in background worker)."""
+    if not dt_string:
+        return None
+    from django.utils.dateparse import parse_datetime
+    return parse_datetime(dt_string)
+
+
+def _execute_listing_deletion(webhook_event, listing_type, listing_id, data):
+    """
+    Perform listing deletion: delete tiles, media, listing and Synced* records; refresh layer cache.
+    Updates webhook_event.processed, processing_result, or processing_error. No return value.
+    """
+    from django.utils import timezone
+    from .models import DeveloperListing, DeveloperListingMedia
+    from .developer_listing_tile_service import DeveloperListingTileService
+
+    logger.info(f"[WEBHOOK_DELETE] Listing deletion {listing_type} id={listing_id}")
+
+    try:
+        try:
+            listing = DeveloperListing.objects.get(
+                listing_type=listing_type,
+                backend_listing_id=listing_id
+            )
+        except DeveloperListing.DoesNotExist:
+            logger.warning(f"[WEBHOOK_DELETE] Listing not found: {listing_type} {listing_id}")
+            webhook_event.processed = True
+            webhook_event.processed_at = timezone.now()
+            webhook_event.processing_result = {'note': 'Listing not found in database'}
+            webhook_event.save()
+            return
+
+        all_media = DeveloperListingMedia.objects.filter(listing=listing)
+        total_tiles_deleted = 0
+        tile_service = DeveloperListingTileService()
+        for media in all_media:
+            if media.is_tif and media.s3_tile_path:
+                deleted_count = tile_service._delete_s3_tiles(media.s3_tile_path)
+                total_tiles_deleted += deleted_count
+        media_count = all_media.count()
+        all_media.delete()
+
+        lat, lng = None, None
+        point = listing.get_listing_point() if hasattr(listing, 'get_listing_point') else None
+        if point is None and getattr(listing, 'location_point', None) and not listing.location_point.empty:
+            point = listing.location_point
+        if point is not None and not point.empty:
+            lat, lng = point.y, point.x
+
+        listing.delete()
+        from .models import SyncedDeveloperLand, SyncedDeveloperPlot
+        if listing_type == 'developerland':
+            SyncedDeveloperLand.objects.filter(backend_id=listing_id).delete()
+        elif listing_type == 'developerplot':
+            SyncedDeveloperPlot.objects.filter(backend_id=listing_id).delete()
+
+        if lat is not None and lng is not None:
+            try:
+                from maps.listing_layer_enrichment_service import (
+                    get_layer_ids_containing_point,
+                    refresh_layer_point_count_cache,
+                )
+                affected = get_layer_ids_containing_point(lat, lng)
+                if affected:
+                    refresh_layer_point_count_cache(layer_ids=affected)
+            except Exception as cache_err:
+                logger.warning(f"[WEBHOOK_DELETE] Layer point count cache refresh failed: {cache_err}", exc_info=True)
+
+        webhook_event.processed = True
+        webhook_event.processed_at = timezone.now()
+        webhook_event.tiles_generated = 0
+        webhook_event.processing_result = {
+            'tiles_deleted': total_tiles_deleted,
+            'media_records_deleted': media_count,
+            'listing_deleted': True
+        }
+        webhook_event.save()
+        logger.info(f"[WEBHOOK_DELETE] Completed: tiles_deleted={total_tiles_deleted} media_deleted={media_count}")
+    except Exception as e:
+        logger.error(f"[WEBHOOK_DELETE] Error processing listing deletion: {e}", exc_info=True)
+        webhook_event.processing_error = str(e)
+        webhook_event.save()
+
+
+def _execute_media_deletion(webhook_event, listing_type, listing_id, data):
+    """
+    Perform media deletion: delete tiles for deleted media, remove media records, sync remaining.
+    Updates webhook_event.processed, processing_result, or processing_error. No return value.
+    """
+    from django.utils import timezone
+    from .models import DeveloperListing, DeveloperListingMedia
+    from .developer_listing_tile_service import DeveloperListingTileService
+
+    media_items = data.get('media_items') or []
+    logger.info(f"[WEBHOOK_DELETE] Media deletion {listing_type} id={listing_id}")
+
+    try:
+        try:
+            listing = DeveloperListing.objects.get(
+                listing_type=listing_type,
+                backend_listing_id=listing_id
+            )
+        except DeveloperListing.DoesNotExist:
+            logger.warning(f"[WEBHOOK_DELETE] Listing not found: {listing_type} {listing_id}")
+            webhook_event.processed = True
+            webhook_event.processed_at = timezone.now()
+            webhook_event.processing_result = {'note': 'Listing not found in database'}
+            webhook_event.save()
+            return
+
+        deleted_media_items = [m for m in media_items if m.get('deleted', False)]
+        total_tiles_deleted = 0
+        deleted_media_count = 0
+        tile_service = DeveloperListingTileService()
+
+        for deleted_media in deleted_media_items:
+            media_id = deleted_media.get('id')
+            file_name = deleted_media.get('file_name', 'unknown')
+            s3_tile_path = deleted_media.get('s3_tile_path', '')
+            is_tif = deleted_media.get('is_tif', False)
+
+            if is_tif and s3_tile_path:
+                deleted_count = tile_service._delete_s3_tiles(s3_tile_path)
+                total_tiles_deleted += deleted_count
+            elif is_tif:
+                logger.warning(f"[WEBHOOK_DELETE] TIF file {file_name} has no s3_tile_path, skipping tile deletion")
+
+            try:
+                media_obj = DeveloperListingMedia.objects.get(
+                    listing=listing,
+                    backend_media_id=media_id
+                )
+                media_obj.delete()
+                deleted_media_count += 1
+            except DeveloperListingMedia.DoesNotExist:
+                pass
+
+        remaining_media_items = [m for m in media_items if not m.get('deleted', False)]
+        for media_item in remaining_media_items:
+            media_id = media_item.get('id')
+            if not media_id:
+                continue
+            DeveloperListingMedia.objects.update_or_create(
+                listing=listing,
+                backend_media_id=media_id,
+                defaults={
+                    'media_type': media_item.get('media_type', 'file'),
+                    'category': media_item.get('category', ''),
+                    'file_name': media_item.get('file_name', ''),
+                    'file_url': media_item.get('url', ''),
+                    's3_path': media_item.get('s3_path', ''),
+                    'is_tif': media_item.get('is_tif', False),
+                    's3_tile_path': media_item.get('s3_tile_path', ''),
+                    'media_data': media_item,
+                }
+            )
+
+        webhook_event.processed = True
+        webhook_event.processed_at = timezone.now()
+        webhook_event.tiles_generated = 0
+        webhook_event.processing_result = {
+            'tiles_deleted': total_tiles_deleted,
+            'media_records_deleted': deleted_media_count,
+            'remaining_media_count': len(remaining_media_items)
+        }
+        webhook_event.save()
+        logger.info(f"[WEBHOOK_DELETE] Media deletion completed: tiles_deleted={total_tiles_deleted} media_deleted={deleted_media_count}")
+    except Exception as e:
+        logger.error(f"[WEBHOOK_DELETE] Error processing media deletion: {e}", exc_info=True)
+        webhook_event.processing_error = str(e)
+        webhook_event.save()
+
+
+def _process_developer_listing_webhook(webhook_event_id):
+    """
+    Background processing for developer listing webhook: sync listing + Synced*, enrich once,
+    refresh layer cache only when location changed, media loop, Lambda invoke.
+    Uses WebhookEvent.payload; no request object. Call from a thread or Celery task.
+    Note: Daemon threads are lost on worker restart with no retry; for production consider Celery + Redis.
+    """
+    from django.db import close_old_connections
+    from django.utils import timezone
+    from django.urls import reverse
+
+    close_old_connections()
+    try:
+        webhook_event = WebhookEvent.objects.get(pk=webhook_event_id)
+    except WebhookEvent.DoesNotExist:
+        logger.warning(f"[WEBHOOK_BACKGROUND] WebhookEvent id={webhook_event_id} not found")
+        return
+
+    data = webhook_event.payload if isinstance(getattr(webhook_event, 'payload', None), dict) else {}
+    if not data:
+        data = {}
+    action = data.get('action', '')
+    listing_type = data.get('listing_type', '')
+    listing_id = data.get('listing_id')
+    listing_data = data.get('listing_data') or {}
+    media_items = data.get('media_items') or []
+    tif_files = data.get('tif_files', [])
+    event_type = data.get('event_type', '')
+
+    if action == 'listing_deleted':
+        _execute_listing_deletion(webhook_event, listing_type, listing_id, data)
+        return
+    if action == 'media_deleted':
+        _execute_media_deletion(webhook_event, listing_type, listing_id, data)
+        return
+
+    # Create/update path
+    city_name = ''
+    if listing_data.get('city'):
+        city_name = listing_data.get('city', '')
+    elif listing_data.get('division'):
+        division = listing_data.get('division', [])
+        if isinstance(division, list) and len(division) > 0:
+            city_name = division[0].get('name', '') if isinstance(division[0], dict) else ''
+        elif isinstance(division, dict):
+            city_name = division.get('name', '')
+
+    listing_data_stored = _webhook_payload_snapshot(listing_data)
+    listing, created = DeveloperListing.objects.update_or_create(
+        listing_type=listing_type,
+        backend_listing_id=listing_id,
+        defaults={
+            'listing_data': listing_data_stored,
+            'name': listing_data.get('name', '') or listing_data.get('title', ''),
+            'description': listing_data.get('description', ''),
+            'location': listing_data.get('location', ''),
+            'city': city_name,
+            'state': listing_data.get('state', ''),
+            'last_webhook_event': event_type,
+            'backend_created_at': _parse_datetime_webhook(listing_data.get('created_at')),
+            'backend_updated_at': _parse_datetime_webhook(listing_data.get('updated_at')),
+        }
+    )
+    logger.info(f"[WEBHOOK_BACKGROUND] DeveloperListing {'created' if created else 'updated'}: ID={listing.id}")
+
+    # Detect location change before updating location_point (Fix 3: skip cache refresh when unchanged)
+    old_point = listing.location_point
+    new_point = listing.get_listing_point()
+    location_changed = (
+        (old_point is None and new_point is not None)
+        or (new_point is not None and (old_point is None or old_point.wkt != new_point.wkt))
+    )
+    if new_point is not None and (listing.location_point is None or listing.location_point.wkt != new_point.wkt):
+        listing.location_point = new_point
+        listing.save(update_fields=['location_point'])
+
+    from .models import SyncedDeveloperLand, SyncedDeveloperPlot
+    from .sync_utils import defaults_for_developer_land, defaults_for_developer_plot
+    listing_data_for_sync = dict(listing_data_stored) if listing_data_stored else {}
+    listing_data_for_sync['id'] = listing_id
+    synced_record = None
+    if listing_type == 'developerland':
+        defaults = defaults_for_developer_land(listing_data_for_sync)
+        synced_record, _ = SyncedDeveloperLand.objects.update_or_create(backend_id=listing_id, defaults=defaults)
+    elif listing_type == 'developerplot':
+        defaults = defaults_for_developer_plot(listing_data_for_sync)
+        synced_record, _ = SyncedDeveloperPlot.objects.update_or_create(backend_id=listing_id, defaults=defaults)
+
+    # Enrich once, write to both tables (Fix 2)
+    try:
+        from maps.listing_layer_enrichment_service import (
+            _sync_listing_location_point,
+            get_listing_point,
+            _get_state_name_from_payload,
+            compute_enriched_layers_for_point,
+        )
+        _sync_listing_location_point(listing)
+        point = get_listing_point(listing)
+        if point is None:
+            listing.enriched_layers = []
+            listing.enriched_at = None
+            listing.save(update_fields=['enriched_layers', 'enriched_at'])
+            if synced_record is not None:
+                synced_record.enriched_layers = []
+                synced_record.enriched_at = None
+                synced_record.save(update_fields=['enriched_layers', 'enriched_at'])
+        else:
+            state_name = _get_state_name_from_payload(listing.listing_data or {})
+            enriched = compute_enriched_layers_for_point(point, state_name=state_name)
+            now = timezone.now()
+            listing.enriched_layers = enriched
+            listing.enriched_at = now
+            listing.save(update_fields=['enriched_layers', 'enriched_at'])
+            if synced_record is not None:
+                synced_record.enriched_layers = enriched
+                synced_record.enriched_at = now
+                synced_record.save(update_fields=['enriched_layers', 'enriched_at'])
+            logger.info(f"[WEBHOOK_BACKGROUND] Enriched {listing_type} {listing_id} ({len(enriched)} layers)")
+    except Exception as enr_err:
+        logger.warning(f"[WEBHOOK_BACKGROUND] Enrichment failed for {listing_type} {listing_id}: {enr_err}", exc_info=True)
+
+    # Refresh layer point count cache only when location changed (Fix 3)
+    if location_changed:
+        try:
+            from maps.listing_layer_enrichment_service import (
+                get_layer_ids_containing_point,
+                refresh_layer_point_count_cache,
+            )
+            point = listing.get_listing_point() if hasattr(listing, 'get_listing_point') else None
+            if point is None and getattr(listing, 'location_point', None) and not listing.location_point.empty:
+                point = listing.location_point
+            if point is not None and not point.empty:
+                lat, lng = point.y, point.x
+                affected = get_layer_ids_containing_point(lat, lng)
+                if affected:
+                    refresh_layer_point_count_cache(layer_ids=affected)
+        except Exception as cache_err:
+            logger.warning(f"[WEBHOOK_BACKGROUND] Layer point count cache refresh failed: {cache_err}", exc_info=True)
+
+    # Media loop
+    webhook_media_ids = {m.get('id') for m in media_items if m.get('id')}
+    tile_service_for_cleanup = None
+    for idx, media_item in enumerate(media_items, 1):
+        media_id = media_item.get('id')
+        if not media_id:
+            continue
+        is_tif = media_item.get('is_tif', False)
+        file_name = media_item.get('file_name', 'unknown')
+        new_s3_tile_path = media_item.get('s3_tile_path', '')
+        old_media = None
+        old_s3_tile_path = None
+        try:
+            old_media = DeveloperListingMedia.objects.get(listing=listing, backend_media_id=media_id)
+            old_s3_tile_path = old_media.s3_tile_path
+            if is_tif and old_s3_tile_path:
+                if not tile_service_for_cleanup:
+                    from .developer_listing_tile_service import DeveloperListingTileService
+                    tile_service_for_cleanup = DeveloperListingTileService()
+                tile_service_for_cleanup._delete_s3_tiles(old_s3_tile_path)
+        except DeveloperListingMedia.DoesNotExist:
+            pass
+        media_data_stored = _webhook_payload_snapshot(media_item)
+        DeveloperListingMedia.objects.update_or_create(
+            listing=listing,
+            backend_media_id=media_id,
+            defaults={
+                'media_type': media_item.get('media_type', 'file'),
+                'category': media_item.get('category', ''),
+                'file_name': file_name,
+                'file_url': media_item.get('url', ''),
+                's3_path': media_item.get('s3_path', ''),
+                'is_tif': is_tif,
+                's3_tile_path': new_s3_tile_path,
+                'media_data': media_data_stored,
+            }
+        )
+
+    webhook_media_ids = {m.get('id') for m in media_items if m.get('id')}
+    if action in ['updated', 'media_uploaded'] and webhook_media_ids:
+        existing_media = DeveloperListingMedia.objects.filter(listing=listing)
+        for existing_media_obj in existing_media:
+            if existing_media_obj.backend_media_id not in webhook_media_ids:
+                if existing_media_obj.is_tif and existing_media_obj.s3_tile_path:
+                    from .developer_listing_tile_service import DeveloperListingTileService
+                    DeveloperListingTileService()._delete_s3_tiles(existing_media_obj.s3_tile_path)
+                existing_media_obj.delete()
+
+    # Lambda invoke or mark processed
+    if tif_files:
+        use_lambda = getattr(settings, 'TILE_USE_LAMBDA', False) and getattr(settings, 'TILE_GENERATION_LAMBDA_ARN', '')
+        if not use_lambda:
+            webhook_event.processing_error = (
+                "TIF tile generation requires Lambda. Set TILE_USE_LAMBDA=true and TILE_GENERATION_LAMBDA_ARN."
+            )
+            webhook_event.save()
+            return
+        callback_path = reverse('tile-generation-callback')
+        base_url = getattr(settings, 'TILE_CALLBACK_BASE_URL', '').strip()
+        if not base_url:
+            webhook_event.processing_error = "TILE_CALLBACK_BASE_URL required for Lambda callback in background worker."
+            webhook_event.save()
+            return
+        callback_url = base_url.rstrip('/') + callback_path
+        payload = {
+            'webhook_event_id': webhook_event.id,
+            'callback_url': callback_url,
+            'callback_secret': getattr(settings, 'TILE_CALLBACK_SECRET', ''),
+            'listing_type': listing_type,
+            'listing_id': listing_id,
+            'tif_files': tif_files,
+            's3_tile_base_path': data.get('s3_tile_base_path', ''),
+            'event_type': data.get('event_type', ''),
+            'action': data.get('action', ''),
+            'data_snapshot': dict(data),
+        }
+        try:
+            client = boto3.client('lambda')
+            client.invoke(
+                FunctionName=settings.TILE_GENERATION_LAMBDA_ARN,
+                InvocationType='Event',
+                Payload=json.dumps(payload, default=str),
+            )
+            logger.info(f"[WEBHOOK_BACKGROUND] Lambda invoked for webhook_event_id={webhook_event.id}")
+        except Exception as lambda_err:
+            logger.exception(f"[WEBHOOK_BACKGROUND] Lambda invoke failed: {lambda_err}")
+            webhook_event.processing_error = f"Lambda invoke failed: {lambda_err}"
+            webhook_event.save()
+    else:
+        webhook_event.processed = True
+        webhook_event.processed_at = timezone.now()
+        webhook_event.save()
+
+
 class TileGenerationCallbackView(APIView):
     """
     Callback endpoint for Lambda (or external tile worker) to report tile generation
@@ -5570,264 +5977,20 @@ class DeveloperListingMediaWebhookView(APIView):
                 request_ip=self._get_client_ip(request)
             )
             
-            # Handle deletion events (listing/media); we already stored the payload above
-            if action == 'listing_deleted':
-                logger.info(f"[WEBHOOK_RECEIVE] Listing deletion event")
-                return self._handle_listing_deletion(webhook_event, listing_type, listing_id, data)
-            
-            if action == 'media_deleted':
-                logger.info(f"[WEBHOOK_RECEIVE] Media deletion event")
-                return self._handle_media_deletion(webhook_event, listing_type, listing_id, data, media_items)
-            
-            logger.info(f"[WEBHOOK_RECEIVE] event={event_type} action={action} listing={listing_type} id={listing_id} media={len(media_items)} tif={len(tif_files)}")
-            
-            # Save/update listing data
-            
-            # Extract city from division list if available
-            city_name = ''
-            if listing_data.get('city'):
-                city_name = listing_data.get('city', '')
-            elif listing_data.get('division'):
-                # division is a list, get first item's name if exists
-                division = listing_data.get('division', [])
-                if isinstance(division, list) and len(division) > 0:
-                    city_name = division[0].get('name', '') if isinstance(division[0], dict) else ''
-                elif isinstance(division, dict):
-                    city_name = division.get('name', '')
-            
-            # Store full listing_data (every field from backend; we only extract a few for querying)
-            listing_data_stored = _webhook_payload_snapshot(listing_data)
-            listing, created = DeveloperListing.objects.update_or_create(
-                listing_type=listing_type,
-                backend_listing_id=listing_id,
-                defaults={
-                    'listing_data': listing_data_stored,
-                    'name': listing_data.get('name', '') or listing_data.get('title', ''),
-                    'description': listing_data.get('description', ''),
-                    'location': listing_data.get('location', ''),
-                    'city': city_name,
-                    'state': listing_data.get('state', ''),
-                    'last_webhook_event': event_type,
-                    'backend_created_at': self._parse_datetime(listing_data.get('created_at')),
-                    'backend_updated_at': self._parse_datetime(listing_data.get('updated_at')),
-                }
+            # Process all events (create/update/deletion) in background; return 202 immediately (Fix 1).
+            import threading
+            thread = threading.Thread(
+                target=_process_developer_listing_webhook,
+                args=(webhook_event.id,),
+                daemon=True,
             )
-            # Sync location_point from listing_data for layer enrichment
-            point = listing.get_listing_point()
-            if point is not None and (listing.location_point is None or listing.location_point.wkt != point.wkt):
-                listing.location_point = point
-                listing.save(update_fields=['location_point'])
-            logger.info(f"[WEBHOOK_RECEIVE] ✅ DeveloperListing {'created' if created else 'updated'}: ID={listing.id}, Name={listing.name}")
+            thread.start()
+            logger.info(f"[WEBHOOK_RECEIVE] Accepted event={event_type} action={action} listing={listing_type} id={listing_id} webhook_event_id={webhook_event.id}")
+            return Response(
+                {'status': 'accepted', 'webhook_event_id': webhook_event.id},
+                status=status.HTTP_202_ACCEPTED,
+            )
 
-            # Sync into SyncedDeveloperLand / SyncedDeveloperPlot so the 4 Synced* tables stay in sync
-            from .models import SyncedDeveloperLand, SyncedDeveloperPlot
-            from .sync_utils import defaults_for_developer_land, defaults_for_developer_plot
-            listing_data_for_sync = dict(listing_data_stored) if listing_data_stored else {}
-            listing_data_for_sync['id'] = listing_id
-            synced_record = None
-            if listing_type == 'developerland':
-                defaults = defaults_for_developer_land(listing_data_for_sync)
-                synced_record, _ = SyncedDeveloperLand.objects.update_or_create(
-                    backend_id=listing_id,
-                    defaults=defaults,
-                )
-            elif listing_type == 'developerplot':
-                defaults = defaults_for_developer_plot(listing_data_for_sync)
-                synced_record, _ = SyncedDeveloperPlot.objects.update_or_create(
-                    backend_id=listing_id,
-                    defaults=defaults,
-                )
-
-            # Run enrichment (state-filtered); no coords or no nearby layers -> enriched_layers=[], enriched_at=None or now
-            try:
-                from maps.listing_layer_enrichment_service import enrich_listing
-                enrich_listing(listing, update_location_point=True)
-            except Exception as enr_err:
-                logger.warning(f"[WEBHOOK_RECEIVE] Enrichment failed for {listing_type} {listing_id}: {enr_err}", exc_info=True)
-            # Also enrich SyncedDeveloperLand/SyncedDeveloperPlot so /api/enrichment-lookup/ returns layers instantly
-            if synced_record is not None:
-                try:
-                    from maps.listing_layer_enrichment_service import enrich_synced_record
-                    if enrich_synced_record(synced_record, update_location_point=True):
-                        logger.info(f"[WEBHOOK_RECEIVE] Enriched synced {listing_type} {listing_id}")
-                    else:
-                        logger.info(f"[WEBHOOK_RECEIVE] Synced enrichment skipped (no coords or no layers) for {listing_type} {listing_id}")
-                except Exception as enr_err:
-                    logger.warning(f"[WEBHOOK_RECEIVE] Synced record enrichment failed for {listing_type} {listing_id}: {enr_err}", exc_info=True)
-
-            # Refresh layer point count cache for layers that contain this point (inside boundaries)
-            try:
-                from maps.listing_layer_enrichment_service import (
-                    get_layer_ids_containing_point,
-                    refresh_layer_point_count_cache,
-                )
-                point = listing.get_listing_point() if hasattr(listing, 'get_listing_point') else None
-                if point is None and getattr(listing, 'location_point', None) and not listing.location_point.empty:
-                    point = listing.location_point
-                if point is not None and not point.empty:
-                    lat, lng = point.y, point.x
-                    affected = get_layer_ids_containing_point(lat, lng)
-                    if affected:
-                        refresh_layer_point_count_cache(layer_ids=affected)
-            except Exception as cache_err:
-                logger.warning(f"[WEBHOOK_RECEIVE] Layer point count cache refresh failed: {cache_err}", exc_info=True)
-
-            # Save/update media files
-            # Track media IDs from webhook payload
-            webhook_media_ids = set()
-            
-            # Import tile service for cleanup (only if needed)
-            tile_service_for_cleanup = None
-            
-            for idx, media_item in enumerate(media_items, 1):
-                media_id = media_item.get('id')
-                if not media_id:
-                    logger.warning(f"[WEBHOOK_RECEIVE] Media item {idx}: No ID found, skipping")
-                    continue
-                
-                webhook_media_ids.add(media_id)
-                
-                is_tif = media_item.get('is_tif', False)
-                file_name = media_item.get('file_name', 'unknown')
-                new_s3_tile_path = media_item.get('s3_tile_path', '')
-                
-                # Check if media already exists and has a different tile path
-                # This handles the case where a media is deleted and recreated with same ID but different file/path
-                old_media = None
-                old_s3_tile_path = None
-                try:
-                    old_media = DeveloperListingMedia.objects.get(
-                        listing=listing,
-                        backend_media_id=media_id
-                    )
-                    old_s3_tile_path = old_media.s3_tile_path
-                    
-                    # If it's a TIF file, delete old tiles before updating
-                    # This handles both cases:
-                    # 1. File updated with same name (same path) - need to delete old tiles before generating new ones
-                    # 2. File updated with different name (different path) - delete old path, generate to new path
-                    if is_tif and old_s3_tile_path:
-                        if not tile_service_for_cleanup:
-                            from .developer_listing_tile_service import DeveloperListingTileService
-                            tile_service_for_cleanup = DeveloperListingTileService()
-                        tile_service_for_cleanup._delete_s3_tiles(old_s3_tile_path)
-                        
-                except DeveloperListingMedia.DoesNotExist:
-                    # New media, no cleanup needed
-                    pass
-                
-                # Store full media item (every field from backend)
-                media_data_stored = _webhook_payload_snapshot(media_item)
-                media_obj, created = DeveloperListingMedia.objects.update_or_create(
-                    listing=listing,
-                    backend_media_id=media_id,
-                    defaults={
-                        'media_type': media_item.get('media_type', 'file'),
-                        'category': media_item.get('category', ''),
-                        'file_name': file_name,
-                        'file_url': media_item.get('url', ''),
-                        's3_path': media_item.get('s3_path', ''),
-                        'is_tif': is_tif,
-                        's3_tile_path': new_s3_tile_path,
-                        'media_data': media_data_stored,
-                    }
-                )
-            
-            # Handle deleted media: if action is 'updated', delete media records (and their tiles) 
-            # that exist in DB but are not in the webhook payload
-            if action in ['updated', 'media_uploaded'] and webhook_media_ids:
-                existing_media = DeveloperListingMedia.objects.filter(listing=listing)
-                deleted_count = 0
-                
-                for existing_media_obj in existing_media:
-                    if existing_media_obj.backend_media_id not in webhook_media_ids:
-                        if existing_media_obj.is_tif and existing_media_obj.s3_tile_path:
-                            from .developer_listing_tile_service import DeveloperListingTileService
-                            tile_service = DeveloperListingTileService()
-                            tile_service._delete_s3_tiles(existing_media_obj.s3_tile_path)
-                        existing_media_obj.delete()
-                        deleted_count += 1
-            
-            # Process TIF files: tile generation runs only in Lambda (no local/in-process generation)
-            if tif_files:
-                use_lambda = getattr(settings, 'TILE_USE_LAMBDA', False) and getattr(settings, 'TILE_GENERATION_LAMBDA_ARN', '')
-                if not use_lambda:
-                    webhook_event.processing_error = (
-                        "TIF tile generation requires Lambda. Set TILE_USE_LAMBDA=true and TILE_GENERATION_LAMBDA_ARN."
-                    )
-                    webhook_event.save()
-                    return Response(
-                        {
-                            "status": "error",
-                            "message": "TIF tile generation requires Lambda. Configure TILE_USE_LAMBDA and TILE_GENERATION_LAMBDA_ARN.",
-                            "tif_files_processed": len(tif_files),
-                        },
-                        status=status.HTTP_503_SERVICE_UNAVAILABLE
-                    )
-                # Invoke Lambda asynchronously; Lambda will callback to update WebhookEvent + logs
-                from django.urls import reverse
-                callback_path = reverse('tile-generation-callback')
-                callback_url = request.build_absolute_uri(callback_path)
-                base_url = getattr(settings, 'TILE_CALLBACK_BASE_URL', '').strip()
-                if base_url:
-                    callback_url = base_url.rstrip('/') + callback_path
-                payload = {
-                    'webhook_event_id': webhook_event.id,
-                    'callback_url': callback_url,
-                    'callback_secret': getattr(settings, 'TILE_CALLBACK_SECRET', ''),
-                    'listing_type': listing_type,
-                    'listing_id': listing_id,
-                    'tif_files': tif_files,
-                    's3_tile_base_path': data.get('s3_tile_base_path', ''),
-                    'event_type': data.get('event_type', ''),
-                    'action': data.get('action', ''),
-                    'data_snapshot': dict(data),
-                }
-                try:
-                    client = boto3.client('lambda')
-                    client.invoke(
-                        FunctionName=settings.TILE_GENERATION_LAMBDA_ARN,
-                        InvocationType='Event',
-                        Payload=json.dumps(payload, default=str),
-                    )
-                    logger.info(f"[WEBHOOK_RECEIVE] Lambda invoked for webhook_event_id={webhook_event.id}")
-                    return Response(
-                        {
-                            "status": "success",
-                            "message": "Webhook received; TIF tile generation sent to Lambda.",
-                            "tiles_generated": 0,
-                            "tif_files_processed": len(tif_files),
-                            "note": "Lambda will callback to record result and logs.",
-                        },
-                        status=status.HTTP_200_OK
-                    )
-                except Exception as lambda_err:
-                    logger.exception(f"[WEBHOOK_RECEIVE] Lambda invoke failed: {lambda_err}")
-                    webhook_event.processing_error = f"Lambda invoke failed: {lambda_err}"
-                    webhook_event.save()
-                    return Response(
-                        {
-                            "status": "error",
-                            "message": "TIF tile generation failed: Lambda invoke failed.",
-                            "details": str(lambda_err),
-                            "tif_files_processed": len(tif_files),
-                        },
-                        status=status.HTTP_503_SERVICE_UNAVAILABLE
-                    )
-            else:
-                webhook_event.processed = True
-                webhook_event.processed_at = timezone.now()
-                webhook_event.save()
-                return Response(
-                    {
-                        "status": "success",
-                        "message": f"Webhook received for {listing_type} {listing_id}",
-                        "tiles_generated": 0,
-                        "note": "No TIF files found in webhook payload"
-                    },
-                    status=status.HTTP_200_OK
-                )
-                
         except Exception as e:
             logger.error(f"[WEBHOOK_RECEIVE] Exception: {e}", exc_info=True)
             if webhook_event:
@@ -6636,9 +6799,10 @@ class EnrichmentLookupAPIView(APIView):
             records = list(qs)
             results = [self._record_to_dict(r) for r in records]
 
-            # Resolve "place" (specific feature) for each enriched layer, like CoordinateSearchTestView
+            # Resolve "place" (specific feature) for each enriched layer (Fix 5: cache in Redis, TTL 30 min)
             from .listing_layer_enrichment_service import get_place_for_point_in_layer
             from django.contrib.gis.geos import Point
+            _PLACE_CACHE_TTL = 1800  # 30 minutes
             for record, result in zip(records, results):
                 point = getattr(record, 'location_point', None)
                 if point is None and getattr(record, 'long', None) is not None and getattr(record, 'lat', None) is not None:
@@ -6648,13 +6812,23 @@ class EnrichmentLookupAPIView(APIView):
                         point = None
                 if point is None:
                     continue
+                point_wkt_hash = hashlib.md5((getattr(point, 'wkt', '') or '').encode()).hexdigest()
                 enriched = result.get('enriched_layers') or []
                 for layer_entry in enriched:
                     layer_id = layer_entry.get('layer_id')
                     distance_km = layer_entry.get('distance_km', 0)
-                    if layer_id is not None:
+                    if layer_id is None:
+                        continue
+                    distance_bucket = '0' if (distance_km or 0) == 0 else '1'
+                    place_cache_key = f"enrichment_place:{point_wkt_hash}:{layer_id}:{distance_bucket}"
+                    cached_place = cache.get(place_cache_key)
+                    if cached_place is not None:
+                        layer_entry['place'] = cached_place
+                    else:
                         place = get_place_for_point_in_layer(point, layer_id, distance_km)
                         layer_entry['place'] = place
+                        if place is not None:
+                            cache.set(place_cache_key, place, _PLACE_CACHE_TTL)
 
             return Response(
                 {

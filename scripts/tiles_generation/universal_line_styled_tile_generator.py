@@ -67,8 +67,11 @@ ZOOM_RESOLUTION = {
 }
 REFERENCE_STROKE_WIDTH = 3.0
 
-# Cap stroke at high zoom so lines stay thin and don't merge.
-ZOOM_MAX_STROKE_PX = {17: 14, 18: 17}
+# Cap stroke at high zoom. Outer (white) must be WIDER than inner (dark) so the border shows.
+# Inner (dark center): stricter cap so it stays thin and doesn't merge at interchanges.
+ZOOM_MAX_STROKE_PX_INNER = {17: 10, 18: 12}
+# Outer (white border): can be wider than inner so white outline is visible.
+ZOOM_MAX_STROKE_PX_OUTER = {17: 14, 18: 17}
 
 # Render at 2x then downsample to 256 for sharper, higher-resolution result.
 SUPERSAMPLE = 2
@@ -399,7 +402,8 @@ class UniversalLineStyledTileGenerator:
                 continue
             color = row['_stroke_color']
             width_px = max(1, int(line_width_base * row['_stroke_width_ratio']))
-            max_px = ZOOM_MAX_STROKE_PX.get(zoom)
+            role = str(row.get('_style_role', '')).strip().lower()
+            max_px = ZOOM_MAX_STROKE_PX_OUTER.get(zoom) if role == 'outer' else ZOOM_MAX_STROKE_PX_INNER.get(zoom)
             if max_px is not None:
                 width_px = min(width_px, max_px)
             for coords in row['_line_coords']:
