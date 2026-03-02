@@ -5694,7 +5694,6 @@ def _process_developer_listing_webhook(webhook_event_id):
             }
         )
 
-    webhook_media_ids = {m.get('id') for m in media_items if m.get('id')}
     if action in ['updated', 'media_uploaded'] and webhook_media_ids:
         existing_media = DeveloperListingMedia.objects.filter(listing=listing)
         for existing_media_obj in existing_media:
@@ -6004,236 +6003,6 @@ class DeveloperListingMediaWebhookView(APIView):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
     
-    def _handle_listing_deletion(self, webhook_event, listing_type, listing_id, data):
-        """
-        Handle listing deletion webhook
-        Deletes all tiles and removes listing from database
-        """
-        from django.utils import timezone
-        from .models import DeveloperListing, DeveloperListingMedia
-        from .developer_listing_tile_service import DeveloperListingTileService
-        
-        logger.info(f"[WEBHOOK_DELETE] Listing deletion {listing_type} id={listing_id}")
-        
-        try:
-            # Find the listing
-            try:
-                listing = DeveloperListing.objects.get(
-                    listing_type=listing_type,
-                    backend_listing_id=listing_id
-                )
-            except DeveloperListing.DoesNotExist:
-                logger.warning(f"[WEBHOOK_DELETE] ⚠️  Listing not found: {listing_type} {listing_id}")
-                # Mark as processed even if not found (might have been deleted already)
-                webhook_event.processed = True
-                webhook_event.processed_at = timezone.now()
-                webhook_event.processing_result = {'note': 'Listing not found in database'}
-                webhook_event.save()
-                return Response(
-                    {
-                        "status": "success",
-                        "message": f"Listing {listing_type} {listing_id} not found (may have been deleted already)",
-                        "tiles_deleted": 0
-                    },
-                    status=status.HTTP_200_OK
-                )
-            
-            # Get all media for this SPECIFIC listing only (e.g., listing ID 70)
-            # This ensures we only delete tiles for this listing, not all listings
-            all_media = DeveloperListingMedia.objects.filter(listing=listing)
-            total_tiles_deleted = 0
-            tile_service = DeveloperListingTileService()
-            for media in all_media:
-                if media.is_tif and media.s3_tile_path:
-                    deleted_count = tile_service._delete_s3_tiles(media.s3_tile_path)
-                    total_tiles_deleted += deleted_count
-            media_count = all_media.count()
-            all_media.delete()
-
-            # Get listing point for cache refresh before deleting
-            lat, lng = None, None
-            point = listing.get_listing_point() if hasattr(listing, 'get_listing_point') else None
-            if point is None and getattr(listing, 'location_point', None) and not listing.location_point.empty:
-                point = listing.location_point
-            if point is not None and not point.empty:
-                lat, lng = point.y, point.x
-
-            listing.delete()
-            from .models import SyncedDeveloperLand, SyncedDeveloperPlot
-            if listing_type == 'developerland':
-                SyncedDeveloperLand.objects.filter(backend_id=listing_id).delete()
-            elif listing_type == 'developerplot':
-                SyncedDeveloperPlot.objects.filter(backend_id=listing_id).delete()
-
-            # Refresh layer point count cache for layers that contained this point (inside boundaries)
-            if lat is not None and lng is not None:
-                try:
-                    from maps.listing_layer_enrichment_service import (
-                        get_layer_ids_containing_point,
-                        refresh_layer_point_count_cache,
-                    )
-                    affected = get_layer_ids_containing_point(lat, lng)
-                    if affected:
-                        refresh_layer_point_count_cache(layer_ids=affected)
-                except Exception as cache_err:
-                    logger.warning(f"[WEBHOOK_DELETE] Layer point count cache refresh failed: {cache_err}", exc_info=True)
-
-            # Mark webhook as processed
-            webhook_event.processed = True
-            webhook_event.processed_at = timezone.now()
-            webhook_event.tiles_generated = 0  # No tiles generated, but we track deletions
-            webhook_event.processing_result = {
-                'tiles_deleted': total_tiles_deleted,
-                'media_records_deleted': media_count,
-                'listing_deleted': True
-            }
-            webhook_event.save()
-            
-            logger.info(f"[WEBHOOK_DELETE] Completed: tiles_deleted={total_tiles_deleted} media_deleted={media_count}")
-            
-            return Response(
-                {
-                    "status": "success",
-                    "message": f"Listing {listing_type} {listing_id} deleted successfully",
-                    "tiles_deleted": total_tiles_deleted,
-                    "media_records_deleted": media_count
-                },
-                status=status.HTTP_200_OK
-            )
-            
-        except Exception as e:
-            logger.error(f"[WEBHOOK_DELETE] ❌ Error processing listing deletion: {e}", exc_info=True)
-            webhook_event.processing_error = str(e)
-            webhook_event.save()
-            return Response(
-                {
-                    "status": "error",
-                    "message": f"Error processing listing deletion: {str(e)}"
-                },
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
-    
-    def _handle_media_deletion(self, webhook_event, listing_type, listing_id, data, media_items):
-        """
-        Handle media deletion webhook
-        Deletes tiles for deleted media and removes media records from database
-        """
-        from django.utils import timezone
-        from .models import DeveloperListing, DeveloperListingMedia
-        from .developer_listing_tile_service import DeveloperListingTileService
-        
-        logger.info(f"[WEBHOOK_DELETE] Media deletion {listing_type} id={listing_id}")
-        
-        try:
-            # Find the listing
-            try:
-                listing = DeveloperListing.objects.get(
-                    listing_type=listing_type,
-                    backend_listing_id=listing_id
-                )
-            except DeveloperListing.DoesNotExist:
-                logger.warning(f"[WEBHOOK_DELETE] ⚠️  Listing not found: {listing_type} {listing_id}")
-                webhook_event.processed = True
-                webhook_event.processed_at = timezone.now()
-                webhook_event.processing_result = {'note': 'Listing not found in database'}
-                webhook_event.save()
-                return Response(
-                    {
-                        "status": "success",
-                        "message": f"Listing {listing_type} {listing_id} not found",
-                        "tiles_deleted": 0
-                    },
-                    status=status.HTTP_200_OK
-                )
-            
-            # Find deleted media items (those marked with 'deleted': true)
-            # This ensures we ONLY delete tiles for the specific deleted media files, not all media
-            deleted_media_items = [m for m in media_items if m.get('deleted', False)]
-            total_tiles_deleted = 0
-            deleted_media_count = 0
-            
-            tile_service = DeveloperListingTileService()
-            
-            # Process each deleted media item (ONLY these specific files)
-            for deleted_media in deleted_media_items:
-                media_id = deleted_media.get('id')
-                file_name = deleted_media.get('file_name', 'unknown')
-                s3_tile_path = deleted_media.get('s3_tile_path', '')
-                is_tif = deleted_media.get('is_tif', False)
-                
-                if is_tif and s3_tile_path:
-                    deleted_count = tile_service._delete_s3_tiles(s3_tile_path)
-                    total_tiles_deleted += deleted_count
-                elif is_tif:
-                    logger.warning(f"[WEBHOOK_DELETE] ⚠️  TIF file {file_name} has no s3_tile_path, skipping tile deletion")
-                
-                # Delete the media record from database
-                try:
-                    media_obj = DeveloperListingMedia.objects.get(
-                        listing=listing,
-                        backend_media_id=media_id
-                    )
-                    media_obj.delete()
-                    deleted_media_count += 1
-                except DeveloperListingMedia.DoesNotExist:
-                    pass
-            
-            remaining_media_items = [m for m in media_items if not m.get('deleted', False)]
-            
-            for media_item in remaining_media_items:
-                media_id = media_item.get('id')
-                if not media_id:
-                    continue
-                
-                DeveloperListingMedia.objects.update_or_create(
-                    listing=listing,
-                    backend_media_id=media_id,
-                    defaults={
-                        'media_type': media_item.get('media_type', 'file'),
-                        'category': media_item.get('category', ''),
-                        'file_name': media_item.get('file_name', ''),
-                        'file_url': media_item.get('url', ''),
-                        's3_path': media_item.get('s3_path', ''),
-                        'is_tif': media_item.get('is_tif', False),
-                        's3_tile_path': media_item.get('s3_tile_path', ''),
-                        'media_data': media_item,
-                    }
-                )
-            
-            webhook_event.processed = True
-            webhook_event.processed_at = timezone.now()
-            webhook_event.tiles_generated = 0
-            webhook_event.processing_result = {
-                'tiles_deleted': total_tiles_deleted,
-                'media_records_deleted': deleted_media_count,
-                'remaining_media_count': len(remaining_media_items)
-            }
-            webhook_event.save()
-            logger.info(f"[WEBHOOK_DELETE] Media deletion completed: tiles_deleted={total_tiles_deleted} media_deleted={deleted_media_count}")
-            
-            return Response(
-                {
-                    "status": "success",
-                    "message": f"Media deletion processed for {listing_type} {listing_id}",
-                    "tiles_deleted": total_tiles_deleted,
-                    "media_records_deleted": deleted_media_count,
-                    "remaining_media_count": len(remaining_media_items)
-                },
-                status=status.HTTP_200_OK
-            )
-            
-        except Exception as e:
-            logger.error(f"[WEBHOOK_DELETE] ❌ Error processing media deletion: {e}", exc_info=True)
-            webhook_event.processing_error = str(e)
-            webhook_event.save()
-            return Response(
-                {
-                    "status": "error",
-                    "message": f"Error processing media deletion: {str(e)}"
-                },
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
-    
     def _get_client_ip(self, request):
         """Get client IP address from request"""
         x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
@@ -6277,182 +6046,82 @@ class LandPlotMVTBuildView(APIView):
             logger.error(f"[MVT_BUILD] Error building {z}/{x}/{y}: {e}", exc_info=True)
             return Response({'error': str(e)}, status=500)
 
-class LandPlotWebhookView(APIView):
-    """
-    Webhook endpoint for Land and Plot (regular listings) from 1acre-be.
-    Receives create/update/delete events with full listing_data.
-    Same pattern as DeveloperListingMediaWebhookView.
-    """
-    permission_classes = [AllowAny]
-    authentication_classes = []
-    http_method_names = ['post']
 
-    def post(self, request):
-        from .models import LandPlotWebhookEvent, SyncedLand, SyncedPlot
-        from .sync_utils import defaults_for_land, defaults_for_plot
+def _process_land_plot_webhook(webhook_event_id):
+    """
+    Background processing for land/plot webhook: sync SyncedLand/SyncedPlot, enrich,
+    refresh layer cache, optionally invoke land/plot Lambda. No request object.
+    When Lambda is not configured, log warning and skip (no 503).
+    """
+    from django.db import close_old_connections
+    from .models import LandPlotWebhookEvent, SyncedLand, SyncedPlot
+    from .sync_utils import defaults_for_land, defaults_for_plot
 
-        logger.info("[LAND_PLOT_WEBHOOK] ===== Land/Plot webhook POST received =====")
+    close_old_connections()
+    try:
+        webhook_event = LandPlotWebhookEvent.objects.get(pk=webhook_event_id)
+    except LandPlotWebhookEvent.DoesNotExist:
+        logger.warning(f"[LAND_PLOT_WEBHOOK] LandPlotWebhookEvent id={webhook_event_id} not found")
+        return
+
+    data = getattr(webhook_event, 'payload', None) or {}
+    if not isinstance(data, dict):
+        data = {}
+    action = data.get('action', '')
+    listing_type = data.get('listing_type', '')
+    listing_id = data.get('listing_id')
+    listing_data = data.get('listing_data', {}) or {}
+    event_type = data.get('event_type', '')
+
+    lat, lng = None, None
+    if action in ('created', 'updated'):
+        item = dict(listing_data) if listing_data else {}
+        item['id'] = listing_id
+        if listing_type == 'land':
+            defaults = defaults_for_land(item)
+            record, _ = SyncedLand.objects.update_or_create(backend_id=listing_id, defaults=defaults)
+            logger.info(f"[LAND_PLOT_WEBHOOK] Synced SyncedLand backend_id={listing_id}")
+        else:
+            defaults = defaults_for_plot(item)
+            record, _ = SyncedPlot.objects.update_or_create(backend_id=listing_id, defaults=defaults)
+            logger.info(f"[LAND_PLOT_WEBHOOK] Synced SyncedPlot backend_id={listing_id}")
         try:
-            # Read raw body first (only one read allowed; request.data would consume the stream)
-            raw_body = ''
-            try:
-                _req = getattr(request, '_request', request)
-                raw_body = (_req.body.decode('utf-8', errors='replace')
-                            if getattr(_req, 'body', None) else '')
-            except Exception:
-                pass
-            # Parse JSON from raw body so we never touch request.body again
-            data = {}
-            if raw_body and raw_body.strip():
-                try:
-                    data = json.loads(raw_body)
-                except (json.JSONDecodeError, ValueError) as e:
-                    logger.warning(f"[LAND_PLOT_WEBHOOK] Could not parse JSON body: {e}")
-                    return Response(
-                        {"error": "Invalid JSON body"},
-                        status=status.HTTP_400_BAD_REQUEST
-                    )
-            if not isinstance(data, dict):
-                data = {}
-            # Snapshot full payload so we save everything (same pattern as developer listing webhook)
-            payload_snapshot = _webhook_payload_snapshot(data)
-            # Print entire webhook JSON clearly for debugging
-            _print_webhook_response("land-plot", data)
-            # Truncate raw_body for storage if needed (already have full string above)
-            if len(raw_body) > 50000:
-                raw_body = raw_body[:50000]
-
-            event_type = data.get('event_type')
-            action = data.get('action')
-            listing_type = data.get('listing_type')
-            listing_id = data.get('listing_id')
-            listing_data = data.get('listing_data', {})
-
-            if not all([event_type, action, listing_type, listing_id is not None]):
-                return Response(
-                    {"error": "Missing required fields: event_type, action, listing_type, listing_id"},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-            if event_type not in ('listing_created', 'listing_updated', 'listing_deleted'):
-                return Response(
-                    {"error": f"Unknown event_type: {event_type}"},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-            if listing_type not in ('land', 'plot'):
-                return Response(
-                    {"error": f"Unknown listing_type: {listing_type}"},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-
-            ip = self._get_client_ip(request)
-            LandPlotWebhookEvent.objects.create(
-                event_type=event_type,
-                action=action,
-                listing_type=listing_type,
-                listing_id=listing_id,
-                payload=payload_snapshot,
-                raw_body=raw_body,
-                request_headers=dict(request.headers),
-                request_ip=ip,
+            from maps.listing_layer_enrichment_service import enrich_synced_record
+            if enrich_synced_record(record, update_location_point=True):
+                logger.info(f"[LAND_PLOT_WEBHOOK] Enriched {listing_type} {listing_id}")
+            else:
+                logger.info(f"[LAND_PLOT_WEBHOOK] Enrichment skipped/cleared for {listing_type} {listing_id}")
+        except Exception as enr_err:
+            logger.warning(f"[LAND_PLOT_WEBHOOK] Enrichment failed for {listing_type} {listing_id}: {enr_err}", exc_info=True)
+        try:
+            from maps.listing_layer_enrichment_service import (
+                get_layer_ids_containing_point,
+                refresh_layer_point_count_cache,
             )
-            logger.info(f"[LAND_PLOT_WEBHOOK] Saved: {action} {listing_type} {listing_id}")
-
-            lat, lng = None, None  # for layer cache and tile refresh
-            # Sync into SyncedLand / SyncedPlot so DB stays in sync with 1acre-be (full listing_data stored in payload)
-            if action in ('created', 'updated'):
-                item = dict(listing_data) if listing_data else {}
-                item['id'] = listing_id  # ensure id present for payload; payload = full listing_data
-                if listing_type == 'land':
-                    defaults = defaults_for_land(item)
-                    record, _ = SyncedLand.objects.update_or_create(
-                        backend_id=listing_id,
-                        defaults=defaults,
-                    )
-                    logger.info(f"[LAND_PLOT_WEBHOOK] Synced SyncedLand backend_id={listing_id}")
-                else:
-                    defaults = defaults_for_plot(item)
-                    record, _ = SyncedPlot.objects.update_or_create(
-                        backend_id=listing_id,
-                        defaults=defaults,
-                    )
-                    logger.info(f"[LAND_PLOT_WEBHOOK] Synced SyncedPlot backend_id={listing_id}")
-                # Run enrichment (state-filtered); no coords or no nearby layers -> enriched_layers=[], enriched_at=None or now
-                try:
-                    from maps.listing_layer_enrichment_service import enrich_synced_record
-                    if enrich_synced_record(record, update_location_point=True):
-                        logger.info(f"[LAND_PLOT_WEBHOOK] Enriched {listing_type} {listing_id}")
-                    else:
-                        logger.info(f"[LAND_PLOT_WEBHOOK] Enrichment skipped/cleared (no coords or no layers) for {listing_type} {listing_id}")
-                except Exception as enr_err:
-                    logger.warning(f"[LAND_PLOT_WEBHOOK] Enrichment failed for {listing_type} {listing_id}: {enr_err}", exc_info=True)
-                # Refresh layer point count cache for layers that contain this point (inside boundaries)
-                try:
-                    from maps.listing_layer_enrichment_service import (
-                        get_layer_ids_containing_point,
-                        refresh_layer_point_count_cache,
-                    )
-                    if getattr(record, 'location_point', None) and not record.location_point.empty:
-                        lat, lng = record.location_point.y, record.location_point.x
-                    if lat is None or lng is None:
-                        item = dict(listing_data) if listing_data else {}
-                        lat = item.get('lat') or item.get('latitude')
-                        lng = item.get('long') or item.get('lng') or item.get('longitude') or item.get('lon')
-                    if lat is not None and lng is not None:
-                        affected = get_layer_ids_containing_point(lat, lng)
-                        if affected:
-                            refresh_layer_point_count_cache(layer_ids=affected)
-                except Exception as cache_err:
-                    logger.warning(f"[LAND_PLOT_WEBHOOK] Layer point count cache refresh failed: {cache_err}", exc_info=True)
-            elif action == 'deleted':
-                if listing_type == 'land':
-                    rec = SyncedLand.objects.filter(backend_id=listing_id).first()
-                    if rec and getattr(rec, 'location_point', None) and not rec.location_point.empty:
-                        lat, lng = rec.location_point.y, rec.location_point.x
-                    deleted, _ = SyncedLand.objects.filter(backend_id=listing_id).delete()
-                    if deleted:
-                        logger.info(f"[LAND_PLOT_WEBHOOK] Deleted SyncedLand backend_id={listing_id}")
-                else:
-                    rec = SyncedPlot.objects.filter(backend_id=listing_id).first()
-                    if rec and getattr(rec, 'location_point', None) and not rec.location_point.empty:
-                        lat, lng = rec.location_point.y, rec.location_point.x
-                    deleted, _ = SyncedPlot.objects.filter(backend_id=listing_id).delete()
-                    if deleted:
-                        logger.info(f"[LAND_PLOT_WEBHOOK] Deleted SyncedPlot backend_id={listing_id}")
-                if lat is not None and lng is not None:
-                    try:
-                        from maps.listing_layer_enrichment_service import (
-                            get_layer_ids_containing_point,
-                            refresh_layer_point_count_cache,
-                        )
-                        affected = get_layer_ids_containing_point(lat, lng)
-                        if affected:
-                            refresh_layer_point_count_cache(layer_ids=affected)
-                    except Exception as cache_err:
-                        logger.warning(f"[LAND_PLOT_WEBHOOK] Layer point count cache refresh failed: {cache_err}", exc_info=True)
-
-            # Refresh land/plot MVT tiles via Lambda only (no local tile generation)
+            if getattr(record, 'location_point', None) and not record.location_point.empty:
+                lat, lng = record.location_point.y, record.location_point.x
+            if lat is None or lng is None:
+                lat = listing_data.get('lat') or listing_data.get('latitude')
+                lng = listing_data.get('long') or listing_data.get('lng') or listing_data.get('longitude') or listing_data.get('lon')
             if lat is not None and lng is not None:
-                use_lambda = (
-                    getattr(settings, 'LAND_PLOT_TILE_USE_LAMBDA', False) and
-                    getattr(settings, 'LAND_PLOT_TILE_LAMBDA_ARN', '')
+                affected = get_layer_ids_containing_point(lat, lng)
+                if affected:
+                    refresh_layer_point_count_cache(layer_ids=affected)
+        except Exception as cache_err:
+            logger.warning(f"[LAND_PLOT_WEBHOOK] Layer point count cache refresh failed: {cache_err}", exc_info=True)
+        # Lambda: only if configured; otherwise log warning and continue (Issue 6)
+        if lat is not None and lng is not None:
+            use_lambda = (
+                getattr(settings, 'LAND_PLOT_TILE_USE_LAMBDA', False) and
+                getattr(settings, 'LAND_PLOT_TILE_LAMBDA_ARN', '')
+            )
+            if not use_lambda:
+                logger.warning(
+                    "[LAND_PLOT_WEBHOOK] MVT tile refresh requires Lambda. "
+                    "Set LAND_PLOT_TILE_USE_LAMBDA=true and LAND_PLOT_TILE_LAMBDA_ARN."
                 )
-                if not use_lambda:
-                    logger.warning(
-                        "[LAND_PLOT_WEBHOOK] MVT tile refresh requires Lambda. "
-                        "Set LAND_PLOT_TILE_USE_LAMBDA=true and LAND_PLOT_TILE_LAMBDA_ARN."
-                    )
-                    return Response(
-                        {
-                            "status": "error",
-                            "message": "MVT tile refresh requires Lambda. Configure LAND_PLOT_TILE_USE_LAMBDA and LAND_PLOT_TILE_LAMBDA_ARN.",
-                            "event_type": event_type,
-                            "listing_type": listing_type,
-                            "listing_id": listing_id,
-                        },
-                        status=status.HTTP_503_SERVICE_UNAVAILABLE
-                    )
+            else:
                 try:
-                    import boto3
                     base_url = getattr(settings, 'TILE_CALLBACK_BASE_URL', '').strip()
                     callback_url = base_url.rstrip('/') + '/api/webhooks/tile-generation-result/'
                     mvt_build_base_url = base_url.rstrip('/') + '/api/tiles/land-plot-mvt-build'
@@ -6480,21 +6149,113 @@ class LandPlotWebhookView(APIView):
                     logger.info(f"[LAND_PLOT_WEBHOOK] Lambda invoked for {listing_type} {listing_id} lat={lat} lng={lng}")
                 except Exception as lambda_err:
                     logger.exception(f"[LAND_PLOT_WEBHOOK] Lambda invoke failed: {lambda_err}")
-                    return Response(
-                        {
-                            "status": "error",
-                            "message": "MVT tile refresh failed: Lambda invoke failed.",
-                            "details": str(lambda_err),
-                            "event_type": event_type,
-                            "listing_type": listing_type,
-                            "listing_id": listing_id,
-                        },
-                        status=status.HTTP_503_SERVICE_UNAVAILABLE
-                    )
+    elif action == 'deleted':
+        if listing_type == 'land':
+            rec = SyncedLand.objects.filter(backend_id=listing_id).first()
+            if rec and getattr(rec, 'location_point', None) and not rec.location_point.empty:
+                lat, lng = rec.location_point.y, rec.location_point.x
+            SyncedLand.objects.filter(backend_id=listing_id).delete()
+            logger.info(f"[LAND_PLOT_WEBHOOK] Deleted SyncedLand backend_id={listing_id}")
+        else:
+            rec = SyncedPlot.objects.filter(backend_id=listing_id).first()
+            if rec and getattr(rec, 'location_point', None) and not rec.location_point.empty:
+                lat, lng = rec.location_point.y, rec.location_point.x
+            SyncedPlot.objects.filter(backend_id=listing_id).delete()
+            logger.info(f"[LAND_PLOT_WEBHOOK] Deleted SyncedPlot backend_id={listing_id}")
+        if lat is not None and lng is not None:
+            try:
+                from maps.listing_layer_enrichment_service import (
+                    get_layer_ids_containing_point,
+                    refresh_layer_point_count_cache,
+                )
+                affected = get_layer_ids_containing_point(lat, lng)
+                if affected:
+                    refresh_layer_point_count_cache(layer_ids=affected)
+            except Exception as cache_err:
+                logger.warning(f"[LAND_PLOT_WEBHOOK] Layer point count cache refresh failed: {cache_err}", exc_info=True)
 
+
+class LandPlotWebhookView(APIView):
+    """
+    Webhook endpoint for Land and Plot (regular listings) from 1acre-be.
+    Receives create/update/delete events with full listing_data.
+    Same pattern as DeveloperListingMediaWebhookView.
+    """
+    permission_classes = [AllowAny]
+    authentication_classes = []
+    http_method_names = ['post']
+
+    def post(self, request):
+        from .models import LandPlotWebhookEvent
+
+        logger.info("[LAND_PLOT_WEBHOOK] ===== Land/Plot webhook POST received =====")
+        try:
+            raw_body = ''
+            try:
+                _req = getattr(request, '_request', request)
+                raw_body = (_req.body.decode('utf-8', errors='replace')
+                            if getattr(_req, 'body', None) else '')
+            except Exception:
+                pass
+            data = {}
+            if raw_body and raw_body.strip():
+                try:
+                    data = json.loads(raw_body)
+                except (json.JSONDecodeError, ValueError) as e:
+                    logger.warning(f"[LAND_PLOT_WEBHOOK] Could not parse JSON body: {e}")
+                    return Response(
+                        {"error": "Invalid JSON body"},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+            if not isinstance(data, dict):
+                data = {}
+            payload_snapshot = _webhook_payload_snapshot(data)
+            _print_webhook_response("land-plot", data)
+            if len(raw_body) > 50000:
+                raw_body = raw_body[:50000]
+
+            event_type = data.get('event_type')
+            action = data.get('action')
+            listing_type = data.get('listing_type')
+            listing_id = data.get('listing_id')
+
+            if not all([event_type, action, listing_type, listing_id is not None]):
+                return Response(
+                    {"error": "Missing required fields: event_type, action, listing_type, listing_id"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            if event_type not in ('listing_created', 'listing_updated', 'listing_deleted'):
+                return Response(
+                    {"error": f"Unknown event_type: {event_type}"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            if listing_type not in ('land', 'plot'):
+                return Response(
+                    {"error": f"Unknown listing_type: {listing_type}"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            ip = self._get_client_ip(request)
+            webhook_event = LandPlotWebhookEvent.objects.create(
+                event_type=event_type,
+                action=action,
+                listing_type=listing_type,
+                listing_id=listing_id,
+                payload=payload_snapshot,
+                raw_body=raw_body,
+                request_headers=dict(request.headers),
+                request_ip=ip,
+            )
+            import threading
+            threading.Thread(
+                target=_process_land_plot_webhook,
+                args=(webhook_event.id,),
+                daemon=True,
+            ).start()
+            logger.info(f"[LAND_PLOT_WEBHOOK] Accepted: {action} {listing_type} {listing_id} event_id={webhook_event.id}")
             return Response(
-                {"status": "success", "event_type": event_type, "listing_type": listing_type, "listing_id": listing_id},
-                status=status.HTTP_200_OK
+                {"status": "success", "message": "accepted", "event_id": webhook_event.id},
+                status=status.HTTP_200_OK,
             )
         except Exception as e:
             logger.error(f"[LAND_PLOT_WEBHOOK] Error: {e}", exc_info=True)
@@ -7615,9 +7376,8 @@ class DeveloperListingMapDataAPIView(APIView):
 
 class LandPlotTileView(APIView):
     """
-    Serve land/plot MVT tiles from CloudFront, S3, or local disk (same pattern as PNG tiles).
-    Order: 1) CloudFront, 2) S3 direct, 3) local land_plot_tiles/.
-    Bucket and domain from settings: AWS_STORAGE_BUCKET_NAME, CLOUDFRONT_DOMAIN.
+    Serve land/plot MVT tiles: redirect to CloudFront (no proxy) so workers do not block.
+    Optional local file fallback for tiles not yet on CDN. Same pattern as CloudFrontTileView.
     """
     permission_classes = [AllowAny]
 
@@ -7627,34 +7387,15 @@ class LandPlotTileView(APIView):
         if not tile_path_service.validate_tile_coordinates(z, x, y):
             return Response({'error': 'Invalid tile coordinates'}, status=400)
 
-        # 1) CloudFront
-        cloudfront_url = tile_path_service.land_plot_cloudfront_url(z, x, y)
-        tile_data = self._fetch_url(cloudfront_url)
-        if tile_data:
-            return self._mvt_response(tile_data)
-
-        # 2) S3 direct
-        s3_url = tile_path_service.land_plot_s3_url(z, x, y)
-        tile_data = self._fetch_url(s3_url)
-        if tile_data:
-            return self._mvt_response(tile_data)
-
-        # 3) Local fallback
+        # Local file fallback first (no network)
         from pathlib import Path
         local_path = Path(settings.BASE_DIR) / 'land_plot_tiles' / str(z) / str(x) / f'{y}.mvt'
         if local_path.is_file():
             return self._mvt_response(local_path.read_bytes())
 
-        return Response({'error': 'Tile not found'}, status=404)
-
-    def _fetch_url(self, url, timeout=5):
-        try:
-            resp = requests.get(url, timeout=timeout)
-            if resp.status_code == 200:
-                return resp.content
-        except Exception:
-            pass
-        return None
+        # Redirect to CloudFront so the worker does not block on HTTP fetch
+        cloudfront_url = tile_path_service.land_plot_cloudfront_url(z, x, y)
+        return HttpResponseRedirect(cloudfront_url)
 
     def _mvt_response(self, data):
         headers = TilePathService().get_tile_cache_headers('mvt')
@@ -7726,10 +7467,16 @@ def _marker_id_for_listing(obj, listing_type):
 
 
 class LandPlotGeoJSONView(APIView):
-    """Return all SyncedLand + SyncedPlot points as one GeoJSON FeatureCollection. Load once, show at all zoom levels."""
+    """Return all SyncedLand + SyncedPlot points as one GeoJSON FeatureCollection. Cached 5 min to avoid full table scans on every request."""
     permission_classes = [AllowAny]
+    _GEOJSON_CACHE_KEY = "land_plot_geojson:v1"
+    _GEOJSON_CACHE_TTL = 300  # 5 minutes
 
     def get(self, request):
+        cached = cache.get(self._GEOJSON_CACHE_KEY)
+        if cached is not None:
+            return HttpResponse(cached, content_type="application/geo+json")
+
         percentiles = _land_plot_price_percentiles()
         land_p33, land_p66 = percentiles["land"]
         plot_p33, plot_p66 = percentiles["plot"]
@@ -7823,10 +7570,9 @@ class LandPlotGeoJSONView(APIView):
             })
 
         geojson = {"type": "FeatureCollection", "features": features}
-        return HttpResponse(
-            json.dumps(geojson),
-            content_type="application/geo+json",
-        )
+        json_str = json.dumps(geojson)
+        cache.set(self._GEOJSON_CACHE_KEY, json_str, self._GEOJSON_CACHE_TTL)
+        return HttpResponse(json_str, content_type="application/geo+json")
 
 
 class LandPlotMapTestView(APIView):
