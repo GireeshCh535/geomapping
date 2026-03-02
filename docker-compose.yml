@@ -54,7 +54,7 @@ services:
       - CLOUDFRONT_DISTRIBUTION_ID=E3VZOEKNMYD012
       - ENABLE_CLOUDFRONT_INVALIDATION=True  # ✅ PROD: Enable CloudFront invalidation
       - DEVELOPER_BACKEND_API_URL=${DEVELOPER_BACKEND_API_URL:-https://be.1acre.in}
-      - WEB_CONCURRENCY=2  # Use 2 on 2-CPU servers to avoid OOM; increase if more CPUs/RAM
+      - WEB_CONCURRENCY=4  # 4 workers to handle tile redirects + webhooks + HMDA; was 2 (workers saturated → 499)
       - TILE_CALLBACK_SECRET=f9bf4828c58d01cfc1efe54f71ff0ea9980ad5b6b755e52ae8ea2e0c334c22a4
       - TILE_USE_LAMBDA=true
       - TILE_GENERATION_LAMBDA_ARN=arn:aws:lambda:ap-south-1:471112704924:function:geomapping-tile-gen

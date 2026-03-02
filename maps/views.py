@@ -7194,6 +7194,12 @@ class HyderabadHMDABoundaryCheckAPIView(APIView):
                     'error': 'Invalid coordinates: lat must be between -90 and 90, lng between -180 and 180'
                 }, status=status.HTTP_400_BAD_REQUEST)
             
+            # Cache by rounded coords (~11m) to avoid repeated spatial queries; TTL 5 min
+            cache_key = f"hmda_boundary:v1:{round(latitude, 4)}:{round(longitude, 4)}"
+            cached = cache.get(cache_key)
+            if cached is not None:
+                return Response(cached, status=status.HTTP_200_OK)
+            
             # Get the Hyderabad HMDA Extended Area layer
             try:
                 layer = DataLayer.objects.select_related('city', 'city__state_ref').get(
@@ -7236,6 +7242,7 @@ class HyderabadHMDABoundaryCheckAPIView(APIView):
                     'state_name': layer.city.state_ref.name if layer.city.state_ref else None
                 }
             }
+            cache.set(cache_key, response_data, 300)  # 5 min
             
             logger.info(
                 f"HMDA Boundary Check: Point ({latitude}, {longitude}) is "
