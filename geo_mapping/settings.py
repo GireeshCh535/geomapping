@@ -435,9 +435,13 @@ DEVELOPER_BACKEND_API_URL = os.getenv(
 # --------------------------------------------
 # Lambda-based tile generation (optional)
 # When enabled, webhook invokes Lambda instead of in-process thread.
+# When TILE_USE_SQS is True, webhook sends to SQS and Lambda is triggered by the queue.
 # --------------------------------------------
 TILE_USE_LAMBDA = os.getenv('TILE_USE_LAMBDA', 'false').lower() == 'true'
 TILE_GENERATION_LAMBDA_ARN = os.getenv('TILE_GENERATION_LAMBDA_ARN', '')
+# SQS: when set, Django sends tile job to queue; Lambda is triggered by SQS (recommended for reliability).
+TILE_USE_SQS = os.getenv('TILE_USE_SQS', 'false').lower() == 'true'
+TILE_SQS_QUEUE_URL = os.getenv('TILE_SQS_QUEUE_URL', '').strip()
 TILE_CALLBACK_SECRET = os.getenv('TILE_CALLBACK_SECRET', '')
 # Callback URL is built from request in the webhook view (request.build_absolute_uri).
 # If your app is behind a proxy and build_absolute_uri is wrong, set this to e.g. https://layers.1acre.in

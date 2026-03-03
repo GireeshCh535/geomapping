@@ -5731,17 +5731,27 @@ def _process_developer_listing_webhook(webhook_event_id):
             'action': data.get('action', ''),
             'data_snapshot': dict(data),
         }
+        use_sqs = getattr(settings, 'TILE_USE_SQS', False) and getattr(settings, 'TILE_SQS_QUEUE_URL', '').strip()
+        region = getattr(settings, 'AWS_DEFAULT_REGION', 'ap-south-1')
         try:
-            client = boto3.client('lambda', region_name=getattr(settings, 'AWS_DEFAULT_REGION', 'ap-south-1'))
-            client.invoke(
-                FunctionName=settings.TILE_GENERATION_LAMBDA_ARN,
-                InvocationType='Event',
-                Payload=json.dumps(payload, default=str),
-            )
-            logger.info(f"[WEBHOOK_BACKGROUND] Lambda invoked for webhook_event_id={webhook_event.id}")
-        except Exception as lambda_err:
-            logger.exception(f"[WEBHOOK_BACKGROUND] Lambda invoke failed: {lambda_err}")
-            webhook_event.processing_error = f"Lambda invoke failed: {lambda_err}"
+            if use_sqs:
+                sqs = boto3.client('sqs', region_name=region)
+                sqs.send_message(
+                    QueueUrl=settings.TILE_SQS_QUEUE_URL,
+                    MessageBody=json.dumps(payload, default=str),
+                )
+                logger.info(f"[WEBHOOK_BACKGROUND] Tile job sent to SQS for webhook_event_id={webhook_event.id}")
+            else:
+                client = boto3.client('lambda', region_name=region)
+                client.invoke(
+                    FunctionName=settings.TILE_GENERATION_LAMBDA_ARN,
+                    InvocationType='Event',
+                    Payload=json.dumps(payload, default=str),
+                )
+                logger.info(f"[WEBHOOK_BACKGROUND] Lambda invoked for webhook_event_id={webhook_event.id}")
+        except Exception as err:
+            logger.exception(f"[WEBHOOK_BACKGROUND] Tile job dispatch failed: {err}")
+            webhook_event.processing_error = f"Tile job dispatch failed: {err}"
             webhook_event.save()
     else:
         webhook_event.processed = True
