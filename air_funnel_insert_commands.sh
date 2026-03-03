@@ -729,4 +729,182 @@ docker-compose exec web python manage.py insert_masterplan_layer \
 # Hyderabad: highways, metro-lines, rrr, ratan-tata-road (insert_hyderabad_data)
 docker-compose exec web python manage.py insert_hyderabad_data --delete-existing
 
+# ========== Maharashtra – Roads / Corridors (data/roads/*) ==========
+# state/city/layer from paths; --data-dir = data/roads/<subdir>
+
+# 1. maharashtra/navi-mumbai/kharghar_coastal_road
+docker-compose exec web python manage.py insert_masterplan_layer \
+  --city-slug "navi-mumbai" \
+  --layer-name "Kharghar Coastal Road" \
+  --layer-slug "kharghar_coastal_road" \
+  --data-dir "data/roads/Kharghar" \
+  --authority "Mumbai Metropolitan Region Development Authority" \
+  --min-zoom 8 \
+  --max-zoom 18 \
+  --delete-existing
+
+# 2. maharashtra/mumbai/versova_bhayander_coastal_road (create data/roads/versova-bhayander/ if needed)
+docker-compose exec web python manage.py insert_masterplan_layer \
+  --city-slug "mumbai" \
+  --layer-name "Versova-Bhayander Coastal Road" \
+  --layer-slug "versova_bhayander_coastal_road" \
+  --data-dir "data/roads/versova-bhayander" \
+  --authority "Mumbai Metropolitan Region Development Authority" \
+  --min-zoom 8 \
+  --max-zoom 18 \
+  --delete-existing
+
+# 3. maharashtra/pune/pune_ring_roads
+docker-compose exec web python manage.py insert_masterplan_layer \
+  --city-slug "pune" \
+  --layer-name "Pune Ring Roads" \
+  --layer-slug "pune_ring_roads" \
+  --data-dir "data/roads/pune-ring-road" \
+  --authority "Pune Metropolitan Region Development Authority" \
+  --min-zoom 8 \
+  --max-zoom 18 \
+  --delete-existing
+
+# 4. maharashtra/chandrapur/nagpur_chandrapur_expressway
+docker-compose exec web python manage.py insert_masterplan_layer \
+  --city-slug "chandrapur" \
+  --layer-name "Nagpur-Chandrapur Expressway" \
+  --layer-slug "nagpur_chandrapur_expressway" \
+  --data-dir "data/roads/Nagpur-Chandrapur Expressway" \
+  --authority "Maharashtra State Road Development Corporation" \
+  --min-zoom 8 \
+  --max-zoom 18 \
+  --delete-existing
+
+# 5. maharashtra/gondia/nagpur_gondia_expressway
+docker-compose exec web python manage.py insert_masterplan_layer \
+  --city-slug "gondia" \
+  --layer-name "Nagpur-Gondia Expressway" \
+  --layer-slug "nagpur_gondia_expressway" \
+  --data-dir "data/roads/Nagpur-Gondia Expressway" \
+  --authority "Maharashtra State Road Development Corporation" \
+  --min-zoom 8 \
+  --max-zoom 18 \
+  --delete-existing
+
+# 6. maharashtra/navi-mumbai/virar_alibaug_multimodal_corridor
+docker-compose exec web python manage.py insert_masterplan_layer \
+  --city-slug "navi-mumbai" \
+  --layer-name "Virar-Alibaug Multi Modal Corridor" \
+  --layer-slug "virar_alibaug_multimodal_corridor" \
+  --data-dir "data/roads/Virar-Alibaug Multi Modal Corridor" \
+  --authority "Mumbai Metropolitan Region Development Authority" \
+  --min-zoom 8 \
+  --max-zoom 18 \
+  --delete-existing
+
+# 7. maharashtra/yavatmal/shaktipeeth_expressway
+docker-compose exec web python manage.py insert_masterplan_layer \
+  --city-slug "yavatmal" \
+  --layer-name "Nagpur-Goa Shaktipeeth Expressway" \
+  --layer-slug "shaktipeeth_expressway" \
+  --data-dir "data/roads/Nagpur-Goa Shaktipeeth" \
+  --authority "Maharashtra State Road Development Corporation" \
+  --min-zoom 8 \
+  --max-zoom 18 \
+  --delete-existing
+
+# 8. maharashtra/mumbai/madh_versova_bridge
+docker-compose exec web python manage.py insert_masterplan_layer \
+  --city-slug "mumbai" \
+  --layer-name "Madh-Versova Bridge" \
+  --layer-slug "madh_versova_bridge" \
+  --data-dir "data/roads/madh" \
+  --authority "Mumbai Metropolitan Region Development Authority" \
+  --min-zoom 8 \
+  --max-zoom 18 \
+  --delete-existing
+
+# 9. maharashtra/mumbai/uttan_virar_sea_link
+docker-compose exec web python manage.py insert_masterplan_layer \
+  --city-slug "mumbai" \
+  --layer-name "Uttan-Virar Sea Link" \
+  --layer-slug "uttan_virar_sea_link" \
+  --data-dir "data/roads/Uttan" \
+  --authority "Mumbai Metropolitan Region Development Authority" \
+  --min-zoom 8 \
+  --max-zoom 18 \
+  --delete-existing
+
+# 10. maharashtra/mumbai/vadhvan_tawa_connector_expressway
+docker-compose exec web python manage.py insert_masterplan_layer \
+  --city-slug "mumbai" \
+  --layer-name "Vadhvan-Tawa Connector Expressway" \
+  --layer-slug "vadhvan_tawa_connector_expressway" \
+  --data-dir "data/roads/Vadhvan" \
+  --authority "Mumbai Metropolitan Region Development Authority" \
+  --min-zoom 8 \
+  --max-zoom 18 \
+  --delete-existing
+
+# 11. maharashtra/navi-mumbai/revas_karanja_bridge
+docker-compose exec web python manage.py insert_masterplan_layer \
+  --city-slug "navi-mumbai" \
+  --layer-name "Revas-Karanja Bridge" \
+  --layer-slug "revas_karanja_bridge" \
+  --data-dir "data/roads/Revas-Karanja Bridge" \
+  --authority "Mumbai Metropolitan Region Development Authority" \
+  --min-zoom 8 \
+  --max-zoom 18 \
+  --delete-existing
+
+# 12. maharashtra/mumbai/bandra_versova_sea_link
+docker-compose exec web python manage.py insert_masterplan_layer \
+  --city-slug "mumbai" \
+  --layer-name "Bandra-Versova Sea Link" \
+  --layer-slug "bandra_versova_sea_link" \
+  --data-dir "data/roads/bandra" \
+  --authority "Mumbai Metropolitan Region Development Authority" \
+  --min-zoom 8 \
+  --max-zoom 18 \
+  --delete-existing
+
+# 13. maharashtra/thane/thane_coastal_road (create data/roads/thane-coastal/ if needed)
+docker-compose exec web python manage.py insert_masterplan_layer \
+  --city-slug "thane" \
+  --layer-name "Thane Coastal Road" \
+  --layer-slug "thane_coastal_road" \
+  --data-dir "data/roads/thane-coastal" \
+  --authority "Mumbai Metropolitan Region Development Authority" \
+  --min-zoom 8 \
+  --max-zoom 18 \
+  --delete-existing
+
+# 14. maharashtra/pune/pune_bengaluru_expressway
+docker-compose exec web python manage.py insert_masterplan_layer \
+  --city-slug "pune" \
+  --layer-name "Pune-Bengaluru Expressway" \
+  --layer-slug "pune_bengaluru_expressway" \
+  --data-dir "data/roads/pune-bengaluru" \
+  --authority "Pune Metropolitan Region Development Authority" \
+  --min-zoom 8 \
+  --max-zoom 18 \
+  --delete-existing
+
+# 15. maharashtra/mumbai/konkan_expressway
+docker-compose exec web python manage.py insert_masterplan_layer \
+  --city-slug "mumbai" \
+  --layer-name "Konkan Expressway" \
+  --layer-slug "konkan_expressway" \
+  --data-dir "data/roads/konkan" \
+  --authority "Mumbai Metropolitan Region Development Authority" \
+  --min-zoom 8 \
+  --max-zoom 18 \
+  --delete-existing
+
+# 16. maharashtra/pune/talegaon_chakan_shikrapur_corridor
+docker-compose exec web python manage.py insert_masterplan_layer \
+  --city-slug "pune" \
+  --layer-name "Talegaon-Chakan-Shikrapur Corridor" \
+  --layer-slug "talegaon_chakan_shikrapur_corridor" \
+  --data-dir "data/roads/Talegaon" \
+  --authority "Pune Metropolitan Region Development Authority" \
+  --min-zoom 8 \
+  --max-zoom 18 \
+  --delete-existing
 

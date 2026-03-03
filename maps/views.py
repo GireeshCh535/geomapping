@@ -5732,7 +5732,7 @@ def _process_developer_listing_webhook(webhook_event_id):
             'data_snapshot': dict(data),
         }
         try:
-            client = boto3.client('lambda')
+            client = boto3.client('lambda', region_name=getattr(settings, 'AWS_DEFAULT_REGION', 'ap-south-1'))
             client.invoke(
                 FunctionName=settings.TILE_GENERATION_LAMBDA_ARN,
                 InvocationType='Event',
