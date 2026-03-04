@@ -450,7 +450,7 @@ class UniversalLineStyledTileGenerator:
         elapsed = time.time() - start
         log_info("Done: %d tiles in %.1fs", total, elapsed)
 
-    def create_tilejson(self, name: str = "Universal Line Styled"):
+    def create_tilejson(self, name: str = "Universal Line Styled", min_zoom: int = 5, max_zoom: int = 18):
         minx, miny, maxx, maxy = self.bounds
         center = [(minx + maxx) / 2, (miny + maxy) / 2, 10]
         tilejson = {
@@ -459,8 +459,8 @@ class UniversalLineStyledTileGenerator:
             "version": "1.0.0",
             "scheme": "xyz",
             "tiles": [f"./{{z}}/{{x}}/{{y}}.png"],
-            "minzoom": 5,
-            "maxzoom": 18,
+            "minzoom": min_zoom,
+            "maxzoom": max_zoom,
             "bounds": [minx, miny, maxx, maxy],
             "center": center,
         }
@@ -550,9 +550,24 @@ def main():
     parser.add_argument("--legend", "-l", help="Path to legend CSV (style_role, stroke, stroke_width)")
     parser.add_argument("--force", "-f", action="store_true", help="Regenerate all tiles")
     parser.add_argument("--swap-xy", action="store_true", help="Force (lat,lon)->(lon,lat) if overlay aligns wrong")
-    parser.add_argument("--min-zoom", type=int, default=5)
-    parser.add_argument("--max-zoom", type=int, default=18)
+    parser.add_argument(
+        "--min-zoom",
+        dest="min_zoom",
+        type=int,
+        default=5,
+        help="Minimum zoom level to generate (default: 5)",
+    )
+    parser.add_argument(
+        "--max-zoom",
+        dest="max_zoom",
+        type=int,
+        default=18,
+        help="Maximum zoom level to generate (default: 18)",
+    )
     args = parser.parse_args()
+
+    # Log zoom range so it's obvious what was parsed (avoids confusion when only one zoom is requested)
+    log_info("Requested zoom range: --min-zoom %d --max-zoom %d", args.min_zoom, args.max_zoom)
 
     if not Path(args.geojson).exists():
         log_error("GeoJSON not found: %s", args.geojson)
@@ -567,7 +582,11 @@ def main():
             swap_xy=args.swap_xy,
         )
         gen.generate_tiles(min_zoom=args.min_zoom, max_zoom=args.max_zoom)
-        gen.create_tilejson(name=Path(args.geojson).stem)
+        gen.create_tilejson(
+            name=Path(args.geojson).stem,
+            min_zoom=args.min_zoom,
+            max_zoom=args.max_zoom,
+        )
         gen.generate_html_viewer(
             layer_name=Path(args.geojson).stem,
             min_zoom=args.min_zoom,
