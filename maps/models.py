@@ -76,6 +76,7 @@ class City(models.Model):
     class Meta:
         db_table = 'cities'
         verbose_name_plural = 'Cities'
+        ordering = ['name']
         indexes = [
             models.Index(fields=['slug']),
             models.Index(fields=['is_active']),
@@ -392,6 +393,7 @@ class DataLayer(models.Model):
     class Meta:
         db_table = 'data_layers'
         unique_together = ('city', 'slug')
+        ordering = ['city', 'name']
         indexes = [
             models.Index(fields=['city', 'category']),
             models.Index(fields=['city', 'slug']),
