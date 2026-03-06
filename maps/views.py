@@ -1123,7 +1123,10 @@ class CoordinateSearchTestView(APIView):
             is_masterplan = 'masterplan' in layer.slug.lower() or 'master_plan' in layer.slug.lower()
             
             # Check if this is a roads/linear layer
-            is_road_layer = any(keyword in layer.slug.lower() for keyword in ['road', 'highway', 'metro', 'railway', 'rail', 'line'])
+            is_road_layer = any(keyword in layer.slug.lower() for keyword in [
+                'road', 'highway', 'metro', 'railway', 'rail', 'line',
+                'expressway', 'corridor', 'bridge', 'sea_link'
+            ])
             
             # For road/linear layers, always use a buffer for meaningful results
             # For polygon master plan layers, use exact point containment
@@ -1402,6 +1405,25 @@ class CoordinateSearchTestView(APIView):
                         return {
                             'data': data_string,
                             'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
+                            'found': True,
+                            'features': [feature_data],
+                        }
+                    
+                    # Coastal roads, expressways, sea links, bridges, corridors - use properties.Name, black fill
+                    elif layer.slug in [
+                        'kharghar_coastal_road', 'versova_bhayander_coastal_road', 'pune_ring_roads',
+                        'nagpur_chandrapur_expressway', 'nagpur_gondia_expressway',
+                        'virar_alibaug_multimodal_corridor', 'shaktipeeth_expressway',
+                        'madh_versova_bridge', 'uttan_virar_sea_link', 'vadhvan_tawa_connector_expressway',
+                        'revas_karanja_bridge', 'bandra_versova_sea_link', 'thane_coastal_road',
+                        'pune_bengaluru_expressway', 'konkan_expressway', 'talegaon_chakan_shikrapur_corridor',
+                    ]:
+                        detailed_category = feature_data.get('detailed_category', {})
+                        properties = detailed_category.get('properties', {}) or {}
+                        name = properties.get('Name', '')
+                        return {
+                            'data': name,
+                            'fill_color': _masterplan_fill_color_svg_data_uri('#000000'),
                             'found': True,
                             'features': [feature_data],
                         }
@@ -2296,6 +2318,26 @@ class CoordinateSearchTestView(APIView):
                 return {
                     'data': category,
                     'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
+                    'found': True,
+                    'features': containing_features[:1],
+                }
+            
+            # Coastal roads, expressways, sea links, bridges, corridors - use properties.Name, black fill
+            if layer.slug in [
+                'kharghar_coastal_road', 'versova_bhayander_coastal_road', 'pune_ring_roads',
+                'nagpur_chandrapur_expressway', 'nagpur_gondia_expressway',
+                'virar_alibaug_multimodal_corridor', 'shaktipeeth_expressway',
+                'madh_versova_bridge', 'uttan_virar_sea_link', 'vadhvan_tawa_connector_expressway',
+                'revas_karanja_bridge', 'bandra_versova_sea_link', 'thane_coastal_road',
+                'pune_bengaluru_expressway', 'konkan_expressway', 'talegaon_chakan_shikrapur_corridor',
+            ] and containing_features:
+                primary_feature = containing_features[0]
+                detailed_category = primary_feature.get('detailed_category', {})
+                properties = detailed_category.get('properties', {}) or {}
+                name = properties.get('Name', '')
+                return {
+                    'data': name,
+                    'fill_color': _masterplan_fill_color_svg_data_uri('#000000'),
                     'found': True,
                     'features': containing_features[:1],
                 }
