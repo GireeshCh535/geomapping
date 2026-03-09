@@ -57,8 +57,8 @@ services:
       # Fix 4: 4 workers, 60s timeout for faster response; webhook work offloaded to background
       - WEB_CONCURRENCY=4
       - GUNICORN_TIMEOUT=60
-      # Fix 6: DEBUG off in production; secrets from .env (see SECURITY.md)
-      - DJANGO_DEBUG=${DJANGO_DEBUG:-false}
+      # Fix 6: Keep DEBUG enabled unless explicitly overridden in .env
+      - DJANGO_DEBUG=${DJANGO_DEBUG:-true}
       - TILE_CALLBACK_SECRET=f9bf4828c58d01cfc1efe54f71ff0ea9980ad5b6b755e52ae8ea2e0c334c22a4
       - TILE_USE_LAMBDA=true
       - TILE_GENERATION_LAMBDA_ARN=arn:aws:lambda:ap-south-1:471112704924:function:geomapping-tile-gen

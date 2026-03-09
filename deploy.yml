@@ -293,11 +293,11 @@
         regexp: '^\s*_required_hosts\s*='
         line: "_required_hosts = ['*', '{{ ansible_host }}', '{{ ansible_host }}:80', '{{ ansible_host }}:443', '{{ domain }}', 'localhost', '127.0.0.1']"
 
-    - name: Ensure DEBUG = False for production
+    - name: Ensure DEBUG = True
       lineinfile:
         path: "{{ project_dir }}/geo_mapping/settings.py"
         regexp: '^DEBUG\s*='
-        line: "DEBUG = False"
+        line: "DEBUG = True"
 
     # ===================================
     # STEP 5: SSL CERTIFICATE CHECK (NO CREATION)
@@ -770,7 +770,7 @@
             ✅ Redis caching optimized for GIS
             ✅ CloudFront-ready tile serving
             ✅ SSL certificate with auto-renewal ({{ domain }})
-            ✅ Production Django settings (DEBUG=False)
+            ✅ Django settings updated (DEBUG=True)
             ✅ Data-safe deployment process
             ✅ Docker nginx with SSL (host nginx disabled)
           

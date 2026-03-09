@@ -3751,8 +3751,31 @@ class CloudFrontTileView(APIView):
         cache.set(cache_key, "1" if exists else "0", self._layer_cache_ttl)
         return exists
 
+    def _should_use_debug_proxy(self, request):
+        """
+        Enable tile proxying only for debugging.
+
+        Normal traffic should keep using CloudFront redirects, but `?proxy=1`
+        allows fetching through Django when DEBUG is on or the explicit setting
+        is enabled.
+        """
+        proxy_requested = str(request.GET.get('proxy', '')).lower() in {'1', 'true', 'yes'}
+        proxy_enabled = getattr(settings, 'ENABLE_TILE_PROXY_DEBUG', settings.DEBUG)
+        return proxy_requested and proxy_enabled
+
+    def _build_tile_response(self, tile_data, format_type):
+        """Return tile bytes with headers suitable for debug proxying."""
+        headers = self.tile_path_service.get_tile_cache_headers(format_type)
+        response = HttpResponse(tile_data, content_type=headers['ContentType'])
+        response['Cache-Control'] = headers['CacheControl']
+        response['Pragma'] = headers['Pragma']
+        response['Expires'] = headers['Expires']
+        response['Access-Control-Allow-Origin'] = '*'
+        response['X-Tile-Debug-Proxy'] = '1'
+        return response
+
     def get(self, request, state_slug, city_slug, layer_slug, z, x, y):
-        """Serve tiles: redirect to CloudFront (fast path) or return 404 for unknown layer."""
+        """Serve tiles: redirect by default, proxy only when explicitly debugging."""
         try:
             z, x, y = int(z), int(x), int(y)
 
@@ -3782,6 +3805,24 @@ class CloudFrontTileView(APIView):
                 else:
                     logger.debug(f"❌ Layer not found (suppressed): {layer_key}")
                 return self._return_error_tile(f"Layer not found: {state_slug}/{city_slug}/{layer_slug}")
+
+            if self._should_use_debug_proxy(request):
+                layer = self._get_layer_by_hierarchy(state_slug, city_slug, layer_slug)
+                if layer is None:
+                    return self._return_error_tile(f"Layer not found: {state_slug}/{city_slug}/{layer_slug}")
+
+                logger.info(
+                    f"🛠️ Debug tile proxy enabled for {state_slug}/{city_slug}/{layer_slug}/{z}/{x}/{y}.{format_type}"
+                )
+                tile_data = self._get_tile_with_fallback(
+                    state_slug, city_slug, layer_slug, z, x, y, format_type, layer
+                )
+                if tile_data:
+                    return self._build_tile_response(tile_data, format_type)
+
+                return self._return_error_tile(
+                    f"Tile not found: {state_slug}/{city_slug}/{layer_slug}/{z}/{x}/{y}.{format_type}"
+                )
 
             # Redirect to CloudFront so the worker does not block on HTTP fetch (was causing 5–10s block per request)
             cloudfront_url = self.tile_path_service.generate_cloudfront_url(
