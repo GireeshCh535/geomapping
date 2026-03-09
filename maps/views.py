@@ -5852,7 +5852,7 @@ class TileGenerationCallbackView(APIView):
     http_method_names = ['post']
 
     def post(self, request):
-        from .models import WebhookEvent
+        from .models import LandPlotWebhookEvent, WebhookEvent
         secret = request.headers.get('X-Tile-Callback-Secret', '')
         expected = getattr(settings, 'TILE_CALLBACK_SECRET', '') or ''
         if expected and secret != expected:
@@ -5868,34 +5868,63 @@ class TileGenerationCallbackView(APIView):
         webhook_event_id = data.get('webhook_event_id')
         if webhook_event_id is None:
             return Response({'error': 'webhook_event_id required'}, status=status.HTTP_400_BAD_REQUEST)
+        processing_result = data.get('processing_result') if isinstance(data.get('processing_result'), dict) else {}
+        runtime_config = data.get('runtime_config') if isinstance(data.get('runtime_config'), dict) else {}
+        logs = data.get('logs')
+        normalized_logs = [
+            {'ts': str(item.get('ts', '')), 'level': str(item.get('level', 'info')), 'msg': str(item.get('msg', ''))}
+            for item in logs[:10000]
+        ] if isinstance(logs, list) else []
+
+        # Try TIF webhook event first
         try:
             webhook_event = WebhookEvent.objects.get(pk=webhook_event_id)
         except WebhookEvent.DoesNotExist:
-            logger.warning(f"[TILE_CALLBACK] WebhookEvent id={webhook_event_id} not found")
-            return Response({'error': 'WebhookEvent not found'}, status=status.HTTP_404_NOT_FOUND)
-        webhook_event.processed = True
-        webhook_event.processed_at = timezone.now()
-        webhook_event.tiles_generated = int(data.get('tiles_generated', 0))
-        webhook_event.tif_files_processed = int(data.get('tif_files_processed', 0))
-        processing_result = data.get('processing_result') if isinstance(data.get('processing_result'), dict) else {}
-        webhook_event.processing_result = processing_result
-        webhook_event.processing_error = str(data.get('processing_error', ''))[:65535]
-        logs = data.get('logs')
-        if isinstance(logs, list):
-            webhook_event.tile_generation_logs = [
-                {'ts': str(item.get('ts', '')), 'level': str(item.get('level', 'info')), 'msg': str(item.get('msg', ''))}
-                for item in logs[:10000]
-            ]
-        else:
-            webhook_event.tile_generation_logs = []
-        webhook_event.save()
+            webhook_event = None
 
-        # Persist TIF data (bounds, zoom levels, tiles_by_zoom) to DeveloperListingMedia and TIFMetadata
-        self._save_tif_data_from_callback(webhook_event, processing_result)
+        if webhook_event is not None:
+            webhook_event.processed = True
+            webhook_event.processed_at = timezone.now()
+            webhook_event.tiles_generated = int(data.get('tiles_generated', 0))
+            webhook_event.tif_files_processed = int(data.get('tif_files_processed', 0))
+            webhook_event.processing_result = processing_result
+            webhook_event.processing_error = str(data.get('processing_error', ''))[:65535]
+            webhook_event.tile_generation_logs = normalized_logs
+            webhook_event.save()
+
+            # Persist TIF data (bounds, zoom levels, tiles_by_zoom) to DeveloperListingMedia and TIFMetadata
+            self._save_tif_data_from_callback(webhook_event, processing_result)
+
+            logger.info(
+                f"[TILE_CALLBACK] Updated webhook_event_id={webhook_event_id} "
+                f"tiles_generated={webhook_event.tiles_generated} logs_count={len(webhook_event.tile_generation_logs)}"
+            )
+            return Response({'status': 'ok', 'webhook_event_id': webhook_event_id}, status=status.HTTP_200_OK)
+
+        # Fall through to land/plot webhook event (MVT lambda callback)
+        try:
+            land_plot_event = LandPlotWebhookEvent.objects.get(pk=webhook_event_id)
+        except LandPlotWebhookEvent.DoesNotExist:
+            logger.warning(f"[TILE_CALLBACK] webhook_event_id={webhook_event_id} not found in WebhookEvent or LandPlotWebhookEvent")
+            return Response({'error': 'WebhookEvent not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        payload = land_plot_event.payload if isinstance(land_plot_event.payload, dict) else {}
+        payload['tile_generation_callback'] = {
+            'received_at': timezone.now().isoformat(),
+            'success': bool(data.get('success', False)),
+            'tiles_generated': int(data.get('tiles_generated', 0)),
+            'tif_files_processed': int(data.get('tif_files_processed', 0)),
+            'processing_result': processing_result,
+            'processing_error': str(data.get('processing_error', ''))[:65535],
+            'runtime_config': runtime_config,
+            'logs': normalized_logs,
+        }
+        land_plot_event.payload = payload
+        land_plot_event.save(update_fields=['payload'])
 
         logger.info(
-            f"[TILE_CALLBACK] Updated webhook_event_id={webhook_event_id} "
-            f"tiles_generated={webhook_event.tiles_generated} logs_count={len(webhook_event.tile_generation_logs)}"
+            f"[TILE_CALLBACK] Updated land_plot_webhook_event_id={webhook_event_id} "
+            f"tiles_generated={payload['tile_generation_callback']['tiles_generated']} logs_count={len(normalized_logs)}"
         )
         return Response({'status': 'ok', 'webhook_event_id': webhook_event_id}, status=status.HTTP_200_OK)
 
@@ -6196,6 +6225,11 @@ def _process_land_plot_webhook(webhook_event_id):
             if lat is None or lng is None:
                 lat = listing_data.get('lat') or listing_data.get('latitude')
                 lng = listing_data.get('long') or listing_data.get('lng') or listing_data.get('longitude') or listing_data.get('lon')
+            logger.info(
+                f"[LAND_PLOT_WEBHOOK] Resolved coordinates for {listing_type} {listing_id}: "
+                f"lat={lat} lng={lng} "
+                f"location_point_present={bool(getattr(record, 'location_point', None) and not record.location_point.empty)}"
+            )
             if lat is not None and lng is not None:
                 affected = get_layer_ids_containing_point(lat, lng)
                 if affected:
@@ -6208,6 +6242,12 @@ def _process_land_plot_webhook(webhook_event_id):
                 getattr(settings, 'LAND_PLOT_TILE_USE_LAMBDA', False) and
                 getattr(settings, 'LAND_PLOT_TILE_LAMBDA_ARN', '')
             )
+            logger.info(
+                f"[LAND_PLOT_WEBHOOK] Lambda gate for {listing_type} {listing_id}: "
+                f"use_lambda={bool(use_lambda)} "
+                f"LAND_PLOT_TILE_USE_LAMBDA={getattr(settings, 'LAND_PLOT_TILE_USE_LAMBDA', False)} "
+                f"has_lambda_arn={bool(getattr(settings, 'LAND_PLOT_TILE_LAMBDA_ARN', ''))}"
+            )
             if not use_lambda:
                 logger.warning(
                     "[LAND_PLOT_WEBHOOK] MVT tile refresh requires Lambda. "
@@ -6219,6 +6259,7 @@ def _process_land_plot_webhook(webhook_event_id):
                     callback_url = base_url.rstrip('/') + '/api/webhooks/tile-generation-result/'
                     mvt_build_base_url = base_url.rstrip('/') + '/api/tiles/land-plot-mvt-build'
                     lambda_payload = {
+                        'webhook_event_id': webhook_event.id,  # required by callback handler
                         'lat': lat,
                         'lng': lng,
                         'tiles': [],
@@ -6242,6 +6283,11 @@ def _process_land_plot_webhook(webhook_event_id):
                     logger.info(f"[LAND_PLOT_WEBHOOK] Lambda invoked for {listing_type} {listing_id} lat={lat} lng={lng}")
                 except Exception as lambda_err:
                     logger.exception(f"[LAND_PLOT_WEBHOOK] Lambda invoke failed: {lambda_err}")
+        else:
+            logger.warning(
+                f"[LAND_PLOT_WEBHOOK] Skipping Lambda for {listing_type} {listing_id}: "
+                f"missing coordinates after sync/enrichment (lat={lat}, lng={lng})"
+            )
     elif action == 'deleted':
         if listing_type == 'land':
             rec = SyncedLand.objects.filter(backend_id=listing_id).first()
