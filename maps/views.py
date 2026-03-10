@@ -1128,22 +1128,18 @@ class CoordinateSearchTestView(APIView):
                 'expressway', 'corridor', 'bridge', 'sea_link'
             ])
             
-            # For road/linear layers, always use a buffer for meaningful results
-            # For polygon master plan layers, use exact point containment
-            # For other layers, use a small buffer to handle various geometries
-            if is_road_layer:
-                # Roads are LineStrings - use a 10m buffer to find nearby roads
-                search_geometry = search_point.buffer(0.00001)  # ~1m buffer
-            elif is_masterplan:
-                # Polygon-based master plans (land use zones) - exact point containment
+            # No buffer for road layers, CRZ, or master plan - exact point containment only
+            # Other layers use a small buffer to handle boundary tolerance
+            is_crz = layer.slug == 'crz_layer'
+            if is_road_layer or is_crz or is_masterplan:
                 search_geometry = search_point
             else:
-                # Other layers - use a small buffer
                 search_geometry = search_point.buffer(0.0001)  # ~10m buffer
             
             # Search for features in the specific layer that intersect with the point
             # Optimized query with field limiting and result cap
-            features = GeoFeature.objects.filter(
+            # CRZ layer: order by area ascending (smallest first) so overlapping zones return the most specific (e.g. CRZ 1A not CRZ 4A sea)
+            features_qs = GeoFeature.objects.filter(
                 layer=layer,
                 is_valid=True,
                 geometry__intersects=search_geometry
@@ -1157,7 +1153,11 @@ class CoordinateSearchTestView(APIView):
                 'layer__category__code', 'layer__category__name',
                 'layer__city__slug', 'layer__city__name',
                 'layer__city__state_ref__slug', 'layer__city__state_ref__name'
-            ).order_by('-area')[:20]  # Limit to top 20 features
+            )
+            if layer.slug == 'crz_layer':
+                features = features_qs.order_by('area')[:20]  # Smallest containing polygon = most specific zone
+            else:
+                features = features_qs.order_by('-area')[:20]  # Largest first (default)
             
             if not features.exists():
                 # Skip nearby search for layers that should only return exact matches
