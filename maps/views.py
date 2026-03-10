@@ -961,8 +961,16 @@ class CoordinateSearchTestView(APIView):
     def _process_feature_data(self, feature):
         """Process feature data into a standardized format"""
         try:
-            # Get layer color using existing config system
-            layer_color = self._get_feature_color_from_config(feature, feature.layer.city.slug)
+            # Prefer per-feature color from properties (e.g. HEX in CRZ/tile data) so API matches tile generation
+            props = getattr(feature, 'properties', None) or {}
+            if isinstance(props, dict):
+                hex_color = props.get('HEX') or props.get('fill_color') or props.get('fillColor') or props.get('FillColor') or props.get('color')
+                if hex_color and isinstance(hex_color, str) and hex_color.strip().startswith('#'):
+                    layer_color = hex_color.strip()
+                else:
+                    layer_color = self._get_feature_color_from_config(feature, feature.layer.city.slug)
+            else:
+                layer_color = self._get_feature_color_from_config(feature, feature.layer.city.slug)
             
             # Get detailed category information
             category_info = self._get_detailed_category_info(feature)
