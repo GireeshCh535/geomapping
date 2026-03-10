@@ -1415,9 +1415,11 @@ class CoordinateSearchTestView(APIView):
                         detailed_category = feature_data.get('detailed_category', {})
                         properties = detailed_category.get('properties', {}) or {}
                         name = properties.get('Name', '')
+                        regulation_type = properties.get('Regulation Type', '')
+                        data_string = f"{name}, {regulation_type}".strip(', ')
                         fill_color = properties.get('HEX', '')
                         return {
-                            'data': name,
+                            'data': data_string,
                             'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
                             'found': True,
                             'features': [feature_data],
@@ -2336,15 +2338,17 @@ class CoordinateSearchTestView(APIView):
                     'features': containing_features[:1],
                 }
             
-            # Chennai CRZ Layer - properties.Name and properties.HEX only
+            # Chennai CRZ Layer - Name, Regulation Type, and HEX
             if layer.slug == 'crz_layer' and containing_features:
                 primary_feature = containing_features[0]
                 detailed_category = primary_feature.get('detailed_category', {})
                 properties = detailed_category.get('properties', {}) or {}
                 name = properties.get('Name', '')
+                regulation_type = properties.get('Regulation Type', '')
+                data_string = f"{name}, {regulation_type}".strip(', ')
                 fill_color = properties.get('HEX', '')
                 return {
-                    'data': name,
+                    'data': data_string,
                     'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
                     'found': True,
                     'features': containing_features[:1],
