@@ -910,6 +910,7 @@ docker-compose exec web python manage.py insert_masterplan_layer \
 
 # ========== Tamil Nadu – Chennai CRZ ==========
 # state/city/layer: tamil-nadu/chennai/crz_layer
+# Exclude line files (HTL, LTL, CRZ Boundary) so only zone polygons are inserted
 docker-compose exec web python manage.py insert_masterplan_layer \
   --city-slug "chennai" \
   --layer-name "Chennai CRZ Layer" \
@@ -918,5 +919,6 @@ docker-compose exec web python manage.py insert_masterplan_layer \
   --authority "Tamil Nadu State Coastal Zone Management Authority" \
   --min-zoom 8 \
   --max-zoom 18 \
+  --exclude "Tide Line,CRZ (Coastal Regulation Zone) Boundary" \
   --delete-existing
 

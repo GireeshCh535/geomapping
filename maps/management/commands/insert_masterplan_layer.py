@@ -82,6 +82,12 @@ class Command(BaseCommand):
             action='store_true',
             help='Delete existing layer data before inserting new data',
         )
+        parser.add_argument(
+            '--exclude',
+            type=str,
+            default='',
+            help='Comma-separated substrings: exclude files whose name contains any of these (e.g. "Tide Line,CRZ (Coastal Regulation Zone) Boundary")',
+        )
 
     def handle(self, *args, **options):
         # Store options for use in methods
@@ -92,6 +98,8 @@ class Command(BaseCommand):
         self.authority = options.get('authority')
         self.min_zoom = options['min_zoom']
         self.max_zoom = options['max_zoom']
+        exclude_str = (options.get('exclude') or '').strip()
+        self.exclude_substrings = [s.strip() for s in exclude_str.split(',') if s.strip()]
         
         self.stdout.write(
             self.style.SUCCESS(f'🚀 Starting {self.layer_name} Data Insertion')
@@ -227,6 +235,13 @@ class Command(BaseCommand):
         if len(geojson_files_recursive + json_files_recursive) > len(all_files):
             all_files = geojson_files_recursive + json_files_recursive
             self.stdout.write(f'  📂 Including files from subdirectories')
+        
+        # Exclude files whose name contains any of the exclude substrings
+        if getattr(self, 'exclude_substrings', None):
+            original_count = len(all_files)
+            all_files = [f for f in all_files if not any(exc in f.name for exc in self.exclude_substrings)]
+            if len(all_files) < original_count:
+                self.stdout.write(f'  📋 Excluded {original_count - len(all_files)} file(s) matching --exclude')
         
         if not all_files:
             self.stdout.write(f'  ⚠️ No GeoJSON/JSON files found in {self.data_dir}')
