@@ -908,3 +908,15 @@ docker-compose exec web python manage.py insert_masterplan_layer \
   --max-zoom 18 \
   --delete-existing
 
+# ========== Tamil Nadu – Chennai CRZ ==========
+# state/city/layer: tamil-nadu/chennai/crz_layer
+docker-compose exec web python manage.py insert_masterplan_layer \
+  --city-slug "chennai" \
+  --layer-name "Chennai CRZ Layer" \
+  --layer-slug "crz_layer" \
+  --data-dir "data/TamilNadu CRZ layers_processed" \
+  --authority "Tamil Nadu State Coastal Zone Management Authority" \
+  --min-zoom 8 \
+  --max-zoom 18 \
+  --delete-existing
+

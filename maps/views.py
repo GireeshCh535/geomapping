@@ -1161,12 +1161,13 @@ class CoordinateSearchTestView(APIView):
             
             if not features.exists():
                 # Skip nearby search for layers that should only return exact matches
-                # For polygon-based master plan layers and heritage sites, never search nearby - only exact coordinate match
+                # For polygon-based master plan layers, heritage sites, and CRZ layer - only exact coordinate match
                 # But for road layers, we already used a buffer above, so if no results, truly nothing nearby
                 is_polygon_masterplan = is_masterplan and not is_road_layer
                 is_heritage_site = layer.slug in ['hyderabad_heritage_sites', 'bengaluru_heritage_sites']
+                is_crz_layer = layer.slug == 'crz_layer'
                 
-                if is_polygon_masterplan or is_heritage_site:
+                if is_polygon_masterplan or is_heritage_site or is_crz_layer:
                     return {
                         'search_point': {
                             'latitude': latitude,
@@ -1404,6 +1405,19 @@ class CoordinateSearchTestView(APIView):
                         ) or ''
                         return {
                             'data': data_string,
+                            'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
+                            'found': True,
+                            'features': [feature_data],
+                        }
+                    
+                    # Chennai CRZ Layer - properties.Name and properties.HEX only
+                    elif layer.slug == 'crz_layer':
+                        detailed_category = feature_data.get('detailed_category', {})
+                        properties = detailed_category.get('properties', {}) or {}
+                        name = properties.get('Name', '')
+                        fill_color = properties.get('HEX', '')
+                        return {
+                            'data': name,
                             'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
                             'found': True,
                             'features': [feature_data],
@@ -2317,6 +2331,20 @@ class CoordinateSearchTestView(APIView):
                 fill_color = (properties.get('fill_color') or '').strip() or ''
                 return {
                     'data': category,
+                    'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
+                    'found': True,
+                    'features': containing_features[:1],
+                }
+            
+            # Chennai CRZ Layer - properties.Name and properties.HEX only
+            if layer.slug == 'crz_layer' and containing_features:
+                primary_feature = containing_features[0]
+                detailed_category = primary_feature.get('detailed_category', {})
+                properties = detailed_category.get('properties', {}) or {}
+                name = properties.get('Name', '')
+                fill_color = properties.get('HEX', '')
+                return {
+                    'data': name,
                     'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
                     'found': True,
                     'features': containing_features[:1],
