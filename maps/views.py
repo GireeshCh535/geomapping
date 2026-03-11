@@ -1356,6 +1356,31 @@ class CoordinateSearchTestView(APIView):
                             'features': [feature_data],
                         }
                     
+                    elif layer.slug == 'bengaluru_masterplan_roads':
+                        detailed_category = feature_data.get('detailed_category', {})
+                        properties = detailed_category.get('properties', {}) or {}
+                        name = str(properties.get('Name', '')) if properties.get('Name') else ''
+                        road_width_feet = properties.get('Road Width (in feet)')
+                        road_width_meters = properties.get('Road Width (in meters)')
+                        data_parts = []
+                        if name:
+                            data_parts.append(name)
+                        if road_width_feet:
+                            data_parts.append(f"Road Width (in feet) - {str(road_width_feet)}")
+                        elif road_width_meters:
+                            data_parts.append(f"Road Width (in meters) - {str(road_width_meters)}")
+                        data_string = ', '.join(data_parts) if data_parts else 'Masterplan Road'
+                        fill_color = (
+                            properties.get('fill_color') or properties.get('fillColor') or
+                            properties.get('FillColor') or properties.get('color')
+                        ) or ''
+                        return {
+                            'data': data_string,
+                            'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
+                            'found': True,
+                            'features': [feature_data],
+                        }
+                    
                     elif layer.slug == 'hyderabad_rrr':
                         detailed_category = feature_data.get('detailed_category', {})
                         properties = detailed_category.get('properties', {})

@@ -24,10 +24,12 @@ else:
     ALLOWED_HOSTS = _required_hosts
 
 CSRF_TRUSTED_ORIGINS = [
+    'http://localhost:8000',
+    'https://localhost:8000',
+    'http://localhost:3000',
     'https://layers.1acre.in',
     'http://layers.1acre.in',  # if you also use HTTP
     'https://gis-map.1acre.in',  # Legacy domain (keep for backward compatibility)
-    'https://lita-unsarcastic-serina.ngrok-free.dev',  # ngrok domain for testing
     'http://3.108.10.59',  # Direct IP access
     'https://3.108.10.59',  # Direct IP access (HTTPS)
 ]
