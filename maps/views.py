@@ -3848,24 +3848,18 @@ class CloudFrontTileView(APIView):
             s3_key = self.tile_path_service.generate_s3_key(
                 state_slug, city_slug, layer_slug, z, x, y, format_type
             )
-            print(f"[tile_proxy] request tile: {s3_key}")
             cache_key = f"tile_proxy:{s3_key}"
             ttl = getattr(settings, 'TILE_PROXY_CACHE_TTL', 3600)
             if ttl > 0:
                 cached = cache.get(cache_key)
                 if cached is not None:
-                    print(f"[tile_proxy] cache HIT: {s3_key}")
                     return self._build_tile_response(cached, format_type)
-                print(f"[tile_proxy] cache MISS: {s3_key}")
             backend_url = self.tile_path_service.get_backend_url_for_tile(
                 state_slug, city_slug, layer_slug, z, x, y, format_type
             )
             backend_label = self.tile_path_service._backend_label(s3_key)
-            print(f"[tile_proxy] fetching from {backend_label}: {s3_key}")
-            print(f"[tile_proxy] backend URL ({backend_label}): {backend_url}")
             tile_data = self._fetch_url(backend_url)
             if tile_data:
-                print(f"[tile_proxy] fetch OK ({backend_label}): {s3_key} ({len(tile_data)} bytes)")
                 if ttl > 0:
                     try:
                         cache.set(cache_key, tile_data, ttl)
@@ -7567,7 +7561,7 @@ def _fetch_tile_url(url, timeout=5):
         response = requests.get(url, timeout=timeout)
         if response.status_code == 200:
             return response.content
-        print(f"[tile_proxy] _fetch_tile_url HTTP {response.status_code}: {url[:80]}...")
+        print(f"[tile_proxy] _fetch_tile_url HTTP error: {response.status_code} {url[:100]}...")
     except Exception as e:
         print(f"[tile_proxy] _fetch_tile_url error: {e}")
     return None
@@ -7590,26 +7584,19 @@ class LandPlotTileView(APIView):
         from pathlib import Path
         local_path = Path(settings.BASE_DIR) / 'land_plot_tiles' / str(z) / str(x) / f'{y}.mvt'
         if local_path.is_file():
-            print(f"[tile_proxy] land-plot local file: {z}/{x}/{y}.mvt")
             return self._mvt_response(local_path.read_bytes())
 
         s3_key = tile_path_service.land_plot_s3_key(z, x, y)
-        print(f"[tile_proxy] request land-plot: {s3_key}")
         cache_key = f"tile_proxy:{s3_key}"
         ttl = getattr(settings, 'TILE_PROXY_CACHE_TTL', 3600)
         if ttl > 0:
             cached = cache.get(cache_key)
             if cached is not None:
-                print(f"[tile_proxy] land-plot cache HIT: {s3_key}")
                 return self._mvt_response(cached)
-            print(f"[tile_proxy] land-plot cache MISS: {s3_key}")
         backend_url = tile_path_service.get_backend_url_for_land_plot(z, x, y)
         backend_label = tile_path_service._backend_label(s3_key)
-        print(f"[tile_proxy] land-plot fetching from {backend_label}: {s3_key}")
-        print(f"[tile_proxy] land-plot backend URL ({backend_label}): {backend_url}")
         tile_data = _fetch_tile_url(backend_url)
         if tile_data:
-            print(f"[tile_proxy] land-plot fetch OK ({backend_label}): {s3_key} ({len(tile_data)} bytes)")
             if ttl > 0:
                 try:
                     cache.set(cache_key, tile_data, ttl)
