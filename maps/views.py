@@ -3866,7 +3866,7 @@ class CloudFrontTileView(APIView):
                     except Exception:
                         pass
                 return self._build_tile_response(tile_data, format_type)
-            print(f"[tile_proxy] fetch FAIL ({backend_label}): {s3_key}")
+            # print(f"[tile_proxy] fetch FAIL ({backend_label}): {s3_key}")
             return self._return_error_tile(
                 f"Tile not found: {state_slug}/{city_slug}/{layer_slug}/{z}/{x}/{y}.{format_type}"
             )
@@ -7603,7 +7603,7 @@ class LandPlotTileView(APIView):
                 except Exception:
                     pass
             return self._mvt_response(tile_data)
-        print(f"[tile_proxy] land-plot fetch FAIL ({backend_label}): {s3_key}")
+        # print(f"[tile_proxy] land-plot fetch FAIL ({backend_label}): {s3_key}")
         return Response({'error': 'Tile not found'}, status=404)
 
     def _mvt_response(self, data):
