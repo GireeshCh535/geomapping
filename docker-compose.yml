@@ -88,6 +88,7 @@ services:
     volumes:
       - ./nginx/conf.d:/etc/nginx/conf.d
       - /etc/letsencrypt:/etc/letsencrypt:ro
+      - /var/www/certbot:/var/www/certbot
       - static_volume:/app/staticfiles
       - media_volume:/app/media
     depends_on:
