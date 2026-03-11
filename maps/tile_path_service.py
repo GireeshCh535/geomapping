@@ -96,6 +96,43 @@ class TilePathService:
         
         return s3_url
     
+    def use_cloudfront_for_path(self, s3_key: str) -> bool:
+        """
+        Return True if this S3 key should be served via CloudFront (path-based, no fallback).
+        """
+        prefixes = getattr(settings, 'CLOUDFRONT_PATH_PREFIXES', []) or []
+        key = (s3_key or '').strip()
+        for prefix in prefixes:
+            p = (prefix or '').strip().rstrip('/')
+            if p and (key == p or key.startswith(p + '/')):
+                return True
+        return False
+
+    def _backend_label(self, s3_key: str) -> str:
+        """Debug: label CloudFront vs S3 for prints."""
+        return "CloudFront" if self.use_cloudfront_for_path(s3_key) else "S3"
+
+    def get_backend_url_for_tile(self, state_slug: str, city_slug: str, layer_slug: str,
+                                 z: int, x: int, y: int, format_type: str = 'png') -> str:
+        """
+        Return the single backend URL for this tile (CloudFront or S3 based on path; no fallback).
+        """
+        s3_key = self.generate_s3_key(state_slug, city_slug, layer_slug, z, x, y, format_type)
+        print(f"[tile_proxy] backend for {s3_key} -> {self._backend_label(s3_key)}")
+        if self.use_cloudfront_for_path(s3_key):
+            return self.generate_cloudfront_url(state_slug, city_slug, layer_slug, z, x, y, format_type)
+        return self.generate_s3_url(state_slug, city_slug, layer_slug, z, x, y, format_type)
+
+    def get_backend_url_for_land_plot(self, z: int, x: int, y: int) -> str:
+        """
+        Return the single backend URL for this land-plot MVT tile (CloudFront or S3 based on path; no fallback).
+        """
+        s3_key = self.land_plot_s3_key(z, x, y)
+        print(f"[tile_proxy] backend for {s3_key} -> {self._backend_label(s3_key)}")
+        if self.use_cloudfront_for_path(s3_key):
+            return self.land_plot_cloudfront_url(z, x, y)
+        return self.land_plot_s3_url(z, x, y)
+    
     # Land/plot MVT tiles (global, no state/city/layer) – same pattern as PNGs
     LAND_PLOT_S3_PREFIX = 'land-plot'
 

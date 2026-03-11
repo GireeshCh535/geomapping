@@ -269,6 +269,117 @@ CLOUDFRONT_DISTRIBUTION_ID = os.getenv('CLOUDFRONT_DISTRIBUTION_ID', '')  # Set 
 USE_CLOUDFRONT = os.getenv('USE_CLOUDFRONT', 'True').lower() == 'true'
 ENABLE_CLOUDFRONT_INVALIDATION = os.getenv('ENABLE_CLOUDFRONT_INVALIDATION', 'True').lower() == 'true'
 
+# Tile proxy: paths served via CloudFront; all others via S3 only (no fallback)
+CLOUDFRONT_PATH_PREFIXES = [
+    'karnataka/bengaluru/',
+    'telangana/hyderabad/',
+    'andhra-pradesh/amaravati/',
+    'land-plot/',
+]
+# Tile proxy server-side cache TTL in seconds (0 = no cache)
+TILE_PROXY_CACHE_TTL = 3600
+
+# All masterplan layer slugs (from maps/views.py) – reference list for CloudFront path prefixes
+MASTERPLAN_LAYER_SLUGS = [
+    # Bengaluru / BMRDA
+    'bengaluru_anekal_masterplan',
+    'bengaluru_chikkaballapura_masterplan',
+    'bengaluru_hosakote_masterplan',
+    'bengaluru_nelamangala_masterplan',
+    'bengaluru_master_plan_2015',
+    'bengaluru_masterplan_roads',
+    # Tamil Nadu
+    'coimbatore_master_plan',
+    'hosur_master_plan',
+    'chennai_master_plan',
+    'tirupati_masterplan',
+    # Kerala
+    'kochi_master_plan',
+    'kannur_masterplan',
+    'kollam_masterplan',
+    'kozhikode_masterplan',
+    'thiruvananthapuram_masterplan',
+    'thrissur_masterplan',
+    # Odisha / Andhra
+    'cuttack_masterplan',
+    'vgtm_masterplan',
+    'kakinada_masterplan',
+    'amaravati_master_plan',
+    'amaravati_masterplan',
+    'bhubaneswar_masterplan',
+    # Madhya Pradesh
+    'mandideep_masterplan',
+    'bhopal_masterplan',
+    'pithampur_masterplan',
+    # Rajasthan / Gujarat
+    'ajmer_masterplan',
+    'ahmedabad_masterplan',
+    'vadodara_masterplan',
+    'gift_city_masterplan',
+    # Punjab / Haryana / NCR
+    'mohali_sas_nagar_masterplan',
+    'derabassi_masterplan',
+    'banur_masterplan',
+    'mullanpur_masterplan',
+    'kharar_masterplan',
+    'sonipat_kundli_masterplan',
+    'sonipat_masterplan',
+    'arogya_dham_badsa_masterplan',
+    'palwal_masterplan',
+    'prithla_masterplan',
+    'loni_masterplan',
+    'bhagpat_baraut_khekra_masterplan',
+    'modinagar_masterplan',
+    'kharkhauda_masterplan',
+    'ghaziabad_masterplan',
+    'gurugram_masterplan',
+    'faridabad_masterplan',
+    'noida_masterplan',
+    'greater_noida_masterplan',
+    'yamuna_expressway_masterplan',
+    'delhi_masterplan',
+    'nuh_masterplan',
+    'jhajjar_masterplan',
+    'meerut_masterplan',
+    'hodal_masterplan',
+    'rewari_masterplan',
+    'gohana_masterplan',
+    'bhiwadi_masterplan',
+    'alwar_masterplan',
+    # Himachal / Chandigarh
+    'pinjore_kalka_masterplan',
+    'panchkula_extension_1_masterplan',
+    'panchkula_masterplan',
+    'dharuhera_masterplan',
+    'zirakpur_masterplan',
+    'chandigarh_masterplan',
+    # UTs / North East / Other
+    'daman_and_diu_masterplan',
+    'dadra_and_nagar_haveli_masterplan',
+    'patna_masterplan',
+    'ayodhya_masterplan',
+    'lucknow_masterplan',
+    'varanasi_masterplan',
+    'srinagar_masterplan',
+    'guwahati_masterplan',
+    'new_raipur_masterplan',
+    'biappa_masterplan',
+    'port_blair_masterplan',
+    'itanagar_masterplan',
+    'puducherry_masterplan',
+    'jagdalpur_masterplan',
+    # Telangana
+    'hyderabad_masterplan',
+    'warangal_master_plan',
+    # Maharashtra
+    'mumbai_masterplan',
+    'pune_city_pmc_masterplan',
+    'pimpri_chinchwad_masterplan',
+    'pmrda_masterplan',
+    'pmrda-masterplan-pmrda_masterplan',
+    'nagpur_masterplan',
+]
+
 # S3-Only Tile Serving Configuration
 S3_ONLY_TILE_SERVING = True
 DISABLE_LOCAL_TILES = True

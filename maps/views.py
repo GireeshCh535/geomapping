@@ -3755,9 +3755,9 @@ class OptimizedHierarchyAPIView(APIView):
 )
 class CloudFrontTileView(APIView):
     """
-    Enhanced CloudFront Tile Serving API with Fallback
+    Tile serving API: proxy only (path-based CloudFront or S3; server-side cache).
     
-    Serves tiles from CloudFront CDN with hierarchical URL structure:
+    Serves tiles with hierarchical URL structure; client never sees backend URL:
     GET /api/tiles/<state_slug>/<city_slug>/<layer_slug>/<z>/<x>/<y>.png
     GET /api/tiles/<state_slug>/<city_slug>/<layer_slug>/<z>/<x>/<y>.mvt
     
@@ -3766,7 +3766,7 @@ class CloudFrontTileView(APIView):
     - /api/tiles/andhra-pradesh/visakhapatnam/master_plan/12/2048/2048.png
     - /api/tiles/telangana/hyderabad/rrr/12/2048/2048.mvt
     
-    By default redirects (302) to CloudFront URL so workers do not block on HTTP fetch.
+    Backend is chosen by CLOUDFRONT_PATH_PREFIXES; tile body is cached (TILE_PROXY_CACHE_TTL).
     Layer existence is cached (5 min) to avoid DB hit per tile request.
     """
     
@@ -3804,18 +3804,17 @@ class CloudFrontTileView(APIView):
         return proxy_requested and proxy_enabled
 
     def _build_tile_response(self, tile_data, format_type):
-        """Return tile bytes with headers suitable for debug proxying."""
+        """Return tile bytes with headers (proxy response; backend not exposed)."""
         headers = self.tile_path_service.get_tile_cache_headers(format_type)
         response = HttpResponse(tile_data, content_type=headers['ContentType'])
         response['Cache-Control'] = headers['CacheControl']
         response['Pragma'] = headers['Pragma']
         response['Expires'] = headers['Expires']
         response['Access-Control-Allow-Origin'] = '*'
-        response['X-Tile-Debug-Proxy'] = '1'
         return response
 
     def get(self, request, state_slug, city_slug, layer_slug, z, x, y):
-        """Serve tiles: redirect by default, proxy only when explicitly debugging."""
+        """Serve tiles via proxy (path-based CloudFront or S3; server-side cache). No redirects."""
         try:
             z, x, y = int(z), int(x), int(y)
 
@@ -3846,29 +3845,37 @@ class CloudFrontTileView(APIView):
                     logger.debug(f"❌ Layer not found (suppressed): {layer_key}")
                 return self._return_error_tile(f"Layer not found: {state_slug}/{city_slug}/{layer_slug}")
 
-            if self._should_use_debug_proxy(request):
-                layer = self._get_layer_by_hierarchy(state_slug, city_slug, layer_slug)
-                if layer is None:
-                    return self._return_error_tile(f"Layer not found: {state_slug}/{city_slug}/{layer_slug}")
-
-                logger.info(
-                    f"🛠️ Debug tile proxy enabled for {state_slug}/{city_slug}/{layer_slug}/{z}/{x}/{y}.{format_type}"
-                )
-                tile_data = self._get_tile_with_fallback(
-                    state_slug, city_slug, layer_slug, z, x, y, format_type, layer
-                )
-                if tile_data:
-                    return self._build_tile_response(tile_data, format_type)
-
-                return self._return_error_tile(
-                    f"Tile not found: {state_slug}/{city_slug}/{layer_slug}/{z}/{x}/{y}.{format_type}"
-                )
-
-            # Redirect to CloudFront so the worker does not block on HTTP fetch (was causing 5–10s block per request)
-            cloudfront_url = self.tile_path_service.generate_cloudfront_url(
+            s3_key = self.tile_path_service.generate_s3_key(
                 state_slug, city_slug, layer_slug, z, x, y, format_type
             )
-            return HttpResponseRedirect(cloudfront_url)
+            print(f"[tile_proxy] request tile: {s3_key}")
+            cache_key = f"tile_proxy:{s3_key}"
+            ttl = getattr(settings, 'TILE_PROXY_CACHE_TTL', 3600)
+            if ttl > 0:
+                cached = cache.get(cache_key)
+                if cached is not None:
+                    print(f"[tile_proxy] cache HIT: {s3_key}")
+                    return self._build_tile_response(cached, format_type)
+                print(f"[tile_proxy] cache MISS: {s3_key}")
+            backend_url = self.tile_path_service.get_backend_url_for_tile(
+                state_slug, city_slug, layer_slug, z, x, y, format_type
+            )
+            backend_label = self.tile_path_service._backend_label(s3_key)
+            print(f"[tile_proxy] fetching from {backend_label}: {s3_key}")
+            print(f"[tile_proxy] backend URL ({backend_label}): {backend_url}")
+            tile_data = self._fetch_url(backend_url)
+            if tile_data:
+                print(f"[tile_proxy] fetch OK ({backend_label}): {s3_key} ({len(tile_data)} bytes)")
+                if ttl > 0:
+                    try:
+                        cache.set(cache_key, tile_data, ttl)
+                    except Exception:
+                        pass
+                return self._build_tile_response(tile_data, format_type)
+            print(f"[tile_proxy] fetch FAIL ({backend_label}): {s3_key}")
+            return self._return_error_tile(
+                f"Tile not found: {state_slug}/{city_slug}/{layer_slug}/{z}/{x}/{y}.{format_type}"
+            )
             
         except (OperationalError, DatabaseError) as e:
             error_msg = str(e)
@@ -7553,10 +7560,23 @@ class DeveloperListingMapDataAPIView(APIView):
 # LAND/PLOT MVT TILES (CloudFront → S3 → local)
 # ================================
 
+
+def _fetch_tile_url(url, timeout=5):
+    """Fetch tile bytes from URL; return bytes or None. Shared by tile proxy views."""
+    try:
+        response = requests.get(url, timeout=timeout)
+        if response.status_code == 200:
+            return response.content
+        print(f"[tile_proxy] _fetch_tile_url HTTP {response.status_code}: {url[:80]}...")
+    except Exception as e:
+        print(f"[tile_proxy] _fetch_tile_url error: {e}")
+    return None
+
+
 class LandPlotTileView(APIView):
     """
-    Serve land/plot MVT tiles: redirect to CloudFront (no proxy) so workers do not block.
-    Optional local file fallback for tiles not yet on CDN. Same pattern as CloudFrontTileView.
+    Serve land/plot MVT tiles via proxy (path-based CloudFront or S3; server-side cache).
+    Optional local file fallback. No redirects; client never sees backend URL.
     """
     permission_classes = [AllowAny]
 
@@ -7570,11 +7590,34 @@ class LandPlotTileView(APIView):
         from pathlib import Path
         local_path = Path(settings.BASE_DIR) / 'land_plot_tiles' / str(z) / str(x) / f'{y}.mvt'
         if local_path.is_file():
+            print(f"[tile_proxy] land-plot local file: {z}/{x}/{y}.mvt")
             return self._mvt_response(local_path.read_bytes())
 
-        # Redirect to CloudFront so the worker does not block on HTTP fetch
-        cloudfront_url = tile_path_service.land_plot_cloudfront_url(z, x, y)
-        return HttpResponseRedirect(cloudfront_url)
+        s3_key = tile_path_service.land_plot_s3_key(z, x, y)
+        print(f"[tile_proxy] request land-plot: {s3_key}")
+        cache_key = f"tile_proxy:{s3_key}"
+        ttl = getattr(settings, 'TILE_PROXY_CACHE_TTL', 3600)
+        if ttl > 0:
+            cached = cache.get(cache_key)
+            if cached is not None:
+                print(f"[tile_proxy] land-plot cache HIT: {s3_key}")
+                return self._mvt_response(cached)
+            print(f"[tile_proxy] land-plot cache MISS: {s3_key}")
+        backend_url = tile_path_service.get_backend_url_for_land_plot(z, x, y)
+        backend_label = tile_path_service._backend_label(s3_key)
+        print(f"[tile_proxy] land-plot fetching from {backend_label}: {s3_key}")
+        print(f"[tile_proxy] land-plot backend URL ({backend_label}): {backend_url}")
+        tile_data = _fetch_tile_url(backend_url)
+        if tile_data:
+            print(f"[tile_proxy] land-plot fetch OK ({backend_label}): {s3_key} ({len(tile_data)} bytes)")
+            if ttl > 0:
+                try:
+                    cache.set(cache_key, tile_data, ttl)
+                except Exception:
+                    pass
+            return self._mvt_response(tile_data)
+        print(f"[tile_proxy] land-plot fetch FAIL ({backend_label}): {s3_key}")
+        return Response({'error': 'Tile not found'}, status=404)
 
     def _mvt_response(self, data):
         headers = TilePathService().get_tile_cache_headers('mvt')
