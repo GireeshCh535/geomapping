@@ -3879,20 +3879,11 @@ class CloudFrontTileView(APIView):
                 cached = cache.get(cache_key)
                 if cached is not None:
                     return self._build_tile_response(cached, format_type)
-            cloudfront_url = self.tile_path_service.generate_cloudfront_url(
-                state_slug, city_slug, layer_slug, z, x, y, format_type
-            )
-            s3_url = self.tile_path_service.generate_s3_url(
-                state_slug, city_slug, layer_slug, z, x, y, format_type
-            )
             backend_url = self.tile_path_service.get_backend_url_for_tile(
                 state_slug, city_slug, layer_slug, z, x, y, format_type
             )
             backend_label = self.tile_path_service._backend_label(s3_key)
-            print(f"[tile_proxy] S3 key: {s3_key}")
-            print(f"[tile_proxy] CloudFront URL: {cloudfront_url}")
-            print(f"[tile_proxy] S3 URL: {s3_url}")
-            print(f"[tile_proxy] Backend used: {backend_label} -> {backend_url}")
+            print(f"[tile_proxy] Serving from {backend_label}: {backend_url}")
             tile_data = self._fetch_url(backend_url)
             if tile_data:
                 if ttl > 0:
@@ -7628,14 +7619,9 @@ class LandPlotTileView(APIView):
             cached = cache.get(cache_key)
             if cached is not None:
                 return self._mvt_response(cached)
-        cloudfront_url = tile_path_service.land_plot_cloudfront_url(z, x, y)
-        s3_url = tile_path_service.land_plot_s3_url(z, x, y)
         backend_url = tile_path_service.get_backend_url_for_land_plot(z, x, y)
         backend_label = tile_path_service._backend_label(s3_key)
-        print(f"[tile_proxy] land-plot S3 key: {s3_key}")
-        print(f"[tile_proxy] land-plot CloudFront URL: {cloudfront_url}")
-        print(f"[tile_proxy] land-plot S3 URL: {s3_url}")
-        print(f"[tile_proxy] land-plot backend used: {backend_label} -> {backend_url}")
+        print(f"[tile_proxy] land-plot serving from {backend_label}: {backend_url}")
         tile_data = _fetch_tile_url(backend_url)
         if tile_data:
             if ttl > 0:
