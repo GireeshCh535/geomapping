@@ -5501,6 +5501,30 @@ def _parse_datetime_webhook(dt_string):
     return parse_datetime(dt_string)
 
 
+def _send_tile_job_to_sqs(event_type, job_type, data):
+    """
+    Send a tile job to SQS. Used by both developer-listing (TIF) and land/plot (MVT) webhooks.
+    event_type: 'create' | 'update' | 'delete'
+    job_type: 'tif' | 'land_plot_mvt'
+    data: full payload for the worker (callback_url, tif_files, webhook_event_id, etc.)
+    Returns (success: bool, message_id_or_error: str).
+    """
+    queue_url = getattr(settings, 'TILE_SQS_QUEUE_URL', '').strip()
+    if not queue_url:
+        return False, 'TILE_SQS_QUEUE_URL not set'
+    region = getattr(settings, 'AWS_DEFAULT_REGION', 'ap-south-1')
+    try:
+        sqs = boto3.client('sqs', region_name=region)
+        body = json.dumps({'event': event_type, 'job_type': job_type, 'data': data}, default=str)
+        response = sqs.send_message(QueueUrl=queue_url, MessageBody=body)
+        msg_id = response.get('MessageId', '')
+        logger.info(f"[SQS] Queued message: {msg_id} job_type={job_type} event={event_type}")
+        return True, msg_id
+    except Exception as e:
+        logger.exception(f"[SQS] send_message failed: {e}")
+        return False, str(e)
+
+
 def _execute_listing_deletion(webhook_event, listing_type, listing_id, data):
     """
     Perform listing deletion: delete tiles, media, listing and Synced* records; refresh layer cache.
@@ -5853,19 +5877,12 @@ def _process_developer_listing_webhook(webhook_event_id):
                     DeveloperListingTileService()._delete_s3_tiles(existing_media_obj.s3_tile_path)
                 existing_media_obj.delete()
 
-    # Lambda invoke or mark processed
+    # Send tile job to SQS (no Lambda); local worker polls SQS and runs tile gen.
     if tif_files:
-        use_lambda = getattr(settings, 'TILE_USE_LAMBDA', False) and getattr(settings, 'TILE_GENERATION_LAMBDA_ARN', '')
-        if not use_lambda:
-            webhook_event.processing_error = (
-                "TIF tile generation requires Lambda. Set TILE_USE_LAMBDA=true and TILE_GENERATION_LAMBDA_ARN."
-            )
-            webhook_event.save()
-            return
         callback_path = reverse('tile-generation-callback')
         base_url = getattr(settings, 'TILE_CALLBACK_BASE_URL', '').strip()
         if not base_url:
-            webhook_event.processing_error = "TILE_CALLBACK_BASE_URL required for Lambda callback in background worker."
+            webhook_event.processing_error = "TILE_CALLBACK_BASE_URL required for tile worker callback."
             webhook_event.save()
             return
         callback_url = base_url.rstrip('/') + callback_path
@@ -5881,28 +5898,14 @@ def _process_developer_listing_webhook(webhook_event_id):
             'action': data.get('action', ''),
             'data_snapshot': dict(data),
         }
-        use_sqs = getattr(settings, 'TILE_USE_SQS', False) and getattr(settings, 'TILE_SQS_QUEUE_URL', '').strip()
-        region = getattr(settings, 'AWS_DEFAULT_REGION', 'ap-south-1')
-        try:
-            if use_sqs:
-                sqs = boto3.client('sqs', region_name=region)
-                sqs.send_message(
-                    QueueUrl=settings.TILE_SQS_QUEUE_URL,
-                    MessageBody=json.dumps(payload, default=str),
-                )
-                logger.info(f"[WEBHOOK_BACKGROUND] Tile job sent to SQS for webhook_event_id={webhook_event.id}")
-            else:
-                client = boto3.client('lambda', region_name=region)
-                client.invoke(
-                    FunctionName=settings.TILE_GENERATION_LAMBDA_ARN,
-                    InvocationType='Event',
-                    Payload=json.dumps(payload, default=str),
-                )
-                logger.info(f"[WEBHOOK_BACKGROUND] Lambda invoked for webhook_event_id={webhook_event.id}")
-        except Exception as err:
-            logger.exception(f"[WEBHOOK_BACKGROUND] Tile job dispatch failed: {err}")
-            webhook_event.processing_error = f"Tile job dispatch failed: {err}"
+        action_raw = data.get('action', '')
+        event_type_simple = 'delete' if action_raw in ('listing_deleted', 'media_deleted') else ('create' if action_raw == 'created' else 'update')
+        success, result = _send_tile_job_to_sqs(event_type_simple, 'tif', payload)
+        if not success:
+            webhook_event.processing_error = f"Tile job dispatch failed: {result}"
             webhook_event.save()
+        else:
+            logger.info(f"[WEBHOOK_BACKGROUND] Tile job sent to SQS for webhook_event_id={webhook_event.id} message_id={result}")
     else:
         webhook_event.processed = True
         webhook_event.processed_at = timezone.now()
@@ -6303,53 +6306,33 @@ def _process_land_plot_webhook(webhook_event_id):
                     refresh_layer_point_count_cache(layer_ids=affected)
         except Exception as cache_err:
             logger.warning(f"[LAND_PLOT_WEBHOOK] Layer point count cache refresh failed: {cache_err}", exc_info=True)
-        # Lambda: only if configured; otherwise log warning and continue (Issue 6)
+        # Send MVT tile job to SQS; local worker polls and runs tile gen (no Lambda).
         if lat is not None and lng is not None:
-            use_lambda = (
-                getattr(settings, 'LAND_PLOT_TILE_USE_LAMBDA', False) and
-                getattr(settings, 'LAND_PLOT_TILE_LAMBDA_ARN', '')
-            )
-            logger.info(
-                f"[LAND_PLOT_WEBHOOK] Lambda gate for {listing_type} {listing_id}: "
-                f"use_lambda={bool(use_lambda)} "
-                f"LAND_PLOT_TILE_USE_LAMBDA={getattr(settings, 'LAND_PLOT_TILE_USE_LAMBDA', False)} "
-                f"has_lambda_arn={bool(getattr(settings, 'LAND_PLOT_TILE_LAMBDA_ARN', ''))}"
-            )
-            if not use_lambda:
-                logger.warning(
-                    "[LAND_PLOT_WEBHOOK] MVT tile refresh requires Lambda. "
-                    "Set LAND_PLOT_TILE_USE_LAMBDA=true and LAND_PLOT_TILE_LAMBDA_ARN."
-                )
+            base_url = getattr(settings, 'TILE_CALLBACK_BASE_URL', '').strip()
+            if base_url:
+                callback_url = base_url.rstrip('/') + '/api/webhooks/tile-generation-result/'
+                mvt_build_base_url = base_url.rstrip('/') + '/api/tiles/land-plot-mvt-build'
+                payload = {
+                    'webhook_event_id': webhook_event.id,
+                    'lat': lat,
+                    'lng': lng,
+                    'tiles': [],
+                    'mvt_build_base_url': mvt_build_base_url,
+                    's3_tile_prefix': 'land-plot',
+                    'internal_secret': getattr(settings, 'TILE_CALLBACK_SECRET', ''),
+                    'callback_url': callback_url,
+                    'callback_secret': getattr(settings, 'TILE_CALLBACK_SECRET', ''),
+                    'listing_type': listing_type,
+                    'listing_id': listing_id,
+                }
+                event_type_simple = 'create' if action == 'created' else ('update' if action == 'updated' else 'delete')
+                success, result = _send_tile_job_to_sqs(event_type_simple, 'land_plot_mvt', payload)
+                if success:
+                    logger.info(f"[LAND_PLOT_WEBHOOK] Tile job sent to SQS for {listing_type} {listing_id} lat={lat} lng={lng} message_id={result}")
+                else:
+                    logger.warning(f"[LAND_PLOT_WEBHOOK] SQS send failed for {listing_type} {listing_id}: {result}")
             else:
-                try:
-                    base_url = getattr(settings, 'TILE_CALLBACK_BASE_URL', '').strip()
-                    callback_url = base_url.rstrip('/') + '/api/webhooks/tile-generation-result/'
-                    mvt_build_base_url = base_url.rstrip('/') + '/api/tiles/land-plot-mvt-build'
-                    lambda_payload = {
-                        'webhook_event_id': webhook_event.id,  # required by callback handler
-                        'lat': lat,
-                        'lng': lng,
-                        'tiles': [],
-                        'mvt_build_base_url': mvt_build_base_url,
-                        's3_tile_prefix': 'land-plot',
-                        'internal_secret': getattr(settings, 'TILE_CALLBACK_SECRET', ''),
-                        'callback_url': callback_url,
-                        'callback_secret': getattr(settings, 'TILE_CALLBACK_SECRET', ''),
-                        'listing_type': listing_type,
-                        'listing_id': listing_id,
-                    }
-                    boto3_client = boto3.client(
-                        'lambda',
-                        region_name=getattr(settings, 'AWS_DEFAULT_REGION', 'ap-south-1'),
-                    )
-                    boto3_client.invoke(
-                        FunctionName=settings.LAND_PLOT_TILE_LAMBDA_ARN,
-                        InvocationType='Event',
-                        Payload=json.dumps(lambda_payload, default=str),
-                    )
-                    logger.info(f"[LAND_PLOT_WEBHOOK] Lambda invoked for {listing_type} {listing_id} lat={lat} lng={lng}")
-                except Exception as lambda_err:
-                    logger.exception(f"[LAND_PLOT_WEBHOOK] Lambda invoke failed: {lambda_err}")
+                logger.warning("[LAND_PLOT_WEBHOOK] TILE_CALLBACK_BASE_URL not set; skipping SQS tile job.")
         else:
             logger.warning(
                 f"[LAND_PLOT_WEBHOOK] Skipping Lambda for {listing_type} {listing_id}: "

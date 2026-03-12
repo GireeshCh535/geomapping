@@ -1063,10 +1063,10 @@ class WebhookEventAdmin(AuditFieldsMixin, admin.ModelAdmin):
             "fields": ("processing_result_display",),
             "classes": ("collapse",)
         }),
-        ("Tile generation logs (Lambda callback)", {
+        ("Tile generation logs (tile worker callback)", {
             "fields": ("tile_generation_logs_display",),
             "classes": ("collapse",),
-            "description": "Log lines from Lambda/external tile worker (when using TILE_USE_LAMBDA)"
+            "description": "Log lines from tile worker when it POSTs to tile-generation-result"
         }),
     )
     
