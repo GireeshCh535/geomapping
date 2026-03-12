@@ -58,25 +58,32 @@ def _upload_worker(
     tile_path_service,
     s3_service,
     results: list,
+    total_count: int = 0,
 ) -> None:
-    """Consume (z, x, y, mvt_bytes) from queue; delete S3 key, upload bytes. Stops on None."""
+    """Consume (z, x, y, mvt_bytes) from queue; upload bytes (existing tiles already deleted at start). Stops on None."""
     while True:
         item = in_queue.get()
         if item is None:
+            if total_count > 0:
+                print(f"[MVT] Upload worker finished ({len(results)}/{total_count} uploaded).", flush=True)
             return
         try:
             z, x, y, mvt_bytes = item
             s3_key = tile_path_service.land_plot_s3_key(z, x, y)
-            s3_service.delete_object(s3_key)
             result = s3_service.upload_bytes(
                 mvt_bytes,
                 s3_key,
                 content_type='application/vnd.mapbox-vector-tile',
             )
-            results.append(bool(result.get('success')))
+            success = bool(result.get('success'))
+            results.append(success)
+            n = len(results)
+            if total_count > 0 and (n % 5 == 0 or n == total_count):
+                print(f"[MVT] Uploaded {n}/{total_count} tiles to S3", flush=True)
         except Exception as e:
             tile_id = f"{item[0]}/{item[1]}/{item[2]}" if len(item) == 4 else "?"
             logger.warning(f"[LAND_PLOT_TILE_REFRESH] Upload failed {tile_id}: {e}", exc_info=True)
+            print(f"[MVT] Upload failed {tile_id}: {e}", flush=True)
             results.append(False)
         finally:
             in_queue.task_done()
@@ -101,16 +108,26 @@ def refresh_tiles_for_listing(
     if not affected:
         return
 
+    # Delete existing tiles at affected keys first (same as TIF: delete then upload, avoid stale tiles)
+    for z, x, y in affected:
+        s3_key = tile_path_service.land_plot_s3_key(z, x, y)
+        s3_service.delete_object(s3_key)
+    print(f"[MVT] Cleared {len(affected)} affected tile(s); regenerating and uploading.", flush=True)
+    logger.info(f"[LAND_PLOT_TILE_REFRESH] Cleared {len(affected)} tiles (delete then re-upload)")
+
+    print(f"[MVT] Computing affected tiles for (lat={lat}, lng={lng})...", flush=True)
     gen_workers = min(REFRESH_GENERATE_WORKERS, len(affected))
     upload_workers = REFRESH_UPLOAD_WORKERS
     out_queue = queue.Queue()
 
+    print(f"[MVT] {len(affected)} tiles to generate and upload to S3", flush=True)
     logger.info(
         f"[LAND_PLOT_TILE_REFRESH] Refreshing {len(affected)} tiles for ({lat}, {lng}) "
         f"(generate_workers={gen_workers}, upload_workers={upload_workers})"
     )
 
     upload_results = []
+    total_tiles = len(affected)
     with ThreadPoolExecutor(max_workers=upload_workers) as upload_exec:
         upload_futures = [
             upload_exec.submit(
@@ -119,6 +136,7 @@ def refresh_tiles_for_listing(
                 tile_path_service,
                 s3_service,
                 upload_results,
+                total_tiles,
             )
             for _ in range(upload_workers)
         ]
@@ -127,15 +145,26 @@ def refresh_tiles_for_listing(
                 gen_exec.submit(_generate_one_tile, z, x, y, out_queue)
                 for z, x, y in affected
             ]
+            done = 0
             for f in as_completed(gen_futures):
                 f.result()
+                done += 1
+                if done % 5 == 0 or done == len(affected):
+                    print(f"[MVT] Generated {done}/{len(affected)} tiles...", flush=True)
+        print(f"[MVT] Uploading {total_tiles} tiles to S3...", flush=True)
+        # Join before putting None: join() waits for task_done() per put().
+        # We only put 17 tiles (from gen workers); worker calls task_done() 17 times.
+        # If we put None first, queue would have 18 items and join() would wait forever.
+        out_queue.join()
         for _ in range(upload_workers):
             out_queue.put(None)
-        out_queue.join()
+        print(f"[MVT] All tiles uploaded; waiting for upload workers to exit...", flush=True)
         for f in as_completed(upload_futures):
             f.result()
+    print(f"[MVT] Uploads complete.", flush=True)
 
     ok = sum(1 for r in upload_results if r)
+    print(f"[MVT] Generated and uploaded {ok}/{len(affected)} tiles to S3", flush=True)
     if ok < len(affected):
         logger.warning(f"[LAND_PLOT_TILE_REFRESH] {ok}/{len(affected)} tiles succeeded")
 

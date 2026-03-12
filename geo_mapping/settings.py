@@ -7,6 +7,22 @@ import os
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
+# Load .env into os.environ when running locally (Docker sets env via compose, so those take precedence)
+_env_file = BASE_DIR / '.env'
+if _env_file.exists():
+    with open(_env_file, encoding='utf-8', errors='replace') as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith('#'):
+                continue
+            if '=' in line:
+                key, _, value = line.partition('=')
+                key, value = key.strip(), value.strip()
+                if key:
+                    if value.startswith(('"', "'")) and value[0] == value[-1]:
+                        value = value[1:-1].strip()
+                    os.environ.setdefault(key, value)
+
 # SECRET KEY
 SECRET_KEY = "django-insecure-9xdea)mc6dhr@)lrhn65!&!uc+#z6nlajj8j091eswp$$2jf!#"
 

@@ -260,7 +260,22 @@ class UniversalLineStyledTileGenerator:
                         pass
         if stroke_width_val is None:
             style_role = str(row.get('_style_role', row.get('Style_role', 'inner')) or 'inner').strip().lower()
-            stroke_width_val = self.legend.get(style_role, {}).get('stroke_width', REFERENCE_STROKE_WIDTH)
+            # For 'outer' (border) always use legend so border thickness is consistent
+            if style_role == 'outer':
+                stroke_width_val = self.legend.get(style_role, {}).get('stroke_width', REFERENCE_STROKE_WIDTH * 2)
+            else:
+                # For 'inner': use Width_in_Metres (e.g. HMDA roads) to scale line width when present
+                for key in ('Width_in_Metres', 'width_in_metres', 'width'):
+                    if key in row.index and row.get(key) is not None:
+                        try:
+                            w = float(row[key])
+                            if w > 0:
+                                stroke_width_val = max(1.0, min(20.0, REFERENCE_STROKE_WIDTH * (w / 30.0)))
+                                break
+                        except (TypeError, ValueError):
+                            pass
+                if stroke_width_val is None:
+                    stroke_width_val = self.legend.get(style_role, {}).get('stroke_width', REFERENCE_STROKE_WIDTH)
         return color, float(stroke_width_val)
 
     def get_feature_stroke(self, row, zoom: int) -> Tuple[str, float]:

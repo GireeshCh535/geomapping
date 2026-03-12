@@ -1,7 +1,8 @@
 # maps/management/commands/poll_sqs_tile_worker.py
 """
 Poll SQS for tile jobs (TIF and land/plot MVT) and process them.
-Run on the "local server" (e.g. same EC2 as Django or a machine with DB + AWS access).
+Only the job type from the message is run: developer-listing webhook -> job_type=tif only;
+land-plot webhook -> job_type=land_plot_mvt only. No cross-triggering.
 
 Usage:
   python manage.py poll_sqs_tile_worker
@@ -13,6 +14,7 @@ Requires: TILE_SQS_QUEUE_URL, AWS credentials (or EC2 instance profile).
 import json
 import logging
 import time
+from datetime import datetime, timezone
 
 import boto3
 import requests
@@ -20,6 +22,23 @@ from django.conf import settings
 from django.core.management.base import BaseCommand
 
 logger = logging.getLogger(__name__)
+
+
+class _TileLogCapture(logging.Handler):
+    """Capture log records during tile job run for callback tile_generation_logs."""
+
+    def __init__(self, log_list):
+        super().__init__()
+        self.log_list = log_list
+
+    def emit(self, record):
+        try:
+            ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+            level = (record.levelname or "info").lower()
+            msg = self.format(record) if self.formatter else (record.getMessage() or "")
+            self.log_list.append({"ts": ts, "level": level, "msg": str(msg)[:2000]})
+        except Exception:
+            pass
 
 
 class Command(BaseCommand):
@@ -63,7 +82,9 @@ class Command(BaseCommand):
                     if once:
                         self.stdout.write("No messages, exiting (--once).")
                         return
+                    logger.debug("Poll: 0 messages (queue empty or in-flight)")
                     continue
+                self.stdout.write(f"Poll: received {len(messages)} message(s)")
                 for msg in messages:
                     self._process_message(sqs, queue_url, msg)
                 if once:
@@ -84,15 +105,20 @@ class Command(BaseCommand):
         event = payload.get("event")
         job_type = payload.get("job_type")
         data = payload.get("data") or {}
+        msg_id = msg.get("MessageId", "?")
+        self.stdout.write(f"Processing message_id={msg_id} job_type={job_type} event={event}")
         if job_type not in ("tif", "land_plot_mvt"):
             logger.warning("Unknown job_type=%s, deleting message", job_type)
             sqs.delete_message(QueueUrl=queue_url, ReceiptHandle=receipt_handle)
             return
         try:
+            # Only run the handler for this job type (no cross-trigger: TIF vs land_plot_mvt)
             if job_type == "tif":
                 self._process_tif_job(data)
-            else:
+            elif job_type == "land_plot_mvt":
                 self._process_land_plot_mvt_job(data)
+            else:
+                logger.warning("Unhandled job_type=%s", job_type)
         except Exception as e:
             logger.exception("Job failed job_type=%s: %s", job_type, e)
             # Do not delete so message can retry after visibility timeout
@@ -102,23 +128,34 @@ class Command(BaseCommand):
     def _process_tif_job(self, data):
         from maps.developer_listing_tile_service import DeveloperListingTileService
 
-        webhook_data = {
-            "event_type": data.get("event_type", ""),
-            "action": data.get("action", ""),
-            "listing_type": data.get("listing_type", ""),
-            "listing_id": data.get("listing_id"),
-            "tif_files": data.get("tif_files", []),
-            "s3_tile_base_path": data.get("s3_tile_base_path", ""),
-        }
-        service = DeveloperListingTileService()
-        result = service.process_webhook(webhook_data)
-        self._post_callback(
-            data,
-            tiles_generated=result.get("total_tiles_generated", 0),
-            tif_files_processed=result.get("tif_files_processed", 0),
-            processing_result=result,
-            processing_error=result.get("error", ""),
-        )
+        self.stdout.write("Starting TIF tile generation (developer-listing webhook only)...")
+        captured = []
+        maps_logger = logging.getLogger("maps")
+        handler = _TileLogCapture(captured)
+        handler.setFormatter(logging.Formatter("%(message)s"))
+        handler.setLevel(logging.DEBUG)
+        maps_logger.addHandler(handler)
+        try:
+            webhook_data = {
+                "event_type": data.get("event_type", ""),
+                "action": data.get("action", ""),
+                "listing_type": data.get("listing_type", ""),
+                "listing_id": data.get("listing_id"),
+                "tif_files": data.get("tif_files", []),
+                "s3_tile_base_path": data.get("s3_tile_base_path", ""),
+            }
+            service = DeveloperListingTileService()
+            result = service.process_webhook(webhook_data)
+            self._post_callback(
+                data,
+                tiles_generated=result.get("total_tiles_generated", 0),
+                tif_files_processed=result.get("tif_files_processed", 0),
+                processing_result=result,
+                processing_error=result.get("error", ""),
+                logs=captured,
+            )
+        finally:
+            maps_logger.removeHandler(handler)
 
     def _process_land_plot_mvt_job(self, data):
         from maps.land_plot_tile_refresh import (
@@ -126,34 +163,62 @@ class Command(BaseCommand):
             refresh_tiles_for_listing,
         )
 
-        lat = data.get("lat")
-        lng = data.get("lng")
-        if lat is None or lng is None:
-            logger.warning("land_plot_mvt job missing lat/lng")
-            self._post_callback(data, tiles_generated=0, processing_error="Missing lat/lng")
-            return
-        affected = get_affected_land_plot_tile_keys(lng, lat)
-        refresh_tiles_for_listing(lat, lng)
-        self._post_callback(
-            data,
-            tiles_generated=len(affected),
-            tif_files_processed=0,
-            processing_result={"tiles_refreshed": len(affected)},
-        )
+        self.stdout.write("Starting land/plot MVT tile refresh (land-plot webhook only)...")
+        captured = []
+        maps_logger = logging.getLogger("maps")
+        handler = _TileLogCapture(captured)
+        handler.setFormatter(logging.Formatter("%(message)s"))
+        handler.setLevel(logging.DEBUG)
+        maps_logger.addHandler(handler)
+        try:
+            lat = data.get("lat")
+            lng = data.get("lng")
+            if lat is None or lng is None:
+                logger.warning("land_plot_mvt job missing lat/lng")
+                self._post_callback(data, tiles_generated=0, processing_error="Missing lat/lng", logs=captured)
+                return
+            affected = get_affected_land_plot_tile_keys(lng, lat)
+            refresh_tiles_for_listing(lat, lng)
+            self._post_callback(
+                data,
+                tiles_generated=len(affected),
+                tif_files_processed=0,
+                processing_result={"tiles_refreshed": len(affected)},
+                logs=captured,
+            )
+        finally:
+            maps_logger.removeHandler(handler)
 
-    def _post_callback(self, data, tiles_generated=0, tif_files_processed=0, processing_result=None, processing_error=""):
+    def _post_callback(
+        self,
+        data,
+        tiles_generated=0,
+        tif_files_processed=0,
+        processing_result=None,
+        processing_error="",
+        logs=None,
+    ):
         callback_url = (data or {}).get("callback_url")
         if not callback_url:
             logger.warning("No callback_url in job data, skipping POST")
             return
         secret = (data or {}).get("callback_secret", "")
+        normalized_logs = []
+        if isinstance(logs, list):
+            for item in logs[:10000]:
+                if isinstance(item, dict):
+                    normalized_logs.append({
+                        "ts": str(item.get("ts", "")),
+                        "level": str(item.get("level", "info")),
+                        "msg": str(item.get("msg", "")),
+                    })
         body = {
             "webhook_event_id": data.get("webhook_event_id"),
             "tiles_generated": tiles_generated,
             "tif_files_processed": tif_files_processed,
             "processing_result": processing_result or {},
             "processing_error": str(processing_error)[:65535],
-            "logs": [],
+            "logs": normalized_logs,
         }
         try:
             r = requests.post(
