@@ -5,11 +5,16 @@ import os
 from pathlib import Path
 from django.conf import settings
 from botocore.exceptions import ClientError, NoCredentialsError
+from botocore.config import Config
 import mimetypes
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import logging
 
 logger = logging.getLogger(__name__)
+
+# Timeouts so S3 uploads don't hang indefinitely (connect 30s, read 120s)
+S3_CONFIG = Config(connect_timeout=30, read_timeout=120, retries={'max_attempts': 3, 'mode': 'standard'})
+
 
 class S3TileUploadService:
     """Service for uploading generated tiles to S3"""
@@ -21,7 +26,8 @@ class S3TileUploadService:
             's3',
             region_name=self.region,
             aws_access_key_id=getattr(settings, 'AWS_ACCESS_KEY_ID', None),
-            aws_secret_access_key=getattr(settings, 'AWS_SECRET_ACCESS_KEY', None)
+            aws_secret_access_key=getattr(settings, 'AWS_SECRET_ACCESS_KEY', None),
+            config=S3_CONFIG,
         )
         
     def upload_file(self, local_file_path, s3_key):

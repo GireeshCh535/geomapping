@@ -7,6 +7,22 @@ import os
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
+# Load .env into os.environ when running locally (Docker sets env via compose, so those take precedence)
+_env_file = BASE_DIR / '.env'
+if _env_file.exists():
+    with open(_env_file, encoding='utf-8', errors='replace') as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith('#'):
+                continue
+            if '=' in line:
+                key, _, value = line.partition('=')
+                key, value = key.strip(), value.strip()
+                if key:
+                    if value.startswith(('"', "'")) and value[0] == value[-1]:
+                        value = value[1:-1].strip()
+                    os.environ.setdefault(key, value)
+
 # SECRET KEY
 SECRET_KEY = "django-insecure-9xdea)mc6dhr@)lrhn65!&!uc+#z6nlajj8j091eswp$$2jf!#"
 
@@ -24,10 +40,12 @@ else:
     ALLOWED_HOSTS = _required_hosts
 
 CSRF_TRUSTED_ORIGINS = [
+    'http://localhost:8000',
+    'https://localhost:8000',
+    'http://localhost:3000',
     'https://layers.1acre.in',
     'http://layers.1acre.in',  # if you also use HTTP
     'https://gis-map.1acre.in',  # Legacy domain (keep for backward compatibility)
-    'https://lita-unsarcastic-serina.ngrok-free.dev',  # ngrok domain for testing
     'http://3.108.10.59',  # Direct IP access
     'https://3.108.10.59',  # Direct IP access (HTTPS)
     # Cloudflare Tunnel (quick tunnels; add your current URL when it changes)
@@ -311,6 +329,117 @@ CLOUDFRONT_DISTRIBUTION_ID = os.getenv('CLOUDFRONT_DISTRIBUTION_ID', '')  # Set 
 USE_CLOUDFRONT = os.getenv('USE_CLOUDFRONT', 'True').lower() == 'true'
 ENABLE_CLOUDFRONT_INVALIDATION = os.getenv('ENABLE_CLOUDFRONT_INVALIDATION', 'True').lower() == 'true'
 
+# Tile proxy: paths served via CloudFront; all others via S3 only (no fallback)
+CLOUDFRONT_PATH_PREFIXES = [
+    'karnataka/bengaluru/',
+    'telangana/hyderabad/',
+    'andhra-pradesh/amaravati/',
+    'land-plot/',
+]
+# Tile proxy server-side cache TTL in seconds (0 = no cache)
+TILE_PROXY_CACHE_TTL = 3600
+
+# All masterplan layer slugs (from maps/views.py) – reference list for CloudFront path prefixes
+MASTERPLAN_LAYER_SLUGS = [
+    # Bengaluru / BMRDA
+    'bengaluru_anekal_masterplan',
+    'bengaluru_chikkaballapura_masterplan',
+    'bengaluru_hosakote_masterplan',
+    'bengaluru_nelamangala_masterplan',
+    'bengaluru_master_plan_2015',
+    'bengaluru_masterplan_roads',
+    # Tamil Nadu
+    'coimbatore_master_plan',
+    'hosur_master_plan',
+    'chennai_master_plan',
+    'tirupati_masterplan',
+    # Kerala
+    'kochi_master_plan',
+    'kannur_masterplan',
+    'kollam_masterplan',
+    'kozhikode_masterplan',
+    'thiruvananthapuram_masterplan',
+    'thrissur_masterplan',
+    # Odisha / Andhra
+    'cuttack_masterplan',
+    'vgtm_masterplan',
+    'kakinada_masterplan',
+    'amaravati_master_plan',
+    'amaravati_masterplan',
+    'bhubaneswar_masterplan',
+    # Madhya Pradesh
+    'mandideep_masterplan',
+    'bhopal_masterplan',
+    'pithampur_masterplan',
+    # Rajasthan / Gujarat
+    'ajmer_masterplan',
+    'ahmedabad_masterplan',
+    'vadodara_masterplan',
+    'gift_city_masterplan',
+    # Punjab / Haryana / NCR
+    'mohali_sas_nagar_masterplan',
+    'derabassi_masterplan',
+    'banur_masterplan',
+    'mullanpur_masterplan',
+    'kharar_masterplan',
+    'sonipat_kundli_masterplan',
+    'sonipat_masterplan',
+    'arogya_dham_badsa_masterplan',
+    'palwal_masterplan',
+    'prithla_masterplan',
+    'loni_masterplan',
+    'bhagpat_baraut_khekra_masterplan',
+    'modinagar_masterplan',
+    'kharkhauda_masterplan',
+    'ghaziabad_masterplan',
+    'gurugram_masterplan',
+    'faridabad_masterplan',
+    'noida_masterplan',
+    'greater_noida_masterplan',
+    'yamuna_expressway_masterplan',
+    'delhi_masterplan',
+    'nuh_masterplan',
+    'jhajjar_masterplan',
+    'meerut_masterplan',
+    'hodal_masterplan',
+    'rewari_masterplan',
+    'gohana_masterplan',
+    'bhiwadi_masterplan',
+    'alwar_masterplan',
+    # Himachal / Chandigarh
+    'pinjore_kalka_masterplan',
+    'panchkula_extension_1_masterplan',
+    'panchkula_masterplan',
+    'dharuhera_masterplan',
+    'zirakpur_masterplan',
+    'chandigarh_masterplan',
+    # UTs / North East / Other
+    'daman_and_diu_masterplan',
+    'dadra_and_nagar_haveli_masterplan',
+    'patna_masterplan',
+    'ayodhya_masterplan',
+    'lucknow_masterplan',
+    'varanasi_masterplan',
+    'srinagar_masterplan',
+    'guwahati_masterplan',
+    'new_raipur_masterplan',
+    'biappa_masterplan',
+    'port_blair_masterplan',
+    'itanagar_masterplan',
+    'puducherry_masterplan',
+    'jagdalpur_masterplan',
+    # Telangana
+    'hyderabad_masterplan',
+    'warangal_master_plan',
+    # Maharashtra
+    'mumbai_masterplan',
+    'pune_city_pmc_masterplan',
+    'pimpri_chinchwad_masterplan',
+    'pmrda_masterplan',
+    'pmrda-masterplan-pmrda_masterplan',
+    'nagpur_masterplan',
+]
+
 # S3-Only Tile Serving Configuration
 S3_ONLY_TILE_SERVING = True
 DISABLE_LOCAL_TILES = True
@@ -491,21 +620,10 @@ DEVELOPER_BACKEND_API_URL = os.getenv(
 )
 
 # --------------------------------------------
-# Lambda-based tile generation (optional)
-# When enabled, webhook invokes Lambda instead of in-process thread.
-# When TILE_USE_SQS is True, webhook sends to SQS and Lambda is triggered by the queue.
+# Tile generation via SQS (no Lambda)
+# Webhooks push jobs to SQS; local server polls SQS and runs tile gen + S3 upload.
 # --------------------------------------------
-TILE_USE_LAMBDA = os.getenv('TILE_USE_LAMBDA', 'false').lower() == 'true'
-TILE_GENERATION_LAMBDA_ARN = os.getenv('TILE_GENERATION_LAMBDA_ARN', '')
-# SQS: when set, Django sends tile job to queue; Lambda is triggered by SQS (recommended for reliability).
-TILE_USE_SQS = os.getenv('TILE_USE_SQS', 'false').lower() == 'true'
 TILE_SQS_QUEUE_URL = os.getenv('TILE_SQS_QUEUE_URL', '').strip()
 TILE_CALLBACK_SECRET = os.getenv('TILE_CALLBACK_SECRET', '')
-# Callback URL is built from request in the webhook view (request.build_absolute_uri).
-# If your app is behind a proxy and build_absolute_uri is wrong, set this to e.g. https://layers.1acre.in
+# Base URL for tile worker callback and MVT build (e.g. https://layers.1acre.in)
 TILE_CALLBACK_BASE_URL = os.getenv('TILE_CALLBACK_BASE_URL', '')
-
-# Land/plot MVT tile refresh via Lambda (optional)
-# When enabled, land-plot webhook invokes Lambda for MVT tile refresh; otherwise uses background thread.
-LAND_PLOT_TILE_USE_LAMBDA = os.getenv('LAND_PLOT_TILE_USE_LAMBDA', 'false').lower() == 'true'
-LAND_PLOT_TILE_LAMBDA_ARN = os.getenv('LAND_PLOT_TILE_LAMBDA_ARN', '')

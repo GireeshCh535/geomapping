@@ -5,6 +5,7 @@ Splits large MultiPolygons into smaller individual features for better spatial i
 This dramatically improves tile generation performance at high zoom levels
 """
 
+import argparse
 import json
 import sys
 from pathlib import Path
@@ -176,9 +177,21 @@ def process_geojson_file(input_file, output_file, subdir):
 
 def main():
     """Main preprocessing function"""
-    input_dir = Path('data/Telangana/Hyderabad/master_plan')
-    output_dir = Path('data/Telangana/Hyderabad/master_plan_split')
-    
+    parser = argparse.ArgumentParser(description='Preprocess Hyderabad master plan GeoJSON (split MultiPolygons)')
+    parser.add_argument(
+        '--input-dir', '-i',
+        default='data/telangana/hyderabad/masterplan',
+        help='Input directory containing HMDA/ and HUDA/ with .geojson and legend.csv',
+    )
+    parser.add_argument(
+        '--output-dir', '-o',
+        default='data/telangana/hyderabad/master_plan_split',
+        help='Output directory for pre-split GeoJSON and copied legends',
+    )
+    args = parser.parse_args()
+    input_dir = Path(args.input_dir)
+    output_dir = Path(args.output_dir)
+
     if not input_dir.exists():
         print(f"✗ Input directory not found: {input_dir}")
         sys.exit(1)

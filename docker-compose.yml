@@ -60,14 +60,9 @@ services:
       # Fix 6: Keep DEBUG enabled unless explicitly overridden in .env
       - DJANGO_DEBUG=${DJANGO_DEBUG:-true}
       - TILE_CALLBACK_SECRET=f9bf4828c58d01cfc1efe54f71ff0ea9980ad5b6b755e52ae8ea2e0c334c22a4
-      - TILE_USE_LAMBDA=true
-      - TILE_GENERATION_LAMBDA_ARN=arn:aws:lambda:ap-south-1:471112704924:function:geomapping-tile-gen
-      - TILE_USE_SQS=true
       - TILE_SQS_QUEUE_URL=https://sqs.ap-south-1.amazonaws.com/471112704924/geomapping-tile-gen-queue
       - AWS_DEFAULT_REGION=ap-south-1
       - AWS_SECRET_ACCESS_KEY=45QpOp2sGal943rYVef3WSdBv2OkcGA+4i3wkwfQ
-      - LAND_PLOT_TILE_USE_LAMBDA=true
-      - LAND_PLOT_TILE_LAMBDA_ARN=arn:aws:lambda:ap-south-1:471112704924:function:land-plot-tile-gen
       - AWS_ACCESS_KEY_ID=AKIAW3MEBMOOEQKR3BXV
       - TILE_CALLBACK_BASE_URL=https://layers.1acre.in/
     depends_on:
@@ -88,6 +83,7 @@ services:
     volumes:
       - ./nginx/conf.d:/etc/nginx/conf.d
       - /etc/letsencrypt:/etc/letsencrypt:ro
+      - /var/www/certbot:/var/www/certbot
       - static_volume:/app/staticfiles
       - media_volume:/app/media
     depends_on:

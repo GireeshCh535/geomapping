@@ -106,10 +106,12 @@ class DeveloperListingTileService:
                     'tiles_generated': 0
                 }
             
+            print(f"[TIF] Processing {len(tif_files)} TIF file(s)...")
             logger.info(f"[TILE_GEN] 🔄 Processing {len(tif_files)} TIF file(s)...")
             results = []
             for idx, tif_file in enumerate(tif_files, 1):
                 file_name = tif_file.get('file_name', 'unknown')
+                print(f"[TIF] File {idx}/{len(tif_files)}: {file_name}")
                 result = self.process_tif_file(
                     tif_file=tif_file,
                     listing_type=listing_type,
@@ -294,11 +296,15 @@ class DeveloperListingTileService:
             except DeveloperListingMedia.DoesNotExist:
                 pass
         
+        # Delete existing tiles at this path before regenerating (avoids stale/orphaned tiles on update)
         deleted_new = self._delete_s3_tiles(s3_tile_path)
         deleted_old = 0
         if old_s3_tile_path and old_s3_tile_path != s3_tile_path:
             deleted_old = self._delete_s3_tiles(old_s3_tile_path)
-        
+        if deleted_new or deleted_old:
+            print(f"[TIF] Deleted existing tiles: {deleted_new} at current path, {deleted_old} at old path")
+            logger.info(f"[TIF_PROCESS] Deleted existing tiles: current={deleted_new} old_path={deleted_old}")
+
         start_time = time.time()
         
         # Create temporary directory for processing
@@ -316,7 +322,7 @@ class DeveloperListingTileService:
                         'error': error_msg,
                         'file_name': file_name
                     }
-                
+                print(f"[TIF] Downloaded TIF: {file_name}")
                 file_size = os.path.getsize(tif_path) if os.path.exists(tif_path) else None
                 if media:
                     media.tiles_generation_started_at = timezone.now()
@@ -360,6 +366,7 @@ class DeveloperListingTileService:
                 tiles_by_zoom = result.get('tiles_by_zoom', {})
                 tif_metadata = result.get('tif_metadata', {})
                 
+                print(f"[TIF] Generated {tiles_generated} tiles, uploaded to S3: {s3_tile_path}")
                 logger.info(f"[TIF_PROCESS] Tiles generated: {tiles_generated}")
                 
                 if media:
@@ -409,6 +416,7 @@ class DeveloperListingTileService:
                     invalidation_path = f"{s3_tile_path.rstrip('/')}/*"
                     self._invalidate_cloudfront_paths([invalidation_path])
                 
+                print(f"[TIF] Removed downloaded TIF (temp cleanup): {file_name}")
                 return {
                     'success': True,
                     'file_name': file_name,
@@ -961,6 +969,8 @@ class DeveloperListingTileService:
             
             total_tiles = 0
             tiles_by_zoom = {}
+            num_zooms = self.max_zoom - self.min_zoom + 1
+            print(f"[TIF] Generating PNG tiles for zoom levels {self.min_zoom}-{self.max_zoom} ({num_zooms} levels)...")
             
             for zoom in range(self.min_zoom, self.max_zoom + 1):
                 # Calculate tile range for this zoom level
@@ -1002,6 +1012,7 @@ class DeveloperListingTileService:
                 
                 tiles_by_zoom[zoom] = zoom_tiles
                 total_tiles += zoom_tiles
+                print(f"[TIF] Zoom {zoom}: {zoom_tiles} PNG tiles (total so far: {total_tiles})")
             
             return {
                 'tiles_generated': total_tiles,

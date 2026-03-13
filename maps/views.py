@@ -1356,6 +1356,31 @@ class CoordinateSearchTestView(APIView):
                             'features': [feature_data],
                         }
                     
+                    elif layer.slug == 'bengaluru_masterplan_roads':
+                        detailed_category = feature_data.get('detailed_category', {})
+                        properties = detailed_category.get('properties', {}) or {}
+                        name = str(properties.get('Name', '')) if properties.get('Name') else ''
+                        road_width_feet = properties.get('Road Width (in feet)')
+                        road_width_meters = properties.get('Road Width (in meters)')
+                        data_parts = []
+                        if name:
+                            data_parts.append(name)
+                        if road_width_feet:
+                            data_parts.append(f"Road Width (in feet) - {str(road_width_feet)}")
+                        elif road_width_meters:
+                            data_parts.append(f"Road Width (in meters) - {str(road_width_meters)}")
+                        data_string = ', '.join(data_parts) if data_parts else 'Masterplan Road'
+                        fill_color = (
+                            properties.get('fill_color') or properties.get('fillColor') or
+                            properties.get('FillColor') or properties.get('color')
+                        ) or ''
+                        return {
+                            'data': data_string,
+                            'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
+                            'found': True,
+                            'features': [feature_data],
+                        }
+                    
                     elif layer.slug == 'hyderabad_rrr':
                         detailed_category = feature_data.get('detailed_category', {})
                         properties = detailed_category.get('properties', {})
@@ -3755,9 +3780,9 @@ class OptimizedHierarchyAPIView(APIView):
 )
 class CloudFrontTileView(APIView):
     """
-    Enhanced CloudFront Tile Serving API with Fallback
+    Tile serving API: proxy only (path-based CloudFront or S3; server-side cache).
     
-    Serves tiles from CloudFront CDN with hierarchical URL structure:
+    Serves tiles with hierarchical URL structure; client never sees backend URL:
     GET /api/tiles/<state_slug>/<city_slug>/<layer_slug>/<z>/<x>/<y>.png
     GET /api/tiles/<state_slug>/<city_slug>/<layer_slug>/<z>/<x>/<y>.mvt
     
@@ -3766,7 +3791,7 @@ class CloudFrontTileView(APIView):
     - /api/tiles/andhra-pradesh/visakhapatnam/master_plan/12/2048/2048.png
     - /api/tiles/telangana/hyderabad/rrr/12/2048/2048.mvt
     
-    By default redirects (302) to CloudFront URL so workers do not block on HTTP fetch.
+    Backend is chosen by CLOUDFRONT_PATH_PREFIXES; tile body is cached (TILE_PROXY_CACHE_TTL).
     Layer existence is cached (5 min) to avoid DB hit per tile request.
     """
     
@@ -3804,18 +3829,17 @@ class CloudFrontTileView(APIView):
         return proxy_requested and proxy_enabled
 
     def _build_tile_response(self, tile_data, format_type):
-        """Return tile bytes with headers suitable for debug proxying."""
+        """Return tile bytes with headers (proxy response; backend not exposed)."""
         headers = self.tile_path_service.get_tile_cache_headers(format_type)
         response = HttpResponse(tile_data, content_type=headers['ContentType'])
         response['Cache-Control'] = headers['CacheControl']
         response['Pragma'] = headers['Pragma']
         response['Expires'] = headers['Expires']
         response['Access-Control-Allow-Origin'] = '*'
-        response['X-Tile-Debug-Proxy'] = '1'
         return response
 
     def get(self, request, state_slug, city_slug, layer_slug, z, x, y):
-        """Serve tiles: redirect by default, proxy only when explicitly debugging."""
+        """Serve tiles via proxy (path-based CloudFront or S3; server-side cache). No redirects."""
         try:
             z, x, y = int(z), int(x), int(y)
 
@@ -3846,29 +3870,32 @@ class CloudFrontTileView(APIView):
                     logger.debug(f"❌ Layer not found (suppressed): {layer_key}")
                 return self._return_error_tile(f"Layer not found: {state_slug}/{city_slug}/{layer_slug}")
 
-            if self._should_use_debug_proxy(request):
-                layer = self._get_layer_by_hierarchy(state_slug, city_slug, layer_slug)
-                if layer is None:
-                    return self._return_error_tile(f"Layer not found: {state_slug}/{city_slug}/{layer_slug}")
-
-                logger.info(
-                    f"🛠️ Debug tile proxy enabled for {state_slug}/{city_slug}/{layer_slug}/{z}/{x}/{y}.{format_type}"
-                )
-                tile_data = self._get_tile_with_fallback(
-                    state_slug, city_slug, layer_slug, z, x, y, format_type, layer
-                )
-                if tile_data:
-                    return self._build_tile_response(tile_data, format_type)
-
-                return self._return_error_tile(
-                    f"Tile not found: {state_slug}/{city_slug}/{layer_slug}/{z}/{x}/{y}.{format_type}"
-                )
-
-            # Redirect to CloudFront so the worker does not block on HTTP fetch (was causing 5–10s block per request)
-            cloudfront_url = self.tile_path_service.generate_cloudfront_url(
+            s3_key = self.tile_path_service.generate_s3_key(
                 state_slug, city_slug, layer_slug, z, x, y, format_type
             )
-            return HttpResponseRedirect(cloudfront_url)
+            cache_key = f"tile_proxy:{s3_key}"
+            ttl = getattr(settings, 'TILE_PROXY_CACHE_TTL', 3600)
+            if ttl > 0:
+                cached = cache.get(cache_key)
+                if cached is not None:
+                    return self._build_tile_response(cached, format_type)
+            backend_url = self.tile_path_service.get_backend_url_for_tile(
+                state_slug, city_slug, layer_slug, z, x, y, format_type
+            )
+            backend_label = self.tile_path_service._backend_label(s3_key)
+            print(f"[tile_proxy] Serving from {backend_label}: {backend_url}")
+            tile_data = self._fetch_url(backend_url)
+            if tile_data:
+                if ttl > 0:
+                    try:
+                        cache.set(cache_key, tile_data, ttl)
+                    except Exception:
+                        pass
+                return self._build_tile_response(tile_data, format_type)
+            # print(f"[tile_proxy] fetch FAIL ({backend_label}): {s3_key}")
+            return self._return_error_tile(
+                f"Tile not found: {state_slug}/{city_slug}/{layer_slug}/{z}/{x}/{y}.{format_type}"
+            )
             
         except (OperationalError, DatabaseError) as e:
             error_msg = str(e)
@@ -5474,6 +5501,30 @@ def _parse_datetime_webhook(dt_string):
     return parse_datetime(dt_string)
 
 
+def _send_tile_job_to_sqs(event_type, job_type, data):
+    """
+    Send a tile job to SQS. Used by both developer-listing (TIF) and land/plot (MVT) webhooks.
+    event_type: 'create' | 'update' | 'delete'
+    job_type: 'tif' | 'land_plot_mvt'
+    data: full payload for the worker (callback_url, tif_files, webhook_event_id, etc.)
+    Returns (success: bool, message_id_or_error: str).
+    """
+    queue_url = getattr(settings, 'TILE_SQS_QUEUE_URL', '').strip()
+    if not queue_url:
+        return False, 'TILE_SQS_QUEUE_URL not set'
+    region = getattr(settings, 'AWS_DEFAULT_REGION', 'ap-south-1')
+    try:
+        sqs = boto3.client('sqs', region_name=region)
+        body = json.dumps({'event': event_type, 'job_type': job_type, 'data': data}, default=str)
+        response = sqs.send_message(QueueUrl=queue_url, MessageBody=body)
+        msg_id = response.get('MessageId', '')
+        logger.info(f"[SQS] Queued message: {msg_id} job_type={job_type} event={event_type}")
+        return True, msg_id
+    except Exception as e:
+        logger.exception(f"[SQS] send_message failed: {e}")
+        return False, str(e)
+
+
 def _execute_listing_deletion(webhook_event, listing_type, listing_id, data):
     """
     Perform listing deletion: delete tiles, media, listing and Synced* records; refresh layer cache.
@@ -5826,19 +5877,12 @@ def _process_developer_listing_webhook(webhook_event_id):
                     DeveloperListingTileService()._delete_s3_tiles(existing_media_obj.s3_tile_path)
                 existing_media_obj.delete()
 
-    # Lambda invoke or mark processed
+    # Send tile job to SQS (no Lambda); local worker polls SQS and runs tile gen.
     if tif_files:
-        use_lambda = getattr(settings, 'TILE_USE_LAMBDA', False) and getattr(settings, 'TILE_GENERATION_LAMBDA_ARN', '')
-        if not use_lambda:
-            webhook_event.processing_error = (
-                "TIF tile generation requires Lambda. Set TILE_USE_LAMBDA=true and TILE_GENERATION_LAMBDA_ARN."
-            )
-            webhook_event.save()
-            return
         callback_path = reverse('tile-generation-callback')
         base_url = getattr(settings, 'TILE_CALLBACK_BASE_URL', '').strip()
         if not base_url:
-            webhook_event.processing_error = "TILE_CALLBACK_BASE_URL required for Lambda callback in background worker."
+            webhook_event.processing_error = "TILE_CALLBACK_BASE_URL required for tile worker callback."
             webhook_event.save()
             return
         callback_url = base_url.rstrip('/') + callback_path
@@ -5854,28 +5898,14 @@ def _process_developer_listing_webhook(webhook_event_id):
             'action': data.get('action', ''),
             'data_snapshot': dict(data),
         }
-        use_sqs = getattr(settings, 'TILE_USE_SQS', False) and getattr(settings, 'TILE_SQS_QUEUE_URL', '').strip()
-        region = getattr(settings, 'AWS_DEFAULT_REGION', 'ap-south-1')
-        try:
-            if use_sqs:
-                sqs = boto3.client('sqs', region_name=region)
-                sqs.send_message(
-                    QueueUrl=settings.TILE_SQS_QUEUE_URL,
-                    MessageBody=json.dumps(payload, default=str),
-                )
-                logger.info(f"[WEBHOOK_BACKGROUND] Tile job sent to SQS for webhook_event_id={webhook_event.id}")
-            else:
-                client = boto3.client('lambda', region_name=region)
-                client.invoke(
-                    FunctionName=settings.TILE_GENERATION_LAMBDA_ARN,
-                    InvocationType='Event',
-                    Payload=json.dumps(payload, default=str),
-                )
-                logger.info(f"[WEBHOOK_BACKGROUND] Lambda invoked for webhook_event_id={webhook_event.id}")
-        except Exception as err:
-            logger.exception(f"[WEBHOOK_BACKGROUND] Tile job dispatch failed: {err}")
-            webhook_event.processing_error = f"Tile job dispatch failed: {err}"
+        action_raw = data.get('action', '')
+        event_type_simple = 'delete' if action_raw in ('listing_deleted', 'media_deleted') else ('create' if action_raw == 'created' else 'update')
+        success, result = _send_tile_job_to_sqs(event_type_simple, 'tif', payload)
+        if not success:
+            webhook_event.processing_error = f"Tile job dispatch failed: {result}"
             webhook_event.save()
+        else:
+            logger.info(f"[WEBHOOK_BACKGROUND] Tile job sent to SQS for webhook_event_id={webhook_event.id} message_id={result}")
     else:
         webhook_event.processed = True
         webhook_event.processed_at = timezone.now()
@@ -6276,53 +6306,33 @@ def _process_land_plot_webhook(webhook_event_id):
                     refresh_layer_point_count_cache(layer_ids=affected)
         except Exception as cache_err:
             logger.warning(f"[LAND_PLOT_WEBHOOK] Layer point count cache refresh failed: {cache_err}", exc_info=True)
-        # Lambda: only if configured; otherwise log warning and continue (Issue 6)
+        # Send MVT tile job to SQS; local worker polls and runs tile gen (no Lambda).
         if lat is not None and lng is not None:
-            use_lambda = (
-                getattr(settings, 'LAND_PLOT_TILE_USE_LAMBDA', False) and
-                getattr(settings, 'LAND_PLOT_TILE_LAMBDA_ARN', '')
-            )
-            logger.info(
-                f"[LAND_PLOT_WEBHOOK] Lambda gate for {listing_type} {listing_id}: "
-                f"use_lambda={bool(use_lambda)} "
-                f"LAND_PLOT_TILE_USE_LAMBDA={getattr(settings, 'LAND_PLOT_TILE_USE_LAMBDA', False)} "
-                f"has_lambda_arn={bool(getattr(settings, 'LAND_PLOT_TILE_LAMBDA_ARN', ''))}"
-            )
-            if not use_lambda:
-                logger.warning(
-                    "[LAND_PLOT_WEBHOOK] MVT tile refresh requires Lambda. "
-                    "Set LAND_PLOT_TILE_USE_LAMBDA=true and LAND_PLOT_TILE_LAMBDA_ARN."
-                )
+            base_url = getattr(settings, 'TILE_CALLBACK_BASE_URL', '').strip()
+            if base_url:
+                callback_url = base_url.rstrip('/') + '/api/webhooks/tile-generation-result/'
+                mvt_build_base_url = base_url.rstrip('/') + '/api/tiles/land-plot-mvt-build'
+                payload = {
+                    'webhook_event_id': webhook_event.id,
+                    'lat': lat,
+                    'lng': lng,
+                    'tiles': [],
+                    'mvt_build_base_url': mvt_build_base_url,
+                    's3_tile_prefix': 'land-plot',
+                    'internal_secret': getattr(settings, 'TILE_CALLBACK_SECRET', ''),
+                    'callback_url': callback_url,
+                    'callback_secret': getattr(settings, 'TILE_CALLBACK_SECRET', ''),
+                    'listing_type': listing_type,
+                    'listing_id': listing_id,
+                }
+                event_type_simple = 'create' if action == 'created' else ('update' if action == 'updated' else 'delete')
+                success, result = _send_tile_job_to_sqs(event_type_simple, 'land_plot_mvt', payload)
+                if success:
+                    logger.info(f"[LAND_PLOT_WEBHOOK] Tile job sent to SQS for {listing_type} {listing_id} lat={lat} lng={lng} message_id={result}")
+                else:
+                    logger.warning(f"[LAND_PLOT_WEBHOOK] SQS send failed for {listing_type} {listing_id}: {result}")
             else:
-                try:
-                    base_url = getattr(settings, 'TILE_CALLBACK_BASE_URL', '').strip()
-                    callback_url = base_url.rstrip('/') + '/api/webhooks/tile-generation-result/'
-                    mvt_build_base_url = base_url.rstrip('/') + '/api/tiles/land-plot-mvt-build'
-                    lambda_payload = {
-                        'webhook_event_id': webhook_event.id,  # required by callback handler
-                        'lat': lat,
-                        'lng': lng,
-                        'tiles': [],
-                        'mvt_build_base_url': mvt_build_base_url,
-                        's3_tile_prefix': 'land-plot',
-                        'internal_secret': getattr(settings, 'TILE_CALLBACK_SECRET', ''),
-                        'callback_url': callback_url,
-                        'callback_secret': getattr(settings, 'TILE_CALLBACK_SECRET', ''),
-                        'listing_type': listing_type,
-                        'listing_id': listing_id,
-                    }
-                    boto3_client = boto3.client(
-                        'lambda',
-                        region_name=getattr(settings, 'AWS_DEFAULT_REGION', 'ap-south-1'),
-                    )
-                    boto3_client.invoke(
-                        FunctionName=settings.LAND_PLOT_TILE_LAMBDA_ARN,
-                        InvocationType='Event',
-                        Payload=json.dumps(lambda_payload, default=str),
-                    )
-                    logger.info(f"[LAND_PLOT_WEBHOOK] Lambda invoked for {listing_type} {listing_id} lat={lat} lng={lng}")
-                except Exception as lambda_err:
-                    logger.exception(f"[LAND_PLOT_WEBHOOK] Lambda invoke failed: {lambda_err}")
+                logger.warning("[LAND_PLOT_WEBHOOK] TILE_CALLBACK_BASE_URL not set; skipping SQS tile job.")
         else:
             logger.warning(
                 f"[LAND_PLOT_WEBHOOK] Skipping Lambda for {listing_type} {listing_id}: "
@@ -7553,10 +7563,23 @@ class DeveloperListingMapDataAPIView(APIView):
 # LAND/PLOT MVT TILES (CloudFront → S3 → local)
 # ================================
 
+
+def _fetch_tile_url(url, timeout=5):
+    """Fetch tile bytes from URL; return bytes or None. Shared by tile proxy views."""
+    try:
+        response = requests.get(url, timeout=timeout)
+        if response.status_code == 200:
+            return response.content
+        print(f"[tile_proxy] _fetch_tile_url HTTP error: {response.status_code} {url[:100]}...")
+    except Exception as e:
+        print(f"[tile_proxy] _fetch_tile_url error: {e}")
+    return None
+
+
 class LandPlotTileView(APIView):
     """
-    Serve land/plot MVT tiles: redirect to CloudFront (no proxy) so workers do not block.
-    Optional local file fallback for tiles not yet on CDN. Same pattern as CloudFrontTileView.
+    Serve land/plot MVT tiles via proxy (path-based CloudFront or S3; server-side cache).
+    Optional local file fallback. No redirects; client never sees backend URL.
     """
     permission_classes = [AllowAny]
 
@@ -7572,9 +7595,26 @@ class LandPlotTileView(APIView):
         if local_path.is_file():
             return self._mvt_response(local_path.read_bytes())
 
-        # Redirect to CloudFront so the worker does not block on HTTP fetch
-        cloudfront_url = tile_path_service.land_plot_cloudfront_url(z, x, y)
-        return HttpResponseRedirect(cloudfront_url)
+        s3_key = tile_path_service.land_plot_s3_key(z, x, y)
+        cache_key = f"tile_proxy:{s3_key}"
+        ttl = getattr(settings, 'TILE_PROXY_CACHE_TTL', 3600)
+        if ttl > 0:
+            cached = cache.get(cache_key)
+            if cached is not None:
+                return self._mvt_response(cached)
+        backend_url = tile_path_service.get_backend_url_for_land_plot(z, x, y)
+        backend_label = tile_path_service._backend_label(s3_key)
+        print(f"[tile_proxy] land-plot serving from {backend_label}: {backend_url}")
+        tile_data = _fetch_tile_url(backend_url)
+        if tile_data:
+            if ttl > 0:
+                try:
+                    cache.set(cache_key, tile_data, ttl)
+                except Exception:
+                    pass
+            return self._mvt_response(tile_data)
+        # print(f"[tile_proxy] land-plot fetch FAIL ({backend_label}): {s3_key}")
+        return Response({'error': 'Tile not found'}, status=404)
 
     def _mvt_response(self, data):
         headers = TilePathService().get_tile_cache_headers('mvt')
