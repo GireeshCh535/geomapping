@@ -540,14 +540,15 @@ class CoordinateSearchTestView(APIView):
                 # Search across all states and cities
                 result = self._search_across_all_cities(search_point, latitude, longitude, radius_meters)
             
-            # When returning simple format (data + fill_color), strip default color from features so client never sees it
-            if isinstance(result, dict) and 'fill_color' in result and result.get('features'):
-                for f in result['features']:
-                    if isinstance(f, dict):
-                        f.pop('color', None)
-                        dc = f.get('detailed_category') or {}
-                        if isinstance(dc, dict) and 'layer_category' in dc and isinstance(dc.get('layer_category'), dict):
-                            dc['layer_category'].pop('default_color', None)
+            # When returning simple format (data + fill_color), strip default color from features and all_layer_data so client never sees it
+            if isinstance(result, dict) and 'fill_color' in result:
+                for feat_list_key in ('features', 'all_layer_data'):
+                    for f in result.get(feat_list_key) or []:
+                        if isinstance(f, dict):
+                            f.pop('color', None)
+                            dc = f.get('detailed_category') or {}
+                            if isinstance(dc, dict) and 'layer_category' in dc and isinstance(dc.get('layer_category'), dict):
+                                dc['layer_category'].pop('default_color', None)
             
             # Add metadata to response (simple format has 'data' + 'fill_color' but no 'features' list)
             total_found = len(result.get('features', []))
@@ -1198,7 +1199,8 @@ class CoordinateSearchTestView(APIView):
                         'summary': 'No features found in the specified layer',
                         'search_scope': 'layer_specific',
                         'search_radius_meters': 0 if is_masterplan else radius_meters,
-                        'status': 'no_data_found'
+                        'status': 'no_data_found',
+                        'all_layer_data': [],
                     }
                 
                 # If no exact intersection found, search for nearby features within 100m buffer
@@ -1252,6 +1254,7 @@ class CoordinateSearchTestView(APIView):
                             'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
                             'found': True,
                             'features': [feature_data],
+                            'all_layer_data': [feature_data],
                         }
                     
                     elif layer.slug == 'bengaluru_metro':
@@ -1274,6 +1277,7 @@ class CoordinateSearchTestView(APIView):
                             'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
                             'found': True,
                             'features': [feature_data],
+                            'all_layer_data': [feature_data],
                         }
                     
                     elif layer.slug == 'hyderabad_metro':
@@ -1314,8 +1318,9 @@ class CoordinateSearchTestView(APIView):
                             'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
                             'found': True,
                             'features': [feature_data],
+                            'all_layer_data': [feature_data],
                         }
-
+                    
                     elif layer.slug == 'bengaluru_highways':
                         detailed_category = feature_data.get('detailed_category', {})
                         properties = detailed_category.get('properties', {})
@@ -1334,6 +1339,7 @@ class CoordinateSearchTestView(APIView):
                             'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
                             'found': True,
                             'features': [feature_data],
+                            'all_layer_data': [feature_data],
                         }
                     
                     elif layer.slug == 'hyderabad_highways':
@@ -1354,6 +1360,7 @@ class CoordinateSearchTestView(APIView):
                             'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
                             'found': True,
                             'features': [feature_data],
+                            'all_layer_data': [feature_data],
                         }
                     
                     elif layer.slug == 'bengaluru_masterplan_roads':
@@ -1379,6 +1386,7 @@ class CoordinateSearchTestView(APIView):
                             'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
                             'found': True,
                             'features': [feature_data],
+                            'all_layer_data': [feature_data],
                         }
                     
                     elif layer.slug == 'hyderabad_rrr':
@@ -1400,6 +1408,7 @@ class CoordinateSearchTestView(APIView):
                             'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
                             'found': True,
                             'features': [feature_data],
+                            'all_layer_data': [feature_data],
                         }
                     
                     elif layer.slug == 'hyderabad_ratan_tata_road':
@@ -1419,6 +1428,7 @@ class CoordinateSearchTestView(APIView):
                             'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
                             'found': True,
                             'features': [feature_data],
+                            'all_layer_data': [feature_data],
                         }
                     
                     elif layer.slug == 'hyderabad_future_city':
@@ -1441,6 +1451,7 @@ class CoordinateSearchTestView(APIView):
                             'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
                             'found': True,
                             'features': [feature_data],
+                            'all_layer_data': [feature_data],
                         }
                     
                     # Chennai CRZ Layer - properties.Name and properties.HEX only
@@ -1456,6 +1467,7 @@ class CoordinateSearchTestView(APIView):
                             'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
                             'found': True,
                             'features': [feature_data],
+                            'all_layer_data': [feature_data],
                         }
                     
                     # Coastal roads, expressways, sea links, bridges, corridors - use properties.Name, black fill
@@ -1475,6 +1487,7 @@ class CoordinateSearchTestView(APIView):
                             'fill_color': _masterplan_fill_color_svg_data_uri('#000000'),
                             'found': True,
                             'features': [feature_data],
+                            'all_layer_data': [feature_data],
                         }
                     
                     # Special handling for all air funnel zones layers (nearby features)
@@ -1514,6 +1527,7 @@ class CoordinateSearchTestView(APIView):
                         return {
                             'data': data_str,
                             'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
+                            'all_layer_data': [feature_data],
                         }
                     
                     elif layer.slug in ['bengaluru_anekal_masterplan', 'bengaluru_chikkaballapura_masterplan', 'bengaluru_hosakote_masterplan', 'bengaluru_nelamangala_masterplan',
@@ -1534,7 +1548,8 @@ class CoordinateSearchTestView(APIView):
                         return {
                             'data': layer.slug,
                             'features': [],
-                            'nearby_features': []
+                            'nearby_features': [],
+                            'all_layer_data': [],
                         }
                     
                     elif layer.slug == 'bengaluru_master_plan_2015':
@@ -1543,7 +1558,8 @@ class CoordinateSearchTestView(APIView):
                         properties = detailed_category.get('properties', {})
                         layer_name = properties.get('Layer Name', '')
                         return {
-                            'data': layer_name
+                            'data': layer_name,
+                            'all_layer_data': [feature_data],
                         }
                     
                     # For other layers, return the full feature data with distance info
@@ -1569,7 +1585,8 @@ class CoordinateSearchTestView(APIView):
                         'summary': f'Found nearby feature within {round(distance_meters, 2)}m',
                         'search_scope': 'layer_specific',
                         'search_radius_meters': round(distance_meters, 2),
-                        'status': 'success'
+                        'status': 'success',
+                        'all_layer_data': [feature_data],
                     }
                 
                 # No features found even within 100m buffer
@@ -1595,7 +1612,8 @@ class CoordinateSearchTestView(APIView):
                     'summary': 'No features found in the specified layer',
                     'search_scope': 'layer_specific',
                     'search_radius_meters': radius_meters,
-                    'status': 'no_data_found'
+                    'status': 'no_data_found',
+                    'all_layer_data': [],
                 }
             
             # Process found features
@@ -1672,6 +1690,7 @@ class CoordinateSearchTestView(APIView):
                     'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
                     'found': True,
                     'features': containing_features[:1],
+                    'all_layer_data': containing_features,
                 }
             
             # Special handling for bengaluru_metro layer
@@ -1694,6 +1713,7 @@ class CoordinateSearchTestView(APIView):
                     'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
                     'found': True,
                     'features': containing_features[:1],
+                    'all_layer_data': containing_features,
                 }
             
             # Special handling for bengaluru_masterplan_roads
@@ -1722,6 +1742,7 @@ class CoordinateSearchTestView(APIView):
                     'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
                     'found': True,
                     'features': containing_features[:1],
+                    'all_layer_data': containing_features,
                 }
             
             if layer.slug == 'hyderabad_metro' and containing_features:
@@ -1756,7 +1777,8 @@ class CoordinateSearchTestView(APIView):
                 data_string = ', '.join(parts)
 
                 return {
-                    'data': data_string
+                    'data': data_string,
+                    'all_layer_data': containing_features,
                 }
 
             # Special handling for bengaluru_highways layer
@@ -1777,6 +1799,7 @@ class CoordinateSearchTestView(APIView):
                     'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
                     'found': True,
                     'features': containing_features[:1],
+                    'all_layer_data': containing_features,
                 }
             
             # Special handling for hyderabad_highways layer
@@ -1792,7 +1815,8 @@ class CoordinateSearchTestView(APIView):
                 data_string = f"{name}, {notation}"
                 
                 return {
-                    'data': data_string
+                    'data': data_string,
+                    'all_layer_data': containing_features,
                 }
             
             # Special handling for hyderabad_rrr layer
@@ -1809,7 +1833,8 @@ class CoordinateSearchTestView(APIView):
                 data_string = f"{proposed_notation}, Status: {alignment}"
                 
                 return {
-                    'data': data_string
+                    'data': data_string,
+                    'all_layer_data': containing_features,
                 }
             
             # Special handling for hyderabad_ratan_tata_road layer
@@ -1824,13 +1849,15 @@ class CoordinateSearchTestView(APIView):
                 data_string = name
                 
                 return {
-                    'data': data_string
+                    'data': data_string,
+                    'all_layer_data': containing_features,
                 }
             
             # Special handling for hyderabad_future_city layer
             if layer.slug == 'hyderabad_hmda_extended_area':
                 return {
-                    'data': layer.name
+                    'data': layer.name,
+                    'all_layer_data': containing_features if containing_features else [],
                 }
 
             # Special handling for hyderabad_masterplan - return data (name) and fill_color as SVG
@@ -1843,6 +1870,7 @@ class CoordinateSearchTestView(APIView):
                 return {
                     'data': name,
                     'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
+                    'all_layer_data': containing_features,
                 }
 
             # Special handling for amaravati_master_plan - return data (plot_category/feature_name) and fill_color as SVG
@@ -1864,6 +1892,7 @@ class CoordinateSearchTestView(APIView):
                 return {
                     'data': feature_name,
                     'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
+                    'all_layer_data': containing_features,
                 }
 
             if layer.slug == 'hyderabad_future_city' and containing_features:
@@ -1878,6 +1907,7 @@ class CoordinateSearchTestView(APIView):
                 return {
                     'data': name,
                     'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
+                    'all_layer_data': containing_features,
                 }
             
             # Special handling for all air funnel zones layers
@@ -1920,6 +1950,7 @@ class CoordinateSearchTestView(APIView):
                 return {
                     'data': data_str,
                     'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
+                    'all_layer_data': containing_features,
                 }
 
             # Special handling for heritage site layers
@@ -1937,6 +1968,7 @@ class CoordinateSearchTestView(APIView):
                 return {
                     'data': data_string,
                     'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
+                    'all_layer_data': containing_features,
                 }
             
             # Special handling for BMRDA boundary layers
@@ -1958,7 +1990,8 @@ class CoordinateSearchTestView(APIView):
                 return {
                     'data': layer.slug,
                     'features': [],
-                    'nearby_features': []
+                    'nearby_features': [],
+                    'all_layer_data': containing_features,
                 }
             
             # Special handling for bengaluru_master_plan_2015
@@ -1976,6 +2009,7 @@ class CoordinateSearchTestView(APIView):
                     'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
                     'found': True,
                     'features': containing_features[:1],
+                    'all_layer_data': containing_features,
                 }
 
             # Special handling for warangal_master_plan
@@ -1992,6 +2026,7 @@ class CoordinateSearchTestView(APIView):
                 return {
                     'data': layer_name,
                     'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
+                    'all_layer_data': containing_features,
                 }
             
             # Special handling for gurugram_masterplan
@@ -2007,6 +2042,7 @@ class CoordinateSearchTestView(APIView):
                 return {
                     'data': layer_value,
                     'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
+                    'all_layer_data': containing_features,
                 }
             
             # Special handling for delhi_masterplan
@@ -2022,6 +2058,7 @@ class CoordinateSearchTestView(APIView):
                 return {
                     'data': name,
                     'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
+                    'all_layer_data': containing_features,
                 }
             
             # Special handling for noida_masterplan
@@ -2037,6 +2074,7 @@ class CoordinateSearchTestView(APIView):
                 return {
                     'data': ppt_full,
                     'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
+                    'all_layer_data': containing_features,
                 }
             
             # Special handling for greater_noida_masterplan
@@ -2052,6 +2090,7 @@ class CoordinateSearchTestView(APIView):
                 return {
                     'data': ppt_full,
                     'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
+                    'all_layer_data': containing_features,
                 }
             
             # Special handling for yamuna_expressway_masterplan
@@ -2074,6 +2113,7 @@ class CoordinateSearchTestView(APIView):
                 return {
                     'data': layer_value,
                     'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
+                    'all_layer_data': containing_features,
                 }
             
             # Special handling for faridabad_masterplan
@@ -2089,6 +2129,7 @@ class CoordinateSearchTestView(APIView):
                 return {
                     'data': layer_value,
                     'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
+                    'all_layer_data': containing_features,
                 }
             
             # Special handling for amaravati_masterplan
@@ -2104,6 +2145,7 @@ class CoordinateSearchTestView(APIView):
                 return {
                     'data': symbology,
                     'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
+                    'all_layer_data': containing_features,
                 }
             
             # Special handling for bhubaneswar_masterplan
@@ -2119,6 +2161,7 @@ class CoordinateSearchTestView(APIView):
                 return {
                     'data': landuse,
                     'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
+                    'all_layer_data': containing_features,
                 }
             
             # Special handling for puducherry_masterplan
@@ -2134,6 +2177,7 @@ class CoordinateSearchTestView(APIView):
                 return {
                     'data': landuse,
                     'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
+                    'all_layer_data': containing_features,
                 }
             
             # Special handling for chandigarh_masterplan (Chandigarh GeoJSON has no Name; use zone_subcategory from file name e.g. Residential, Commercial)
@@ -2161,6 +2205,7 @@ class CoordinateSearchTestView(APIView):
                     'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
                     'found': True,
                     'features': containing_features,
+                    'all_layer_data': containing_features,
                 }
             
             # Special handling for rajnandgaon_masterplan
@@ -2176,6 +2221,7 @@ class CoordinateSearchTestView(APIView):
                 return {
                     'data': proposed_t,
                     'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
+                    'all_layer_data': containing_features,
                 }
             
             # Special handling for durg_bihlai_masterplan
@@ -2191,6 +2237,7 @@ class CoordinateSearchTestView(APIView):
                 return {
                     'data': zone_subcategory,
                     'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
+                    'all_layer_data': containing_features,
                 }
             
             # Special handling for jagdalpur_masterplan
@@ -2219,6 +2266,7 @@ class CoordinateSearchTestView(APIView):
                 return {
                     'data': name,
                     'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
+                    'all_layer_data': containing_features,
                 }
             
             # Special handling for arang_masterplan
@@ -2234,6 +2282,7 @@ class CoordinateSearchTestView(APIView):
                 return {
                     'data': elu_plu_up,
                     'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
+                    'all_layer_data': containing_features,
                 }
             
             # Special handling for mahasamund_masterplan
@@ -2249,6 +2298,7 @@ class CoordinateSearchTestView(APIView):
                 return {
                     'data': pro_lulc,
                     'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
+                    'all_layer_data': containing_features,
                 }
             
             # Special handling for balodabazaar_masterplan
@@ -2264,6 +2314,7 @@ class CoordinateSearchTestView(APIView):
                 return {
                     'data': proposed_t,
                     'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
+                    'all_layer_data': containing_features,
                 }
             
             # Special handling for bhatapara_masterplan
@@ -2279,6 +2330,7 @@ class CoordinateSearchTestView(APIView):
                 return {
                     'data': proposed_t,
                     'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
+                    'all_layer_data': containing_features,
                 }
             
             # Special handling for raigarh_masterplan
@@ -2294,6 +2346,7 @@ class CoordinateSearchTestView(APIView):
                 return {
                     'data': old_dp_plu,
                     'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
+                    'all_layer_data': containing_features,
                 }
             
             # Special handling for udaipur_masterplan
@@ -2310,6 +2363,7 @@ class CoordinateSearchTestView(APIView):
                 return {
                     'data': landuse_ca,
                     'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
+                    'all_layer_data': containing_features,
                 }
             
             # Special handling for jodhpur_masterplan
@@ -2333,6 +2387,7 @@ class CoordinateSearchTestView(APIView):
                     'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
                     'found': True,
                     'features': containing_features[:1],
+                    'all_layer_data': containing_features,
                 }
             
             # Special handling for jaipur_masterplan
@@ -2354,6 +2409,7 @@ class CoordinateSearchTestView(APIView):
                     'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
                     'found': True,
                     'features': containing_features[:1],
+                    'all_layer_data': containing_features,
                 }
 
             # Special handling for visakhapatnam_master_plan / visakhapatnam_masterplan
@@ -2369,6 +2425,7 @@ class CoordinateSearchTestView(APIView):
                     'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
                     'found': True,
                     'features': containing_features[:1],
+                    'all_layer_data': containing_features,
                 }
             
             # Chennai CRZ Layer - Name, Regulation Type, and HEX
@@ -2385,6 +2442,7 @@ class CoordinateSearchTestView(APIView):
                     'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
                     'found': True,
                     'features': containing_features[:1],
+                    'all_layer_data': containing_features,
                 }
             
             # Coastal roads, expressways, sea links, bridges, corridors - use properties.Name, black fill
@@ -2405,6 +2463,7 @@ class CoordinateSearchTestView(APIView):
                     'fill_color': _masterplan_fill_color_svg_data_uri('#000000'),
                     'found': True,
                     'features': containing_features[:1],
+                    'all_layer_data': containing_features,
                 }
             
             # Generate summary
@@ -2438,7 +2497,8 @@ class CoordinateSearchTestView(APIView):
                 'summary': summary,
                 'search_scope': 'layer_specific',
                 'search_radius_meters': radius_meters,
-                'status': 'success'
+                'status': 'success',
+                'all_layer_data': containing_features,
             }
             
         except Exception as e:
@@ -2466,7 +2526,8 @@ class CoordinateSearchTestView(APIView):
                 'summary': f'Error searching layer: {str(e)}',
                 'search_scope': 'layer_specific',
                 'search_radius_meters': radius_meters,
-                'status': 'error'
+                'status': 'error',
+                'all_layer_data': [],
             }
         
 class AvailableTilesView(APIView):
