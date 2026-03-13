@@ -30,6 +30,14 @@ CSRF_TRUSTED_ORIGINS = [
     'https://lita-unsarcastic-serina.ngrok-free.dev',  # ngrok domain for testing
     'http://3.108.10.59',  # Direct IP access
     'https://3.108.10.59',  # Direct IP access (HTTPS)
+    # Cloudflare Tunnel (quick tunnels; add your current URL when it changes)
+    'https://legitimate-former-citizen-expand.trycloudflare.com',
+    # Local dev (frontend on different port or origin)
+    'http://localhost:8000',
+    'http://localhost:3001',
+    'http://localhost:3000',
+    'http://127.0.0.1:8000',
+    'http://127.0.0.1:3000',
 ]
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 USE_X_FORWARDED_HOST = True
@@ -69,23 +77,52 @@ INSTALLED_APPS = [
 # MIDDLEWARE
 MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',
+    'geo_mapping.middleware.RestrictAPIOriginMiddleware',  # Only allow API from frontend origins
     "django.middleware.security.SecurityMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
-    "django.middleware.common.CommonMiddleware", 
+    "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
 
-# CORS
-CORS_ALLOW_ALL_ORIGINS = True
+# CORS – restrict to frontend origins so only your app can call the API from browsers.
+# (Avoid putting an API key in frontend code; it would be visible in DevTools/headers.
+# Restricting by origin is the right approach for browser clients.)
+CORS_ALLOW_ALL_ORIGINS = False
+CORS_ALLOWED_ORIGINS = [
+    'https://layers.1acre.in',
+    'http://layers.1acre.in',
+    'https://gis-map.1acre.in',
+    'http://gis-map.1acre.in',
+    'https://lita-unsarcastic-serina.ngrok-free.dev',
+    'https://legitimate-former-citizen-expand.trycloudflare.com',
+    'http://3.108.10.59',
+    'https://3.108.10.59',
+    'http://localhost:8000',
+    'http://localhost:3000',
+    'http://localhost:3001',
+    'http://localhost:5173',   # Vite default
+    'http://127.0.0.1:8000',
+    'http://127.0.0.1:3000',
+    'http://127.0.0.1:3001',
+    'http://127.0.0.1:5173',
+]
+# Optional: allow extra origins from env (comma-separated), e.g. for new frontend domains
+_extra_origins = os.getenv('CORS_EXTRA_ORIGINS', '')
+if _extra_origins:
+    CORS_ALLOWED_ORIGINS = list(CORS_ALLOWED_ORIGINS) + [o.strip() for o in _extra_origins.split(',') if o.strip()]
 CORS_ALLOW_HEADERS = [
     'accept', 'accept-encoding', 'authorization', 'content-type',
     'dnt', 'origin', 'user-agent', 'x-csrftoken', 'x-requested-with',
 ]
 CORS_ALLOW_METHODS = ['DELETE', 'GET', 'OPTIONS', 'PATCH', 'POST', 'PUT']
 CORS_ALLOW_CREDENTIALS = True
+
+# When True, /api/ requests are rejected if Origin/Referer is present and not in CORS_ALLOWED_ORIGINS.
+# Set to False (or env RESTRICT_API_ORIGIN=false) to allow any origin (e.g. local testing).
+RESTRICT_API_ORIGIN = os.getenv('RESTRICT_API_ORIGIN', 'true').lower() == 'true'
 
 ROOT_URLCONF = "geo_mapping.urls"
 
@@ -189,6 +226,10 @@ REST_FRAMEWORK = {
         'rest_framework.throttling.AnonRateThrottle',
         'rest_framework.throttling.UserRateThrottle'
     ],
+    'DEFAULT_THROTTLE_RATES': {
+        'anon': '200/hour',   # anonymous (e.g. from frontend) rate limit
+        'user': '1000/hour',
+    },
     'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
 }
 
@@ -264,6 +305,7 @@ AWS_STORAGE_BUCKET_NAME = 'gis-portal-layers'
 AWS_S3_CUSTOM_DOMAIN = f'{AWS_STORAGE_BUCKET_NAME}.s3.{AWS_S3_REGION_NAME}.amazonaws.com'
 
 # CloudFront Configuration - TILES ONLY
+# Tiles are stored in S3; CloudFront is the CDN in front. Default flow: request -> Django 302 -> CloudFront -> S3.
 CLOUDFRONT_DOMAIN = 'd17yosovmfjm4.cloudfront.net'
 CLOUDFRONT_DISTRIBUTION_ID = os.getenv('CLOUDFRONT_DISTRIBUTION_ID', '')  # Set via environment variable
 USE_CLOUDFRONT = os.getenv('USE_CLOUDFRONT', 'True').lower() == 'true'
@@ -275,12 +317,28 @@ DISABLE_LOCAL_TILES = True
 GENERATE_TILES_DIRECT_TO_S3 = True
 SKIP_LOCAL_TILE_STORAGE = True
 
-# Tile Serving Fallback Configuration
+# ---------------------------------------------------------------------------
+# TILE SERVING FLOW (see maps/views.py CloudFrontTileView, S3DirectTileView)
+# ---------------------------------------------------------------------------
+# 1) /api/tiles/... (no query): Django returns 302 to CloudFront URL.
+#    Client then loads tile from CloudFront; CloudFront serves from S3.
+#    Flow: Client -> Django (302) -> Client -> CloudFront -> S3.
+#
+# 2) /api/tiles/...?proxy=1 (debug): Django fetches tile (CloudFront then S3
+#    fallback) and returns bytes. Flow: Client -> Django -> CloudFront or S3.
+#    Requires ENABLE_TILE_PROXY_DEBUG (defaults to DEBUG).
+#
+# 3) /api/s3-tiles/...: Django fetches tile from S3 via boto3 and returns bytes.
+#    Bypasses CloudFront. Flow: Client -> Django -> S3.
+# ---------------------------------------------------------------------------
 TILE_SERVING_FALLBACK_ORDER = [
-    'cloudfront',  # Primary: CloudFront CDN
-    's3_direct',   # Secondary: S3 Direct
-    'on_demand'    # Tertiary: On-demand generation (optional)
+    'cloudfront',  # Primary: CloudFront CDN (used when proxy=1)
+    's3_direct',   # Secondary: S3 Direct URL fetch (used when proxy=1)
+    'on_demand'    # Tertiary: on-demand generation if enabled
 ]
+# When True, /api/tiles/...?proxy=1 returns tile bytes instead of redirect. Unset => use DEBUG.
+_def = os.getenv('ENABLE_TILE_PROXY_DEBUG')
+ENABLE_TILE_PROXY_DEBUG = (_def or '').lower() == 'true' if _def else DEBUG
 
 # Tile No-Cache Headers
 TILE_CACHE_HEADERS = {
