@@ -922,3 +922,16 @@ docker-compose exec web python manage.py insert_masterplan_layer \
   --exclude "Tide Line,CRZ (Coastal Regulation Zone) Boundary" \
   --delete-existing
 
+# Insert HMDA Masterplan Roads layer for Hyderabad
+# State/city/layer: telangana/hyderabad/hyderabad_master_plan_roads
+# Data: data/telangana/hyderabad/roads/HMDA_masterplan_roads_merged.geojson (and tiles in roads/)
+
+docker-compose exec web python manage.py insert_masterplan_layer \
+  --city-slug "hyderabad" \
+  --layer-name "Hyderabad Master Plan Roads (HMDA)" \
+  --layer-slug "hyderabad_master_plan_roads" \
+  --data-dir "data/telangana/hyderabad/roads" \
+  --authority "Hyderabad Metropolitan Development Authority" \
+  --min-zoom 5 \
+  --max-zoom 18 \
+  --delete-existing

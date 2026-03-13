@@ -6,6 +6,7 @@ Handles both HMDA and HUDA subdirectories
 Reads color mappings from legend.csv in each subdirectory
 """
 
+import argparse
 import json
 import csv
 import sys
@@ -45,7 +46,7 @@ class HyderabadMasterPlanTilesOptimized:
             # With lock serialization, we can use more workers for I/O parallelism
             # Geometry operations are serialized, but file I/O can be parallel
             cpu_count = os.cpu_count() or 80
-            max_workers = min(16, max(1, int(cpu_count * 0.2)))
+            max_workers = min(2, max(1, int(cpu_count * 0.2)))
         self.max_workers = max_workers
         
         # Load color mappings from both HMDA and HUDA legend files
@@ -753,13 +754,24 @@ class HyderabadMasterPlanTilesOptimized:
 
 
 def main():
-    # Use pre-split data directory
-    data_dir = Path('data/Telangana/Hyderabad/master_plan_split')
-    output_dir = Path('./hyderabad_tiles_seamless_optimized')
-    
+    parser = argparse.ArgumentParser(description='Hyderabad Master Plan optimized tile generator (HMDA + HUDA)')
+    parser.add_argument(
+        '--data-dir', '-d',
+        default='data/telangana/hyderabad/master_plan_split',
+        help='Data directory containing HMDA/ and HUDA/ with .geojson and legend.csv (use masterplan for raw, master_plan_split after preprocessing)',
+    )
+    parser.add_argument(
+        '--output-dir', '-o',
+        default='hyderabad_tiles_seamless_optimized',
+        help='Output directory for generated tiles',
+    )
+    args = parser.parse_args()
+    data_dir = Path(args.data_dir)
+    output_dir = Path(args.output_dir)
+
     if not data_dir.exists():
-        print(f"✗ Preprocessed data directory not found: {data_dir}")
-        print(f"\n💡 Please run preprocessing first:")
+        print(f"✗ Data directory not found: {data_dir}")
+        print(f"\n💡 Either use --data-dir to point to your HMDA/HUDA folder, or run preprocessing first:")
         print(f"   python3 scripts/tiles_generation/telangana/preprocess_hyderabad_features.py")
         sys.exit(1)
     
