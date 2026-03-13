@@ -49,7 +49,7 @@ CSRF_TRUSTED_ORIGINS = [
     'http://3.108.10.59',  # Direct IP access
     'https://3.108.10.59',  # Direct IP access (HTTPS)
     # Cloudflare Tunnel (quick tunnels; add your current URL when it changes)
-    'https://legitimate-former-citizen-expand.trycloudflare.com',
+    'https://photographer-gotten-starsmerchant-coal.trycloudflare.com',
     # Local dev (frontend on different port or origin)
     'http://localhost:8000',
     'http://localhost:3001',
@@ -115,7 +115,7 @@ CORS_ALLOWED_ORIGINS = [
     'https://gis-map.1acre.in',
     'http://gis-map.1acre.in',
     'https://lita-unsarcastic-serina.ngrok-free.dev',
-    'https://legitimate-former-citizen-expand.trycloudflare.com',
+    'https://photographer-gotten-starsmerchant-coal.trycloudflare.com',
     'http://3.108.10.59',
     'https://3.108.10.59',
     'http://localhost:8000',
