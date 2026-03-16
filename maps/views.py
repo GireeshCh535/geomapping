@@ -5152,17 +5152,13 @@ class LayerCoordinateSearchView(APIView):
                     'detail': 'Invalid layer slug'
                 }, status=400)
             
-            # Create point geometry for search
+            # Create point geometry for search (exact point only, no buffer)
             search_point = Point(longitude, latitude, srid=4326)
-            
-            # Search for features in the specific layer that intersect with the point
-            # Use a small buffer around the point to handle LineStrings and other geometries
-            search_buffer = search_point.buffer(0.0001)  # ~10m buffer
             
             features = GeoFeature.objects.filter(
                 layer=layer,
                 is_valid=True,
-                geometry__intersects=search_buffer
+                geometry__intersects=search_point
             ).order_by('-area')  # Order by area (largest first)
             
             if not features.exists():
