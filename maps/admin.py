@@ -1,4 +1,7 @@
+import hashlib
+import secrets
 from django.contrib import admin
+from django.contrib import messages
 from django.contrib.gis import admin as gis_admin
 from django.db.models import Count, Q
 from django.utils.html import format_html
@@ -6,6 +9,7 @@ from django.urls import reverse
 import json
 
 from .models import (
+    ApiKey,
     City,
     CityLayerStyle,
     CityZoneMapping,
@@ -1435,6 +1439,48 @@ class SyncedDeveloperPlotAdmin(admin.ModelAdmin):
         ("API payload", {"fields": ("payload",)}),
     )
     ordering = ("-synced_at",)
+
+
+@admin.register(ApiKey)
+class ApiKeyAdmin(admin.ModelAdmin):
+    list_display = ("name", "key_prefix", "is_active", "created_at", "last_used_at")
+    list_filter = ("is_active",)
+    search_fields = ("name", "key_prefix")
+    readonly_fields = ("key_hash", "key_prefix", "created_at", "last_used_at")
+    fieldsets = (
+        (None, {"fields": ("name", "is_active")}),
+        ("Key (auto-generated on create)", {"fields": ("key_prefix", "key_hash", "created_at", "last_used_at")}),
+    )
+
+    def get_readonly_fields(self, request, obj=None):
+        # When adding, only name and is_active are editable; key fields are set in save_model
+        if obj is None:
+            return ("key_hash", "key_prefix", "created_at", "last_used_at")
+        return super().get_readonly_fields(request, obj)
+
+    def add_view(self, request, form_url="", extra_context=None):
+        extra_context = extra_context or {}
+        extra_context["show_key_instructions"] = True
+        return super().add_view(request, form_url, extra_context)
+
+    def save_model(self, request, obj, form, change):
+        raw_key = None
+        if not change:  # Creating new key: prefix geom_ + random, total 256 chars
+            prefix = "geom_"
+            # 251 random chars after prefix; token_urlsafe(189) yields ~252 chars
+            random_part = secrets.token_urlsafe(189)[:251]
+            raw_key = prefix + random_part
+            assert len(raw_key) == 256, "API key must be 256 chars"
+            obj.key_hash = hashlib.sha256(raw_key.encode()).hexdigest()
+            obj.key_prefix = raw_key[:12]  # e.g. geom_xxxxxxx for display
+            if getattr(obj, 'user_id', None) is None:
+                obj.user = request.user
+        super().save_model(request, obj, form, change)
+        if raw_key:
+            messages.success(
+                request,
+                f"API Key created. Copy it now — it won't be shown again: {raw_key}",
+            )
 
 
 admin.site.site_header = "GIS Data Management"

@@ -1,6 +1,7 @@
 # maps/models.py
 # Complete models with all required fields for the entire system
 
+from django.conf import settings
 from django.contrib.gis.db import models
 from django.contrib.gis.geos import GEOSGeometry
 from django.contrib.gis.db.models import Extent
@@ -1455,3 +1456,42 @@ class SyncedDeveloperPlot(models.Model):
 
     def __str__(self):
         return f"Synced Developer Plot #{self.backend_id}"
+
+
+# ================================
+# API KEY MODEL
+# ================================
+
+class ApiKey(models.Model):
+    """
+    API keys for authenticating requests to the geo_mapping API.
+    All endpoints except /api/webhooks/* require a valid key (X-API-Key header).
+    The secret is stored as SHA-256 hash; the plain key is shown only once on creation in admin.
+    """
+    name = models.CharField(max_length=255, help_text='Label for this key (e.g. "Frontend prod", "Mobile app")')
+    key_hash = models.CharField(max_length=64, unique=True, editable=False, help_text='SHA-256 hash of the key')
+    key_prefix = models.CharField(max_length=12, editable=False, help_text='First 8 chars of key for identification')
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    last_used_at = models.DateTimeField(null=True, blank=True)
+    # Optional: set in admin when creating; DB may have had NOT NULL, so nullable for compatibility
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name='api_keys',
+    )
+
+    class Meta:
+        db_table = 'api_keys'
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['key_hash']),
+            models.Index(fields=['is_active']),
+        ]
+        verbose_name = 'API Key'
+        verbose_name_plural = 'API Keys'
+
+    def __str__(self):
+        return f"{self.name} ({self.key_prefix}…)"

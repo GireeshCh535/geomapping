@@ -3891,11 +3891,12 @@ class OptimizedHierarchyAPIView(APIView):
 class CloudFrontTileView(APIView):
     """
     Tile serving API: proxy only (path-based CloudFront or S3; server-side cache).
-    
+    Requires API key (X-API-Key) when any active ApiKey exists; same as other API endpoints except webhooks.
+
     Serves tiles with hierarchical URL structure; client never sees backend URL:
     GET /api/tiles/<state_slug>/<city_slug>/<layer_slug>/<z>/<x>/<y>.png
     GET /api/tiles/<state_slug>/<city_slug>/<layer_slug>/<z>/<x>/<y>.mvt
-    
+
     Examples:
     - /api/tiles/karnataka/bengaluru/bengaluru_master_plan_2015/12/2926/1899.png
     - /api/tiles/andhra-pradesh/visakhapatnam/master_plan/12/2048/2048.png
@@ -4130,8 +4131,9 @@ class CloudFrontTileView(APIView):
 
 class S3DirectTileView(APIView):
     """
-    S3 Direct Tile Serving API
-    
+    S3 Direct Tile Serving API.
+    Requires API key (X-API-Key) when any active ApiKey exists; same as other API endpoints except webhooks.
+
     Serves tiles directly from S3 with hierarchical URL structure:
     GET /api/s3-tiles/<state_slug>/<city_slug>/<layer_slug>/<z>/<x>/<y>.png
     GET /api/s3-tiles/<state_slug>/<city_slug>/<layer_slug>/<z>/<x>/<y>.mvt
@@ -7686,8 +7688,9 @@ class LandPlotTileView(APIView):
     """
     Serve land/plot MVT tiles via proxy (path-based CloudFront or S3; server-side cache).
     Optional local file fallback. No redirects; client never sees backend URL.
+    Requires API key (X-API-Key) when any active ApiKey exists; same as other API endpoints except webhooks.
     """
-    permission_classes = [AllowAny]
+    # Uses default permission_classes from settings: AllowIfWebhookOrHasAPIKey (API key required when keys exist)
 
     def get(self, request, z, x, y):
         z, x, y = int(z), int(x), int(y)
