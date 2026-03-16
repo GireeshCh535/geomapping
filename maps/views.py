@@ -1753,9 +1753,9 @@ class CoordinateSearchTestView(APIView):
                 if name:
                     data_parts.append(name)
                 if road_width_feet:
-                    data_parts.append(f"Road Width (in feet) - {str(road_width_feet)}")
+                    data_parts.append(f"Width: {str(road_width_feet)}ft")
                 elif road_width_meters:
-                    data_parts.append(f"Road Width (in meters) - {str(road_width_meters)}")
+                    data_parts.append(f"Width: {str(road_width_meters)}m")
                 data_string = ', '.join(data_parts) if data_parts else 'Masterplan Road'
                 fill_color = (
                     properties.get('fill_color') or properties.get('fillColor') or
