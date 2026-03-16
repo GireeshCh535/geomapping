@@ -1454,6 +1454,30 @@ class CoordinateSearchTestView(APIView):
                             'all_layer_data': [feature_data],
                         }
                     
+                    elif layer.slug == 'hyderabad_master_plan_roads':
+                        detailed_category = feature_data.get('detailed_category', {}) or {}
+                        properties = detailed_category.get('properties', {}) or {}
+                        fill_color = '#2B2B2B'
+                        detailed_category['properties'] = {
+                            'Name': properties.get('Name'),
+                            'Width_in_Metres': properties.get('Width_in_Metres'),
+                        }
+                        name = str(properties.get('Name', '')) if properties.get('Name') else ''
+                        width_m = properties.get('Width_in_Metres')
+                        data_parts = []
+                        if name:
+                            data_parts.append(name)
+                        if width_m is not None:
+                            data_parts.append(f"Width: {width_m}m")
+                        data_string = ', '.join(data_parts) if data_parts else 'Master Plan Road'
+                        return {
+                            'data': data_string,
+                            'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
+                            'found': True,
+                            'features': [feature_data],
+                            'all_layer_data': [feature_data],
+                        }
+                    
                     # Chennai CRZ Layer - properties.Name and properties.HEX only
                     elif layer.slug == 'crz_layer':
                         detailed_category = feature_data.get('detailed_category', {})
@@ -1737,6 +1761,34 @@ class CoordinateSearchTestView(APIView):
                     properties.get('fill_color') or properties.get('fillColor') or
                     properties.get('FillColor') or properties.get('color')
                 ) or ''
+                return {
+                        'data': data_string,
+                        'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
+                        'found': True,
+                        'features': containing_features[:1],
+                        'all_layer_data': containing_features,
+                    }
+            
+            # Special handling for hyderabad_master_plan_roads - only Name and Width_in_Metres in properties, constant fill #2B2B2B
+            if layer.slug == 'hyderabad_master_plan_roads' and containing_features:
+                primary_feature = containing_features[0]
+                fill_color = '#2B2B2B'
+                for feat in containing_features:
+                    dc = feat.get('detailed_category', {}) or {}
+                    props = dc.get('properties', {}) or {}
+                    dc['properties'] = {
+                        'Name': props.get('Name'),
+                        'Width_in_Metres': props.get('Width_in_Metres'),
+                    }
+                properties = (primary_feature.get('detailed_category') or {}).get('properties') or {}
+                name = str(properties.get('Name', '')) if properties.get('Name') else ''
+                width_m = properties.get('Width_in_Metres')
+                data_parts = []
+                if name:
+                    data_parts.append(name)
+                if width_m is not None:
+                    data_parts.append(f"Width: {width_m}m")
+                data_string = ', '.join(data_parts) if data_parts else 'Master Plan Road'
                 return {
                     'data': data_string,
                     'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
