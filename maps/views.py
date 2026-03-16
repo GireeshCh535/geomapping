@@ -788,19 +788,16 @@ class CoordinateSearchTestView(APIView):
             return {'error': str(e)}
     
     def _find_containing_features(self, city, point):
-        """Find all features that contain or intersect with the search point"""
+        """Find all features that contain or intersect with the search point (exact point, no buffer)"""
         containing_features = []
         
-        # Use a small buffer around the point to handle LineStrings and other geometries
-        search_buffer = point.buffer(0.0001)  # ~10m buffer
-        
-        # Query features that intersect with the buffered point
+        # Query features that intersect with the exact point
         # Optimized with field limiting and result cap
         features = GeoFeature.objects.filter(
             layer__city=city,
             layer__is_processed=True,
             is_valid=True,
-            geometry__intersects=search_buffer
+            geometry__intersects=point
         ).select_related(
             'layer', 'layer__category', 'layer__city', 'layer__city__state_ref'
         ).only(
