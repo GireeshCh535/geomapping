@@ -49,7 +49,7 @@ CSRF_TRUSTED_ORIGINS = [
     'http://3.108.10.59',  # Direct IP access
     'https://3.108.10.59',  # Direct IP access (HTTPS)
     # Cloudflare Tunnel (quick tunnels; add your current URL when it changes)
-    'https://jungle-played-zoo-remedy.trycloudflare.com',
+    'https://remedies-antibodies-copied-detector.trycloudflare.com',
     # Local dev (frontend on different port or origin)
     'http://localhost:8000',
     'http://localhost:3001',
@@ -254,14 +254,7 @@ REST_FRAMEWORK = {
     'DEFAULT_FILTER_BACKENDS': [
         'django_filters.rest_framework.DjangoFilterBackend',
     ],
-    'DEFAULT_THROTTLE_CLASSES': [
-        'rest_framework.throttling.AnonRateThrottle',
-        'rest_framework.throttling.UserRateThrottle'
-    ],
-    'DEFAULT_THROTTLE_RATES': {
-        'anon': '200/hour',   # anonymous (e.g. from frontend) rate limit
-        'user': '1000/hour',
-    },
+    # No rate limiting (throttling disabled); tile requests can be frequent.
     'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
 }
 

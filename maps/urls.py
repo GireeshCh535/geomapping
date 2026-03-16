@@ -30,10 +30,12 @@ urlpatterns = [
     path('layers/<slug:state_slug>/<slug:city_slug>/<slug:layer_slug>/bounds/',
          views.LayerBoundsAPIView.as_view(), name='layer_bounds'),
     
-    # Layer bounds and zoom level API
+    # Layer bounds and zoom level API (with and without trailing slash for POST/GET)
     path('layers/<slug:state_slug>/<slug:city_slug>/<str:layer_slugs>/bounds-zoom/',
          views.LayerBoundsZoomAPIView.as_view(), name='layer_bounds_zoom'),
-    
+    path('layers/<slug:state_slug>/<slug:city_slug>/<str:layer_slugs>/bounds-zoom',
+         views.LayerBoundsZoomAPIView.as_view(), name='layer_bounds_zoom_no_slash'),
+
     # ================================
     # ROUTER URLs (REST API endpoints)
     # ================================
@@ -140,10 +142,13 @@ urlpatterns = [
          views.WebhookEventListAPIView.as_view(),
          name='webhook-event-list'),
 
-    # Enrichment lookup: POST listing_type + ids, get enrichment + full record data
+    # Enrichment lookup: POST listing_type + ids, get enrichment + full record data (with and without trailing slash)
     path('enrichment-lookup/',
          views.EnrichmentLookupAPIView.as_view(),
          name='enrichment-lookup'),
+    path('enrichment-lookup',
+         views.EnrichmentLookupAPIView.as_view(),
+         name='enrichment-lookup-no-slash'),
 
     # Layer point counts: for each layer, count of listing points (overlapping + nearby)
     path('layer-point-counts/',

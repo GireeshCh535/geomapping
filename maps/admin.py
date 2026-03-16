@@ -1465,10 +1465,16 @@ class ApiKeyAdmin(admin.ModelAdmin):
 
     def save_model(self, request, obj, form, change):
         raw_key = None
-        if not change:  # Creating new key
-            raw_key = secrets.token_urlsafe(32)
+        if not change:  # Creating new key: prefix geom_ + random, total 256 chars
+            prefix = "geom_"
+            # 251 random chars after prefix; token_urlsafe(189) yields ~252 chars
+            random_part = secrets.token_urlsafe(189)[:251]
+            raw_key = prefix + random_part
+            assert len(raw_key) == 256, "API key must be 256 chars"
             obj.key_hash = hashlib.sha256(raw_key.encode()).hexdigest()
-            obj.key_prefix = (raw_key[:8] if len(raw_key) >= 8 else raw_key[:4])
+            obj.key_prefix = raw_key[:12]  # e.g. geom_xxxxxxx for display
+            if getattr(obj, 'user_id', None) is None:
+                obj.user = request.user
         super().save_model(request, obj, form, change)
         if raw_key:
             messages.success(

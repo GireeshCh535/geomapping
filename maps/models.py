@@ -1,6 +1,7 @@
 # maps/models.py
 # Complete models with all required fields for the entire system
 
+from django.conf import settings
 from django.contrib.gis.db import models
 from django.contrib.gis.geos import GEOSGeometry
 from django.contrib.gis.db.models import Extent
@@ -1473,6 +1474,14 @@ class ApiKey(models.Model):
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
     last_used_at = models.DateTimeField(null=True, blank=True)
+    # Optional: set in admin when creating; DB may have had NOT NULL, so nullable for compatibility
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name='api_keys',
+    )
 
     class Meta:
         db_table = 'api_keys'
