@@ -115,7 +115,8 @@ CORS_ALLOWED_ORIGINS = [
     'https://gis-map.1acre.in',
     'http://gis-map.1acre.in',
     'https://lita-unsarcastic-serina.ngrok-free.dev',
-    'https://fantasy-correction-analysis-communication.trycloudflare.com',
+    'https://router-disposal-www-calculator.trycloudflare.com',
+    'https://jungle-played-zoo-remedy.trycloudflare.com',
     'http://3.108.10.59',
     'https://3.108.10.59',
     'http://localhost:8000',
@@ -133,7 +134,7 @@ if _extra_origins:
     CORS_ALLOWED_ORIGINS = list(CORS_ALLOWED_ORIGINS) + [o.strip() for o in _extra_origins.split(',') if o.strip()]
 CORS_ALLOW_HEADERS = [
     'accept', 'accept-encoding', 'authorization', 'content-type',
-    'dnt', 'origin', 'user-agent', 'x-csrftoken', 'x-requested-with',
+    'dnt', 'origin', 'user-agent', 'x-api-key', 'x-csrftoken', 'x-requested-with',
 ]
 CORS_ALLOW_METHODS = ['DELETE', 'GET', 'OPTIONS', 'PATCH', 'POST', 'PUT']
 CORS_ALLOW_CREDENTIALS = True
@@ -230,8 +231,12 @@ CACHES = {
     }
 }
 
-# API KEY (required for all API access except webhooks; leave empty to disable)
+# API KEY: required for all API access except webhooks.
+# Set GEO_MAPPING_API_KEY in environment or in geomapping/.env (file is loaded above).
+# When empty and REQUIRE_API_KEY is False, no key is required (backward compatible).
 API_KEY = os.getenv('GEO_MAPPING_API_KEY', '').strip()
+# When True, require API key for non-webhook requests; if API_KEY is empty, requests get 401 until you set it.
+REQUIRE_API_KEY = os.getenv('REQUIRE_API_KEY', 'false').lower() in ('true', '1', 'yes')
 
 # REST FRAMEWORK
 REST_FRAMEWORK = {
