@@ -49,7 +49,7 @@ CSRF_TRUSTED_ORIGINS = [
     'http://3.108.10.59',  # Direct IP access
     'https://3.108.10.59',  # Direct IP access (HTTPS)
     # Cloudflare Tunnel (quick tunnels; add your current URL when it changes)
-    'https://photographer-gotten-starsmerchant-coal.trycloudflare.com',
+    'https://jungle-played-zoo-remedy.trycloudflare.com',
     # Local dev (frontend on different port or origin)
     'http://localhost:8000',
     'http://localhost:3001',
@@ -115,7 +115,7 @@ CORS_ALLOWED_ORIGINS = [
     'https://gis-map.1acre.in',
     'http://gis-map.1acre.in',
     'https://lita-unsarcastic-serina.ngrok-free.dev',
-    'https://photographer-gotten-starsmerchant-coal.trycloudflare.com',
+    'https://fantasy-correction-analysis-communication.trycloudflare.com',
     'http://3.108.10.59',
     'https://3.108.10.59',
     'http://localhost:8000',
@@ -230,10 +230,19 @@ CACHES = {
     }
 }
 
+# API KEY (required for all API access except webhooks; leave empty to disable)
+API_KEY = os.getenv('GEO_MAPPING_API_KEY', '').strip()
+
 # REST FRAMEWORK
 REST_FRAMEWORK = {
     'DEFAULT_RENDERER_CLASSES': [
         'rest_framework.renderers.JSONRenderer',
+    ],
+    'DEFAULT_AUTHENTICATION_CLASSES': [
+        'maps.authentication.APIKeyAuthentication',
+    ],
+    'DEFAULT_PERMISSION_CLASSES': [
+        'maps.permissions.AllowIfWebhookOrHasAPIKey',
     ],
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
     'PAGE_SIZE': 100,
