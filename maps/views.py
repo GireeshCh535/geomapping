@@ -3994,7 +3994,7 @@ class CloudFrontTileView(APIView):
                 state_slug, city_slug, layer_slug, z, x, y, format_type
             )
             backend_label = self.tile_path_service._backend_label(s3_key)
-            print(f"[tile_proxy] Serving from {backend_label}: {backend_url}")
+            # print(f"[tile_proxy] Serving from {backend_label}: {backend_url}")
             tile_data = self._fetch_url(backend_url)
             if tile_data:
                 if ttl > 0:
@@ -7617,7 +7617,7 @@ def _fetch_tile_url(url, timeout=5):
         response = requests.get(url, timeout=timeout)
         if response.status_code == 200:
             return response.content
-        print(f"[tile_proxy] _fetch_tile_url HTTP error: {response.status_code} {url[:100]}...")
+        # print(f"[tile_proxy] _fetch_tile_url HTTP error: {response.status_code} {url[:100]}...")
     except Exception as e:
         print(f"[tile_proxy] _fetch_tile_url error: {e}")
     return None
@@ -7652,7 +7652,7 @@ class LandPlotTileView(APIView):
                 return self._mvt_response(cached)
         backend_url = tile_path_service.get_backend_url_for_land_plot(z, x, y)
         backend_label = tile_path_service._backend_label(s3_key)
-        print(f"[tile_proxy] land-plot serving from {backend_label}: {backend_url}")
+        # print(f"[tile_proxy] land-plot serving from {backend_label}: {backend_url}")
         tile_data = _fetch_tile_url(backend_url)
         if tile_data:
             if ttl > 0:
