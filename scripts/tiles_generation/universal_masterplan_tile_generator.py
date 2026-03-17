@@ -5,6 +5,7 @@ Reads color mappings from legend.csv in the data directory
 Works for ANY city/region with proper legend.csv configuration
 """
 
+import argparse
 import json
 import csv
 import sys
@@ -683,10 +684,10 @@ class UniversalMasterPlanTiles:
         img = img.resize((self.tile_size, self.tile_size), Image.LANCZOS)
         return img
     
-    def generate_tiles(self, min_zoom=7, max_zoom=18):
+    def generate_tiles(self, min_zoom=7, max_zoom=18, force=False):
         """Generate seamless tiles"""
         print(f"\n{'='*80}")
-        print(f"GENERATING TILES (Zoom {min_zoom}-{max_zoom})")
+        print(f"GENERATING TILES (Zoom {min_zoom}-{max_zoom})" + (" [FORCE]" if force else ""))
         print(f"Mode: SEAMLESS - NO TILE BOUNDARIES")
         print(f"{'='*80}")
         
@@ -721,8 +722,8 @@ class UniversalMasterPlanTiles:
                 tile_dir = zoom_dir / str(tile.x)
                 tile_path = tile_dir / f"{tile.y}.png"
 
-                # Skip rendering if this tile already exists
-                if tile_path.exists():
+                # Skip rendering if this tile already exists (unless --force)
+                if not force and tile_path.exists():
                     continue
 
                 img = self.render_tile_seamless(tile)
@@ -800,33 +801,68 @@ class UniversalMasterPlanTiles:
 
 
 def main():
-    if len(sys.argv) < 2:
-        print("="*80)
-        print("UNIVERSAL MASTER PLAN TILE GENERATOR")
-        print("="*80)
-        print("\nUsage:")
-        print(f"  python {sys.argv[0]} <data_directory> [output_directory] [city_name]")
-        print("\nExample:")
-        print(f"  python {sys.argv[0]} data/rajasthan/udaipur/master_plan udaipur_tiles Udaipur")
-        print("\nRequired in data directory:")
-        print("  - *.geojson files (your GeoJSON data)")
-        print("  - legend.csv (color mapping configuration)")
-        print("\nlegend.csv format:")
-        print("  category,fill_color,outline_color,pattern,pattern_color")
-        print("  Residential,#ffff00,#000000,,")
-        print("  Green Belt,#ffffff,#000000,hatch,#00ff00")
-        print("\nSupported patterns: hatch, dots, cross_hatch, dashed, dotted")
-        print("="*80)
-        sys.exit(1)
-    
-    data_dir = Path(sys.argv[1])
-    output_dir = Path(sys.argv[2]) if len(sys.argv) > 2 else Path(f"./{data_dir.name}_tiles")
-    city_name = sys.argv[3] if len(sys.argv) > 3 else data_dir.name.title()
-    
+    parser = argparse.ArgumentParser(
+        description="Universal Master Plan Tile Generator",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Required in data directory:
+  - *.geojson files (your GeoJSON data)
+  - legend.csv (color mapping configuration)
+
+legend.csv format:
+  category,fill_color,outline_color,pattern,pattern_color
+  Residential,#ffff00,#000000,,
+  Green Belt,#ffffff,#000000,hatch,#00ff00
+
+Supported patterns: hatch, dots, cross_hatch, dashed, dotted
+        """,
+    )
+    parser.add_argument("data_directory", help="Directory containing GeoJSON files and legend.csv")
+    parser.add_argument(
+        "output_directory",
+        nargs="?",
+        default=None,
+        help="Output directory for tiles (default: <data_directory_name>_tiles)",
+    )
+    parser.add_argument(
+        "city_name",
+        nargs="?",
+        default=None,
+        help="City/region name for viewer (default: derived from data directory)",
+    )
+    parser.add_argument(
+        "--min-zoom",
+        type=int,
+        default=7,
+        metavar="Z",
+        help="Minimum zoom level (default: 7)",
+    )
+    parser.add_argument(
+        "--max-zoom",
+        type=int,
+        default=18,
+        metavar="Z",
+        help="Maximum zoom level (default: 18)",
+    )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Regenerate tiles even if they already exist",
+    )
+    args = parser.parse_args()
+
+    data_dir = Path(args.data_directory)
+    output_dir = Path(args.output_directory) if args.output_directory else Path(f"./{data_dir.name}_tiles")
+    city_name = args.city_name if args.city_name else data_dir.name.title()
+
     if not data_dir.exists():
         print(f"✗ Data directory not found: {data_dir}")
         sys.exit(1)
-    
+
+    if args.min_zoom > args.max_zoom:
+        print("✗ --min-zoom must be <= --max-zoom")
+        sys.exit(1)
+
     print("="*80)
     print("UNIVERSAL MASTER PLAN TILE GENERATOR")
     print("✅ Handles polygon holes/interior rings")
@@ -837,15 +873,20 @@ def main():
     print(f"Input:  {data_dir}")
     print(f"Output: {output_dir}")
     print(f"City:   {city_name}")
-    
+    print(f"Zoom:   {args.min_zoom}-{args.max_zoom}" + (" (force)" if args.force else ""))
+
     generator = UniversalMasterPlanTiles(data_dir, output_dir)
     generator.load_geojson_files()
-    
+
     if generator.feature_id_counter == 0:
         print("✗ No features loaded!")
         sys.exit(1)
-    
-    generator.generate_tiles(min_zoom=7, max_zoom=18)
+
+    generator.generate_tiles(
+        min_zoom=args.min_zoom,
+        max_zoom=args.max_zoom,
+        force=args.force,
+    )
     generator.generate_html_viewer(city_name)
     
     print(f"\n💡 To view: cd {output_dir} && python3 -m http.server 8001")

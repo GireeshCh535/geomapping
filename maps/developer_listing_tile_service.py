@@ -1172,4 +1172,3 @@ class DeveloperListingTileService:
                 'listing_type': listing_type,
                 'listing_id': listing_id
             }
-
