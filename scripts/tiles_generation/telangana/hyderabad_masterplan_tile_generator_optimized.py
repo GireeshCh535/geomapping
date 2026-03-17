@@ -535,6 +535,13 @@ class HyderabadMasterPlanTilesOptimized:
                 
                 color_info = color_map.get(category, color_map.get('DEFAULT', {'fill': (204, 204, 204), 'outline': (153, 153, 153)}))
                 fill_rgb = color_info.get('fill')
+                # Prefer fill_color baked into feature (e.g. from add_fill_color_to_hyderabad_features.py)
+                props = feature_data.get('properties') or {}
+                if props.get('fill_color'):
+                    try:
+                        fill_rgb = self.hex_to_rgb(props['fill_color'])
+                    except (ValueError, TypeError):
+                        pass
                 
                 # Work with geometry (all operations are read-only)
                 if isinstance(geom, Polygon):
