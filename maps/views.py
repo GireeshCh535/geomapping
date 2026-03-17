@@ -1160,7 +1160,7 @@ class CoordinateSearchTestView(APIView):
                 'layer__city__slug', 'layer__city__name',
                 'layer__city__state_ref__slug', 'layer__city__state_ref__name'
             )
-            if layer.slug == 'crz_layer':
+            if layer.slug == 'tamil_nadu_crz_layer':
                 features = features_qs.order_by('area')[:20]  # Smallest containing polygon = most specific zone
             else:
                 features = features_qs.order_by('-area')[:20]  # Largest first (default)
@@ -1171,7 +1171,7 @@ class CoordinateSearchTestView(APIView):
                 # But for road layers, we already used a buffer above, so if no results, truly nothing nearby
                 is_polygon_masterplan = is_masterplan and not is_road_layer
                 is_heritage_site = layer.slug in ['hyderabad_heritage_sites', 'bengaluru_heritage_sites']
-                is_crz_layer = layer.slug == 'crz_layer'
+                is_crz_layer = layer.slug == 'tamil_nadu_crz_layer'
                 
                 if is_polygon_masterplan or is_heritage_site or is_crz_layer:
                     return {
@@ -1476,7 +1476,7 @@ class CoordinateSearchTestView(APIView):
                         }
                     
                     # Chennai CRZ Layer - properties.Name and properties.HEX only
-                    elif layer.slug == 'crz_layer':
+                    elif layer.slug == 'tamil_nadu_crz_layer':
                         detailed_category = feature_data.get('detailed_category', {})
                         properties = detailed_category.get('properties', {}) or {}
                         name = properties.get('Name', '')
@@ -2478,7 +2478,7 @@ class CoordinateSearchTestView(APIView):
                 }
             
             # Chennai CRZ Layer - Name, Regulation Type, and HEX
-            if layer.slug == 'crz_layer' and containing_features:
+            if layer.slug == 'tamil_nadu_crz_layer' and containing_features:
                 primary_feature = containing_features[0]
                 detailed_category = primary_feature.get('detailed_category', {})
                 properties = detailed_category.get('properties', {}) or {}
