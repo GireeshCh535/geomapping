@@ -1136,7 +1136,7 @@ class CoordinateSearchTestView(APIView):
             
             # No buffer for road layers, CRZ, or master plan - exact point containment only
             # Other layers use a small buffer to handle boundary tolerance
-            is_crz = layer.slug == 'crz_layer'
+            is_crz = layer.slug == 'tamil_nadu_crz_layer'
             if is_road_layer or is_crz or is_masterplan:
                 search_geometry = search_point
             else:
