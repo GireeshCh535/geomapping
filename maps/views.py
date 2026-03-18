@@ -44,6 +44,29 @@ def _masterplan_fill_color_svg_data_uri(hex_color):
     svg_str = MASTERPLAN_FILL_COLOR_SVG.format(color=hex_color)
     return f"data:image/svg+xml,{quote(svg_str)}"
 
+
+# CRZ layers: no search buffer; order by ascending area so overlapping zones return the smallest/most specific polygon.
+CRZ_SEARCH_LAYER_SLUGS = frozenset({'tamil_nadu_crz_layer', 'karnataka_crz_layer'})
+
+
+def _filter_karnataka_crz_properties(feature_data):
+    """Expose only HEX, Name, Regulation Type in detailed_category.properties (Karnataka CRZ)."""
+    if not isinstance(feature_data, dict):
+        return
+    dc = feature_data.get('detailed_category')
+    if not isinstance(dc, dict):
+        dc = {}
+    p = dc.get('properties') if isinstance(dc.get('properties'), dict) else {}
+    hex_val = p.get('HEX')
+    if hex_val is None:
+        hex_val = p.get('Hex')
+    dc['properties'] = {
+        'HEX': hex_val,
+        'Name': p.get('Name'),
+        'Regulation Type': p.get('Regulation Type'),
+    }
+    feature_data['detailed_category'] = dc
+
 # ================================
 # VIEWSETS (Router endpoints)
 # ================================
@@ -1136,7 +1159,7 @@ class CoordinateSearchTestView(APIView):
             
             # No buffer for road layers, CRZ, or master plan - exact point containment only
             # Other layers use a small buffer to handle boundary tolerance
-            is_crz = layer.slug == 'tamil_nadu_crz_layer'
+            is_crz = layer.slug in CRZ_SEARCH_LAYER_SLUGS
             if is_road_layer or is_crz or is_masterplan:
                 search_geometry = search_point
             else:
@@ -1160,7 +1183,7 @@ class CoordinateSearchTestView(APIView):
                 'layer__city__slug', 'layer__city__name',
                 'layer__city__state_ref__slug', 'layer__city__state_ref__name'
             )
-            if layer.slug == 'tamil_nadu_crz_layer':
+            if layer.slug in CRZ_SEARCH_LAYER_SLUGS:
                 features = features_qs.order_by('area')[:20]  # Smallest containing polygon = most specific zone
             else:
                 features = features_qs.order_by('-area')[:20]  # Largest first (default)
@@ -1171,7 +1194,7 @@ class CoordinateSearchTestView(APIView):
                 # But for road layers, we already used a buffer above, so if no results, truly nothing nearby
                 is_polygon_masterplan = is_masterplan and not is_road_layer
                 is_heritage_site = layer.slug in ['hyderabad_heritage_sites', 'bengaluru_heritage_sites']
-                is_crz_layer = layer.slug == 'tamil_nadu_crz_layer'
+                is_crz_layer = layer.slug in CRZ_SEARCH_LAYER_SLUGS
                 
                 if is_polygon_masterplan or is_heritage_site or is_crz_layer:
                     return {
@@ -1475,14 +1498,16 @@ class CoordinateSearchTestView(APIView):
                             'all_layer_data': [feature_data],
                         }
                     
-                    # Chennai CRZ Layer - properties.Name and properties.HEX only
-                    elif layer.slug == 'tamil_nadu_crz_layer':
+                    # Tamil Nadu / Karnataka CRZ — Name, Regulation Type, HEX; Karnataka strips extra properties
+                    elif layer.slug in CRZ_SEARCH_LAYER_SLUGS:
+                        if layer.slug == 'karnataka_crz_layer':
+                            _filter_karnataka_crz_properties(feature_data)
                         detailed_category = feature_data.get('detailed_category', {})
                         properties = detailed_category.get('properties', {}) or {}
                         name = properties.get('Name', '')
                         regulation_type = properties.get('Regulation Type', '')
                         data_string = f"{name}, {regulation_type}".strip(', ')
-                        fill_color = properties.get('HEX', '')
+                        fill_color = properties.get('HEX', '') or ''
                         return {
                             'data': data_string,
                             'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
@@ -2477,15 +2502,18 @@ class CoordinateSearchTestView(APIView):
                     'all_layer_data': containing_features,
                 }
             
-            # Chennai CRZ Layer - Name, Regulation Type, and HEX
-            if layer.slug == 'tamil_nadu_crz_layer' and containing_features:
+            # Tamil Nadu / Karnataka CRZ — Name, Regulation Type, HEX; Karnataka properties trimmed to those three
+            if layer.slug in CRZ_SEARCH_LAYER_SLUGS and containing_features:
+                if layer.slug == 'karnataka_crz_layer':
+                    for fd in containing_features:
+                        _filter_karnataka_crz_properties(fd)
                 primary_feature = containing_features[0]
                 detailed_category = primary_feature.get('detailed_category', {})
                 properties = detailed_category.get('properties', {}) or {}
                 name = properties.get('Name', '')
                 regulation_type = properties.get('Regulation Type', '')
                 data_string = f"{name}, {regulation_type}".strip(', ')
-                fill_color = properties.get('HEX', '')
+                fill_color = properties.get('HEX', '') or ''
                 return {
                     'data': data_string,
                     'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
