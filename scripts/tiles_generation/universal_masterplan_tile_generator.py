@@ -281,6 +281,10 @@ class UniversalMasterPlanTiles:
                         name_value = props.get("Name") or props.get("name") or props.get("NAME")
                         raw_category = (
                             props.get("LANDUSE_CATEGORY")
+                            or props.get("Layer Name")
+                            or props.get("Layer_Name")
+                            or props.get("LAYER_NAME")
+                            or props.get("LANDUSE_CATEGORY")
                             or props.get("LANDUSE_SUBCAT_LEVEL_1")
                             or props.get("CATEGORY")
                             or props.get("SUB_CATEGO")
