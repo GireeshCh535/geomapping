@@ -8,12 +8,13 @@ Works for ANY city/region with proper legend.csv configuration
 import argparse
 import json
 import csv
+import math
 import sys
 import time
 from pathlib import Path
 from PIL import Image, ImageDraw
 import mercantile
-from shapely.geometry import shape, box, Point, Polygon, LineString
+from shapely.geometry import shape, box, Point, Polygon, LineString, MultiPolygon
 from shapely.ops import transform
 from rtree import index
 
@@ -184,13 +185,99 @@ class UniversalMasterPlanTiles:
     
     def get_outline_width(self, zoom):
         """Get outline width based on zoom level"""
-        if zoom <= 10:
+        if zoom <= 8:
+            return 3
+        elif zoom <= 10:
             return 2
         elif zoom <= 13:
             return 1
         else:
             return 1
-    
+
+    def _meters_per_pixel_at_lat(self, zoom, lat):
+        """Web Mercator ground resolution (meters per pixel) at given latitude and zoom."""
+        return 40075016.686 * math.cos(math.radians(lat)) / (256 * (2 ** zoom))
+
+    def _get_wgs84_merc_transformers(self):
+        """Lazy-init pyproj transformers for meter-accurate buffering (cached)."""
+        if not HAS_PYPROJ:
+            return None, None
+        if not hasattr(self, '_tr_wgs_to_merc'):
+            self._tr_wgs_to_merc = Transformer.from_crs('EPSG:4326', 'EPSG:3857', always_xy=True)
+            self._tr_merc_to_wgs = Transformer.from_crs('EPSG:3857', 'EPSG:4326', always_xy=True)
+        return self._tr_wgs_to_merc, self._tr_merc_to_wgs
+
+    def _buffer_geom_meters(self, geom, meters):
+        """Buffer geometry by distance in meters (EPSG:3857) for correct coastal strips."""
+        if meters <= 0 or geom is None or geom.is_empty:
+            return geom
+        fwd, rev = self._get_wgs84_merc_transformers()
+        if fwd is None or rev is None:
+            return self._buffer_geom_meters_fallback_degrees(geom, meters)
+
+        def to_merc(x, y, z=None):
+            return fwd.transform(x, y)
+
+        def to_wgs(x, y, z=None):
+            return rev.transform(x, y)
+
+        try:
+            if geom.geom_type == 'Polygon':
+                g2 = transform(to_merc, geom)
+                g2 = g2.buffer(meters)
+                return transform(to_wgs, g2)
+            if geom.geom_type == 'MultiPolygon':
+                parts = []
+                for p in geom.geoms:
+                    g2 = transform(to_merc, p)
+                    g2 = g2.buffer(meters)
+                    parts.append(transform(to_wgs, g2))
+                if not parts:
+                    return geom
+                return MultiPolygon(parts)
+            return geom
+        except Exception:
+            return geom
+
+    def _buffer_geom_meters_fallback_degrees(self, geom, meters):
+        """Approximate buffer in degrees when pyproj is unavailable (~111 km/deg)."""
+        try:
+            deg_buf = min(max(meters, 0) / 111320.0, 0.012)
+            if deg_buf <= 0:
+                return geom
+            return geom.buffer(deg_buf)
+        except Exception:
+            return geom
+
+    def _expand_thin_polygon_for_low_zoom(self, geom, zoom, tile_bounds, img_size,
+                                          lon_range, lat_range):
+        """
+        Coastal / narrow CRZ strips map to sub-pixel width at low zoom; raster fill disappears.
+        Expand thin axis-aligned bounds in pixel space so fills stay visible after downscale.
+        """
+        if zoom > 11 or geom is None or geom.is_empty:
+            return geom
+        if min(lon_range, lat_range) <= 0:
+            return geom
+        try:
+            min_lon, min_lat, max_lon, max_lat = geom.bounds
+        except Exception:
+            return geom
+        px_w = abs((max_lon - min_lon) / lon_range * img_size)
+        px_h = abs((max_lat - min_lat) / lat_range * img_size)
+        min_px = min(px_w, px_h) if px_w > 0 and px_h > 0 else 0
+        # Target ~3px in supersampled space so LANCZOS downscale to 256 still shows color
+        TARGET = 3.0
+        if min_px >= TARGET:
+            return geom
+        deficit = TARGET - min_px
+        lat_mid = (tile_bounds.north + tile_bounds.south) / 2
+        m_per_px = self._meters_per_pixel_at_lat(zoom, lat_mid)
+        meters = min(deficit * m_per_px, 400.0)
+        if meters < 2.0:
+            return geom
+        return self._buffer_geom_meters(geom, meters)
+
     def load_geojson_files(self):
         """Load all GeoJSON files from data directory"""
         print("\n" + "="*80)
@@ -630,10 +717,22 @@ class UniversalMasterPlanTiles:
                 color_info = color_map.get(category, color_map.get('DEFAULT', {'fill': (204, 204, 204), 'outline': (153, 153, 153)}))
                 
                 fill_rgb = color_info.get('fill')
+                # GeoJSON HEX fallback when legend has no fill / category mismatch
+                props_fb = feature_data.get('properties') or {}
+                if fill_rgb is None and not color_info.get('pattern'):
+                    hex_val = props_fb.get('HEX') or props_fb.get('hex')
+                    if hex_val:
+                        try:
+                            fill_rgb = self.hex_to_rgb(str(hex_val).strip())
+                        except (ValueError, TypeError):
+                            pass
                 
                 if isinstance(geom, Polygon):
                     if geom.area < 1e-10:
                         continue
+                    geom = self._expand_thin_polygon_for_low_zoom(
+                        geom, zoom, tile_bounds, img_size, lon_range, lat_range
+                    )
                     
                     poly_img = self.render_polygon_with_holes(
                         draw, geom, tile_bounds, img_size, buffer_pixels,
@@ -650,6 +749,9 @@ class UniversalMasterPlanTiles:
                     for poly in geom.geoms:
                         if poly.area < 1e-10:
                             continue
+                        poly = self._expand_thin_polygon_for_low_zoom(
+                            poly, zoom, tile_bounds, img_size, lon_range, lat_range
+                        )
                         
                         poly_img = self.render_polygon_with_holes(
                             draw, poly, tile_bounds, img_size, buffer_pixels,

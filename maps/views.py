@@ -46,7 +46,7 @@ def _masterplan_fill_color_svg_data_uri(hex_color):
 
 
 # CRZ layers: no search buffer; order by ascending area so overlapping zones return the smallest/most specific polygon.
-CRZ_SEARCH_LAYER_SLUGS = frozenset({'tamil_nadu_crz_layer', 'karnataka_crz_layer'})
+CRZ_SEARCH_LAYER_SLUGS = frozenset({'tamil_nadu_crz_layer', 'karnataka_crz_layer', 'andhra_pradesh_crz_layer'})
 
 
 def _filter_karnataka_crz_properties(feature_data):
@@ -1516,6 +1516,23 @@ class CoordinateSearchTestView(APIView):
                             'all_layer_data': [feature_data],
                         }
                     
+                    elif layer.slug in CRZ_SEARCH_LAYER_SLUGS:
+                        if layer.slug == 'andhra_pradesh_crz_layer':
+                            _filter_andhra_pradesh_crz_properties(feature_data)
+                        detailed_category = feature_data.get('detailed_category', {})
+                        properties = detailed_category.get('properties', {}) or {}
+                        name = properties.get('Name', '')
+                        regulation_type = properties.get('Regulation Type', '')
+                        data_string = f"{name}, {regulation_type}".strip(', ')
+                        fill_color = properties.get('HEX', '') or ''
+                        return {
+                            'data': data_string,
+                            'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
+                            'found': True,
+                            'features': [feature_data],
+                            'all_layer_data': [feature_data],
+                        }
+                    
                     # Coastal roads, expressways, sea links, bridges, corridors - use properties.Name, black fill
                     elif layer.slug in [
                         'kharghar_coastal_road', 'versova_bhayander_coastal_road', 'pune_ring_roads',
@@ -2507,6 +2524,24 @@ class CoordinateSearchTestView(APIView):
                 if layer.slug == 'karnataka_crz_layer':
                     for fd in containing_features:
                         _filter_karnataka_crz_properties(fd)
+                primary_feature = containing_features[0]
+                detailed_category = primary_feature.get('detailed_category', {})
+                properties = detailed_category.get('properties', {}) or {}
+                name = properties.get('Name', '')
+                regulation_type = properties.get('Regulation Type', '')
+                data_string = f"{name}, {regulation_type}".strip(', ')
+                fill_color = properties.get('HEX', '') or ''
+                return {
+                    'data': data_string,
+                    'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
+                    'found': True,
+                    'features': containing_features[:1],
+                    'all_layer_data': containing_features,
+                }
+
+            if layer.slug == 'andhra_pradesh_crz_layer' and containing_features:
+                for fd in containing_features:
+                    _filter_andhra_pradesh_crz_properties(fd)
                 primary_feature = containing_features[0]
                 detailed_category = primary_feature.get('detailed_category', {})
                 properties = detailed_category.get('properties', {}) or {}
