@@ -6,7 +6,9 @@ For each listing (point), discovers:
 - Nearby layers: shortest distance from point to layer edge in [0.01, 30] km
 
 Excludes DEVELOPER_LISTING category (listing's own TIF layers).
-Stores unified enriched_layers: list of { layer_id, layer_slug, layer_type, distance_km }.
+Stores unified enriched_layers: list of { layer_id, layer_slug, layer_type, distance_km,
+nearest_point? } where nearest_point is GeoJSON Point on the layer geometry closest to the
+listing (PostGIS ST_ClosestPoint in WGS84).
 
 Supports:
 - DeveloperListing (existing)
@@ -44,6 +46,45 @@ DEGREES_30KM = 30.0 / 111.32
 
 # Minimum non-zero distance to store (avoids floating point noise for overlapping)
 MIN_NEARBY_KM = 0.01
+
+# Decimal places for nearest_point coordinates in JSON (~0.1 m at equator)
+NEAREST_POINT_DECIMALS = 6
+
+
+def _nearest_point_geojson(lng, lat):
+    """GeoJSON Point for closest point on layer geometry, or None if coords invalid."""
+    if lng is None or lat is None:
+        return None
+    try:
+        lg = float(lng)
+        lt = float(lat)
+    except (TypeError, ValueError):
+        return None
+    if not (-180 <= lg <= 180 and -90 <= lt <= 90):
+        return None
+    return {
+        'type': 'Point',
+        'coordinates': [round(lg, NEAREST_POINT_DECIMALS), round(lt, NEAREST_POINT_DECIMALS)],
+    }
+
+
+def _annotate_closest_point_on_geometry(qs, point: Point):
+    """Annotate queryset with cp_lng, cp_lat = ST_ClosestPoint(layer geom, listing point)."""
+    if not point or point.empty:
+        return qs
+    px, py = point.x, point.y
+    return qs.annotate(
+        cp_lng=RawSQL(
+            'ST_X(ST_ClosestPoint(geometry::geometry, ST_SetSRID(ST_MakePoint(%s, %s), 4326)::geometry))',
+            (px, py),
+            output_field=FloatField(),
+        ),
+        cp_lat=RawSQL(
+            'ST_Y(ST_ClosestPoint(geometry::geometry, ST_SetSRID(ST_MakePoint(%s, %s), 4326)::geometry))',
+            (px, py),
+            output_field=FloatField(),
+        ),
+    )
 
 # Bbox delta in degrees (~30 km) to pre-filter layers that could possibly touch the point
 _DEGREES_BUFFER = NEARBY_THRESHOLD_KM / 111.0
@@ -438,7 +479,10 @@ def compute_enriched_layers_for_point(point: Point, state_name=None):
     """
     Compute list of relevant layers for a given point (overlapping + nearby up to 30 km).
 
-    Returns list of dicts: { "layer_id", "layer_slug", "layer_type", "distance_km" }.
+    Returns list of dicts: { "layer_id", "layer_slug", "layer_type", "distance_km",
+    "nearest_point" }.
+    nearest_point: GeoJSON Point on the layer feature geometry closest to the listing
+    (largest-area feature when overlapping; min-distance feature when nearby).
     distance_km = 0 means overlap; (0.01, 30] means nearby.
     When state_name is set, only layers from that state are returned (avoids wrong-state results
     e.g. Hyderabad layers for an Andhra Pradesh listing).
@@ -462,32 +506,58 @@ def compute_enriched_layers_for_point(point: Point, state_name=None):
     )
 
     # Nearby: features within 30 km that are not overlapping (min distance per layer)
-    nearby_qs = (
-        GeoFeature.objects.filter(
-            geometry__dwithin=(point, DEGREES_30KM),
-            is_valid=True,
-            layer_id__in=layer_ids,
-        )
-        .exclude(layer_id__in=overlapping_layer_ids)
-        .annotate(
+    nearby_base = GeoFeature.objects.filter(
+        geometry__dwithin=(point, DEGREES_30KM),
+        is_valid=True,
+        layer_id__in=layer_ids,
+    ).exclude(layer_id__in=overlapping_layer_ids)
+
+    nearby_qs = _annotate_closest_point_on_geometry(
+        nearby_base.annotate(
             dist_m=RawSQL(
                 'ST_Distance(geometry::geography, ST_SetSRID(ST_MakePoint(%s, %s), 4326)::geography)',
                 (point.x, point.y),
                 output_field=FloatField(),
             )
-        )
-        .values('layer_id', 'layer__slug', 'layer__category__code', 'dist_m')
+        ),
+        point,
+    ).values(
+        'layer_id', 'layer__slug', 'layer__category__code', 'dist_m', 'cp_lng', 'cp_lat'
     )
 
-    # Group by layer_id, keep min distance
+    # Group by layer_id, keep min distance (+ closest point from winning row)
     layer_min_dist = {}
     for row in nearby_qs:
         lid = row['layer_id']
         dist_km = row['dist_m'] / 1000.0 if row['dist_m'] is not None else None
         if dist_km is None or dist_km > NEARBY_THRESHOLD_KM:
             continue
+        tpl = (
+            dist_km,
+            row['layer__slug'],
+            row['layer__category__code'] or 'UNCLASSIFIED',
+            row.get('cp_lng'),
+            row.get('cp_lat'),
+        )
         if lid not in layer_min_dist or dist_km < layer_min_dist[lid][0]:
-            layer_min_dist[lid] = (dist_km, row['layer__slug'], row['layer__category__code'] or 'UNCLASSIFIED')
+            layer_min_dist[lid] = tpl
+
+    # Overlap: per layer_id, largest-area containing feature → closest point on that geometry
+    overlap_nearest = {}
+    if overlapping_layer_ids:
+        overlap_qs = _annotate_closest_point_on_geometry(
+            GeoFeature.objects.filter(
+                geometry__contains=point,
+                is_valid=True,
+                layer_id__in=overlapping_layer_ids,
+            ),
+            point,
+        ).order_by('layer_id', '-area')
+
+        for row in overlap_qs.values('layer_id', 'cp_lng', 'cp_lat'):
+            lid = row['layer_id']
+            if lid not in overlap_nearest:
+                overlap_nearest[lid] = (row.get('cp_lng'), row.get('cp_lat'))
 
     # Build layer_id -> (slug, category_code) for overlapping
     overlapping_info = {}
@@ -503,25 +573,35 @@ def compute_enriched_layers_for_point(point: Point, state_name=None):
             continue
         seen.add(layer_id)
         slug, code = overlapping_info.get(layer_id, ('', 'UNCLASSIFIED'))
-        result.append({
+        olng, olat = overlap_nearest.get(layer_id, (None, None))
+        entry = {
             'layer_id': layer_id,
             'layer_slug': slug,
             'layer_type': code,
             'distance_km': 0.0,
-        })
+        }
+        np = _nearest_point_geojson(olng, olat)
+        if np is not None:
+            entry['nearest_point'] = np
+        result.append(entry)
 
-    for layer_id, (dist_km, slug, code) in layer_min_dist.items():
+    for layer_id, row in layer_min_dist.items():
+        dist_km, slug, code, cp_lng, cp_lat = row[0], row[1], row[2], row[3], row[4]
         if layer_id in seen:
             continue
         seen.add(layer_id)
         if dist_km < MIN_NEARBY_KM:
             dist_km = MIN_NEARBY_KM
-        result.append({
+        entry = {
             'layer_id': layer_id,
             'layer_slug': slug,
             'layer_type': code,
             'distance_km': round(dist_km, 4),
-        })
+        }
+        np = _nearest_point_geojson(cp_lng, cp_lat)
+        if np is not None:
+            entry['nearest_point'] = np
+        result.append(entry)
 
     # Sort by distance_km then layer_id for stable ordering
     result.sort(key=lambda x: (x['distance_km'], x['layer_id']))
@@ -535,7 +615,8 @@ def get_place_for_point_in_layer(point: Point, layer_id: int, distance_km: float
     CoordinateSearchTestView: which feature/polygon the point is inside or closest to.
 
     Returns a dict with feature_id, feature_name, layer_slug, layer_name, category,
-    distance_meters, and optional area, zone_category, plot_category, properties;
+    distance_meters, nearest_point (GeoJSON Point on feature geometry closest to listing),
+    and optional area, zone_category, plot_category, properties;
     or None if no feature found.
     """
     if not point or point.empty:
@@ -550,36 +631,32 @@ def get_place_for_point_in_layer(point: Point, layer_id: int, distance_km: float
 
         if distance_km == 0:
             # Point is inside: get containing feature(s), pick largest by area
-            feature = (
-                GeoFeature.objects.filter(
-                    layer_id=layer_id,
-                    geometry__contains=point,
-                    is_valid=True,
-                )
-                .select_related('layer', 'layer__category')
-                .order_by('-area')
-                .first()
-            )
+            overlap_qs = GeoFeature.objects.filter(
+                layer_id=layer_id,
+                geometry__contains=point,
+                is_valid=True,
+            ).select_related('layer', 'layer__category')
+            overlap_qs = _annotate_closest_point_on_geometry(overlap_qs, point)
+            feature = overlap_qs.order_by('-area').first()
             distance_meters = 0.0
         else:
             # Nearby: get nearest feature within 30 km (distance in meters via geography)
-            qs = (
-                GeoFeature.objects.filter(
-                    layer_id=layer_id,
-                    geometry__dwithin=(point, DEGREES_30KM),
-                    is_valid=True,
-                )
-                .select_related('layer', 'layer__category')
-                .annotate(
+            qs = GeoFeature.objects.filter(
+                layer_id=layer_id,
+                geometry__dwithin=(point, DEGREES_30KM),
+                is_valid=True,
+            ).select_related('layer', 'layer__category')
+            qs = _annotate_closest_point_on_geometry(
+                qs.annotate(
                     dist_m=RawSQL(
                         'ST_Distance(geometry::geography, ST_SetSRID(ST_MakePoint(%s, %s), 4326)::geography)',
                         (point.x, point.y),
                         output_field=FloatField(),
                     )
-                )
-                .order_by('dist_m')
+                ),
+                point,
             )
-            feature = qs.first()
+            feature = qs.order_by('dist_m').first()
             if feature is None:
                 return None
             dist_m = getattr(feature, 'dist_m', None)
@@ -607,6 +684,9 @@ def get_place_for_point_in_layer(point: Point, layer_id: int, distance_km: float
             'plu_code': feature.plu_primary_code or '',
             'plu_name': feature.plu_secondary_1 or '',
         }
+        np = _nearest_point_geojson(getattr(feature, 'cp_lng', None), getattr(feature, 'cp_lat', None))
+        if np is not None:
+            place['nearest_point'] = np
         if getattr(feature, 'properties', None):
             place['properties'] = feature.properties
         return place

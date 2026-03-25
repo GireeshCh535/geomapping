@@ -3,7 +3,8 @@ Daily/incremental listing–layer enrichment for all listing tables.
 
 Enriches DeveloperListing and all 4 Synced* tables (SyncedLand, SyncedPlot,
 SyncedDeveloperLand, SyncedDeveloperPlot) with overlapping and nearby (≤30 km)
-data layers. Stores unified enriched_layers: [{ layer_id, layer_slug, layer_type, distance_km }].
+data layers. Stores unified enriched_layers: [{ layer_id, layer_slug, layer_type, distance_km,
+nearest_point? }]. nearest_point is GeoJSON Point on the layer geometry closest to the listing.
 distance_km = 0 means overlap; 0.01–30 means nearby.
 
 Run after pull_land_plot_from_api when new listings are synced. Safe to run

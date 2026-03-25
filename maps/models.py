@@ -898,8 +898,8 @@ class DeveloperListing(models.Model):
     location_point = models.PointField(geography=True, null=True, blank=True)
     
     # Layer enrichment: unified list of relevant layers (overlapping + nearby up to 30 km)
-    # Each entry: { "layer_id": int, "layer_slug": str, "layer_type": str (category code), "distance_km": float }
-    # distance_km = 0 means overlap; 0.01–30 means nearby; >30 excluded
+    # Each entry: { layer_id, layer_slug, layer_type, distance_km, optional nearest_point: GeoJSON Point }
+    # nearest_point = on-layer coords closest to listing (ST_ClosestPoint). distance_km 0=overlap; 0.01–30=nearby
     enriched_layers = models.JSONField(default=list, blank=True)
     enriched_at = models.DateTimeField(null=True, blank=True)
     
@@ -1316,7 +1316,7 @@ class SyncedLand(models.Model):
     enriched_layers = models.JSONField(
         default=list,
         blank=True,
-        help_text='Unified list: { layer_id, layer_slug, layer_type, distance_km }. 0=overlap, 0.01–30=nearby'
+        help_text='Unified list: layer_id, layer_slug, layer_type, distance_km, optional nearest_point (GeoJSON Point on layer closest to listing)'
     )
     enriched_at = models.DateTimeField(null=True, blank=True)
 
@@ -1361,7 +1361,7 @@ class SyncedPlot(models.Model):
     enriched_layers = models.JSONField(
         default=list,
         blank=True,
-        help_text='Unified list: { layer_id, layer_slug, layer_type, distance_km }. 0=overlap, 0.01–30=nearby'
+        help_text='Unified list: layer_id, layer_slug, layer_type, distance_km, optional nearest_point (GeoJSON Point on layer closest to listing)'
     )
     enriched_at = models.DateTimeField(null=True, blank=True)
 
@@ -1401,7 +1401,7 @@ class SyncedDeveloperLand(models.Model):
     enriched_layers = models.JSONField(
         default=list,
         blank=True,
-        help_text='Unified list: { layer_id, layer_slug, layer_type, distance_km }. 0=overlap, 0.01–30=nearby'
+        help_text='Unified list: layer_id, layer_slug, layer_type, distance_km, optional nearest_point (GeoJSON Point on layer closest to listing)'
     )
     enriched_at = models.DateTimeField(null=True, blank=True)
 
@@ -1440,7 +1440,7 @@ class SyncedDeveloperPlot(models.Model):
     enriched_layers = models.JSONField(
         default=list,
         blank=True,
-        help_text='Unified list: { layer_id, layer_slug, layer_type, distance_km }. 0=overlap, 0.01–30=nearby'
+        help_text='Unified list: layer_id, layer_slug, layer_type, distance_km, optional nearest_point (GeoJSON Point on layer closest to listing)'
     )
     enriched_at = models.DateTimeField(null=True, blank=True)
 

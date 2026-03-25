@@ -46,7 +46,7 @@ def _masterplan_fill_color_svg_data_uri(hex_color):
 
 
 # CRZ layers: no search buffer; order by ascending area so overlapping zones return the smallest/most specific polygon.
-CRZ_SEARCH_LAYER_SLUGS = frozenset({'tamil_nadu_crz_layer', 'karnataka_crz_layer', 'andhra_pradesh_crz_layer'})
+CRZ_SEARCH_LAYER_SLUGS = frozenset({'tamil_nadu_crz_layer', 'karnataka_crz_layer', 'andhra_pradesh_crz_layer', 'kerela_crz_layer', 'maharashtra_crz_layer', 'gujarat_crz_layer', 'diu_crz_layers', 'karaikal_crz_layer'})
 
 
 def _filter_karnataka_crz_properties(feature_data):
@@ -2556,7 +2556,97 @@ class CoordinateSearchTestView(APIView):
                     'features': containing_features[:1],
                     'all_layer_data': containing_features,
                 }
+
+            if layer.slug == 'kerela_crz_layer' and containing_features:
+                for fd in containing_features:
+                    _filter_kerela_crz_properties(fd)
+                primary_feature = containing_features[0]
+                detailed_category = primary_feature.get('detailed_category', {})
+                properties = detailed_category.get('properties', {}) or {}
+                name = properties.get('Name', '')
+                regulation_type = properties.get('Regulation Type', '')
+                data_string = f"{name}, {regulation_type}".strip(', ')
+                fill_color = properties.get('HEX', '') or ''
+                return {
+                    'data': data_string,
+                    'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
+                    'found': True,
+                    'features': containing_features[:1],
+                    'all_layer_data': containing_features,
+                }
             
+            if layer.slug == 'maharashtra_crz_layer' and containing_features:
+                for fd in containing_features:
+                    _filter_maharashtra_crz_properties(fd)
+                primary_feature = containing_features[0]
+                detailed_category = primary_feature.get('detailed_category', {})
+                properties = detailed_category.get('properties', {}) or {}
+                name = properties.get('Name', '')
+                regulation_type = properties.get('Regulation Type', '')
+                data_string = f"{name}, {regulation_type}".strip(', ')
+                fill_color = properties.get('HEX', '') or ''
+                return {
+                    'data': data_string,
+                    'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
+                    'found': True,
+                    'features': containing_features[:1],
+                    'all_layer_data': containing_features,
+                }
+
+            if layer.slug == 'gujarat_crz_layer' and containing_features:
+                for fd in containing_features:
+                    _filter_gujarat_crz_properties(fd)
+                primary_feature = containing_features[0]
+                detailed_category = primary_feature.get('detailed_category', {})
+                properties = detailed_category.get('properties', {}) or {}
+                name = properties.get('Name', '')
+                regulation_type = properties.get('Regulation Type', '')
+                data_string = f"{name}, {regulation_type}".strip(', ')
+                fill_color = properties.get('HEX', '') or ''
+                return {
+                    'data': data_string,
+                    'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
+                    'found': True,  
+                    'features': containing_features[:1],
+                    'all_layer_data': containing_features,
+                }
+
+            if layer.slug == 'diu_crz_layers' and containing_features:
+                for fd in containing_features:
+                    _filter_diu_crz_properties(fd)
+                primary_feature = containing_features[0]
+                detailed_category = primary_feature.get('detailed_category', {})
+                properties = detailed_category.get('properties', {}) or {}
+                name = properties.get('Name', '')
+                regulation_type = properties.get('Regulation Type', '')
+                data_string = f"{name}, {regulation_type}".strip(', ')
+                fill_color = properties.get('HEX', '') or ''
+                return {
+                    'data': data_string,
+                    'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
+                    'found': True,
+                    'features': containing_features[:1],
+                    'all_layer_data': containing_features,
+                }
+            
+            if layer.slug == 'karaikal_crz_layer' and containing_features:
+                for fd in containing_features:
+                    _filter_karaikal_crz_properties(fd)
+                primary_feature = containing_features[0]
+                detailed_category = primary_feature.get('detailed_category', {})
+                properties = detailed_category.get('properties', {}) or {}
+                name = properties.get('Name', '')
+                regulation_type = properties.get('Regulation Type', '')
+                data_string = f"{name}, {regulation_type}".strip(', ')
+                fill_color = properties.get('HEX', '') or ''
+                return {
+                    'data': data_string,
+                    'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
+                    'found': True,
+                    'features': containing_features[:1],
+                    'all_layer_data': containing_features,
+                }
+
             # Coastal roads, expressways, sea links, bridges, corridors - use properties.Name, black fill
             if layer.slug in [
                 'kharghar_coastal_road', 'versova_bhayander_coastal_road', 'pune_ring_roads',
@@ -6764,8 +6854,8 @@ class EnrichmentLookupAPIView(APIView):
     Body: { "listing_type": "land"|"plot"|"developer_land"|"developer_plot", "ids": [1, 2, 3] }
     ids can be either Django primary keys (id) or backend_id (1acre-be API id); both are matched.
 
-    Returns: { "results": [ {...}, ... ], "count": N } with enrichment (enriched_layers, enriched_at, location_point)
-    and all other model fields + payload.
+    Returns: { "results": [ {...}, ... ], "count": N } with enrichment (enriched_layers with optional
+    nearest_point per layer, enriched_at, location_point) and all other model fields + payload.
     """
     permission_classes = [AllowAny]
 
@@ -6880,7 +6970,7 @@ class EnrichmentLookupAPIView(APIView):
                     if layer_id is None:
                         continue
                     distance_bucket = '0' if (distance_km or 0) == 0 else '1'
-                    place_cache_key = f"enrichment_place:{point_wkt_hash}:{layer_id}:{distance_bucket}"
+                    place_cache_key = f"enrichment_place:v2:{point_wkt_hash}:{layer_id}:{distance_bucket}"
                     cached_place = cache.get(place_cache_key)
                     if cached_place is not None:
                         layer_entry['place'] = cached_place

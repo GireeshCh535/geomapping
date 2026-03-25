@@ -922,6 +922,82 @@ docker-compose exec web python manage.py insert_masterplan_layer \
   --exclude "Tide Line,CRZ (Coastal Regulation Zone) Boundary" \
   --delete-existing
 
+# ========== Andhra Pradesh – Yanam CRZ ==========
+# state/city/layer: andhra-pradesh/yanam_crz/yanam_crz_layer
+# Exclude line files (HTL, LTL, CRZ Boundary) so only zone polygons are inserted
+docker-compose exec web python manage.py insert_masterplan_layer \
+  --city-slug "yanam_crz" \
+  --layer-name "Yanam CRZ Layer" \
+  --layer-slug "yanam_crz_layer" \
+  --data-dir "data/Yanam CRZ layers_processed" \
+  --authority "Puducherry State Coastal Zone Management Authority" \
+  --min-zoom 8 \
+  --max-zoom 18 \
+  --exclude "Tide Line,CRZ (Coastal Regulation Zone) Boundary" \
+  --delete-existing
+
+# ========== Dadra and Nagar Haveli and Daman and Diu – Diu CRZ ==========
+# state/city/layer: dadra-nagar-haveli-daman-diu/diu_crz/diu_crz_layers
+# Exclude line files (HTL, LTL, CRZ Boundary) so only zone polygons are inserted
+docker-compose exec web python manage.py insert_masterplan_layer \
+  --city-slug "diu_crz" \
+  --layer-name "Diu CRZ Layer" \
+  --layer-slug "diu_crz_layers" \
+  --data-dir "data/crz/Diu CRZ layers_processed" \
+  --authority "Dadra and Nagar Haveli and Daman and Diu Coastal Zone Management Authority" \
+  --min-zoom 8 \
+  --max-zoom 18 \
+  --delete-existing
+
+# ========== Puducherry – Karaikal CRZ ==========
+# state/city/layer: puducherry/karaikal_crz/karaikal_crz_layer
+# Exclude line files (HTL, LTL, CRZ Boundary) so only zone polygons are inserted
+docker-compose exec web python manage.py insert_masterplan_layer \
+  --city-slug "karaikal_crz" \
+  --layer-name "Karaikal CRZ Layer" \
+  --layer-slug "karaikal_crz_layer" \
+  --data-dir "data/crz/Karaikal CRZ layers_processed" \
+  --authority "Puducherry State Coastal Zone Management Authority" \
+  --min-zoom 8 \
+  --max-zoom 18 \
+  --delete-existing
+
+# ========== Gujarat – Gujarat CRZ ==========
+# state/city/layer: gujarat/gujarat_crz/gujarat_crz_layer
+docker-compose exec web python manage.py insert_masterplan_layer \
+  --city-slug "gujarat_crz" \
+  --layer-name "Gujarat CRZ Layer" \
+  --layer-slug "gujarat_crz_layer" \
+  --data-dir "data/crz/Gujarat CRZ layers_processed" \
+  --authority "Gujarat Coastal Zone Management Authority" \
+  --min-zoom 8 \
+  --max-zoom 18 \
+  --delete-existing
+
+# ========== Kerala – Kerala CRZ ==========
+# state/city/layer: kerala/kerala_crz/kerala_crz_layer
+docker-compose exec web python manage.py insert_masterplan_layer \
+  --city-slug "kerela_crz" \
+  --layer-name "Kerela CRZ Layer" \
+  --layer-slug "kerela_crz_layer" \
+  --data-dir "data/crz/Kerala CRZ layers_processed" \
+  --authority "Kerala State Coastal Zone Management Authority" \
+  --min-zoom 8 \
+  --max-zoom 18 \
+  --delete-existing
+
+# ========== Maharashtra – Maharashtra CRZ ==========
+# state/city/layer: maharashtra/maharashtra_crz/maharashtra_crz_layer
+docker-compose exec web python manage.py insert_masterplan_layer \
+  --city-slug "maharashtra_crz" \
+  --layer-name "Maharashtra CRZ Layer" \
+  --layer-slug "maharashtra_crz_layer" \
+  --data-dir "data/crz/Maharashtra CRZ layers_processed" \
+  --authority "Maharashtra Coastal Zone Management Authority" \
+  --min-zoom 8 \
+  --max-zoom 18 \
+  --delete-existing
+
 # Insert HMDA Masterplan Roads layer for Hyderabad
 # State/city/layer: telangana/hyderabad/hyderabad_master_plan_roads
 # Data: data/telangana/hyderabad/roads/HMDA_masterplan_roads_merged.geojson (and tiles in roads/)
