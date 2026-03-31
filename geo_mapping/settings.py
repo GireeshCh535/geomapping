@@ -29,17 +29,9 @@ SECRET_KEY = "django-insecure-9xdea)mc6dhr@)lrhn65!&!uc+#z6nlajj8j091eswp$$2jf!#
 # DEBUG
 DEBUG = os.getenv('DJANGO_DEBUG', 'True').lower() == 'true'
 
-# ALLOWED HOSTS (include IP with ports when Host header has port, e.g. behind nginx)
-_required_hosts = [
-    '*',
-    '3.108.10.59',
-    '3.108.10.59:80',
-    '3.108.10.59:443',
-    'layers.1acre.in',
-    'citylands.in',
-    'www.citylands.in',
-    'tiles.citylands.in',
-]
+# ALLOWED HOSTS (include IP with ports when Host header has port, e.g. behind nginx).
+# Entire literal on one line avoids IndentationError when "["/lines are corrupted on deploy.
+_required_hosts = ['*', '3.108.10.59', '3.108.10.59:80', '3.108.10.59:443', 'layers.1acre.in', 'citylands.in', 'www.citylands.in', 'tiles.citylands.in']
 _allowed = os.getenv('DJANGO_ALLOWED_HOSTS')
 if _allowed:
     ALLOWED_HOSTS = list(dict.fromkeys(
