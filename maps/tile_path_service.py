@@ -5,10 +5,37 @@ only for keys matching CLOUDFRONT_PATH_PREFIXES when CLOUDFRONT_RESTRICT_PATH_PR
 """
 
 import os
+import re
 from pathlib import Path
 from typing import Dict, Optional, Tuple
 from django.conf import settings
 from django.utils.text import slugify
+
+_DEVELOPER_TILE_ROOT_NORM = "developer_data"
+
+
+def _norm_state_token(s: str) -> str:
+    return (s or "").strip().lower().replace("-", "_")
+
+
+def _safe_tile_path_piece(p: str) -> bool:
+    if not p or ".." in p or "/" in p:
+        return False
+    return bool(re.fullmatch(r"[a-zA-Z0-9_.-]+", p))
+
+
+def is_developer_data_tile_request(state_slug: str) -> bool:
+    """True when URL is under developer raster prefix (skip DataLayer lookup; S3 key uses literal segments)."""
+    return _norm_state_token(state_slug) == _DEVELOPER_TILE_ROOT_NORM
+
+
+def developer_raster_path_valid(city_slug: str, layer_slug: str) -> bool:
+    city = (city_slug or "").strip()
+    layer = (layer_slug or "").strip()
+    if not _safe_tile_path_piece(city) or not layer:
+        return False
+    return all(_safe_tile_path_piece(seg) for seg in layer.split("/") if seg)
+
 
 class TilePathService:
     """
@@ -42,16 +69,23 @@ class TilePathService:
         Returns:
             S3 key string (e.g., 'karnataka/bengaluru/bengaluru_master_plan_2015/12/2926/1899.png')
         """
-        # Ensure all components are properly formatted
-        # FIXED: Keep hyphens in all slugs (state, city, and layer) for consistency
+        if is_developer_data_tile_request(state_slug):
+            city = (city_slug or "").strip()
+            layer = (layer_slug or "").strip()
+            if not developer_raster_path_valid(city, layer):
+                return f"__invalid__/tile/{z}/{x}/{y}.{format_type}"
+            return f"developer_data/{city}/{layer}/{z}/{x}/{y}.{format_type}"
+
         state_slug = slugify(state_slug)
         city_slug = slugify(city_slug)
-        layer_slug = slugify(layer_slug)  # Keep hyphens as-is
-        
-        # Generate S3 key: state/city/layer/z/x/y.format
-        s3_key = f"{state_slug}/{city_slug}/{layer_slug}/{z}/{x}/{y}.{format_type}"
-        
-        return s3_key
+        if "/" in (layer_slug or ""):
+            layer_part = "/".join(
+                slugify(seg) for seg in (layer_slug or "").split("/") if seg.strip()
+            )
+        else:
+            layer_part = slugify(layer_slug or "")
+
+        return f"{state_slug}/{city_slug}/{layer_part}/{z}/{x}/{y}.{format_type}"
     
     def generate_cloudfront_url(self, state_slug: str, city_slug: str, layer_slug: str,
                                z: int, x: int, y: int, format_type: str = 'png') -> str:
@@ -274,10 +308,36 @@ class TilePathService:
             return False
 
 
+def hierarchical_tile_proxy_base(state_slug: str, city_slug: str, layer_slug: str) -> str:
+    """
+    Path prefix clients should use for state/city/layer tiles (Django proxy); see TILE_PROXY_PATH_PREFIX.
+    """
+    prefix = (getattr(settings, 'TILE_PROXY_PATH_PREFIX', None) or '/api/tiles').strip().rstrip('/')
+    return f"{prefix}/{state_slug}/{city_slug}/{layer_slug}"
+
+
+def tile_proxy_png_template_from_s3_tile_path(s3_tile_path: str) -> Optional[str]:
+    """
+    /api/tiles/developer_data/<city>/<id>/<tif_name>/{{z}}/{{x}}/{{y}}.png (matches s3_tile_path in DB).
+    """
+    p = (s3_tile_path or "").strip().strip("/")
+    if not p:
+        return None
+    parts = [x for x in p.split("/") if x]
+    if len(parts) < 4 or _norm_state_token(parts[0]) != _DEVELOPER_TILE_ROOT_NORM:
+        return None
+    state, city = parts[0], parts[1]
+    layer = "/".join(parts[2:])
+    if not developer_raster_path_valid(city, layer):
+        return None
+    base = hierarchical_tile_proxy_base(state, city, layer)
+    return f"{base}/{{z}}/{{x}}/{{y}}.png"
+
+
 def public_https_base_for_layer_path(state_slug: str, city_slug: str, layer_slug: str) -> str:
     """
-    https://{CLOUDFRONT_DOMAIN} or https://{AWS_S3_TILE_DOMAIN} for state/city/layer tile keys,
-    depending on CLOUDFRONT_PATH_PREFIXES + CLOUDFRONT_RESTRICT_PATH_PREFIXES.
+    Direct https base for state/city/layer keys (CloudFront or S3). Prefer hierarchical_tile_proxy_base
+    for URLs sent to browsers so traffic stays on the Django tile proxy.
     """
     svc = TilePathService()
     sample_key = svc.generate_s3_key(state_slug, city_slug, layer_slug, 0, 0, 0, 'png')

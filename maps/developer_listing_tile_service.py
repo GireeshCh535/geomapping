@@ -14,7 +14,10 @@ import time
 from django.conf import settings
 from django.db import close_old_connections
 
-from .tile_path_service import public_https_base_for_s3_tile_prefix
+from .tile_path_service import (
+    public_https_base_for_s3_tile_prefix,
+    tile_proxy_png_template_from_s3_tile_path,
+)
 from botocore.exceptions import ClientError
 import rasterio
 from rasterio.warp import calculate_default_transform, reproject, Resampling
@@ -585,8 +588,11 @@ class DeveloperListingTileService:
                         'file_url': media.file_url,
                         's3_tile_path': s3_tile_path,
                         'tile_url_template': (
-                            f"{public_https_base_for_s3_tile_prefix(s3_tile_path)}"
-                            f"/{s3_tile_path}/{{z}}/{{x}}/{{y}}.png"
+                            tile_proxy_png_template_from_s3_tile_path(s3_tile_path)
+                            or (
+                                f"{public_https_base_for_s3_tile_prefix(s3_tile_path)}"
+                                f"/{s3_tile_path}/{{z}}/{{x}}/{{y}}.png"
+                            )
                         ),
                         'tiles_generated': media.total_tiles_generated,
                         'location': listing.location,

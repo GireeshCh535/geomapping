@@ -376,6 +376,10 @@ CLOUDFRONT_PATH_PREFIXES = [
 # Tile proxy server-side cache TTL in seconds (0 = no cache)
 TILE_PROXY_CACHE_TTL = 3600
 
+# Prefix for hierarchical tile URLs exposed in JSON (browser hits Django → CloudFront/S3 in the backend).
+# Must match how maps are mounted (default: project urls use path('api/', include('maps.urls'))).
+TILE_PROXY_PATH_PREFIX = os.getenv('TILE_PROXY_PATH_PREFIX', '/api/tiles').strip().rstrip('/')
+
 # All masterplan layer slugs (from maps/views.py) – reference list for CloudFront path prefixes
 
 # S3-Only Tile Serving Configuration
@@ -389,9 +393,7 @@ SKIP_LOCAL_TILE_STORAGE = True
 # ---------------------------------------------------------------------------
 # 1) /api/tiles/... : Django proxy fetches CloudFront only for CLOUDFRONT_PATH_PREFIXES keys; else S3 only.
 #
-# 2) /api/tiles/...?proxy=1 (debug): Django fetches tile (CDN then S3
-#    fallback) and returns bytes. Flow: Client -> Django -> CDN or S3.
-#    Requires ENABLE_TILE_PROXY_DEBUG (defaults to DEBUG).
+# 2) Optional ?proxy=1 (debug): gated by ENABLE_TILE_PROXY_DEBUG (defaults to DEBUG); normal traffic is always proxied.
 #
 # 3) /api/s3-tiles/...: Django fetches tile from S3 via boto3 and returns bytes.
 #    Bypasses CloudFront. Flow: Client -> Django -> S3.

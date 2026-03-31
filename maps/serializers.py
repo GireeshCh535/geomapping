@@ -3,7 +3,10 @@
 from django.conf import settings
 from rest_framework import serializers
 
-from .tile_path_service import public_https_base_for_s3_tile_prefix
+from .tile_path_service import (
+    public_https_base_for_s3_tile_prefix,
+    tile_proxy_png_template_from_s3_tile_path,
+)
 from rest_framework_gis.serializers import GeoFeatureModelSerializer
 from .models import *
 
@@ -367,8 +370,11 @@ class DeveloperListingMediaSerializer(serializers.ModelSerializer):
         ]
     
     def get_tile_url_template(self, obj):
-        """Get tile URL template for this media"""
+        """Get tile URL template for this media (Django /api/tiles proxy for developer rasters)."""
         if obj.is_tif and obj.tiles_generated and obj.s3_tile_path:
+            t = tile_proxy_png_template_from_s3_tile_path(obj.s3_tile_path)
+            if t:
+                return t
             base = public_https_base_for_s3_tile_prefix(obj.s3_tile_path)
             return f"{base}/{obj.s3_tile_path}/{{z}}/{{x}}/{{y}}.png"
         return None

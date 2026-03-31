@@ -19,8 +19,11 @@ from .models import *
 from .serializers import *
 from .tile_path_service import (
     TilePathService,
-    public_https_base_for_layer_path,
+    developer_raster_path_valid,
+    hierarchical_tile_proxy_base,
+    is_developer_data_tile_request,
     public_https_base_for_s3_tile_prefix,
+    tile_proxy_png_template_from_s3_tile_path,
 )
 import copy
 import logging
@@ -2903,12 +2906,12 @@ class TileCoordinatesView(APIView):
                                                 },
                                                 'tile_urls': {
                                                     'png': (
-                                                        f'{public_https_base_for_layer_path("karnataka", "bengaluru", "bengaluru_master_plan_2015")}'
-                                                        f'/karnataka/bengaluru/bengaluru_master_plan_2015/{{z}}/{{x}}/{{y}}.png'
+                                                        f'{hierarchical_tile_proxy_base("karnataka", "bengaluru", "bengaluru_master_plan_2015")}'
+                                                        f'/{{z}}/{{x}}/{{y}}.png'
                                                     ),
                                                     'mvt': (
-                                                        f'{public_https_base_for_layer_path("karnataka", "bengaluru", "bengaluru_master_plan_2015")}'
-                                                        f'/karnataka/bengaluru/bengaluru_master_plan_2015/{{z}}/{{x}}/{{y}}.mvt'
+                                                        f'{hierarchical_tile_proxy_base("karnataka", "bengaluru", "bengaluru_master_plan_2015")}'
+                                                        f'/{{z}}/{{x}}/{{y}}.mvt'
                                                     ),
                                                 }
                                             }
@@ -3108,20 +3111,34 @@ class TileCoordinatesView(APIView):
                                                             'tile_cache_size': 52428800,
                                                             'tile_urls': {
                                                                 'png_template': (
-                                                                    f'{public_https_base_for_layer_path("karnataka", "bengaluru", "bengaluru_master_plan_2015")}'
-                                                                    f'/karnataka/bengaluru/bengaluru_master_plan_2015/{{z}}/{{x}}/{{y}}.png'
+                                                                    f'{hierarchical_tile_proxy_base("karnataka", "bengaluru", "bengaluru_master_plan_2015")}'
+                                                                    f'/{{z}}/{{x}}/{{y}}.png'
                                                                 ),
                                                                 'mvt_template': (
-                                                                    f'{public_https_base_for_layer_path("karnataka", "bengaluru", "bengaluru_master_plan_2015")}'
-                                                                    f'/karnataka/bengaluru/bengaluru_master_plan_2015/{{z}}/{{x}}/{{y}}.mvt'
+                                                                    f'{hierarchical_tile_proxy_base("karnataka", "bengaluru", "bengaluru_master_plan_2015")}'
+                                                                    f'/{{z}}/{{x}}/{{y}}.mvt'
                                                                 ),
-                                                                'api_png_template': '/api/tiles/karnataka/bengaluru/bengaluru_master_plan_2015/{z}/{x}/{y}.png',
-                                                                'api_mvt_template': '/api/tiles/karnataka/bengaluru/bengaluru_master_plan_2015/{z}/{x}/{y}.mvt',
+                                                                'api_png_template': (
+                                                                    hierarchical_tile_proxy_base(
+                                                                        'karnataka', 'bengaluru', 'bengaluru_master_plan_2015'
+                                                                    )
+                                                                    + '/{z}/{x}/{y}.png'
+                                                                ),
+                                                                'api_mvt_template': (
+                                                                    hierarchical_tile_proxy_base(
+                                                                        'karnataka', 'bengaluru', 'bengaluru_master_plan_2015'
+                                                                    )
+                                                                    + '/{z}/{x}/{y}.mvt'
+                                                                ),
                                                                 'cloudfront_base': (
-                                                                    f'{public_https_base_for_layer_path("karnataka", "bengaluru", "bengaluru_master_plan_2015")}'
-                                                                    f'/karnataka/bengaluru/bengaluru_master_plan_2015/'
+                                                                    f'{hierarchical_tile_proxy_base("karnataka", "bengaluru", "bengaluru_master_plan_2015")}/'
                                                                 ),
-                                                                'api_base': '/api/tiles/karnataka/bengaluru/bengaluru_master_plan_2015/'
+                                                                'api_base': (
+                                                                    hierarchical_tile_proxy_base(
+                                                                        'karnataka', 'bengaluru', 'bengaluru_master_plan_2015'
+                                                                    )
+                                                                    + '/'
+                                                                ),
                                                             }
                                                         },
                                                         'metadata': {
@@ -3491,15 +3508,15 @@ class CompleteHierarchyAPIView(APIView):
         }
     
     def _get_layer_tile_urls(self, state_slug, city_slug, layer_slug, include_cloudfront=True):
-        """Get tile URLs for a layer (public host = CloudFront only if key matches CLOUDFRONT_PATH_PREFIXES)."""
-        base = public_https_base_for_layer_path(state_slug, city_slug, layer_slug)
+        """Tile URL templates pointing at Django proxy (/api/tiles/...); backend fetches S3 or CloudFront."""
+        base = hierarchical_tile_proxy_base(state_slug, city_slug, layer_slug)
         return {
-            'png_template': f"{base}/{state_slug}/{city_slug}/{layer_slug}/{{z}}/{{x}}/{{y}}.png",
-            'mvt_template': f"{base}/{state_slug}/{city_slug}/{layer_slug}/{{z}}/{{x}}/{{y}}.mvt",
-            'api_png_template': f"/api/tiles/{state_slug}/{city_slug}/{layer_slug}/{{z}}/{{x}}/{{y}}.png",
-            'api_mvt_template': f"/api/tiles/{state_slug}/{city_slug}/{layer_slug}/{{z}}/{{x}}/{{y}}.mvt",
-            'cloudfront_base': f"{base}/{state_slug}/{city_slug}/{layer_slug}/",
-            'api_base': f"/api/tiles/{state_slug}/{city_slug}/{layer_slug}/"
+            'png_template': f"{base}/{{z}}/{{x}}/{{y}}.png",
+            'mvt_template': f"{base}/{{z}}/{{x}}/{{y}}.mvt",
+            'api_png_template': f"{base}/{{z}}/{{x}}/{{y}}.png",
+            'api_mvt_template': f"{base}/{{z}}/{{x}}/{{y}}.mvt",
+            'cloudfront_base': f"{base}/",
+            'api_base': f"{base}/"
         }
 
 
@@ -3514,8 +3531,8 @@ def _build_layer_data_minimal(layer, state_slug, city_slug, feature_count_map):
     fc = feature_count_map.get(layer.id, 0)
     tile_template = None
     if layer.tiles_generated:
-        b = public_https_base_for_layer_path(state_slug, city_slug, layer.slug)
-        tile_template = f"{b}/{state_slug}/{city_slug}/{layer.slug}/{{z}}/{{x}}/{{y}}.png"
+        b = hierarchical_tile_proxy_base(state_slug, city_slug, layer.slug)
+        tile_template = f"{b}/{{z}}/{{x}}/{{y}}.png"
     bounds = None
     if layer.bbox_xmin is not None and layer.bbox_ymin is not None and layer.bbox_xmax is not None and layer.bbox_ymax is not None:
         bounds = {'xmin': layer.bbox_xmin, 'ymin': layer.bbox_ymin, 'xmax': layer.bbox_xmax, 'ymax': layer.bbox_ymax}
@@ -3536,14 +3553,14 @@ def _build_layer_data_optimized(layer, state_slug, city_slug, feature_count_map)
     layer_feature_count = feature_count_map.get(layer.id, 0)
     tile_urls = None
     if layer.tiles_generated:
-        base = public_https_base_for_layer_path(state_slug, city_slug, layer.slug)
+        base = hierarchical_tile_proxy_base(state_slug, city_slug, layer.slug)
         tile_urls = {
-            'png_template': f"{base}/{state_slug}/{city_slug}/{layer.slug}/{{z}}/{{x}}/{{y}}.png",
-            'mvt_template': f"{base}/{state_slug}/{city_slug}/{layer.slug}/{{z}}/{{x}}/{{y}}.mvt",
-            'api_png_template': f"/api/tiles/{state_slug}/{city_slug}/{layer.slug}/{{z}}/{{x}}/{{y}}.png",
-            'api_mvt_template': f"/api/tiles/{state_slug}/{city_slug}/{layer.slug}/{{z}}/{{x}}/{{y}}.mvt",
-            'cloudfront_base': f"{base}/{state_slug}/{city_slug}/{layer.slug}/",
-            'api_base': f"/api/tiles/{state_slug}/{city_slug}/{layer.slug}/"
+            'png_template': f"{base}/{{z}}/{{x}}/{{y}}.png",
+            'mvt_template': f"{base}/{{z}}/{{x}}/{{y}}.mvt",
+            'api_png_template': f"{base}/{{z}}/{{x}}/{{y}}.png",
+            'api_mvt_template': f"{base}/{{z}}/{{x}}/{{y}}.mvt",
+            'cloudfront_base': f"{base}/",
+            'api_base': f"{base}/"
         }
     return {
         'id': layer.id,
@@ -3603,14 +3620,14 @@ def _build_layer_data_full_trimmed(layer, state_slug, city_slug, feature_count_m
     layer_feature_count = feature_count_map.get(layer.id, 0)
     tile_urls = None
     if layer.tiles_generated:
-        base = public_https_base_for_layer_path(state_slug, city_slug, layer.slug)
+        base = hierarchical_tile_proxy_base(state_slug, city_slug, layer.slug)
         tile_urls = {
-            'png_template': f"{base}/{state_slug}/{city_slug}/{layer.slug}/{{z}}/{{x}}/{{y}}.png",
-            'mvt_template': f"{base}/{state_slug}/{city_slug}/{layer.slug}/{{z}}/{{x}}/{{y}}.mvt",
-            'api_png_template': f"/api/tiles/{state_slug}/{city_slug}/{layer.slug}/{{z}}/{{x}}/{{y}}.png",
-            'api_mvt_template': f"/api/tiles/{state_slug}/{city_slug}/{layer.slug}/{{z}}/{{x}}/{{y}}.mvt",
-            'cloudfront_base': f"{base}/{state_slug}/{city_slug}/{layer.slug}/",
-            'api_base': f"/api/tiles/{state_slug}/{city_slug}/{layer.slug}/"
+            'png_template': f"{base}/{{z}}/{{x}}/{{y}}.png",
+            'mvt_template': f"{base}/{{z}}/{{x}}/{{y}}.mvt",
+            'api_png_template': f"{base}/{{z}}/{{x}}/{{y}}.png",
+            'api_mvt_template': f"{base}/{{z}}/{{x}}/{{y}}.mvt",
+            'cloudfront_base': f"{base}/",
+            'api_base': f"{base}/"
         }
     out = {
         'id': layer.id,
@@ -3993,11 +4010,8 @@ class CloudFrontTileView(APIView):
 
     def _should_use_debug_proxy(self, request):
         """
-        Enable tile proxying only for debugging.
-
-        Normal traffic should keep using CloudFront redirects, but `?proxy=1`
-        allows fetching through Django when DEBUG is on or the explicit setting
-        is enabled.
+        Reserved for optional ?proxy=1 debug behavior (ENABLE_TILE_PROXY_DEBUG).
+        Normal traffic is always served via this view as a backend proxy.
         """
         proxy_requested = str(request.GET.get('proxy', '')).lower() in {'1', 'true', 'yes'}
         proxy_enabled = getattr(settings, 'ENABLE_TILE_PROXY_DEBUG', settings.DEBUG)
@@ -4026,8 +4040,11 @@ class CloudFrontTileView(APIView):
             # Determine format from URL
             format_type = 'png' if request.path.endswith('.png') else 'mvt'
 
-            # Cached layer check (avoids DB hit per tile; cache TTL 5 min)
-            if not self._layer_exists_cached(state_slug, city_slug, layer_slug):
+            # Cached layer check (avoids DB hit per tile; cache TTL 5 min). Developer rasters skip DataLayer.
+            if is_developer_data_tile_request(state_slug):
+                if not developer_raster_path_valid(city_slug, layer_slug):
+                    return self._return_error_tile("Invalid tile path")
+            elif not self._layer_exists_cached(state_slug, city_slug, layer_slug):
                 layer_key = f"{state_slug}/{city_slug}/{layer_slug}"
                 import time
                 current_time = time.time()
@@ -4048,6 +4065,8 @@ class CloudFrontTileView(APIView):
             s3_key = self.tile_path_service.generate_s3_key(
                 state_slug, city_slug, layer_slug, z, x, y, format_type
             )
+            if s3_key.startswith("__invalid__/"):
+                return self._return_error_tile("Invalid tile path")
             cache_key = f"tile_proxy:{s3_key}"
             ttl = getattr(settings, 'TILE_PROXY_CACHE_TTL', 3600)
             if ttl > 0:
@@ -4115,6 +4134,8 @@ class CloudFrontTileView(APIView):
         s3_key = self.tile_path_service.generate_s3_key(
             state_slug, city_slug, layer_slug, z, x, y, format_type
         )
+        if s3_key.startswith("__invalid__/"):
+            return None
         if self.tile_path_service.use_cloudfront_for_path(s3_key):
             cloudfront_url = self.tile_path_service.generate_cloudfront_url(
                 state_slug, city_slug, layer_slug, z, x, y, format_type
@@ -4265,8 +4286,10 @@ class S3DirectTileView(APIView):
             
             format_type = 'png' if request.path.endswith('.png') else 'mvt'
             
-            # Cached layer check to avoid DB hit per tile request
-            if not self._layer_exists_cached(state_slug, city_slug, layer_slug):
+            if is_developer_data_tile_request(state_slug):
+                if not developer_raster_path_valid(city_slug, layer_slug):
+                    return self._return_error_tile("Invalid tile path")
+            elif not self._layer_exists_cached(state_slug, city_slug, layer_slug):
                 # Only log layer not found warnings occasionally to reduce log spam
                 layer_key = f"{state_slug}/{city_slug}/{layer_slug}"
                 import time
@@ -4330,8 +4353,11 @@ class S3DirectTileView(APIView):
         Get tile directly from S3 bucket
         """
         try:
-            # Generate S3 key for the tile
-            s3_key = f"{state_slug}/{city_slug}/{layer_slug}/{z}/{x}/{y}.{format_type}"
+            s3_key = self.tile_path_service.generate_s3_key(
+                state_slug, city_slug, layer_slug, z, x, y, format_type
+            )
+            if s3_key.startswith("__invalid__/"):
+                return None
             
             logger.debug(f"🔍 Fetching from S3: s3://{self.bucket_name}/{s3_key}")
             
@@ -7519,7 +7545,7 @@ class DeveloperListingMapDataAPIView(APIView):
     - Center coordinates
     - S3 tile paths for all TIF files
     - Minimal listing info (name, location)
-    - tile_domains: s3_tile_domain, cloudfront_domain (tile_url_template uses CloudFront only for CLOUDFRONT_PATH_PREFIXES)
+    - tile_domains: s3_tile_domain, cloudfront_domain (developer land/plot rasters use /api/tiles/developer_data/... proxy templates)
     
     Much lighter and faster than the full detail API.
     """
@@ -7638,8 +7664,10 @@ class DeveloperListingMapDataAPIView(APIView):
 
             tif_files = []
             for media, tif_meta in media_meta_pairs:
-                _tb = public_https_base_for_s3_tile_prefix(media.s3_tile_path)
-                tile_url_template = f"{_tb}/{media.s3_tile_path}/{{z}}/{{x}}/{{y}}.png"
+                tile_url_template = tile_proxy_png_template_from_s3_tile_path(media.s3_tile_path)
+                if not tile_url_template:
+                    _tb = public_https_base_for_s3_tile_prefix(media.s3_tile_path)
+                    tile_url_template = f"{_tb}/{media.s3_tile_path}/{{z}}/{{x}}/{{y}}.png"
                 tif_files.append({
                     'file_name': media.file_name,
                     's3_tile_path': media.s3_tile_path,
