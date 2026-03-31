@@ -2,6 +2,8 @@
 
 from django.conf import settings
 from rest_framework import serializers
+
+from .tile_path_service import public_https_base_for_s3_tile_prefix
 from rest_framework_gis.serializers import GeoFeatureModelSerializer
 from .models import *
 
@@ -367,8 +369,8 @@ class DeveloperListingMediaSerializer(serializers.ModelSerializer):
     def get_tile_url_template(self, obj):
         """Get tile URL template for this media"""
         if obj.is_tif and obj.tiles_generated and obj.s3_tile_path:
-            _host = settings.AWS_S3_TILE_DOMAIN
-            return f"https://{_host}/{obj.s3_tile_path}/{{z}}/{{x}}/{{y}}.png"
+            base = public_https_base_for_s3_tile_prefix(obj.s3_tile_path)
+            return f"{base}/{obj.s3_tile_path}/{{z}}/{{x}}/{{y}}.png"
         return None
     
     def get_tiles_status(self, obj):

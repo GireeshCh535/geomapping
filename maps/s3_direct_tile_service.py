@@ -18,6 +18,7 @@ import time
 
 from maps.services import VectorTileService
 from maps.tile_rendering_service import TileRenderingService  # Enhanced version with patterns
+from maps.tile_path_service import TilePathService
 from maps.models import DataLayer, City, GeoFeature, CityLayerStyle, CityZoneMapping
 from maps.config import get_city_style_config, get_visakhapatnam_styles, get_amaravati_styles
 
@@ -672,11 +673,11 @@ class S3DirectTileGenerationService:
             return None
     
     def _generate_sample_urls(self, city_slug: str, min_zoom: int, max_zoom: int) -> Dict[str, str]:
-        """Generate sample URLs for testing (CLOUDFRONT_DOMAIN when set)."""
-        if not self.cloudfront_domain:
-            return {}
-
-        base_url = f"https://{self.cloudfront_domain}"
+        """Generate sample URLs using the same CloudFront vs S3 rules as tile_path_service."""
+        tps = TilePathService()
+        sample_key = f"{city_slug}/combined/0_0_0.png"
+        host = tps.cloudfront_domain if tps.use_cloudfront_for_path(sample_key) else tps.s3_tile_domain
+        base_url = f"https://{host}"
         mid_zoom = (min_zoom + max_zoom) // 2
         
         return {

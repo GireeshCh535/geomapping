@@ -2,9 +2,8 @@
 """
 S3-only tile serving reference (standalone). Production uses geo_mapping/settings.py.
 
-Active split: direct S3 (AWS_S3_TILE_DOMAIN), public tile host (TILE_CDN_DOMAIN),
-AWS CloudFront host (CLOUDFRONT_DOMAIN) for some URL templates.
-CLOUDFLARE_TILE_DOMAIN: reserved for a future all-Cloudflare migration — not used by tile logic yet.
+Active split: direct S3 (AWS_S3_TILE_DOMAIN) vs CloudFront (CLOUDFRONT_DOMAIN) for whitelisted key prefixes.
+TILE_CDN_DOMAIN defaults to CLOUDFRONT_DOMAIN in Django settings if unset.
 """
 
 # S3-Only Tile Serving Settings
@@ -18,9 +17,8 @@ AWS_S3_REGION_NAME = 'ap-south-1'
 AWS_S3_TILE_DOMAIN = f'{AWS_STORAGE_BUCKET_NAME}.s3.{AWS_S3_REGION_NAME}.amazonaws.com'
 
 CLOUDFRONT_DOMAIN = 'd17yosovmfjm4.cloudfront.net'
-TILE_CDN_DOMAIN = 'tiles.citylands.in'
-# Future Cloudflare-only cutover placeholder (keep equal to TILE_CDN_DOMAIN until you switch).
-CLOUDFLARE_TILE_DOMAIN = TILE_CDN_DOMAIN
+TILE_CDN_DOMAIN = CLOUDFRONT_DOMAIN
+CLOUDFLARE_TILE_DOMAIN = CLOUDFRONT_DOMAIN
 
 CLOUDFRONT_ENABLED = True
 

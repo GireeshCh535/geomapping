@@ -272,3 +272,27 @@ class TilePathService:
             return True
         except Exception:
             return False
+
+
+def public_https_base_for_layer_path(state_slug: str, city_slug: str, layer_slug: str) -> str:
+    """
+    https://{CLOUDFRONT_DOMAIN} or https://{AWS_S3_TILE_DOMAIN} for state/city/layer tile keys,
+    depending on CLOUDFRONT_PATH_PREFIXES + CLOUDFRONT_RESTRICT_PATH_PREFIXES.
+    """
+    svc = TilePathService()
+    sample_key = svc.generate_s3_key(state_slug, city_slug, layer_slug, 0, 0, 0, 'png')
+    host = svc.cloudfront_domain if svc.use_cloudfront_for_path(sample_key) else svc.s3_tile_domain
+    return f"https://{host}"
+
+
+def public_https_base_for_s3_tile_prefix(s3_tile_path: str) -> str:
+    """
+    Same as public_https_base_for_layer_path but for arbitrary prefixes (e.g. developer_data/...).
+    """
+    svc = TilePathService()
+    p = (s3_tile_path or "").strip().strip("/")
+    if not p:
+        return f"https://{svc.s3_tile_domain}"
+    sample_key = f"{p}/0/0/0.png"
+    host = svc.cloudfront_domain if svc.use_cloudfront_for_path(sample_key) else svc.s3_tile_domain
+    return f"https://{host}"

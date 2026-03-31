@@ -13,6 +13,8 @@ from typing import Dict, List, Optional, Tuple
 import time
 from django.conf import settings
 from django.db import close_old_connections
+
+from .tile_path_service import public_https_base_for_s3_tile_prefix
 from botocore.exceptions import ClientError
 import rasterio
 from rasterio.warp import calculate_default_transform, reproject, Resampling
@@ -582,7 +584,10 @@ class DeveloperListingTileService:
                         'file_name': media.file_name,
                         'file_url': media.file_url,
                         's3_tile_path': s3_tile_path,
-                        'tile_url_template': f"https://{settings.AWS_S3_TILE_DOMAIN}/{s3_tile_path}/{{z}}/{{x}}/{{y}}.png",
+                        'tile_url_template': (
+                            f"{public_https_base_for_s3_tile_prefix(s3_tile_path)}"
+                            f"/{s3_tile_path}/{{z}}/{{x}}/{{y}}.png"
+                        ),
                         'tiles_generated': media.total_tiles_generated,
                         'location': listing.location,
                         'city': listing.city,
