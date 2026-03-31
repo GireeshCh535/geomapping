@@ -35,8 +35,7 @@ class S3DirectTileGenerationService:
         self.s3_tile_domain = getattr(settings, 'AWS_S3_TILE_DOMAIN', None) or (
             f'{self.bucket_name}.s3.{self.region}.amazonaws.com'
         )
-        # Public tile hostname (same as TilePathService: TILE_CDN_DOMAIN), not CLOUDFLARE_TILE_DOMAIN yet.
-        self.cloudfront_domain = getattr(settings, 'TILE_CDN_DOMAIN', None)
+        self.cloudfront_domain = getattr(settings, 'CLOUDFRONT_DOMAIN', None)
         
         # Initialize S3 client
         self.s3_client = boto3.client(
@@ -673,7 +672,7 @@ class S3DirectTileGenerationService:
             return None
     
     def _generate_sample_urls(self, city_slug: str, min_zoom: int, max_zoom: int) -> Dict[str, str]:
-        """Generate sample URLs for testing (TILE_CDN_DOMAIN)."""
+        """Generate sample URLs for testing (CLOUDFRONT_DOMAIN when set)."""
         if not self.cloudfront_domain:
             return {}
 

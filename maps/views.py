@@ -7499,7 +7499,7 @@ class DeveloperListingMapDataAPIView(APIView):
     - Center coordinates
     - S3 tile paths for all TIF files
     - Minimal listing info (name, location)
-    - tile_domains: tile_cdn_domain, cloudfront_domain, s3_tile_domain (from settings; CLOUDFLARE_TILE_DOMAIN reserved for later)
+    - tile_domains: s3_tile_domain, cloudfront_domain, tile_cdn_domain (developer tiles use S3 host)
     
     Much lighter and faster than the full detail API.
     """
@@ -7616,11 +7616,11 @@ class DeveloperListingMapDataAPIView(APIView):
 
             recommended_zoom = max(min_zoom, min(recommended_zoom, max_zoom))
 
-            tile_cdn_host = settings.TILE_CDN_DOMAIN
+            s3_tile_host = settings.AWS_S3_TILE_DOMAIN
             tif_files = []
             for media, tif_meta in media_meta_pairs:
                 tile_url_template = (
-                    f"https://{tile_cdn_host}/{media.s3_tile_path}/{{z}}/{{x}}/{{y}}.png"
+                    f"https://{s3_tile_host}/{media.s3_tile_path}/{{z}}/{{x}}/{{y}}.png"
                 )
                 tif_files.append({
                     'file_name': media.file_name,
@@ -7677,9 +7677,9 @@ class DeveloperListingMapDataAPIView(APIView):
                         'total_tiles': sum(tf['tiles_generated'] for tf in tif_files)
                     },
                     'tile_domains': {
-                        'tile_cdn_domain': settings.TILE_CDN_DOMAIN,
-                        'cloudfront_domain': settings.CLOUDFRONT_DOMAIN,
                         's3_tile_domain': settings.AWS_S3_TILE_DOMAIN,
+                        'cloudfront_domain': settings.CLOUDFRONT_DOMAIN,
+                        'tile_cdn_domain': settings.TILE_CDN_DOMAIN,
                     },
                 },
                 status=status.HTTP_200_OK

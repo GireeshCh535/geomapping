@@ -1,7 +1,7 @@
 # maps/tile_path_service.py
 """
-Tile paths: S3 keys, TILE_CDN_DOMAIN public URLs vs direct S3 (AWS_S3_TILE_DOMAIN).
-Per-path choice: use_cloudfront_for_path() (name is legacy; means “use TILE_CDN_DOMAIN not S3”).
+Tile paths: direct S3 (AWS_S3_TILE_DOMAIN) for almost all keys; AWS CloudFront (CLOUDFRONT_DOMAIN)
+only for keys matching CLOUDFRONT_PATH_PREFIXES when CLOUDFRONT_RESTRICT_PATH_PREFIXES is True.
 """
 
 import os
@@ -12,7 +12,7 @@ from django.utils.text import slugify
 
 class TilePathService:
     """
-    S3 vs public tile host (TILE_CDN_DOMAIN). CLOUDFLARE_TILE_DOMAIN is not used here yet.
+    Default: most tiles → S3 URL; few whitelisted prefixes → CloudFront (d17… or env).
     """
 
     def __init__(self):
@@ -21,7 +21,9 @@ class TilePathService:
         self.s3_tile_domain = getattr(settings, 'AWS_S3_TILE_DOMAIN', None) or (
             f'{self.bucket_name}.s3.{self.region}.amazonaws.com'
         )
-        self.cloudfront_domain = getattr(settings, 'TILE_CDN_DOMAIN', 'tiles.citylands.in')
+        self.cloudfront_domain = getattr(
+            settings, 'CLOUDFRONT_DOMAIN', 'd17yosovmfjm4.cloudfront.net'
+        )
     
     def generate_s3_key(self, state_slug: str, city_slug: str, layer_slug: str, 
                        z: int, x: int, y: int, format_type: str = 'png') -> str:
@@ -54,7 +56,7 @@ class TilePathService:
     def generate_cloudfront_url(self, state_slug: str, city_slug: str, layer_slug: str,
                                z: int, x: int, y: int, format_type: str = 'png') -> str:
         """
-        Public tile URL on TILE_CDN_DOMAIN (historical method name “cloudfront”).
+        CloudFront URL (CLOUDFRONT_DOMAIN) for whitelisted S3 keys only.
         """
         s3_key = self.generate_s3_key(state_slug, city_slug, layer_slug, z, x, y, format_type)
         return f"https://{self.cloudfront_domain}/{s3_key}"
@@ -81,13 +83,12 @@ class TilePathService:
     
     def use_cloudfront_for_path(self, s3_key: str) -> bool:
         """
-        Return True if this S3 key should be fetched via tile CDN (TILE_CDN_DOMAIN / R2).
-        When USE_CLOUDFRONT is False, never use CDN. When CLOUDFRONT_RESTRICT_PATH_PREFIXES is False
-        (default), all paths use the CDN. When True, only keys matching CLOUDFRONT_PATH_PREFIXES do.
+        True only for keys matching CLOUDFRONT_PATH_PREFIXES when CLOUDFRONT_RESTRICT_PATH_PREFIXES
+        is True (default). If restrict is False, all keys use CloudFront. If USE_CLOUDFRONT is False, always S3.
         """
         if not getattr(settings, 'USE_CLOUDFRONT', True):
             return False
-        if not getattr(settings, 'CLOUDFRONT_RESTRICT_PATH_PREFIXES', False):
+        if not getattr(settings, 'CLOUDFRONT_RESTRICT_PATH_PREFIXES', True):
             return True
         prefixes = getattr(settings, 'CLOUDFRONT_PATH_PREFIXES', []) or []
         key = (s3_key or '').strip()
@@ -128,7 +129,7 @@ class TilePathService:
         return f"{self.LAND_PLOT_S3_PREFIX}/{z}/{x}/{y}.mvt"
 
     def land_plot_cloudfront_url(self, z: int, x: int, y: int) -> str:
-        """Public tile URL on TILE_CDN_DOMAIN for land/plot MVT."""
+        """CloudFront URL for land/plot MVT (prefix land-plot/ must be whitelisted)."""
         s3_key = self.land_plot_s3_key(z, x, y)
         return f"https://{self.cloudfront_domain}/{s3_key}"
 

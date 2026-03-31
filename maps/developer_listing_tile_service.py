@@ -582,7 +582,7 @@ class DeveloperListingTileService:
                         'file_name': media.file_name,
                         'file_url': media.file_url,
                         's3_tile_path': s3_tile_path,
-                        'tile_url_template': f"https://{settings.TILE_CDN_DOMAIN}/{s3_tile_path}/{{z}}/{{x}}/{{y}}.png",
+                        'tile_url_template': f"https://{settings.AWS_S3_TILE_DOMAIN}/{s3_tile_path}/{{z}}/{{x}}/{{y}}.png",
                         'tiles_generated': media.total_tiles_generated,
                         'location': listing.location,
                         'city': listing.city,

@@ -367,7 +367,7 @@ class DeveloperListingMediaSerializer(serializers.ModelSerializer):
     def get_tile_url_template(self, obj):
         """Get tile URL template for this media"""
         if obj.is_tif and obj.tiles_generated and obj.s3_tile_path:
-            _host = settings.TILE_CDN_DOMAIN
+            _host = settings.AWS_S3_TILE_DOMAIN
             return f"https://{_host}/{obj.s3_tile_path}/{{z}}/{{x}}/{{y}}.png"
         return None
     

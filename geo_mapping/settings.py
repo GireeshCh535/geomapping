@@ -343,9 +343,8 @@ MEDIA_ROOT = BASE_DIR / 'media'
 # No https://, no trailing slash.
 # - AWS_S3_TILE_DOMAIN: virtual-hosted bucket host (direct S3 fetches).
 # - CLOUDFRONT_DOMAIN: AWS CloudFront distribution host (e.g. hierarchy tile templates in views).
-# - TILE_CDN_DOMAIN: public tile hostname for redirects / TilePathService when path uses "CDN" not S3.
-# CLOUDFLARE_TILE_DOMAIN: reserved for a future all-Cloudflare cutover; defaults to TILE_CDN_DOMAIN
-# and is not used by tile URL code paths today (keep behavior on TILE_CDN_DOMAIN + S3 + CloudFront).
+# - TILE_CDN_DOMAIN: optional custom edge host (e.g. Cloudflare); not used for /api/tiles path pick (S3 vs d17).
+# CLOUDFLARE_TILE_DOMAIN: reserved for a future all-Cloudflare cutover; defaults to TILE_CDN_DOMAIN.
 
 # AWS S3 Configuration
 AWS_ACCESS_KEY_ID = 'AKIAW3MEBMOOEQKR3BXV'
@@ -367,9 +366,9 @@ CLOUDFRONT_DISTRIBUTION_ID = os.getenv('CLOUDFRONT_DISTRIBUTION_ID', '')  # Set 
 USE_CLOUDFRONT = os.getenv('USE_CLOUDFRONT', 'True').lower() == 'true'
 ENABLE_CLOUDFRONT_INVALIDATION = os.getenv('ENABLE_CLOUDFRONT_INVALIDATION', 'True').lower() == 'true'
 
-# When True (default), every tile path uses TILE_CDN_DOMAIN (R2/custom domain). When False, only
-# keys matching CLOUDFRONT_PATH_PREFIXES use the CDN; others use direct S3 URLs (legacy partial rollout).
-CLOUDFRONT_RESTRICT_PATH_PREFIXES = os.getenv('CLOUDFRONT_RESTRICT_PATH_PREFIXES', 'False').lower() == 'true'
+# When True (default): only keys under CLOUDFRONT_PATH_PREFIXES use CloudFront (CLOUDFRONT_DOMAIN, e.g. d17…);
+# all other keys use direct S3 (AWS_S3_TILE_DOMAIN). When False: every key uses CloudFront (rare / rollout).
+CLOUDFRONT_RESTRICT_PATH_PREFIXES = os.getenv('CLOUDFRONT_RESTRICT_PATH_PREFIXES', 'true').lower() == 'true'
 
 # Only used when CLOUDFRONT_RESTRICT_PATH_PREFIXES is True
 CLOUDFRONT_PATH_PREFIXES = [
@@ -391,8 +390,7 @@ SKIP_LOCAL_TILE_STORAGE = True
 # ---------------------------------------------------------------------------
 # TILE SERVING FLOW (see maps/views.py CloudFrontTileView, S3DirectTileView)
 # ---------------------------------------------------------------------------
-# 1) /api/tiles/... (no query): 302 to TILE_CDN_DOMAIN when the path uses the CDN branch; else S3.
-#    Some APIs use CLOUDFRONT_DOMAIN for masterplan-style template URLs. Direct S3: AWS_S3_TILE_DOMAIN.
+# 1) /api/tiles/... (no query): 302 to CLOUDFRONT_DOMAIN only for CLOUDFRONT_PATH_PREFIXES; else direct S3.
 #
 # 2) /api/tiles/...?proxy=1 (debug): Django fetches tile (CDN then S3
 #    fallback) and returns bytes. Flow: Client -> Django -> CDN or S3.
