@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 import time
 from django.conf import settings
+from django.db import close_old_connections
 from botocore.exceptions import ClientError
 import rasterio
 from rasterio.warp import calculate_default_transform, reproject, Resampling
@@ -78,6 +79,7 @@ class DeveloperListingTileService:
             Dict with processing results
         """
         try:
+            close_old_connections()
             event_type = webhook_data.get('event_type', '')
             action = webhook_data.get('action', '')
             listing_type = webhook_data.get('listing_type', '')
@@ -361,6 +363,7 @@ class DeveloperListingTileService:
                     media=media,
                     fallback_bounds=fallback_bounds
                 )
+                close_old_connections()
                 
                 tiles_generated = result.get('tiles_generated', 0)
                 tiles_by_zoom = result.get('tiles_by_zoom', {})
@@ -579,7 +582,7 @@ class DeveloperListingTileService:
                         'file_name': media.file_name,
                         'file_url': media.file_url,
                         's3_tile_path': s3_tile_path,
-                        'tile_url_template': f"https://d3js84ohvqla36.cloudfront.net/{s3_tile_path}/{{z}}/{{x}}/{{y}}.png",
+                        'tile_url_template': f"https://{settings.TILE_CDN_DOMAIN}/{s3_tile_path}/{{z}}/{{x}}/{{y}}.png",
                         'tiles_generated': media.total_tiles_generated,
                         'location': listing.location,
                         'city': listing.city,

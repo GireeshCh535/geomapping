@@ -922,20 +922,6 @@ docker-compose exec web python manage.py insert_masterplan_layer \
   --exclude "Tide Line,CRZ (Coastal Regulation Zone) Boundary" \
   --delete-existing
 
-# ========== Andhra Pradesh – Yanam CRZ ==========
-# state/city/layer: andhra-pradesh/yanam_crz/yanam_crz_layer
-# Exclude line files (HTL, LTL, CRZ Boundary) so only zone polygons are inserted
-docker-compose exec web python manage.py insert_masterplan_layer \
-  --city-slug "yanam_crz" \
-  --layer-name "Yanam CRZ Layer" \
-  --layer-slug "yanam_crz_layer" \
-  --data-dir "data/Yanam CRZ layers_processed" \
-  --authority "Puducherry State Coastal Zone Management Authority" \
-  --min-zoom 8 \
-  --max-zoom 18 \
-  --exclude "Tide Line,CRZ (Coastal Regulation Zone) Boundary" \
-  --delete-existing
-
 # ========== Dadra and Nagar Haveli and Daman and Diu – Diu CRZ ==========
 # state/city/layer: dadra-nagar-haveli-daman-diu/diu_crz/diu_crz_layers
 # Exclude line files (HTL, LTL, CRZ Boundary) so only zone polygons are inserted
@@ -994,6 +980,67 @@ docker-compose exec web python manage.py insert_masterplan_layer \
   --layer-slug "maharashtra_crz_layer" \
   --data-dir "data/crz/Maharashtra CRZ layers_processed" \
   --authority "Maharashtra Coastal Zone Management Authority" \
+  --min-zoom 8 \
+  --max-zoom 18 \
+  --delete-existing
+
+# ========== Karnataka – Karnataka CRZ ==========
+# state/city/layer: karnataka/karnataka_crz/karnataka_crz_layer
+docker-compose exec web python manage.py insert_masterplan_layer \
+  --city-slug "karnataka_crz" \
+  --layer-name "Karnataka CRZ Layer" \
+  --layer-slug "karnataka_crz_layer" \
+  --data-dir "data/crz/Karnataka CRZ layers_processed" \
+  --authority "Karnataka State Coastal Zone Management Authority" \
+  --min-zoom 8 \
+  --max-zoom 18 \
+  --delete-existing
+
+# ========== Puducherry – Mahe CRZ ==========
+# state/city/layer: puducherry/mahe_crz/mahe_crz_layer
+docker-compose exec web python manage.py insert_masterplan_layer \
+  --city-slug "mahe_crz" \
+  --layer-name "Mahe CRZ Layer" \
+  --layer-slug "mahe_crz_layer" \
+  --data-dir "data/crz/Mahe CRZ layers_processed" \
+  --authority "Puducherry State Coastal Zone Management Authority" \
+  --min-zoom 8 \
+  --max-zoom 18 \
+  --delete-existing
+
+# ========== Odisha – Odisha CRZ ==========
+# state/city/layer: odisha/odisha_crz/odisha_crz_layer
+docker-compose exec web python manage.py insert_masterplan_layer \
+  --city-slug "odisha_crz" \
+  --layer-name "Odisha CRZ Layer" \
+  --layer-slug "odisha_crz_layer" \
+  --data-dir "data/crz/Odisha CRZ layers_processed" \
+  --authority "Odisha State Coastal Zone Management Authority" \
+  --min-zoom 8 \
+  --max-zoom 18 \
+  --delete-existing
+
+# ========== Puducherry – Puducherry (district) CRZ ==========
+# state/city/layer: puducherry/puducherry_crz/puducherry_crz_layer
+docker-compose exec web python manage.py insert_masterplan_layer \
+  --city-slug "puducherry_crz" \
+  --layer-name "Puducherry CRZ Layer" \
+  --layer-slug "puducherry_crz_layer" \
+  --data-dir "data/crz/Puducherry CRZ layers_processed" \
+  --authority "Puducherry State Coastal Zone Management Authority" \
+  --min-zoom 8 \
+  --max-zoom 18 \
+  --delete-existing
+
+# ========== Andhra Pradesh (Yanam enclave) – Yanam CRZ ==========
+# state/city/layer: andhra-pradesh/yanam_crz/yanam_crz_layer
+# Data lives under data/ (not data/crz/): data/Yanam CRZ layers_processed
+docker-compose exec web python manage.py insert_masterplan_layer \
+  --city-slug "yanam_crz" \
+  --layer-name "Yanam CRZ Layer" \
+  --layer-slug "yanam_crz_layer" \
+  --data-dir "data/Yanam CRZ layers_processed" \
+  --authority "Puducherry State Coastal Zone Management Authority" \
   --min-zoom 8 \
   --max-zoom 18 \
   --delete-existing

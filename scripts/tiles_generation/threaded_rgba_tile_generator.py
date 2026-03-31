@@ -33,7 +33,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger("threaded-rgba-tile-generator")
 
-CLOUDFRONT_BASE_URL = "https://d17yosovmfjm4.cloudfront.net"
+CLOUDFRONT_BASE_URL = os.environ.get("TILE_CDN_BASE_URL", "https://tiles.citylands.in")
 
 
 # -----------------------------------------------------------------------------

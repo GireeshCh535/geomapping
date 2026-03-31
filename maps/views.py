@@ -46,11 +46,25 @@ def _masterplan_fill_color_svg_data_uri(hex_color):
 
 
 # CRZ layers: no search buffer; order by ascending area so overlapping zones return the smallest/most specific polygon.
-CRZ_SEARCH_LAYER_SLUGS = frozenset({'tamil_nadu_crz_layer', 'karnataka_crz_layer', 'andhra_pradesh_crz_layer', 'kerela_crz_layer', 'maharashtra_crz_layer', 'gujarat_crz_layer', 'diu_crz_layers', 'karaikal_crz_layer'})
+# 12 slugs aligned with data/crz/* (AndhraPradesh … TamilNadu). Tamil Nadu CRZ uses tamil_nadu_crz_layer, not crz_layer.
+CRZ_SEARCH_LAYER_SLUGS = frozenset({
+    'andhra_pradesh_crz_layer',
+    'diu_crz_layers',
+    'gujarat_crz_layer',
+    'karaikal_crz_layer',
+    'karnataka_crz_layer',
+    'kerela_crz_layer',
+    'maharashtra_crz_layer',
+    'mahe_crz_layer',
+    'odisha_crz_layer',
+    'puducherry_crz_layer',
+    'tamil_nadu_crz_layer',
+    'yanam_crz_layer',
+})
 
 
-def _filter_karnataka_crz_properties(feature_data):
-    """Expose only HEX, Name, Regulation Type in detailed_category.properties (Karnataka CRZ)."""
+def _filter_crz_geojson_properties(feature_data):
+    """Expose only HEX, Name, Regulation Type in detailed_category.properties (all CRZ GeoJSON layers)."""
     if not isinstance(feature_data, dict):
         return
     dc = feature_data.get('detailed_category')
@@ -66,6 +80,10 @@ def _filter_karnataka_crz_properties(feature_data):
         'Regulation Type': p.get('Regulation Type'),
     }
     feature_data['detailed_category'] = dc
+
+
+# Alias for call sites that refer to Karnataka explicitly
+_filter_karnataka_crz_properties = _filter_crz_geojson_properties
 
 # ================================
 # VIEWSETS (Router endpoints)
@@ -1498,10 +1516,9 @@ class CoordinateSearchTestView(APIView):
                             'all_layer_data': [feature_data],
                         }
                     
-                    # Tamil Nadu / Karnataka CRZ — Name, Regulation Type, HEX; Karnataka strips extra properties
+                    # All CRZ layers (CRZ_SEARCH_LAYER_SLUGS): Name, Regulation Type, HEX; trim properties
                     elif layer.slug in CRZ_SEARCH_LAYER_SLUGS:
-                        if layer.slug == 'karnataka_crz_layer':
-                            _filter_karnataka_crz_properties(feature_data)
+                        _filter_crz_geojson_properties(feature_data)
                         detailed_category = feature_data.get('detailed_category', {})
                         properties = detailed_category.get('properties', {}) or {}
                         name = properties.get('Name', '')
@@ -1515,24 +1532,7 @@ class CoordinateSearchTestView(APIView):
                             'features': [feature_data],
                             'all_layer_data': [feature_data],
                         }
-                    
-                    elif layer.slug in CRZ_SEARCH_LAYER_SLUGS:
-                        if layer.slug == 'andhra_pradesh_crz_layer':
-                            _filter_andhra_pradesh_crz_properties(feature_data)
-                        detailed_category = feature_data.get('detailed_category', {})
-                        properties = detailed_category.get('properties', {}) or {}
-                        name = properties.get('Name', '')
-                        regulation_type = properties.get('Regulation Type', '')
-                        data_string = f"{name}, {regulation_type}".strip(', ')
-                        fill_color = properties.get('HEX', '') or ''
-                        return {
-                            'data': data_string,
-                            'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
-                            'found': True,
-                            'features': [feature_data],
-                            'all_layer_data': [feature_data],
-                        }
-                    
+
                     # Coastal roads, expressways, sea links, bridges, corridors - use properties.Name, black fill
                     elif layer.slug in [
                         'kharghar_coastal_road', 'versova_bhayander_coastal_road', 'pune_ring_roads',
@@ -2519,119 +2519,10 @@ class CoordinateSearchTestView(APIView):
                     'all_layer_data': containing_features,
                 }
             
-            # Tamil Nadu / Karnataka CRZ — Name, Regulation Type, HEX; Karnataka properties trimmed to those three
+            # All CRZ layers: Name, Regulation Type, HEX; trim properties on each feature
             if layer.slug in CRZ_SEARCH_LAYER_SLUGS and containing_features:
-                if layer.slug == 'karnataka_crz_layer':
-                    for fd in containing_features:
-                        _filter_karnataka_crz_properties(fd)
-                primary_feature = containing_features[0]
-                detailed_category = primary_feature.get('detailed_category', {})
-                properties = detailed_category.get('properties', {}) or {}
-                name = properties.get('Name', '')
-                regulation_type = properties.get('Regulation Type', '')
-                data_string = f"{name}, {regulation_type}".strip(', ')
-                fill_color = properties.get('HEX', '') or ''
-                return {
-                    'data': data_string,
-                    'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
-                    'found': True,
-                    'features': containing_features[:1],
-                    'all_layer_data': containing_features,
-                }
-
-            if layer.slug == 'andhra_pradesh_crz_layer' and containing_features:
                 for fd in containing_features:
-                    _filter_andhra_pradesh_crz_properties(fd)
-                primary_feature = containing_features[0]
-                detailed_category = primary_feature.get('detailed_category', {})
-                properties = detailed_category.get('properties', {}) or {}
-                name = properties.get('Name', '')
-                regulation_type = properties.get('Regulation Type', '')
-                data_string = f"{name}, {regulation_type}".strip(', ')
-                fill_color = properties.get('HEX', '') or ''
-                return {
-                    'data': data_string,
-                    'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
-                    'found': True,
-                    'features': containing_features[:1],
-                    'all_layer_data': containing_features,
-                }
-
-            if layer.slug == 'kerela_crz_layer' and containing_features:
-                for fd in containing_features:
-                    _filter_kerela_crz_properties(fd)
-                primary_feature = containing_features[0]
-                detailed_category = primary_feature.get('detailed_category', {})
-                properties = detailed_category.get('properties', {}) or {}
-                name = properties.get('Name', '')
-                regulation_type = properties.get('Regulation Type', '')
-                data_string = f"{name}, {regulation_type}".strip(', ')
-                fill_color = properties.get('HEX', '') or ''
-                return {
-                    'data': data_string,
-                    'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
-                    'found': True,
-                    'features': containing_features[:1],
-                    'all_layer_data': containing_features,
-                }
-            
-            if layer.slug == 'maharashtra_crz_layer' and containing_features:
-                for fd in containing_features:
-                    _filter_maharashtra_crz_properties(fd)
-                primary_feature = containing_features[0]
-                detailed_category = primary_feature.get('detailed_category', {})
-                properties = detailed_category.get('properties', {}) or {}
-                name = properties.get('Name', '')
-                regulation_type = properties.get('Regulation Type', '')
-                data_string = f"{name}, {regulation_type}".strip(', ')
-                fill_color = properties.get('HEX', '') or ''
-                return {
-                    'data': data_string,
-                    'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
-                    'found': True,
-                    'features': containing_features[:1],
-                    'all_layer_data': containing_features,
-                }
-
-            if layer.slug == 'gujarat_crz_layer' and containing_features:
-                for fd in containing_features:
-                    _filter_gujarat_crz_properties(fd)
-                primary_feature = containing_features[0]
-                detailed_category = primary_feature.get('detailed_category', {})
-                properties = detailed_category.get('properties', {}) or {}
-                name = properties.get('Name', '')
-                regulation_type = properties.get('Regulation Type', '')
-                data_string = f"{name}, {regulation_type}".strip(', ')
-                fill_color = properties.get('HEX', '') or ''
-                return {
-                    'data': data_string,
-                    'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
-                    'found': True,  
-                    'features': containing_features[:1],
-                    'all_layer_data': containing_features,
-                }
-
-            if layer.slug == 'diu_crz_layers' and containing_features:
-                for fd in containing_features:
-                    _filter_diu_crz_properties(fd)
-                primary_feature = containing_features[0]
-                detailed_category = primary_feature.get('detailed_category', {})
-                properties = detailed_category.get('properties', {}) or {}
-                name = properties.get('Name', '')
-                regulation_type = properties.get('Regulation Type', '')
-                data_string = f"{name}, {regulation_type}".strip(', ')
-                fill_color = properties.get('HEX', '') or ''
-                return {
-                    'data': data_string,
-                    'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
-                    'found': True,
-                    'features': containing_features[:1],
-                    'all_layer_data': containing_features,
-                }
-            
-            if layer.slug == 'karaikal_crz_layer' and containing_features:
-                for fd in containing_features:
-                    _filter_karaikal_crz_properties(fd)
+                    _filter_crz_geojson_properties(fd)
                 primary_feature = containing_features[0]
                 detailed_category = primary_feature.get('detailed_category', {})
                 properties = detailed_category.get('properties', {}) or {}
@@ -2748,7 +2639,7 @@ class AvailableTilesView(APIView):
             aws_secret_access_key=getattr(settings, 'AWS_SECRET_ACCESS_KEY', None)
         )
         self.bucket_name = getattr(settings, 'AWS_STORAGE_BUCKET_NAME')
-        self.cloudfront_domain = getattr(settings, 'CLOUDFRONT_DOMAIN', None)
+        self.cloudfront_domain = settings.CLOUDFRONT_DOMAIN or None
     
     def get(self, request, city_slug):
         """
@@ -3007,8 +2898,8 @@ class TileCoordinatesView(APIView):
                                                     'ymax': 13.2
                                                 },
                                                 'tile_urls': {
-                                                    'png': 'https://d17yosovmfjm4.cloudfront.net/tiles/karnataka/bengaluru/master_plan_2015/{z}/{x}/{y}.png',
-                                                    'mvt': 'https://d17yosovmfjm4.cloudfront.net/tiles/karnataka/bengaluru/master_plan_2015/{z}/{x}/{y}.mvt'
+                                                    'png': 'https://tiles.citylands.in/tiles/karnataka/bengaluru/master_plan_2015/{z}/{x}/{y}.png',
+                                                    'mvt': 'https://tiles.citylands.in/tiles/karnataka/bengaluru/master_plan_2015/{z}/{x}/{y}.mvt'
                                                 }
                                             }
                                         ]
@@ -3206,11 +3097,11 @@ class TileCoordinatesView(APIView):
                                                             'tiles_generated': True,
                                                             'tile_cache_size': 52428800,
                                                             'tile_urls': {
-                                                                'png_template': 'https://d17yosovmfjm4.cloudfront.net/karnataka/bengaluru/bengaluru_master_plan_2015/{z}/{x}/{y}.png',
-                                                                'mvt_template': 'https://d17yosovmfjm4.cloudfront.net/karnataka/bengaluru/bengaluru_master_plan_2015/{z}/{x}/{y}.mvt',
+                                                                'png_template': 'https://tiles.citylands.in/karnataka/bengaluru/bengaluru_master_plan_2015/{z}/{x}/{y}.png',
+                                                                'mvt_template': 'https://tiles.citylands.in/karnataka/bengaluru/bengaluru_master_plan_2015/{z}/{x}/{y}.mvt',
                                                                 'api_png_template': '/api/tiles/karnataka/bengaluru/bengaluru_master_plan_2015/{z}/{x}/{y}.png',
                                                                 'api_mvt_template': '/api/tiles/karnataka/bengaluru/bengaluru_master_plan_2015/{z}/{x}/{y}.mvt',
-                                                                'cloudfront_base': 'https://d17yosovmfjm4.cloudfront.net/karnataka/bengaluru/bengaluru_master_plan_2015/',
+                                                                'cloudfront_base': 'https://tiles.citylands.in/karnataka/bengaluru/bengaluru_master_plan_2015/',
                                                                 'api_base': '/api/tiles/karnataka/bengaluru/bengaluru_master_plan_2015/'
                                                             }
                                                         },
@@ -3582,7 +3473,7 @@ class CompleteHierarchyAPIView(APIView):
     
     def _get_layer_tile_urls(self, state_slug, city_slug, layer_slug, include_cloudfront=True):
         """Get tile URLs for a layer"""
-        base_url = getattr(settings, 'CLOUDFRONT_DOMAIN', 'd17yosovmfjm4.cloudfront.net')
+        base_url = settings.CLOUDFRONT_DOMAIN
         
         return {
             'png_template': f"https://{base_url}/{state_slug}/{city_slug}/{layer_slug}/{{z}}/{{x}}/{{y}}.png",
@@ -3603,7 +3494,7 @@ HIERARCHY_V2_CACHE_TTL = 300
 def _build_layer_data_minimal(layer, state_slug, city_slug, feature_count_map):
     """Minimal layer payload: id, slug, name, category, feature_count, tiles, bounds, tile URL."""
     fc = feature_count_map.get(layer.id, 0)
-    base_url = getattr(settings, 'CLOUDFRONT_DOMAIN', 'd17yosovmfjm4.cloudfront.net')
+    base_url = settings.CLOUDFRONT_DOMAIN
     tile_template = f"https://{base_url}/{state_slug}/{city_slug}/{layer.slug}/{{z}}/{{x}}/{{y}}.png" if layer.tiles_generated else None
     bounds = None
     if layer.bbox_xmin is not None and layer.bbox_ymin is not None and layer.bbox_xmax is not None and layer.bbox_ymax is not None:
@@ -3625,7 +3516,7 @@ def _build_layer_data_optimized(layer, state_slug, city_slug, feature_count_map)
     layer_feature_count = feature_count_map.get(layer.id, 0)
     tile_urls = None
     if layer.tiles_generated:
-        base_url = getattr(settings, 'CLOUDFRONT_DOMAIN', 'd17yosovmfjm4.cloudfront.net')
+        base_url = settings.CLOUDFRONT_DOMAIN
         tile_urls = {
             'png_template': f"https://{base_url}/{state_slug}/{city_slug}/{layer.slug}/{{z}}/{{x}}/{{y}}.png",
             'mvt_template': f"https://{base_url}/{state_slug}/{city_slug}/{layer.slug}/{{z}}/{{x}}/{{y}}.mvt",
@@ -3692,7 +3583,7 @@ def _build_layer_data_full_trimmed(layer, state_slug, city_slug, feature_count_m
     layer_feature_count = feature_count_map.get(layer.id, 0)
     tile_urls = None
     if layer.tiles_generated:
-        base_url = getattr(settings, 'CLOUDFRONT_DOMAIN', 'd17yosovmfjm4.cloudfront.net')
+        base_url = settings.CLOUDFRONT_DOMAIN
         tile_urls = {
             'png_template': f"https://{base_url}/{state_slug}/{city_slug}/{layer.slug}/{{z}}/{{x}}/{{y}}.png",
             'mvt_template': f"https://{base_url}/{state_slug}/{city_slug}/{layer.slug}/{{z}}/{{x}}/{{y}}.mvt",
@@ -4143,12 +4034,30 @@ class CloudFrontTileView(APIView):
                 cached = cache.get(cache_key)
                 if cached is not None:
                     return self._build_tile_response(cached, format_type)
-            backend_url = self.tile_path_service.get_backend_url_for_tile(
-                state_slug, city_slug, layer_slug, z, x, y, format_type
-            )
-            backend_label = self.tile_path_service._backend_label(s3_key)
-            # print(f"[tile_proxy] Serving from {backend_label}: {backend_url}")
-            tile_data = self._fetch_url(backend_url)
+            # Try backends in configured order so incomplete CDN syncs can fall back to S3.
+            fallback_order = getattr(settings, 'TILE_SERVING_FALLBACK_ORDER', ['cloudfront', 's3_direct']) or ['cloudfront', 's3_direct']
+            candidates = []
+            for source in fallback_order:
+                if source == 'cloudfront':
+                    candidates.append(('CloudFront', self.tile_path_service.generate_cloudfront_url(
+                        state_slug, city_slug, layer_slug, z, x, y, format_type
+                    )))
+                elif source == 's3_direct':
+                    candidates.append(('S3', self.tile_path_service.generate_s3_url(
+                        state_slug, city_slug, layer_slug, z, x, y, format_type
+                    )))
+            if not candidates:
+                # Defensive fallback
+                candidates = [('CloudFront', self.tile_path_service.generate_cloudfront_url(
+                    state_slug, city_slug, layer_slug, z, x, y, format_type
+                ))]
+
+            tile_data = None
+            for backend_label, backend_url in candidates:
+                # print(f"[tile_proxy] Serving from {backend_label}: {backend_url}")
+                tile_data = self._fetch_url(backend_url)
+                if tile_data:
+                    break
             if tile_data:
                 if ttl > 0:
                     try:
@@ -6269,21 +6178,22 @@ class TileGenerationCallbackView(APIView):
                 if s3_tile_path:
                     media.s3_tile_path = s3_tile_path
                 media.save()
-                if bounds or tiles_by_zoom or min_zoom is not None or max_zoom is not None:
-                    TIFMetadata.objects.update_or_create(
-                        media=media,
-                        defaults={
-                            'bounds_west': bounds.get('west') if bounds else None,
-                            'bounds_south': bounds.get('south') if bounds else None,
-                            'bounds_east': bounds.get('east') if bounds else None,
-                            'bounds_north': bounds.get('north') if bounds else None,
-                            'min_zoom': min_zoom if min_zoom is not None else 8,
-                            'max_zoom': max_zoom if max_zoom is not None else 18,
-                            'total_tiles_generated': tiles_generated,
-                            'tiles_by_zoom': tiles_by_zoom,
-                            'tif_data': {'bounds': bounds, 'tiles_by_zoom': tiles_by_zoom, 'min_zoom': min_zoom, 'max_zoom': max_zoom},
-                        }
-                    )
+                # Always write TIFMetadata when tiles succeeded. Worker callbacks often omit
+                # bounds/zoom; map-data and admin rely on this row existing.
+                TIFMetadata.objects.update_or_create(
+                    media=media,
+                    defaults={
+                        'bounds_west': bounds.get('west') if bounds else None,
+                        'bounds_south': bounds.get('south') if bounds else None,
+                        'bounds_east': bounds.get('east') if bounds else None,
+                        'bounds_north': bounds.get('north') if bounds else None,
+                        'min_zoom': min_zoom if min_zoom is not None else 8,
+                        'max_zoom': max_zoom if max_zoom is not None else 18,
+                        'total_tiles_generated': tiles_generated,
+                        'tiles_by_zoom': tiles_by_zoom,
+                        'tif_data': {'bounds': bounds, 'tiles_by_zoom': tiles_by_zoom, 'min_zoom': min_zoom, 'max_zoom': max_zoom},
+                    }
+                )
             elif not success:
                 err = fr.get('error') or 'Unknown error'
                 media.tiles_generation_error = str(err)[:65535]
@@ -6392,13 +6302,9 @@ class DeveloperListingMediaWebhookView(APIView):
             )
             
             # Process all events (create/update/deletion) in background; return 202 immediately (Fix 1).
-            import threading
-            thread = threading.Thread(
-                target=_process_developer_listing_webhook,
-                args=(webhook_event.id,),
-                daemon=True,
-            )
-            thread.start()
+            # Bounded pool: bulk uploads can send 1000+ webhooks; unbounded threads exhaust DB pool and RAM.
+            from .webhook_background import submit_webhook_job
+            submit_webhook_job(_process_developer_listing_webhook, webhook_event.id)
             logger.info(f"[WEBHOOK_RECEIVE] Accepted event={event_type} action={action} listing={listing_type} id={listing_id} webhook_event_id={webhook_event.id}")
             return Response(
                 {'status': 'accepted', 'webhook_event_id': webhook_event.id},
@@ -6635,12 +6541,8 @@ class LandPlotWebhookView(APIView):
                 request_headers=dict(request.headers),
                 request_ip=ip,
             )
-            import threading
-            threading.Thread(
-                target=_process_land_plot_webhook,
-                args=(webhook_event.id,),
-                daemon=True,
-            ).start()
+            from .webhook_background import submit_webhook_job
+            submit_webhook_job(_process_land_plot_webhook, webhook_event.id)
             logger.info(f"[LAND_PLOT_WEBHOOK] Accepted: {action} {listing_type} {listing_id} event_id={webhook_event.id}")
             return Response(
                 {"status": "success", "message": "accepted", "event_id": webhook_event.id},
@@ -7597,6 +7499,7 @@ class DeveloperListingMapDataAPIView(APIView):
     - Center coordinates
     - S3 tile paths for all TIF files
     - Minimal listing info (name, location)
+    - tile_domains: tile_cdn_domain, cloudfront_domain, s3_tile_domain (from settings; CLOUDFLARE_TILE_DOMAIN reserved for later)
     
     Much lighter and faster than the full detail API.
     """
@@ -7630,14 +7533,17 @@ class DeveloperListingMapDataAPIView(APIView):
                     status=status.HTTP_404_NOT_FOUND
                 )
             
-            # Get all TIF metadata for this listing
-            tif_metadata_list = TIFMetadata.objects.filter(
-                media__listing=listing,
-                media__is_tif=True,
-                media__tiles_generated=True
-            ).select_related('media')
-            
-            if not tif_metadata_list.exists():
+            # Prefer media rows that finished tile gen; TIFMetadata may be missing if an older
+            # callback omitted bounds (fixed in _save_tif_data_from_callback).
+            from django.core.exceptions import ObjectDoesNotExist
+
+            tif_media = DeveloperListingMedia.objects.filter(
+                listing=listing,
+                is_tif=True,
+                tiles_generated=True,
+            ).select_related('tif_metadata')
+
+            if not tif_media.exists():
                 return Response(
                     {
                         'success': False,
@@ -7651,59 +7557,81 @@ class DeveloperListingMapDataAPIView(APIView):
                     },
                     status=status.HTTP_200_OK
                 )
-            
-            # Calculate combined bounds from all TIF files
-            west = min([tm.bounds_west for tm in tif_metadata_list if tm.bounds_west is not None])
-            south = min([tm.bounds_south for tm in tif_metadata_list if tm.bounds_south is not None])
-            east = max([tm.bounds_east for tm in tif_metadata_list if tm.bounds_east is not None])
-            north = max([tm.bounds_north for tm in tif_metadata_list if tm.bounds_north is not None])
-            
-            # Get zoom levels
-            min_zoom = min([tm.min_zoom for tm in tif_metadata_list])
-            max_zoom = max([tm.max_zoom for tm in tif_metadata_list])
-            
-            # Calculate recommended zoom based on area
-            width = east - west
-            height = north - south
-            area = width * height
-            
-            if area < 0.0001:
-                recommended_zoom = 17
-            elif area < 0.001:
-                recommended_zoom = 15
-            elif area < 0.01:
-                recommended_zoom = 13
-            elif area < 0.1:
-                recommended_zoom = 11
+
+            media_meta_pairs = []
+            for m in tif_media:
+                try:
+                    tm = m.tif_metadata
+                except ObjectDoesNotExist:
+                    tm = None
+                media_meta_pairs.append((m, tm))
+
+            west_list = [tm.bounds_west for _, tm in media_meta_pairs if tm and tm.bounds_west is not None]
+            south_list = [tm.bounds_south for _, tm in media_meta_pairs if tm and tm.bounds_south is not None]
+            east_list = [tm.bounds_east for _, tm in media_meta_pairs if tm and tm.bounds_east is not None]
+            north_list = [tm.bounds_north for _, tm in media_meta_pairs if tm and tm.bounds_north is not None]
+
+            if west_list and south_list and east_list and north_list:
+                west = min(west_list)
+                south = min(south_list)
+                east = max(east_list)
+                north = max(north_list)
             else:
-                recommended_zoom = 9
-            
-            # Ensure within bounds
+                pt = listing.get_listing_point() if hasattr(listing, 'get_listing_point') else None
+                if pt is not None and not getattr(pt, 'empty', True):
+                    lat, lng = pt.y, pt.x
+                    pad = 0.02
+                    west, south, east, north = lng - pad, lat - pad, lng + pad, lat + pad
+                else:
+                    west = south = east = north = None
+
+            zoom_mins = [tm.min_zoom for _, tm in media_meta_pairs if tm and tm.min_zoom is not None]
+            zoom_maxs = [tm.max_zoom for _, tm in media_meta_pairs if tm and tm.max_zoom is not None]
+            min_zoom = min(zoom_mins) if zoom_mins else 8
+            max_zoom = max(zoom_maxs) if zoom_maxs else 18
+
+            if west is not None and south is not None and east is not None and north is not None:
+                width = east - west
+                height = north - south
+                area = width * height
+                if area < 0.0001:
+                    recommended_zoom = 17
+                elif area < 0.001:
+                    recommended_zoom = 15
+                elif area < 0.01:
+                    recommended_zoom = 13
+                elif area < 0.1:
+                    recommended_zoom = 11
+                else:
+                    recommended_zoom = 9
+                center_lat = (south + north) / 2
+                center_lng = (west + east) / 2
+            else:
+                recommended_zoom = 15
+                pt = listing.get_listing_point() if hasattr(listing, 'get_listing_point') else None
+                if pt is not None and not getattr(pt, 'empty', True):
+                    center_lat, center_lng = pt.y, pt.x
+                else:
+                    center_lat, center_lng = None, None
+
             recommended_zoom = max(min_zoom, min(recommended_zoom, max_zoom))
-            
-            # Calculate center
-            center_lat = (south + north) / 2
-            center_lng = (west + east) / 2
-            
-            # Get S3 tile paths and file info for each TIF
+
+            tile_cdn_host = settings.TILE_CDN_DOMAIN
             tif_files = []
-            for tif_meta in tif_metadata_list:
-                media = tif_meta.media
-                
-                # CloudFront URL template
-                cloudfront_domain = 'https://d17yosovmfjm4.cloudfront.net'
-                tile_url_template = f"{cloudfront_domain}/{media.s3_tile_path}/{{z}}/{{x}}/{{y}}.png"
-                
+            for media, tif_meta in media_meta_pairs:
+                tile_url_template = (
+                    f"https://{tile_cdn_host}/{media.s3_tile_path}/{{z}}/{{x}}/{{y}}.png"
+                )
                 tif_files.append({
                     'file_name': media.file_name,
                     's3_tile_path': media.s3_tile_path,
                     'tile_url_template': tile_url_template,
                     'tiles_generated': media.total_tiles_generated,
                     'bounds': {
-                        'west': tif_meta.bounds_west,
-                        'south': tif_meta.bounds_south,
-                        'east': tif_meta.bounds_east,
-                        'north': tif_meta.bounds_north
+                        'west': tif_meta.bounds_west if tif_meta else None,
+                        'south': tif_meta.bounds_south if tif_meta else None,
+                        'east': tif_meta.bounds_east if tif_meta else None,
+                        'north': tif_meta.bounds_north if tif_meta else None,
                     }
                 })
             
@@ -7725,13 +7653,17 @@ class DeveloperListingMapDataAPIView(APIView):
                         'south': south,
                         'east': east,
                         'north': north,
-                        'bbox': [west, south, east, north],
-                        'leaflet_bounds': [[south, west], [north, east]]
+                        'bbox': [west, south, east, north] if west is not None else None,
+                        'leaflet_bounds': [[south, west], [north, east]] if west is not None else None,
                     },
                     'center': {
                         'lat': center_lat,
                         'lng': center_lng,
-                        'coordinates': [center_lng, center_lat]
+                        'coordinates': (
+                            [center_lng, center_lat]
+                            if center_lat is not None and center_lng is not None
+                            else None
+                        ),
                     },
                     'zoom': {
                         'min': min_zoom,
@@ -7743,7 +7675,12 @@ class DeveloperListingMapDataAPIView(APIView):
                     'summary': {
                         'total_tif_files': len(tif_files),
                         'total_tiles': sum(tf['tiles_generated'] for tf in tif_files)
-                    }
+                    },
+                    'tile_domains': {
+                        'tile_cdn_domain': settings.TILE_CDN_DOMAIN,
+                        'cloudfront_domain': settings.CLOUDFRONT_DOMAIN,
+                        's3_tile_domain': settings.AWS_S3_TILE_DOMAIN,
+                    },
                 },
                 status=status.HTTP_200_OK
             )

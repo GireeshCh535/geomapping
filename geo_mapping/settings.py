@@ -30,7 +30,16 @@ SECRET_KEY = "django-insecure-9xdea)mc6dhr@)lrhn65!&!uc+#z6nlajj8j091eswp$$2jf!#
 DEBUG = os.getenv('DJANGO_DEBUG', 'True').lower() == 'true'
 
 # ALLOWED HOSTS (include IP with ports when Host header has port, e.g. behind nginx)
-_required_hosts = ['*', '3.108.10.59', '3.108.10.59:80', '3.108.10.59:443', 'layers.1acre.in']
+_required_hosts = [
+    '*',
+    '3.108.10.59',
+    '3.108.10.59:80',
+    '3.108.10.59:443',
+    'layers.1acre.in',
+    'citylands.in',
+    'www.citylands.in',
+    'tiles.citylands.in',
+]
 _allowed = os.getenv('DJANGO_ALLOWED_HOSTS')
 if _allowed:
     ALLOWED_HOSTS = list(dict.fromkeys(
@@ -45,11 +54,17 @@ CSRF_TRUSTED_ORIGINS = [
     'http://localhost:3000',
     'https://layers.1acre.in',
     'http://layers.1acre.in',  # if you also use HTTP
+    'https://citylands.in',
+    'http://citylands.in',
+    'https://www.citylands.in',
+    'http://www.citylands.in',
+    'https://tiles.citylands.in',
+    'http://tiles.citylands.in',
     'https://gis-map.1acre.in',  # Legacy domain (keep for backward compatibility)
     'http://3.108.10.59',  # Direct IP access
     'https://3.108.10.59',  # Direct IP access (HTTPS)
     # Cloudflare Tunnel (quick tunnels; add your current URL when it changes)
-    'https://remedies-antibodies-copied-detector.trycloudflare.com',
+    'https://declaration-app-busy-cached.trycloudflare.com',
     # Local dev (frontend on different port or origin)
     'http://localhost:8000',
     'http://localhost:3001',
@@ -112,11 +127,15 @@ CORS_ALLOW_ALL_ORIGINS = False
 CORS_ALLOWED_ORIGINS = [
     'https://layers.1acre.in',
     'http://layers.1acre.in',
+    'https://citylands.in',
+    'http://citylands.in',
+    'https://www.citylands.in',
+    'http://www.citylands.in',
     'https://gis-map.1acre.in',
     'http://gis-map.1acre.in',
     'https://lita-unsarcastic-serina.ngrok-free.dev',
     'https://router-disposal-www-calculator.trycloudflare.com',
-    'https://jungle-played-zoo-remedy.trycloudflare.com',
+    'https://declaration-app-busy-cached.trycloudflare.com',
     'http://3.108.10.59',
     'https://3.108.10.59',
     'http://localhost:8000',
@@ -319,8 +338,14 @@ MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
 
 # ===================================
-# AWS S3 & CLOUDFRONT - TILE-ONLY CONFIGURATION  
+# AWS S3, CLOUDFRONT & TILE CDN HOST (TILE_CDN_DOMAIN)
 # ===================================
+# No https://, no trailing slash.
+# - AWS_S3_TILE_DOMAIN: virtual-hosted bucket host (direct S3 fetches).
+# - CLOUDFRONT_DOMAIN: AWS CloudFront distribution host (e.g. hierarchy tile templates in views).
+# - TILE_CDN_DOMAIN: public tile hostname for redirects / TilePathService when path uses "CDN" not S3.
+# CLOUDFLARE_TILE_DOMAIN: reserved for a future all-Cloudflare cutover; defaults to TILE_CDN_DOMAIN
+# and is not used by tile URL code paths today (keep behavior on TILE_CDN_DOMAIN + S3 + CloudFront).
 
 # AWS S3 Configuration
 AWS_ACCESS_KEY_ID = 'AKIAW3MEBMOOEQKR3BXV'
@@ -328,15 +353,25 @@ AWS_SECRET_ACCESS_KEY = '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'
 AWS_S3_REGION_NAME = "ap-south-1"
 AWS_STORAGE_BUCKET_NAME = 'gis-portal-layers'
 AWS_S3_CUSTOM_DOMAIN = f'{AWS_STORAGE_BUCKET_NAME}.s3.{AWS_S3_REGION_NAME}.amazonaws.com'
+AWS_S3_TILE_DOMAIN = os.getenv('AWS_S3_TILE_DOMAIN', '').strip() or AWS_S3_CUSTOM_DOMAIN
 
-# CloudFront Configuration - TILES ONLY
-# Tiles are stored in S3; CloudFront is the CDN in front. Default flow: request -> Django 302 -> CloudFront -> S3.
-CLOUDFRONT_DOMAIN = 'd17yosovmfjm4.cloudfront.net'
+# AWS CloudFront — distribution hostname for tile URLs that still point at CF
+CLOUDFRONT_DOMAIN = os.getenv('CLOUDFRONT_DOMAIN', 'd17yosovmfjm4.cloudfront.net').strip()
+
+# Public tile hostname (custom domain in front of origin; today same env as before Cloudflare wording).
+TILE_CDN_DOMAIN = os.getenv('TILE_CDN_DOMAIN', 'tiles.citylands.in').strip()
+# Future: point everything at Cloudflare-only; until then tile code uses TILE_CDN_DOMAIN above.
+CLOUDFLARE_TILE_DOMAIN = os.getenv('CLOUDFLARE_TILE_DOMAIN', '').strip() or TILE_CDN_DOMAIN
+
 CLOUDFRONT_DISTRIBUTION_ID = os.getenv('CLOUDFRONT_DISTRIBUTION_ID', '')  # Set via environment variable
 USE_CLOUDFRONT = os.getenv('USE_CLOUDFRONT', 'True').lower() == 'true'
 ENABLE_CLOUDFRONT_INVALIDATION = os.getenv('ENABLE_CLOUDFRONT_INVALIDATION', 'True').lower() == 'true'
 
-# Tile proxy: paths served via CloudFront; all others via S3 only (no fallback)
+# When True (default), every tile path uses TILE_CDN_DOMAIN (R2/custom domain). When False, only
+# keys matching CLOUDFRONT_PATH_PREFIXES use the CDN; others use direct S3 URLs (legacy partial rollout).
+CLOUDFRONT_RESTRICT_PATH_PREFIXES = os.getenv('CLOUDFRONT_RESTRICT_PATH_PREFIXES', 'False').lower() == 'true'
+
+# Only used when CLOUDFRONT_RESTRICT_PATH_PREFIXES is True
 CLOUDFRONT_PATH_PREFIXES = [
     'karnataka/bengaluru/bengaluru_master_plan_2015/',
     'telangana/hyderabad/hyderabad_masterplan/',
@@ -356,12 +391,11 @@ SKIP_LOCAL_TILE_STORAGE = True
 # ---------------------------------------------------------------------------
 # TILE SERVING FLOW (see maps/views.py CloudFrontTileView, S3DirectTileView)
 # ---------------------------------------------------------------------------
-# 1) /api/tiles/... (no query): Django returns 302 to CloudFront URL.
-#    Client then loads tile from CloudFront; CloudFront serves from S3.
-#    Flow: Client -> Django (302) -> Client -> CloudFront -> S3.
+# 1) /api/tiles/... (no query): 302 to TILE_CDN_DOMAIN when the path uses the CDN branch; else S3.
+#    Some APIs use CLOUDFRONT_DOMAIN for masterplan-style template URLs. Direct S3: AWS_S3_TILE_DOMAIN.
 #
-# 2) /api/tiles/...?proxy=1 (debug): Django fetches tile (CloudFront then S3
-#    fallback) and returns bytes. Flow: Client -> Django -> CloudFront or S3.
+# 2) /api/tiles/...?proxy=1 (debug): Django fetches tile (CDN then S3
+#    fallback) and returns bytes. Flow: Client -> Django -> CDN or S3.
 #    Requires ENABLE_TILE_PROXY_DEBUG (defaults to DEBUG).
 #
 # 3) /api/s3-tiles/...: Django fetches tile from S3 via boto3 and returns bytes.
@@ -534,3 +568,6 @@ TILE_SQS_QUEUE_URL = os.getenv('TILE_SQS_QUEUE_URL', '').strip()
 TILE_CALLBACK_SECRET = os.getenv('TILE_CALLBACK_SECRET', '')
 # Base URL for tile worker callback and MVT build (e.g. https://layers.1acre.in)
 TILE_CALLBACK_BASE_URL = os.getenv('TILE_CALLBACK_BASE_URL', '')
+
+# Max concurrent in-process webhook processors per Gunicorn/uWSGI worker (bulk uploads).
+WEBHOOK_BACKGROUND_MAX_WORKERS = int(os.getenv('WEBHOOK_BACKGROUND_MAX_WORKERS', '1'))

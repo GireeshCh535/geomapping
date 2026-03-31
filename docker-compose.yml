@@ -51,8 +51,8 @@ services:
       - DJANGO_DB_USER=postgres
       - DJANGO_DB_PASSWORD=postgres
       - REDIS_URL=redis://redis:6379/1
-      - CLOUDFRONT_DISTRIBUTION_ID=E3VZOEKNMYD012
-      - ENABLE_CLOUDFRONT_INVALIDATION=True  # ✅ PROD: Enable CloudFront invalidation
+      - TILE_CDN_DOMAIN=tiles.citylands.in
+      - ENABLE_CLOUDFRONT_INVALIDATION=False  # Cloudflare/R2 setup; disable AWS CloudFront invalidation
       - DEVELOPER_BACKEND_API_URL=${DEVELOPER_BACKEND_API_URL:-https://be.1acre.in}
       # Fix 4: 4 workers, 60s timeout for faster response; webhook work offloaded to background
       - WEB_CONCURRENCY=4

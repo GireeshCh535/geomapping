@@ -1,5 +1,6 @@
 # serializers.py - Enhanced with PLU and ESRI support
 
+from django.conf import settings
 from rest_framework import serializers
 from rest_framework_gis.serializers import GeoFeatureModelSerializer
 from .models import *
@@ -366,9 +367,8 @@ class DeveloperListingMediaSerializer(serializers.ModelSerializer):
     def get_tile_url_template(self, obj):
         """Get tile URL template for this media"""
         if obj.is_tif and obj.tiles_generated and obj.s3_tile_path:
-            # CloudFront URL template
-            cloudfront_domain = 'https://d3js84ohvqla36.cloudfront.net'
-            return f"{cloudfront_domain}/{obj.s3_tile_path}/{{z}}/{{x}}/{{y}}.png"
+            _host = settings.TILE_CDN_DOMAIN
+            return f"https://{_host}/{obj.s3_tile_path}/{{z}}/{{x}}/{{y}}.png"
         return None
     
     def get_tiles_status(self, obj):

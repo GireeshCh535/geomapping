@@ -20,6 +20,7 @@ import boto3
 import requests
 from django.conf import settings
 from django.core.management.base import BaseCommand
+from django.db import close_old_connections
 
 logger = logging.getLogger(__name__)
 
@@ -112,6 +113,8 @@ class Command(BaseCommand):
             sqs.delete_message(QueueUrl=queue_url, ReceiptHandle=receipt_handle)
             return
         try:
+            # Pool may hand out a connection closed by PG during SQS long-poll idle; refresh before ORM.
+            close_old_connections()
             # Only run the handler for this job type (no cross-trigger: TIF vs land_plot_mvt)
             if job_type == "tif":
                 self._process_tif_job(data)
