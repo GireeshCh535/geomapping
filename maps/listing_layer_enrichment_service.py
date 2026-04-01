@@ -6,8 +6,8 @@ For each listing (point), discovers:
 - Nearby layers: shortest distance from point to layer edge in [0.01, 30] km
 
 Excludes DEVELOPER_LISTING category (listing's own TIF layers).
-Stores unified enriched_layers: list of { layer_id, layer_slug, layer_type, distance_km,
-nearest_point? } where nearest_point is GeoJSON Point on the layer geometry closest to the
+Stores unified enriched_layers: list of { layer_id, layer_slug, distance_km, nearest_point? }
+where nearest_point is GeoJSON Point on the layer geometry closest to the
 listing (PostGIS ST_ClosestPoint in WGS84).
 
 Supports:
@@ -479,8 +479,7 @@ def compute_enriched_layers_for_point(point: Point, state_name=None):
     """
     Compute list of relevant layers for a given point (overlapping + nearby up to 30 km).
 
-    Returns list of dicts: { "layer_id", "layer_slug", "layer_type", "distance_km",
-    "nearest_point" }.
+    Returns list of dicts: { "layer_id", "layer_slug", "distance_km", "nearest_point" }.
     nearest_point: GeoJSON Point on the layer feature geometry closest to the listing
     (largest-area feature when overlapping; min-distance feature when nearby).
     distance_km = 0 means overlap; (0.01, 30] means nearby.
@@ -522,7 +521,7 @@ def compute_enriched_layers_for_point(point: Point, state_name=None):
         ),
         point,
     ).values(
-        'layer_id', 'layer__slug', 'layer__category__code', 'dist_m', 'cp_lng', 'cp_lat'
+        'layer_id', 'layer__slug', 'dist_m', 'cp_lng', 'cp_lat'
     )
 
     # Group by layer_id, keep min distance (+ closest point from winning row)
@@ -535,7 +534,6 @@ def compute_enriched_layers_for_point(point: Point, state_name=None):
         tpl = (
             dist_km,
             row['layer__slug'],
-            row['layer__category__code'] or 'UNCLASSIFIED',
             row.get('cp_lng'),
             row.get('cp_lat'),
         )
@@ -559,11 +557,11 @@ def compute_enriched_layers_for_point(point: Point, state_name=None):
             if lid not in overlap_nearest:
                 overlap_nearest[lid] = (row.get('cp_lng'), row.get('cp_lat'))
 
-    # Build layer_id -> (slug, category_code) for overlapping
+    # Build layer_id -> slug for overlapping
     overlapping_info = {}
     if overlapping_layer_ids:
-        for row in DataLayer.objects.filter(id__in=overlapping_layer_ids).values('id', 'slug', 'category__code'):
-            overlapping_info[row['id']] = (row['slug'], row['category__code'] or 'UNCLASSIFIED')
+        for row in DataLayer.objects.filter(id__in=overlapping_layer_ids).values('id', 'slug'):
+            overlapping_info[row['id']] = row['slug'] or ''
 
     result = []
     seen = set()
@@ -572,12 +570,11 @@ def compute_enriched_layers_for_point(point: Point, state_name=None):
         if layer_id in seen:
             continue
         seen.add(layer_id)
-        slug, code = overlapping_info.get(layer_id, ('', 'UNCLASSIFIED'))
+        slug = overlapping_info.get(layer_id, '')
         olng, olat = overlap_nearest.get(layer_id, (None, None))
         entry = {
             'layer_id': layer_id,
             'layer_slug': slug,
-            'layer_type': code,
             'distance_km': 0.0,
         }
         np = _nearest_point_geojson(olng, olat)
@@ -586,7 +583,7 @@ def compute_enriched_layers_for_point(point: Point, state_name=None):
         result.append(entry)
 
     for layer_id, row in layer_min_dist.items():
-        dist_km, slug, code, cp_lng, cp_lat = row[0], row[1], row[2], row[3], row[4]
+        dist_km, slug, cp_lng, cp_lat = row[0], row[1], row[2], row[3]
         if layer_id in seen:
             continue
         seen.add(layer_id)
@@ -595,7 +592,6 @@ def compute_enriched_layers_for_point(point: Point, state_name=None):
         entry = {
             'layer_id': layer_id,
             'layer_slug': slug,
-            'layer_type': code,
             'distance_km': round(dist_km, 4),
         }
         np = _nearest_point_geojson(cp_lng, cp_lat)
@@ -614,7 +610,7 @@ def get_place_for_point_in_layer(point: Point, layer_id: int, distance_km: float
     when distance_km=0, or the nearest feature when distance_km>0. Same idea as
     CoordinateSearchTestView: which feature/polygon the point is inside or closest to.
 
-    Returns a dict with feature_id, feature_name, layer_slug, layer_name, category,
+    Returns a dict with feature_id, feature_name, layer_slug, layer_name,
     distance_meters, nearest_point (GeoJSON Point on feature geometry closest to listing),
     and optional area, zone_category, plot_category, properties;
     or None if no feature found.
@@ -622,12 +618,11 @@ def get_place_for_point_in_layer(point: Point, layer_id: int, distance_km: float
     if not point or point.empty:
         return None
     try:
-        layer = DataLayer.objects.filter(id=layer_id).select_related('category', 'city', 'city__state_ref').first()
+        layer = DataLayer.objects.filter(id=layer_id).select_related('city', 'city__state_ref').first()
         if not layer:
             return None
         layer_slug = layer.slug
         layer_name = layer.name or ''
-        category = (layer.category.code if layer.category else '') or 'UNCLASSIFIED'
 
         if distance_km == 0:
             # Point is inside: get containing feature(s), pick largest by area
@@ -672,7 +667,6 @@ def get_place_for_point_in_layer(point: Point, layer_id: int, distance_km: float
             'feature_name': feature.name or 'Unnamed',
             'layer_slug': layer_slug,
             'layer_name': layer_name,
-            'category': category,
             'distance': distance_meters,
             'distance_meters': distance_meters,
             'data': display.get('data', ''),
@@ -902,8 +896,8 @@ def get_point_counts_per_layer(
         layers_qs = layers_qs.filter(id__in=layer_ids)
     else:
         layers_qs = layers_qs.order_by('id')[:MAX_LAYERS_DEFAULT]
-    layers = list(layers_qs.select_related('city', 'category').values(
-        'id', 'slug', 'category__code', 'city__name',
+    layers = list(layers_qs.select_related('city').values(
+        'id', 'slug', 'city__name',
         'bbox_xmin', 'bbox_ymin', 'bbox_xmax', 'bbox_ymax',
     ))
 
@@ -911,7 +905,6 @@ def get_point_counts_per_layer(
     for layer in layers:
         layer_id = layer['id']
         slug = layer['slug'] or ''
-        layer_type = (layer['category__code'] or 'UNCLASSIFIED')
         city_name = layer['city__name'] or ''
 
         # Pre-filter by layer bbox (expanded by within_km) so we only run expensive spatial
@@ -996,7 +989,6 @@ def get_point_counts_per_layer(
         row = {
             'layer_id': layer_id,
             'layer_slug': slug,
-            'layer_type': layer_type,
             'city': city_name,
             'overlapping_count': overlapping_total,
             'nearby_count': nearby_total,

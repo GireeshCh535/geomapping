@@ -323,8 +323,6 @@ class GeoFeatureViewSet(viewsets.ReadOnlyModelViewSet):
                                     "feature_name": "Commercial Zone A",
                                     "layer_slug": "bengaluru_commercial",
                                     "layer_name": "Commercial Zones",
-                                    "category": "COMMERCIAL",
-                                    "category_name": "Commercial",
                                     "color": "#FF0000",
                                     "area": {
                                         "square_meters": 5000.0,
@@ -386,8 +384,6 @@ class GeoFeatureViewSet(viewsets.ReadOnlyModelViewSet):
                                     "feature_name": "Residential Zone B",
                                     "layer_slug": "bengaluru_residential",
                                     "layer_name": "Residential Zones",
-                                    "category": "RESIDENTIAL",
-                                    "category_name": "Residential",
                                     "color": "#00FF00",
                                     "area": {
                                         "square_meters": 3000.0,
@@ -703,16 +699,14 @@ class CoordinateSearchTestView(APIView):
                 is_valid=True,
                 geometry__contains=search_point
             ).select_related(
-                'layer', 
-                'layer__category', 
-                'layer__city', 
+                'layer',
+                'layer__city',
                 'layer__city__state_ref'
             ).only(
                 'id', 'name', 'zone_category', 'zone_subcategory',
                 'plu_primary_code', 'plu_secondary_1', 'plot_category',
                 'symbology', 'area', 'properties', 'geometry',
                 'layer__id', 'layer__slug', 'layer__name', 'layer__description',
-                'layer__category__code', 'layer__category__name',
                 'layer__city__slug', 'layer__city__name',
                 'layer__city__state_ref__slug', 'layer__city__state_ref__name', 'layer__city__state_ref__code'
             ).order_by('-area')[:20]  # Limit to top 20 features
@@ -847,13 +841,12 @@ class CoordinateSearchTestView(APIView):
             is_valid=True,
             geometry__intersects=point
         ).select_related(
-            'layer', 'layer__category', 'layer__city', 'layer__city__state_ref'
+            'layer', 'layer__city', 'layer__city__state_ref'
         ).only(
             'id', 'name', 'zone_category', 'zone_subcategory',
             'plu_primary_code', 'plu_secondary_1', 'plot_category',
             'symbology', 'area', 'properties', 'geometry',
             'layer__id', 'layer__slug', 'layer__name', 'layer__description',
-            'layer__category__code', 'layer__category__name',
             'layer__city__slug', 'layer__city__name',
             'layer__city__state_ref__slug', 'layer__city__state_ref__name'
         ).order_by('-area')[:20]  # Limit to top 20 features
@@ -880,7 +873,7 @@ class CoordinateSearchTestView(APIView):
             layer__is_processed=True,
             is_valid=True,
             geometry__intersects=buffered_area
-        ).select_related('layer', 'layer__category', 'layer__city', 'layer__city__state_ref')
+        ).select_related('layer', 'layer__city', 'layer__city__state_ref')
         
         for feature in features:
             try:
@@ -919,13 +912,12 @@ class CoordinateSearchTestView(APIView):
             is_valid=True,
             geometry__intersects=buffered_area
         ).select_related(
-            'layer', 'layer__category', 'layer__city', 'layer__city__state_ref'
+            'layer', 'layer__city', 'layer__city__state_ref'
         ).only(
             'id', 'name', 'zone_category', 'zone_subcategory',
             'plu_primary_code', 'plu_secondary_1', 'plot_category',
             'symbology', 'area', 'properties', 'geometry',
             'layer__id', 'layer__slug', 'layer__name',
-            'layer__category__code', 'layer__category__name',
             'layer__city__slug', 'layer__city__name',
             'layer__city__state_ref__slug', 'layer__city__state_ref__name'
         )[:10]  # Limit to 10 nearby features
@@ -967,9 +959,8 @@ class CoordinateSearchTestView(APIView):
             is_valid=True,
             geometry__intersects=buffered_area
         ).select_related(
-            'layer', 
-            'layer__category', 
-            'layer__city', 
+            'layer',
+            'layer__city',
             'layer__city__state_ref'
         )
         
@@ -1032,9 +1023,6 @@ class CoordinateSearchTestView(APIView):
                 'layer_slug': feature.layer.slug,
                 'layer_name': feature.layer.name,
                 'layer_description': feature.layer.description or '',
-                'category': feature.layer.category.code if feature.layer.category else 'UNKNOWN',
-                'category_name': feature.layer.category.name if feature.layer.category else 'Unknown',
-                'category_description': feature.layer.category.description if feature.layer.category else '',
                 'color': layer_color,
                 'area': {
                     'square_meters': area_sq_m,
@@ -1063,8 +1051,6 @@ class CoordinateSearchTestView(APIView):
                 'feature_name': 'Error processing feature',
                 'layer_slug': feature.layer.slug if feature.layer else 'unknown',
                 'layer_name': feature.layer.name if feature.layer else 'Unknown',
-                'category': 'ERROR',
-                'category_name': 'Error',
                 'color': '#FF0000',
                 'area': {'square_meters': 0.0, 'square_kilometers': 0.0, 'acres': 0.0},
                 'error': str(e)
@@ -1073,16 +1059,6 @@ class CoordinateSearchTestView(APIView):
     def _get_detailed_category_info(self, feature):
         """Get detailed category information for a feature"""
         category_info = {}
-        
-        # Basic category info
-        if feature.layer.category:
-            category_info['layer_category'] = {
-                'code': feature.layer.category.code,
-                'name': feature.layer.category.name,
-                'description': feature.layer.category.description or '',
-                'default_color': feature.layer.category.default_color or '',
-                'default_opacity': feature.layer.category.default_opacity or 0.8
-            }
         
         # Zone information
         if feature.zone_category:
@@ -1142,9 +1118,8 @@ class CoordinateSearchTestView(APIView):
             except:
                 pass
             
-            # Fallback to category color; no default - keep "" if none
             if feature.layer.category:
-                return feature.layer.category.color or ''
+                return feature.layer.category.default_color or ''
             
             return ''
             
@@ -1158,10 +1133,12 @@ class CoordinateSearchTestView(APIView):
         if containing_features:
             if len(containing_features) == 1:
                 feature = containing_features[0]
-                return f"Location is within {feature['layer_name']}: {feature['feature_name']} ({feature['category_name']})"
+                label = (feature.get('zone_category') or '').strip() or feature['feature_name']
+                return f"Location is within {feature['layer_name']}: {feature['feature_name']} ({label})"
             else:
                 primary = containing_features[0]  # Largest by area
-                return f"Location is within {primary['layer_name']}: {primary['feature_name']} ({primary['category_name']}). Also overlaps with {len(containing_features) - 1} other features."
+                label = (primary.get('zone_category') or '').strip() or primary['feature_name']
+                return f"Location is within {primary['layer_name']}: {primary['feature_name']} ({label}). Also overlaps with {len(containing_features) - 1} other features."
             
         elif nearby_features:
             nearest = nearby_features[0]
@@ -1198,13 +1175,12 @@ class CoordinateSearchTestView(APIView):
                 is_valid=True,
                 geometry__intersects=search_geometry
             ).select_related(
-                'layer', 'layer__category', 'layer__city', 'layer__city__state_ref'
+                'layer', 'layer__city', 'layer__city__state_ref'
             ).only(
                 'id', 'name', 'zone_category', 'zone_subcategory',
                 'plu_primary_code', 'plu_secondary_1', 'plot_category',
                 'symbology', 'area', 'properties', 'geometry',
                 'layer__id', 'layer__slug', 'layer__name', 'layer__description',
-                'layer__category__code', 'layer__category__name',
                 'layer__city__slug', 'layer__city__name',
                 'layer__city__state_ref__slug', 'layer__city__state_ref__name'
             )
@@ -1257,13 +1233,12 @@ class CoordinateSearchTestView(APIView):
                     is_valid=True,
                     geometry__intersects=buffer_100m
                 ).select_related(
-                    'layer', 'layer__category', 'layer__city', 'layer__city__state_ref'
+                    'layer', 'layer__city', 'layer__city__state_ref'
                 ).only(
                     'id', 'name', 'zone_category', 'zone_subcategory',
                     'plu_primary_code', 'plu_secondary_1', 'plot_category',
                     'symbology', 'area', 'properties', 'geometry',
                     'layer__id', 'layer__slug', 'layer__name',
-                    'layer__category__code', 'layer__category__name',
                     'layer__city__slug', 'layer__city__name',
                     'layer__city__state_ref__slug', 'layer__city__state_ref__name'
                 ).annotate(
@@ -2569,7 +2544,8 @@ class CoordinateSearchTestView(APIView):
             # Generate summary
             if containing_features:
                 primary_feature = containing_features[0]
-                summary = f"Location is within {layer.name}: {primary_feature['feature_name']} ({primary_feature['category_name']})"
+                label = (primary_feature.get('zone_category') or '').strip() or primary_feature['feature_name']
+                summary = f"Location is within {layer.name}: {primary_feature['feature_name']} ({label})"
                 if len(containing_features) > 1:
                     summary += f". Also overlaps with {len(containing_features) - 1} other features."
             else:
@@ -2897,7 +2873,6 @@ class TileCoordinatesView(APIView):
                                                 'is_live': True,
                                                 'tiles_generated': True,
                                                 'feature_count': 250,
-                                                'category': 'Master Plan',
                                                 'bounds': {
                                                     'xmin': 77.4,
                                                     'ymin': 12.8,
@@ -2950,8 +2925,8 @@ class TileCoordinatesView(APIView):
     - Feature counts and processing status
     - Tile generation status and URLs
     - Bounding boxes and geometry information
-    - Category and styling information
-    - Global statistics and category definitions
+    - Styling information (without taxonomy codes in the response)
+    - Global statistics
     """,
     tags=['hierarchy'],
     responses={
@@ -2967,17 +2942,6 @@ class TileCoordinatesView(APIView):
                             'total_cities': 8,
                             'total_layers': 25,
                             'total_features': 150000,
-                            'total_categories': 15
-                        },
-                        'categories': {
-                            'RESIDENTIAL': {
-                                'name': 'Residential',
-                                'description': 'Residential areas',
-                                'default_color': '#FFFF73',
-                                'default_stroke': '#333333',
-                                'default_opacity': 0.8,
-                                'display_order': 1
-                            }
                         },
                         'hierarchy': [
                             {
@@ -3024,8 +2988,9 @@ class TileCoordinatesView(APIView):
                                             'total_features': 50000,
                                             'standalone_layers': 2
                                         },
-                                        'styling': {
-                                            'RESIDENTIAL': {
+                                        'styling': [
+                                            {
+                                                'id': 1,
                                                 'fill_color': '#FFFF73',
                                                 'stroke_color': '#333333',
                                                 'opacity': 0.8,
@@ -3044,7 +3009,7 @@ class TileCoordinatesView(APIView):
                                                     'max_zoom': 18
                                                 }
                                             }
-                                        },
+                                        ],
                                         'layer_groups': [
                                             {
                                                 'id': 1,
@@ -3052,10 +3017,6 @@ class TileCoordinatesView(APIView):
                                                 'slug': 'master-plan',
                                                 'description': 'Bengaluru Master Plan 2015',
                                                 'directory_path': '/data/karnataka/bengaluru/master_plan/',
-                                                'category': {
-                                                    'code': 'RESIDENTIAL',
-                                                    'name': 'Residential'
-                                                },
                                                 'styling': {
                                                     'default_color': '#FFFF73',
                                                     'default_stroke': '#333333',
@@ -3084,10 +3045,6 @@ class TileCoordinatesView(APIView):
                                                             'is_directory': False,
                                                             'file_pattern': None,
                                                             'source_files_count': 0
-                                                        },
-                                                        'category': {
-                                                            'code': 'RESIDENTIAL',
-                                                            'name': 'Residential'
                                                         },
                                                         'geometry_info': {
                                                             'geometry_type': 'POLYGON',
@@ -3196,7 +3153,7 @@ class CompleteHierarchyAPIView(APIView):
     - Feature counts and processing status
     - Tile generation status and URLs
     - Bounding boxes and geometry information
-    - Category and styling information
+    - Styling information (no layer taxonomy codes in JSON)
     """
     
     def get(self, request):
@@ -3235,19 +3192,6 @@ class CompleteHierarchyAPIView(APIView):
                     )
                 )
             )
-            
-            # Get all categories for reference
-            categories = LayerCategory.objects.all()
-            category_data = {
-                cat.code: {
-                    'name': cat.name,
-                    'description': cat.description,
-                    'default_color': cat.default_color,
-                    'default_stroke': cat.default_stroke,
-                    'default_opacity': cat.default_opacity,
-                    'display_order': cat.display_order
-                } for cat in categories
-            }
             
             hierarchy_data = []
             total_states = 0
@@ -3289,10 +3233,6 @@ class CompleteHierarchyAPIView(APIView):
                             'slug': layer_group.slug,
                             'description': layer_group.description,
                             'directory_path': layer_group.directory_path,
-                            'category': {
-                                'code': layer_group.category.code,
-                                'name': layer_group.category.name
-                            },
                             'styling': {
                                 'default_color': layer_group.default_color,
                                 'default_stroke': layer_group.default_stroke,
@@ -3325,10 +3265,11 @@ class CompleteHierarchyAPIView(APIView):
                             if layer.tiles_generated:
                                 layers_with_tiles += 1
                     
-                    # Get city styling information
-                    city_styles = {}
+                    # City layer styles (no taxonomy keys exposed)
+                    city_styles = []
                     for style in city.layer_styles.all():
-                        city_styles[style.category.code] = {
+                        city_styles.append({
+                            'id': style.id,
                             'fill_color': style.fill_color,
                             'stroke_color': style.stroke_color,
                             'opacity': style.opacity,
@@ -3339,7 +3280,7 @@ class CompleteHierarchyAPIView(APIView):
                                 'min_zoom': style.min_zoom,
                                 'max_zoom': style.max_zoom
                             }
-                        }
+                        })
                     
                     # City status summary
                     city_status = 'live' if layers_with_tiles > 0 else 'pending'
@@ -3417,14 +3358,12 @@ class CompleteHierarchyAPIView(APIView):
                 'total_cities': total_cities,
                 'total_layers': total_layers,
                 'total_features': total_features,
-                'total_categories': len(categories)
             }
             
             return Response({
                 'status': 'success',
                 'timestamp': timezone.now().isoformat(),
                 'global_statistics': global_stats,
-                'categories': category_data,
                 'hierarchy': hierarchy_data
             })
             
@@ -3468,10 +3407,6 @@ class CompleteHierarchyAPIView(APIView):
                 'is_directory': layer.is_directory,
                 'file_pattern': layer.file_pattern,
                 'source_files_count': len(layer.source_files) if layer.source_files else 0
-            },
-            'category': {
-                'code': layer.category.code if layer.category else None,
-                'name': layer.category.name if layer.category else 'Unknown'
             },
             'geometry_info': {
                 'geometry_type': layer.geometry_type,
@@ -3527,7 +3462,7 @@ HIERARCHY_V2_CACHE_TTL = 300
 
 
 def _build_layer_data_minimal(layer, state_slug, city_slug, feature_count_map):
-    """Minimal layer payload: id, slug, name, category, feature_count, tiles, bounds, tile URL."""
+    """Minimal layer payload: id, slug, name, feature_count, tiles, bounds, tile URL."""
     fc = feature_count_map.get(layer.id, 0)
     tile_template = None
     if layer.tiles_generated:
@@ -3540,7 +3475,6 @@ def _build_layer_data_minimal(layer, state_slug, city_slug, feature_count_map):
         'id': layer.id,
         'name': layer.name,
         'slug': layer.slug,
-        'category': layer.category.code if layer.category else None,
         'feature_count': fc,
         'tiles_generated': layer.tiles_generated,
         'bounds': bounds,
@@ -3575,10 +3509,6 @@ def _build_layer_data_optimized(layer, state_slug, city_slug, feature_count_map)
             'is_directory': layer.is_directory,
             'file_pattern': layer.file_pattern,
             'source_files_count': len(layer.source_files) if layer.source_files else 0
-        },
-        'category': {
-            'code': layer.category.code if layer.category else None,
-            'name': layer.category.name if layer.category else 'Unknown'
         },
         'geometry_info': {
             'geometry_type': layer.geometry_type,
@@ -3752,7 +3682,6 @@ class OptimizedHierarchyAPIView(APIView):
                         'id': layer_group.id,
                         'name': layer_group.name,
                         'slug': layer_group.slug,
-                        'category': layer_group.category.code if layer_group.category else None,
                         'layers': group_layers,
                     })
 
@@ -4517,10 +4446,6 @@ class S3DirectTileView(APIView):
                                         'slug': 'hyderabad',
                                         'name': 'Hyderabad'
                                     },
-                                    'category': {
-                                        'code': 'INFRASTRUCTURE',
-                                        'name': 'Infrastructure'
-                                    },
                                     'feature_count': 150,
                                     'distance_km': 2.5,
                                     'bounds': {
@@ -4703,7 +4628,6 @@ class NearbyLayersAPIView(APIView):
                 layer__city__state_ref__is_active=True
             ).select_related(
                 'layer',
-                'layer__category',
                 'layer__city',
                 'layer__city__state_ref'
             ).values(
@@ -4711,8 +4635,6 @@ class NearbyLayersAPIView(APIView):
                 'layer__slug',
                 'layer__name',
                 'layer__description',
-                'layer__category__code',
-                'layer__category__name',
                 'layer__city__slug',
                 'layer__city__name',
                 'layer__city__state_ref__slug',
@@ -4783,10 +4705,6 @@ class NearbyLayersAPIView(APIView):
                         'slug': layer_data['layer__city__slug'],
                         'name': layer_data['layer__city__name']
                     },
-                    'category': {
-                        'code': layer_data['layer__category__code'],
-                        'name': layer_data['layer__category__name']
-                    } if layer_data['layer__category__code'] else None,
                     'feature_count': feature_count,
                     'feature_count_description': f'Number of polygons/features in this layer that contain your point.',
                     'distance_km': round(distance_km, 2) if distance_km is not None else None,
@@ -4868,14 +4786,13 @@ class NearbyLayersAPIView(APIView):
                     'Each layer listed has at least one polygon/line that contains (or intersects) your point. '
                     'Ordered by distance from your point to the layer center (closest first).'
                 ),
-                'layer_fields': {
+                    'layer_fields': {
                     'layer_id': 'Database ID of the layer.',
                     'layer_slug': 'URL-safe identifier (use in APIs: state/city/layer_slug).',
                     'layer_name': 'Human-readable layer name.',
                     'layer_description': 'Optional description of the layer.',
                     'state': 'State this layer belongs to (slug and name).',
                     'city': 'City this layer belongs to (slug and name).',
-                    'category': 'Layer type/category (e.g. PLANNING, TRANSPORT).',
                     'feature_count': 'Number of polygons/features in this layer that contain your point.',
                     'distance_km': 'Distance from your point to the layer center in km (0 = point inside layer).',
                     'bounds': 'Layer extent: west, south, east, north (degrees). Use to zoom map to layer.',
@@ -4980,8 +4897,7 @@ class LayerBoundsAPIView(APIView):
             
             # Single optimized query to get layer with all related data
             layer = DataLayer.objects.select_related(
-                'city__state_ref', 
-                'category'
+                'city__state_ref',
             ).get(
                 slug=layer_slug,
                 city__slug=city_slug,
@@ -5060,8 +4976,6 @@ class LayerBoundsAPIView(APIView):
                 'feature_count': feature_count,
                 'data_source': data_source,
                 'layer_info': {
-                    'category': layer.category.code if layer.category else None,
-                    'category_name': layer.category.name if layer.category else None,
                     'feature_count': layer.feature_count,
                     'is_processed': layer.is_processed,
                     'created_at': layer.created_at.isoformat() if layer.created_at else None
@@ -5368,7 +5282,6 @@ class LayerCoordinateSearchView(APIView):
                                 {
                                     "slug": "bengaluru_master_plan_2015",
                                     "name": "Bengaluru Master Plan 2015",
-                                    "category": "Mixed Use",
                                     "feature_count": 1250,
                                     "geometry_type": "POLYGON",
                                     "is_processed": True,
@@ -5470,7 +5383,7 @@ class LayerBoundsZoomAPIView(APIView):
                 city=city,
                 slug__in=layer_slug_list,
                 is_processed=True
-            ).select_related('category')
+            )
             
             if not layers.exists():
                 return Response({
@@ -5509,7 +5422,6 @@ class LayerBoundsZoomAPIView(APIView):
                 layer_info.append({
                     'slug': layer.slug,
                     'name': layer.name,
-                    'category': layer.category.name,
                     'feature_count': layer.feature_count,
                     'geometry_type': layer.geometry_type,
                     'is_processed': layer.is_processed,
@@ -7065,7 +6977,7 @@ class LayerPointCountsAPIView(APIView):
         cache_qs = LayerPointCountCache.objects.filter(
             layer_id__in=layer_ids,
             within_km=w_km,
-        ).select_related('layer', 'layer__city', 'layer__category')
+        ).select_related('layer', 'layer__city')
         cached_layer_ids = set(cache_qs.values_list('layer_id', flat=True))
         missing = [lid for lid in layer_ids if lid not in cached_layer_ids]
         if missing:
@@ -7073,14 +6985,13 @@ class LayerPointCountsAPIView(APIView):
             cache_qs = LayerPointCountCache.objects.filter(
                 layer_id__in=layer_ids,
                 within_km=w_km,
-            ).select_related('layer', 'layer__city', 'layer__category')
+            ).select_related('layer', 'layer__city')
         counts = []
         for c in cache_qs:
             layer = c.layer
             counts.append({
                 'layer_id': layer.id,
                 'layer_slug': layer.slug or '',
-                'layer_type': (getattr(layer.category, 'code', None) or 'UNCLASSIFIED'),
                 'city': (layer.city.name if layer.city else ''),
                 'overlapping_count': c.overlapping_count,
                 'nearby_count': c.nearby_count,
@@ -7640,20 +7551,21 @@ class DeveloperListingMapDataAPIView(APIView):
                 width = east - west
                 height = north - south
                 area = width * height
+                # Parcel-scale TIFs often fall in 0.001–0.01; bias default/recommended toward 16–17
                 if area < 0.0001:
-                    recommended_zoom = 17
+                    recommended_zoom = 18
                 elif area < 0.001:
-                    recommended_zoom = 15
+                    recommended_zoom = 17
                 elif area < 0.01:
-                    recommended_zoom = 13
+                    recommended_zoom = 17
                 elif area < 0.1:
-                    recommended_zoom = 11
+                    recommended_zoom = 16
                 else:
-                    recommended_zoom = 9
+                    recommended_zoom = 12
                 center_lat = (south + north) / 2
                 center_lng = (west + east) / 2
             else:
-                recommended_zoom = 15
+                recommended_zoom = 17
                 pt = listing.get_listing_point() if hasattr(listing, 'get_listing_point') else None
                 if pt is not None and not getattr(pt, 'empty', True):
                     center_lat, center_lng = pt.y, pt.x

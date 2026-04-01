@@ -2115,7 +2115,6 @@ class VectorTileService:
                     # Prepare properties
                     properties = {
                         'name': feature.name or '',
-                        'category': feature.layer.category.name if feature.layer.category else 'Unknown',
                         'zone_category': feature.zone_category or '',
                         'plu_code': feature.plu_primary_code or '',
                         'area': float(feature.area) if feature.area else 0.0,
@@ -2251,7 +2250,6 @@ class VectorTileService:
                             transformed_geom = self._transform_geometry_to_tile(geom_dict, bounds)
                             properties = {
                                 'name': feature.name or '',
-                                'category': feature.layer.category.name if feature.layer.category else 'Unknown',
                                 'zone_category': feature.zone_category or '',
                                 'plu_code': feature.plu_primary_code or '',
                                 'area': float(feature.area) if feature.area else 0.0,

@@ -482,7 +482,6 @@ class S3DirectTileGenerationService:
                 # Create feature properties with zone information
                 properties = {
                     'id': feature.id,
-                    'category': feature.layer.category.code if feature.layer.category else 'unknown',
                     'layer': layer_name
                 }
                 

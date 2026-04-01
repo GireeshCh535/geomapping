@@ -21,13 +21,12 @@ class StateSerializer(serializers.ModelSerializer):
         ]
 
 class LayerGroupSerializer(serializers.ModelSerializer):
-    category_name = serializers.CharField(source='category.name', read_only=True)
     layer_count = serializers.IntegerField(read_only=True)
     
     class Meta:
         model = LayerGroup
         fields = [
-            'id', 'name', 'slug', 'description', 'category_name',
+            'id', 'name', 'slug', 'description',
             'directory_path', 'default_color', 'default_stroke',
             'default_opacity', 'display_order', 'is_visible',
             'min_zoom', 'max_zoom', 'layer_count'
@@ -68,21 +67,8 @@ class LayerCategorySerializer(serializers.ModelSerializer):
         """Get number of layers using this category"""
         return DataLayer.objects.filter(category=obj, is_processed=True).count()
 
-class CityLayerStyleSerializer(serializers.ModelSerializer):
-    category_name = serializers.CharField(source='category.name', read_only=True)
-    
-    class Meta:
-        model = CityLayerStyle
-        fields = [
-            'category_name', 'fill_color', 'stroke_color', 
-            'opacity', 'stroke_width', 'is_visible', 'min_zoom', 'max_zoom'
-        ]
-
 class DataLayerSerializer(serializers.ModelSerializer):
     city_name = serializers.CharField(source='city.name', read_only=True)
-    category_name = serializers.CharField(source='category.name', read_only=True)
-    category_code = serializers.CharField(source='category.code', read_only=True)
-    style = serializers.SerializerMethodField()
     bbox = serializers.SerializerMethodField()
     has_tiles = serializers.BooleanField(source='tiles_generated', read_only=True)
     plu_codes_summary = serializers.SerializerMethodField()
@@ -91,22 +77,13 @@ class DataLayerSerializer(serializers.ModelSerializer):
     class Meta:
         model = DataLayer
         fields = [
-            'id', 'name', 'slug', 'city_name', 'category_name', 'category_code',
+            'id', 'name', 'slug', 'city_name',
             'description', 'file_format', 'categorization_method', 'geometry_type',
             'feature_count', 'is_processed', 'has_tiles', 'primary_plu_codes',
-            'plu_codes_summary', 'bbox', 'style', 'data_source', 'created_at',
+            'plu_codes_summary', 'bbox', 'data_source', 'created_at',
             'layer_group', 'layer_group_name',
             'is_directory', 'file_pattern'
         ]
-    
-    def get_style(self, obj):
-        """Get city-specific style for this layer"""
-        style_obj = obj.get_style()
-        if isinstance(style_obj, dict):
-            return style_obj
-        
-        # If it's a CityLayerStyle object
-        return CityLayerStyleSerializer(style_obj).data
     
     def get_bbox(self, obj):
         """Get layer bounding box"""
@@ -130,14 +107,12 @@ class DataLayerSerializer(serializers.ModelSerializer):
         return None
 
 class PLUCodeMappingSerializer(serializers.ModelSerializer):
-    category_name = serializers.CharField(source='mapped_category.name', read_only=True)
-    category_code = serializers.CharField(source='mapped_category.code', read_only=True)
     city_name = serializers.CharField(source='city.name', read_only=True)
     
     class Meta:
         model = PLUCodeMapping
         fields = [
-            'plu_code', 'plu_description', 'category_name', 'category_code',
+            'plu_code', 'plu_description',
             'city_name', 'secondary_codes', 'feature_count', 'last_used',
             'notes', 'is_active'
         ]
@@ -145,14 +120,13 @@ class PLUCodeMappingSerializer(serializers.ModelSerializer):
 class GeoFeatureSerializer(GeoFeatureModelSerializer):
     layer_name = serializers.CharField(source='layer.name', read_only=True)
     city_name = serializers.CharField(source='layer.city.name', read_only=True)
-    category_name = serializers.CharField(source='layer.category.name', read_only=True)
     color = serializers.SerializerMethodField()
     
     class Meta:
         model = GeoFeature
         geo_field = 'geometry'
         fields = [
-            'id', 'layer_name', 'city_name', 'category_name',
+            'id', 'layer_name', 'city_name',
             'name', 'zone_category', 'zone_subcategory',
             'plu_primary_code', 'plu_secondary_1', 'plu_secondary_2',
             'plu_proposed_use', 'plu_authority',
@@ -228,12 +202,11 @@ class VectorTileLayerSerializer(serializers.ModelSerializer):
 class LayerSummarySerializer(serializers.ModelSerializer):
     """Lightweight layer summary for listings"""
     city_name = serializers.CharField(source='city.name', read_only=True)
-    category_name = serializers.CharField(source='category.name', read_only=True)
     
     class Meta:
         model = DataLayer
         fields = [
-            'id', 'name', 'slug', 'city_name', 'category_name',
+            'id', 'name', 'slug', 'city_name',
             'feature_count', 'is_processed', 'tiles_generated'
         ]
 
@@ -607,22 +580,22 @@ class DeveloperListingDetailSerializer(serializers.ModelSerializer):
             height = bounds['north'] - bounds['south']
             area = width * height
             
-            # Zoom level heuristic
+            # Zoom level heuristic (aligned with map-data API: parcel-scale → 16–17)
             if area < 0.0001:  # Very small area (< 11 sq km approx)
-                appropriate_zoom = 17
+                appropriate_zoom = 18
             elif area < 0.001:  # Small area (< 110 sq km approx)
-                appropriate_zoom = 15
+                appropriate_zoom = 17
             elif area < 0.01:  # Medium area (< 1,100 sq km approx)
-                appropriate_zoom = 13
+                appropriate_zoom = 17
             elif area < 0.1:  # Large area (< 11,000 sq km approx)
-                appropriate_zoom = 11
+                appropriate_zoom = 16
             else:
-                appropriate_zoom = 9
+                appropriate_zoom = 12
             
             # Ensure within bounds
             appropriate_zoom = max(min_zoom, min(appropriate_zoom, max_zoom))
         else:
-            appropriate_zoom = 13  # Default middle zoom
+            appropriate_zoom = 17  # Default when bounds incomplete (match map-data)
         
         return {
             'min_zoom': min_zoom,
@@ -678,10 +651,6 @@ class DeveloperListingDetailSerializer(serializers.ModelSerializer):
                 'city': {
                     'name': layer.city.name,
                     'slug': layer.city.slug
-                },
-                'category': {
-                    'code': layer.category.code,
-                    'name': layer.category.name
                 },
                 'bounds': {
                     'west': layer.bbox_xmin,

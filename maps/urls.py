@@ -9,14 +9,13 @@ from .views import *
 router = DefaultRouter()
 router.register(r'states', views.StateViewSet)
 router.register(r'cities', views.CityViewSet)
-router.register(r'categories', views.LayerCategoryViewSet)
 router.register(r'layer-groups', views.LayerGroupViewSet)
 router.register(r'layers', views.DataLayerViewSet)
 router.register(r'features', views.GeoFeatureViewSet)
 
 
 urlpatterns = [
-    
+
     # ================================
     # SPECIFIC PATHS (must come before router to avoid conflicts)
     # ================================
