@@ -257,7 +257,6 @@ class DataLayerAdmin(AuditFieldsMixin, admin.ModelAdmin):
         "layer_id_display",
         "name",
         "city",
-        "category",
         "is_true",
         "is_processed",
         "tiles_generated",
