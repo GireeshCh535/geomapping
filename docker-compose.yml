@@ -47,6 +47,8 @@ services:
       - "8000"  # CHANGED: Only expose, don't bind to host ports (nginx will proxy)
     environment:
       - DJANGO_DB_HOST=db
+      - DJANGO_DB_PORT=5432
+      - DJANGO_DB_SSLMODE=disable
       - DJANGO_DB_NAME=geo_mapping_db
       - DJANGO_DB_USER=postgres
       - DJANGO_DB_PASSWORD=postgres

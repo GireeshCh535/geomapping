@@ -25,6 +25,10 @@ from .tile_path_service import (
     public_https_base_for_s3_tile_prefix,
     tile_proxy_png_template_from_s3_tile_path,
 )
+from .developer_listing_map_bounds import (
+    recommended_zoom_from_area,
+    tighten_bounds_for_map_fit,
+)
 import copy
 import logging
 import json
@@ -7547,23 +7551,12 @@ class DeveloperListingMapDataAPIView(APIView):
             min_zoom = min(zoom_mins) if zoom_mins else 8
             max_zoom = max(zoom_maxs) if zoom_maxs else 18
 
+            bounds_extent = None
             if west is not None and south is not None and east is not None and north is not None:
                 width = east - west
                 height = north - south
                 area = width * height
-                # Parcel-scale TIFs often fall in 0.001–0.01; bias default/recommended toward 16–17
-                if area < 0.0001:
-                    recommended_zoom = 18
-                elif area < 0.001:
-                    recommended_zoom = 17
-                elif area < 0.01:
-                    recommended_zoom = 17
-                elif area < 0.1:
-                    recommended_zoom = 16
-                else:
-                    recommended_zoom = 12
-                center_lat = (south + north) / 2
-                center_lng = (west + east) / 2
+                recommended_zoom = recommended_zoom_from_area(area)
             else:
                 recommended_zoom = 17
                 pt = listing.get_listing_point() if hasattr(listing, 'get_listing_point') else None
@@ -7573,6 +7566,26 @@ class DeveloperListingMapDataAPIView(APIView):
                     center_lat, center_lng = None, None
 
             recommended_zoom = max(min_zoom, min(recommended_zoom, max_zoom))
+
+            if west is not None and south is not None and east is not None and north is not None:
+                fw, fs, fe, fn = west, south, east, north
+                west, south, east, north = tighten_bounds_for_map_fit(
+                    west, south, east, north, recommended_zoom
+                )
+                if any(
+                    abs(a - b) > 1e-9
+                    for a, b in ((fw, west), (fs, south), (fe, east), (fn, north))
+                ):
+                    bounds_extent = {
+                        'west': fw,
+                        'south': fs,
+                        'east': fe,
+                        'north': fn,
+                        'bbox': [fw, fs, fe, fn],
+                        'leaflet_bounds': [[fs, fw], [fn, fe]],
+                    }
+                center_lat = (south + north) / 2
+                center_lng = (west + east) / 2
 
             tif_files = []
             for media, tif_meta in media_meta_pairs:
@@ -7614,6 +7627,11 @@ class DeveloperListingMapDataAPIView(APIView):
                         'bbox': [west, south, east, north] if west is not None else None,
                         'leaflet_bounds': [[south, west], [north, east]] if west is not None else None,
                     },
+                    **(
+                        {'bounds_extent': bounds_extent}
+                        if bounds_extent is not None
+                        else {}
+                    ),
                     'center': {
                         'lat': center_lat,
                         'lng': center_lng,

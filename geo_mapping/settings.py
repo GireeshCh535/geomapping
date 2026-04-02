@@ -177,6 +177,19 @@ WSGI_APPLICATION = "geo_mapping.wsgi.application"
 
 # DATABASE - Using django-db-connection-pool for high concurrency
 # This provides proper connection pooling for 1000+ concurrent users
+#
+# Local + RDS via SSH tunnel: run tunnel (e.g. local 5433 -> RDS:5432), then set in .env:
+#   DJANGO_DB_HOST=127.0.0.1
+#   DJANGO_DB_PORT=5433
+#   DJANGO_DB_SSLMODE=require
+# Docker Compose sets DJANGO_DB_HOST=db, DJANGO_DB_PORT=5432, DJANGO_DB_SSLMODE=disable so .env tunnel values do not break containers.
+_db_pg_options = {
+    'connect_timeout': 10,
+}
+_sslmode = os.getenv('DJANGO_DB_SSLMODE', '').strip().lower()
+if _sslmode and _sslmode != 'disable':
+    _db_pg_options['sslmode'] = _sslmode
+
 DATABASES = {
     'default': {
         'ENGINE': 'dj_db_conn_pool.backends.postgis',
@@ -188,9 +201,7 @@ DATABASES = {
         'PORT': os.getenv('DJANGO_DB_PORT', '5432'),
         'CONN_MAX_AGE': 0,  # Set to 0 when using connection pool
         'CONN_HEALTH_CHECKS': True,  # Django 4.1+: Check connection health
-        'OPTIONS': {
-            'connect_timeout': 10,
-        },
+        'OPTIONS': _db_pg_options,
         # Connection pool settings for high concurrency
         'POOL_OPTIONS': {
             'POOL_SIZE': 20,  # Number of connections per worker process

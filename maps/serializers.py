@@ -7,6 +7,7 @@ from .tile_path_service import (
     public_https_base_for_s3_tile_prefix,
     tile_proxy_png_template_from_s3_tile_path,
 )
+from .developer_listing_map_bounds import recommended_zoom_from_area, tighten_bounds_for_map_fit
 from rest_framework_gis.serializers import GeoFeatureModelSerializer
 from .models import *
 
@@ -517,8 +518,8 @@ class DeveloperListingDetailSerializer(serializers.ModelSerializer):
     
     def get_bounds(self, obj):
         """
-        Get combined bounds from all TIF files
-        Returns the bounding box that encompasses all TIF files in this listing
+        Combined TIF union bounds, tightened to a mercantile viewport at recommended zoom
+        when zoom >= 15 so map.fitBounds aligns with zoom_levels (see developer_listing_map_bounds).
         """
         from maps.models import TIFMetadata
         
@@ -538,7 +539,14 @@ class DeveloperListingDetailSerializer(serializers.ModelSerializer):
         east = max([tm.bounds_east for tm in tif_metadata_list if tm.bounds_east is not None], default=None)
         north = max([tm.bounds_north for tm in tif_metadata_list if tm.bounds_north is not None], default=None)
         
-        if all([west, south, east, north]):
+        if west is not None and south is not None and east is not None and north is not None:
+            zoom_mins = [tm.min_zoom for tm in tif_metadata_list if tm.min_zoom is not None]
+            zoom_maxs = [tm.max_zoom for tm in tif_metadata_list if tm.max_zoom is not None]
+            min_z = min(zoom_mins) if zoom_mins else 8
+            max_z = max(zoom_maxs) if zoom_maxs else 18
+            area = (east - west) * (north - south)
+            rec = max(min_z, min(recommended_zoom_from_area(area), max_z))
+            west, south, east, north = tighten_bounds_for_map_fit(west, south, east, north, rec)
             return {
                 'west': west,
                 'south': south,
@@ -567,35 +575,23 @@ class DeveloperListingDetailSerializer(serializers.ModelSerializer):
         if not tif_metadata_list.exists():
             return None
         
-        # Get min/max zoom from TIF files (usually 8 and 18)
-        min_zoom = min([tm.min_zoom for tm in tif_metadata_list])
-        max_zoom = max([tm.max_zoom for tm in tif_metadata_list])
-        
-        # Calculate appropriate zoom level based on bounds
-        bounds = self.get_bounds(obj)
-        if bounds:
-            # Calculate appropriate zoom level based on area
-            # Simple heuristic: smaller area = higher zoom
-            width = bounds['east'] - bounds['west']
-            height = bounds['north'] - bounds['south']
-            area = width * height
-            
-            # Zoom level heuristic (aligned with map-data API: parcel-scale → 16–17)
-            if area < 0.0001:  # Very small area (< 11 sq km approx)
-                appropriate_zoom = 18
-            elif area < 0.001:  # Small area (< 110 sq km approx)
-                appropriate_zoom = 17
-            elif area < 0.01:  # Medium area (< 1,100 sq km approx)
-                appropriate_zoom = 17
-            elif area < 0.1:  # Large area (< 11,000 sq km approx)
-                appropriate_zoom = 16
-            else:
-                appropriate_zoom = 12
-            
-            # Ensure within bounds
-            appropriate_zoom = max(min_zoom, min(appropriate_zoom, max_zoom))
+        zoom_mins = [tm.min_zoom for tm in tif_metadata_list if tm.min_zoom is not None]
+        zoom_maxs = [tm.max_zoom for tm in tif_metadata_list if tm.max_zoom is not None]
+        min_zoom = min(zoom_mins) if zoom_mins else 8
+        max_zoom = max(zoom_maxs) if zoom_maxs else 18
+
+        # Use full union bbox for zoom (same as map-data), not tightened get_bounds() area
+        fw = min([tm.bounds_west for tm in tif_metadata_list if tm.bounds_west is not None], default=None)
+        fs = min([tm.bounds_south for tm in tif_metadata_list if tm.bounds_south is not None], default=None)
+        fe = max([tm.bounds_east for tm in tif_metadata_list if tm.bounds_east is not None], default=None)
+        fn = max([tm.bounds_north for tm in tif_metadata_list if tm.bounds_north is not None], default=None)
+        if fw is not None and fs is not None and fe is not None and fn is not None:
+            area = (fe - fw) * (fn - fs)
+            appropriate_zoom = max(
+                min_zoom, min(recommended_zoom_from_area(area), max_zoom)
+            )
         else:
-            appropriate_zoom = 17  # Default when bounds incomplete (match map-data)
+            appropriate_zoom = max(min_zoom, min(17, max_zoom))
         
         return {
             'min_zoom': min_zoom,

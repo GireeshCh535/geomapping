@@ -282,3 +282,5 @@ data.zip
 /virar_tiles
 /.cursor
 .wrangler
+full_backup.sql
+full_backup.sql.gz
