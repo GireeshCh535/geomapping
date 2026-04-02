@@ -26,6 +26,7 @@ from .tile_path_service import (
     tile_proxy_png_template_from_s3_tile_path,
 )
 from .developer_listing_map_bounds import (
+    DEVELOPER_LISTING_DEFAULT_ZOOM,
     recommended_zoom_from_area,
     tighten_bounds_for_map_fit,
 )
@@ -7558,7 +7559,7 @@ class DeveloperListingMapDataAPIView(APIView):
                 area = width * height
                 recommended_zoom = recommended_zoom_from_area(area)
             else:
-                recommended_zoom = 17
+                recommended_zoom = DEVELOPER_LISTING_DEFAULT_ZOOM
                 pt = listing.get_listing_point() if hasattr(listing, 'get_listing_point') else None
                 if pt is not None and not getattr(pt, 'empty', True):
                     center_lat, center_lng = pt.y, pt.x

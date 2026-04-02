@@ -7,7 +7,11 @@ from .tile_path_service import (
     public_https_base_for_s3_tile_prefix,
     tile_proxy_png_template_from_s3_tile_path,
 )
-from .developer_listing_map_bounds import recommended_zoom_from_area, tighten_bounds_for_map_fit
+from .developer_listing_map_bounds import (
+    DEVELOPER_LISTING_DEFAULT_ZOOM,
+    recommended_zoom_from_area,
+    tighten_bounds_for_map_fit,
+)
 from rest_framework_gis.serializers import GeoFeatureModelSerializer
 from .models import *
 
@@ -519,7 +523,7 @@ class DeveloperListingDetailSerializer(serializers.ModelSerializer):
     def get_bounds(self, obj):
         """
         Combined TIF union bounds, tightened to a mercantile viewport at recommended zoom
-        when zoom >= 15 so map.fitBounds aligns with zoom_levels (see developer_listing_map_bounds).
+        (default 18) when zoom >= 15 so map.fitBounds aligns with zoom_levels.
         """
         from maps.models import TIFMetadata
         
@@ -591,7 +595,7 @@ class DeveloperListingDetailSerializer(serializers.ModelSerializer):
                 min_zoom, min(recommended_zoom_from_area(area), max_zoom)
             )
         else:
-            appropriate_zoom = max(min_zoom, min(17, max_zoom))
+            appropriate_zoom = max(min_zoom, min(DEVELOPER_LISTING_DEFAULT_ZOOM, max_zoom))
         
         return {
             'min_zoom': min_zoom,

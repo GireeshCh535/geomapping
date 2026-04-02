@@ -2,23 +2,21 @@
 Developer listing map: recommended zoom from bbox area and bounds tightening for fitBounds.
 
 Clients often call map.fitBounds(bounds) while also using zoom.recommended. A loose union
-bbox makes fitBounds zoom out (~13–14) even when recommended is 16–17. Tightening to a
+bbox makes fitBounds zoom out (~13–14) even when recommended is high. Tightening to a
 mercantile tile window at the recommended zoom aligns the bbox with typical fitBounds results.
+
+Default viewing zoom for developer listings is 18 (parcel / sub-regional extents).
 """
 from __future__ import annotations
 
 import mercantile
 
+DEVELOPER_LISTING_DEFAULT_ZOOM = 18
+
 
 def recommended_zoom_from_area(area: float) -> int:
-    if area < 0.0001:
-        return 18
-    if area < 0.001:
-        return 17
-    if area < 0.01:
-        return 17
     if area < 0.1:
-        return 16
+        return DEVELOPER_LISTING_DEFAULT_ZOOM
     return 12
 
 
