@@ -75,6 +75,39 @@ CRZ_SEARCH_LAYER_SLUGS = frozenset({
     'yanam_crz_layer',
 })
 
+# Highway / economic corridor layers: search `data` uses ROW (width), Name, Connecting Points, Lane Configuration
+HIGHWAY_CORRIDOR_PROPERTY_SLUGS = frozenset({
+    'mancherial_warangal_expressway',
+    'amroor_jagitial_mancherial_expressway',
+    'badvel_nellore_highway',
+    'bengaluru_vijaywada_expressway',
+    'thatchoor_chittoor_expressway',
+    'urukunnu_kadampattukonam_economic_corridor',
+    'ahilyanagar_akalkot_expresssway',
+    'warangal_khammam_expressway',
+    'khammam_vijaywada_expressway',
+})
+
+
+def _highway_corridor_search_data_string(properties):
+    """Comma-separated Width (ROW), Name, Connecting Points, Lanes (Lane Configuration)."""
+    if not isinstance(properties, dict):
+        properties = {}
+    parts = []
+    row = properties.get('ROW')
+    if row is not None and str(row).strip():
+        parts.append(f"Width: {str(row).strip()}")
+    name = properties.get('Name')
+    if name is not None and str(name).strip():
+        parts.append(f"Name: {str(name).strip()}")
+    cp = properties.get('Connecting Points')
+    if cp is not None and str(cp).strip():
+        parts.append(f"Connecting Points: {str(cp).strip()}")
+    lanes = properties.get('Lane Configuration')
+    if lanes is not None and str(lanes).strip():
+        parts.append(f"Lanes: {str(lanes).strip()}")
+    return ', '.join(parts)
+
 
 def _filter_crz_geojson_properties(feature_data):
     """Expose only HEX, Name, Regulation Type in detailed_category.properties (all CRZ GeoJSON layers)."""
@@ -1521,6 +1554,19 @@ class CoordinateSearchTestView(APIView):
                             'all_layer_data': [feature_data],
                         }
 
+                    # Greenfield highways / corridors: Width (ROW), Name, Connecting Points, Lanes — comma-separated
+                    elif layer.slug in HIGHWAY_CORRIDOR_PROPERTY_SLUGS:
+                        detailed_category = feature_data.get('detailed_category', {})
+                        properties = detailed_category.get('properties', {}) or {}
+                        data_string = _highway_corridor_search_data_string(properties)
+                        return {
+                            'data': data_string,
+                            'fill_color': _masterplan_fill_color_svg_data_uri('#000000'),
+                            'found': True,
+                            'features': [feature_data],
+                            'all_layer_data': [feature_data],
+                        }
+
                     # Coastal roads, expressways, sea links, bridges, corridors - use properties.Name, black fill
                     elif layer.slug in [
                         'kharghar_coastal_road', 'versova_bhayander_coastal_road', 'pune_ring_roads',
@@ -2521,6 +2567,19 @@ class CoordinateSearchTestView(APIView):
                 return {
                     'data': data_string,
                     'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
+                    'found': True,
+                    'features': containing_features[:1],
+                    'all_layer_data': containing_features,
+                }
+
+            if layer.slug in HIGHWAY_CORRIDOR_PROPERTY_SLUGS and containing_features:
+                primary_feature = containing_features[0]
+                detailed_category = primary_feature.get('detailed_category', {})
+                properties = detailed_category.get('properties', {}) or {}
+                data_string = _highway_corridor_search_data_string(properties)
+                return {
+                    'data': data_string,
+                    'fill_color': _masterplan_fill_color_svg_data_uri('#000000'),
                     'found': True,
                     'features': containing_features[:1],
                     'all_layer_data': containing_features,
