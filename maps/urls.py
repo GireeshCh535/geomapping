@@ -24,6 +24,11 @@ urlpatterns = [
     # MUST come before router.register(r'layers', ...) to avoid conflict
     path('layers/nearby/',
          views.NearbyLayersAPIView.as_view(), name='nearby_layers'),
+
+    # All listing points linked to a layer (overlap/nearby) with distance_km — from LayerListingLink
+    path('layers/<slug:layer_slug>/listing-links/',
+         views.LayerListingLinksAPIView.as_view(),
+         name='layer_listing_links'),
     
     # Layer bounds API - Get bounds for a specific layer based on actual data
     path('layers/<slug:state_slug>/<slug:city_slug>/<slug:layer_slug>/bounds/',

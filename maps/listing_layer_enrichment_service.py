@@ -28,6 +28,7 @@ from maps.models import (
     DeveloperListing,
     DataLayer,
     GeoFeature,
+    LayerListingLink,
     LayerPointCountCache,
     LayerPointCountDetail,
     SyncedLand,
@@ -37,6 +38,159 @@ from maps.models import (
 )
 
 logger = logging.getLogger(__name__)
+
+_SYNCED_MODEL_TO_SOURCE = {
+    SyncedLand: 'land',
+    SyncedPlot: 'plot',
+    SyncedDeveloperLand: 'developer_land',
+    SyncedDeveloperPlot: 'developer_plot',
+}
+
+
+def layer_link_source_for_synced_model(model_cls):
+    """Return layer-listing source string for a Synced* model class, or None."""
+    return _SYNCED_MODEL_TO_SOURCE.get(model_cls)
+
+
+def layer_link_status_exposure_from_record(record):
+    """Normalize status and exposure_type from a Synced* row for LayerListingLink denorm columns."""
+    st = getattr(record, 'status', None)
+    ex = getattr(record, 'exposure_type', None)
+    if st is None:
+        st = ''
+    elif not isinstance(st, str):
+        st = str(st)
+    st = st[:20]
+    if ex is None:
+        ex = ''
+    elif not isinstance(ex, str):
+        ex = str(ex)
+    ex = ex[:20]
+    return st, ex
+
+
+def sync_layer_listing_links(
+    source: str,
+    listing_pk: int,
+    backend_id,
+    enriched_layers,
+    now=None,
+    status='',
+    exposure_type='',
+):
+    """
+    Replace all LayerListingLink rows for this listing with edges parsed from enriched_layers.
+    When enriched_layers is empty, only deletes existing rows.
+    status and exposure_type are denormalized from the Synced* listing row (same value on each edge).
+    """
+    if now is None:
+        now = timezone.now()
+    if status is None:
+        status = ''
+    if not isinstance(status, str):
+        status = str(status)
+    status = status[:20]
+    if exposure_type is None:
+        exposure_type = ''
+    if not isinstance(exposure_type, str):
+        exposure_type = str(exposure_type)
+    exposure_type = exposure_type[:20]
+    try:
+        bid = int(backend_id) if backend_id is not None else 0
+    except (TypeError, ValueError):
+        bid = 0
+    LayerListingLink.objects.filter(source=source, listing_pk=listing_pk).delete()
+    if not enriched_layers:
+        return
+    seen = set()
+    rows = []
+    for e in enriched_layers:
+        if not isinstance(e, dict):
+            continue
+        lid = e.get('layer_id')
+        if lid is None:
+            continue
+        try:
+            lid = int(lid)
+        except (TypeError, ValueError):
+            continue
+        if lid in seen:
+            continue
+        seen.add(lid)
+        try:
+            dist = float(e.get('distance_km', 0))
+        except (TypeError, ValueError):
+            dist = 0.0
+        slug = e.get('layer_slug') or ''
+        if isinstance(slug, str):
+            slug = slug[:255]
+        else:
+            slug = str(slug)[:255]
+        np = e.get('nearest_point')
+        if np is not None and not isinstance(np, (dict, list)):
+            np = None
+        rows.append(
+            LayerListingLink(
+                layer_id=lid,
+                source=source,
+                listing_pk=listing_pk,
+                backend_id=bid,
+                status=status,
+                exposure_type=exposure_type,
+                layer_slug=slug,
+                distance_km=dist,
+                nearest_point=np,
+                enriched_at=now,
+            )
+        )
+    if rows:
+        LayerListingLink.objects.bulk_create(rows)
+
+
+def refresh_layer_listing_links_from_stored_enrichment(record):
+    """Sync LayerListingLink from a Synced* row's enriched_layers (land/plot/developer_land/developer_plot only)."""
+    src = layer_link_source_for_synced_model(type(record))
+    if src:
+        st, ex = layer_link_status_exposure_from_record(record)
+        sync_layer_listing_links(
+            src,
+            record.pk,
+            getattr(record, 'backend_id', None),
+            record.enriched_layers or [],
+            status=st,
+            exposure_type=ex,
+        )
+
+
+def _flush_synced_enrich_batch(batch):
+    if not batch:
+        return
+    cls = type(batch[0])
+    cls.objects.bulk_update(batch, ['enriched_layers', 'enriched_at'])
+    src = layer_link_source_for_synced_model(cls)
+    if not src:
+        return
+    for rec in batch:
+        st, ex = layer_link_status_exposure_from_record(rec)
+        sync_layer_listing_links(
+            src, rec.pk, rec.backend_id, rec.enriched_layers or [], status=st, exposure_type=ex
+        )
+
+
+def _flush_synced_clear_batch(clear_batch):
+    if not clear_batch:
+        return
+    cls = type(clear_batch[0])
+    cls.objects.bulk_update(clear_batch, ['enriched_layers', 'enriched_at'])
+    src = layer_link_source_for_synced_model(cls)
+    if not src:
+        return
+    for rec in clear_batch:
+        st, ex = layer_link_status_exposure_from_record(rec)
+        sync_layer_listing_links(
+            src, rec.pk, rec.backend_id, rec.enriched_layers or [], status=st, exposure_type=ex
+        )
+
 
 # Maximum distance (km) to consider a layer "nearby"; beyond this, layer is excluded
 NEARBY_THRESHOLD_KM = 30.0
@@ -750,6 +904,7 @@ def enrich_synced_record(record, update_location_point: bool = True) -> bool:
         record.enriched_layers = []
         record.enriched_at = None
         record.save(update_fields=['enriched_layers', 'enriched_at'])
+        refresh_layer_listing_links_from_stored_enrichment(record)
         return False
     payload = getattr(record, 'payload', None) or {}
     state_name = _get_state_name_from_payload(payload)
@@ -757,6 +912,7 @@ def enrich_synced_record(record, update_location_point: bool = True) -> bool:
     record.enriched_layers = enriched
     record.enriched_at = timezone.now()
     record.save(update_fields=['enriched_layers', 'enriched_at'])
+    refresh_layer_listing_links_from_stored_enrichment(record)
     logger.debug("Enriched %s backend_id=%s: %d layers", type(record).__name__, getattr(record, 'backend_id', record.pk), len(enriched))
     return True
 
@@ -780,7 +936,7 @@ def enrich_synced_queryset(queryset, update_location_point: bool = True):
             clear_batch.append(record)
             skipped += 1
             if len(clear_batch) >= ENRICH_BULK_BATCH_SIZE:
-                type(record).objects.bulk_update(clear_batch, ['enriched_layers', 'enriched_at'])
+                _flush_synced_clear_batch(clear_batch)
                 clear_batch = []
             continue
         payload = getattr(record, 'payload', None) or {}
@@ -791,12 +947,12 @@ def enrich_synced_queryset(queryset, update_location_point: bool = True):
         batch.append(record)
         processed += 1
         if len(batch) >= ENRICH_BULK_BATCH_SIZE:
-            type(record).objects.bulk_update(batch, ['enriched_layers', 'enriched_at'])
+            _flush_synced_enrich_batch(batch)
             batch = []
     if batch:
-        type(batch[0]).objects.bulk_update(batch, ['enriched_layers', 'enriched_at'])
+        _flush_synced_enrich_batch(batch)
     if clear_batch:
-        type(clear_batch[0]).objects.bulk_update(clear_batch, ['enriched_layers', 'enriched_at'])
+        _flush_synced_clear_batch(clear_batch)
     return processed, skipped
 
 

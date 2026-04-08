@@ -29,6 +29,9 @@ Usage:
   python manage.py enrich_listing_layers --developer-only   # only DeveloperListing
   python manage.py enrich_listing_layers --synced-only     # only 4 Synced* tables
   python manage.py enrich_listing_layers --dry-run
+
+LayerListingLink rows (land/plot/developer_land/developer_plot only) update when Synced* rows
+are enriched. Rebuild from JSON: python manage.py materialize_layer_listing_links
 """
 
 import logging

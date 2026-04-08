@@ -11,7 +11,16 @@ from django.db import transaction
 from django.db.models.signals import pre_save, post_save, post_delete
 from django.dispatch import receiver
 
-from maps.models import DataLayer, SyncedLand, SyncedPlot, DeveloperListingMedia
+from maps.models import (
+    DataLayer,
+    DeveloperListing,
+    DeveloperListingMedia,
+    LayerListingLink,
+    SyncedDeveloperLand,
+    SyncedDeveloperPlot,
+    SyncedLand,
+    SyncedPlot,
+)
 from maps.tile_job_queue import (
     send_land_plot_tile_job,
     send_tif_tile_job,
@@ -102,6 +111,29 @@ def _datalayer_post_save(sender, instance, created, **kwargs):
     transaction.on_commit(lambda: _enrich_listings_near_layer_after_commit(layer_id))
 
 
+# ----- LayerListingLink cleanup when listing rows are deleted -----
+
+
+@receiver(post_delete, sender=SyncedLand)
+def _layer_listing_link_delete_land(sender, instance, **kwargs):
+    LayerListingLink.objects.filter(source='land', listing_pk=instance.pk).delete()
+
+
+@receiver(post_delete, sender=SyncedPlot)
+def _layer_listing_link_delete_plot(sender, instance, **kwargs):
+    LayerListingLink.objects.filter(source='plot', listing_pk=instance.pk).delete()
+
+
+@receiver(post_delete, sender=SyncedDeveloperLand)
+def _layer_listing_link_delete_dev_land(sender, instance, **kwargs):
+    LayerListingLink.objects.filter(source='developer_land', listing_pk=instance.pk).delete()
+
+
+@receiver(post_delete, sender=SyncedDeveloperPlot)
+def _layer_listing_link_delete_dev_plot(sender, instance, **kwargs):
+    LayerListingLink.objects.filter(source='developer_plot', listing_pk=instance.pk).delete()
+
+
 # ----- Tile job enqueue (single source: webhook and admin/API both trigger via these signals) -----
 
 
@@ -136,7 +168,6 @@ def _synced_land_plot_post_delete_tile_job(sender, instance, **kwargs):
 
 def _enqueue_tif_job_after_commit(listing_id: int, webhook_event_id=None):
     """Run after commit: enqueue one TIF job for the listing (all TIF media)."""
-    from maps.models import DeveloperListing
     try:
         listing = DeveloperListing.objects.get(pk=listing_id)
         send_tif_tile_job(listing, webhook_event_id=webhook_event_id)

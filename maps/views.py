@@ -12,6 +12,7 @@ import hashlib
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from django.http import HttpResponseRedirect, HttpResponse
+from django.core.paginator import EmptyPage, Paginator
 from django.contrib.gis.geos import Point, Polygon
 from django.contrib.gis.db.models.functions import Distance
 from drf_spectacular.utils import extend_schema, extend_schema_view, OpenApiParameter, OpenApiExample
@@ -5902,6 +5903,7 @@ def _process_developer_listing_webhook(webhook_event_id):
                 get_listing_point,
                 _get_state_name_from_payload,
                 compute_enriched_layers_for_point,
+                refresh_layer_listing_links_from_stored_enrichment,
             )
             _sync_listing_location_point(listing)
             point = get_listing_point(listing)
@@ -5913,6 +5915,7 @@ def _process_developer_listing_webhook(webhook_event_id):
                     synced_record.enriched_layers = []
                     synced_record.enriched_at = None
                     synced_record.save(update_fields=['enriched_layers', 'enriched_at'])
+                    refresh_layer_listing_links_from_stored_enrichment(synced_record)
             else:
                 state_name = _get_state_name_from_payload(listing.listing_data or {})
                 enriched = compute_enriched_layers_for_point(point, state_name=state_name)
@@ -5924,6 +5927,7 @@ def _process_developer_listing_webhook(webhook_event_id):
                     synced_record.enriched_layers = enriched
                     synced_record.enriched_at = now
                     synced_record.save(update_fields=['enriched_layers', 'enriched_at'])
+                    refresh_layer_listing_links_from_stored_enrichment(synced_record)
                 logger.info(f"[WEBHOOK_BACKGROUND] Enriched {listing_type} {listing_id} ({len(enriched)} layers)")
         except Exception as enr_err:
             logger.warning(f"[WEBHOOK_BACKGROUND] Enrichment failed for {listing_type} {listing_id}: {enr_err}", exc_info=True)
@@ -7081,6 +7085,176 @@ class LayerPointCountsAPIView(APIView):
                 {'error': 'Internal server error', 'details': str(e)},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
+
+
+class LayerListingLinksAPIView(APIView):
+    """
+    GET edges from LayerListingLink for one DataLayer (lookup by DataLayer.slug; must be unique across DB).
+
+    GET /api/layers/<layer_slug>/listing-links/
+    Query:
+      - source (optional): land | plot | developer_land | developer_plot
+      - distance_km (optional): maximum distance in km — rows with distance_km <= this value (0 = inside layer)
+      - page (default 1)
+      - page_size (default 10, max 100)
+
+    Only returns links where the denormalized listing is status=active and exposure_type=public (case-insensitive).
+
+    Each result includes the corresponding Synced* row as `listing` (payload, enriched_layers, etc.), same shape as POST /api/enrichment-lookup/.
+    """
+    permission_classes = [AllowAny]
+
+    _MAX_PAGE_SIZE = 100
+    _VALID_SOURCES = frozenset({'land', 'plot', 'developer_land', 'developer_plot'})
+
+    @staticmethod
+    def _resolve_layer(layer_slug):
+        """Return (DataLayer|None, error_response|None). Ambiguous slug if same slug exists in multiple cities."""
+        from .models import DataLayer
+
+        slug = (layer_slug or '').strip()
+        if not slug:
+            return None, Response({'error': 'Invalid layer slug'}, status=status.HTTP_400_BAD_REQUEST)
+        matches = list(DataLayer.objects.filter(slug=slug).select_related('city')[:2])
+        if not matches:
+            return None, Response({'error': 'Layer not found'}, status=status.HTTP_404_NOT_FOUND)
+        if len(matches) > 1:
+            sample = [f"{row.city.slug}:{row.slug}" for row in matches]
+            return None, Response(
+                {
+                    'error': 'Multiple layers share this slug; disambiguate by city-scoped API or unique slug.',
+                    'matches_sample': sample,
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return matches[0], None
+
+    @staticmethod
+    def _bulk_listing_payloads(links):
+        """Map (source, listing_pk) -> enrichment-lookup style dict for Synced* rows."""
+        from collections import defaultdict
+
+        lookup = EnrichmentLookupAPIView()
+        model_map = lookup._get_model_map()
+        by_source = defaultdict(set)
+        for link in links:
+            by_source[link.source].add(link.listing_pk)
+        out = {}
+        for src, pks in by_source.items():
+            model = model_map.get(src)
+            if not model or not pks:
+                continue
+            for obj in model.objects.filter(pk__in=pks):
+                out[(src, obj.pk)] = lookup._record_to_dict(obj)
+        return out
+
+    def get(self, request, layer_slug):
+        from .models import LayerListingLink
+
+        layer, err = self._resolve_layer(layer_slug)
+        if err is not None:
+            return err
+
+        qs = (
+            LayerListingLink.objects.filter(layer_id=layer.pk)
+            .filter(status__iexact='active', exposure_type__iexact='public')
+            .order_by('source', 'distance_km', 'id')
+        )
+
+        src = (request.query_params.get('source') or '').strip().lower()
+        if src:
+            if src not in self._VALID_SOURCES:
+                return Response(
+                    {'error': f'Invalid source. Use one of: {sorted(self._VALID_SOURCES)}'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            qs = qs.filter(source=src)
+
+        dist_raw = (request.query_params.get('distance_km') or '').strip()
+        if dist_raw:
+            try:
+                dist_max = float(dist_raw)
+            except (TypeError, ValueError):
+                return Response(
+                    {'error': 'distance_km must be a number'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            if dist_max < 0:
+                return Response(
+                    {'error': 'distance_km must be >= 0'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            qs = qs.filter(distance_km__lte=dist_max)
+
+        try:
+            page_size = int(request.query_params.get('page_size', 10))
+        except (TypeError, ValueError):
+            page_size = 10
+        page_size = min(self._MAX_PAGE_SIZE, max(1, page_size))
+
+        try:
+            page_num = int(request.query_params.get('page', 1))
+        except (TypeError, ValueError):
+            page_num = 1
+        page_num = max(1, page_num)
+
+        paginator = Paginator(qs, page_size)
+        try:
+            page_obj = paginator.page(page_num)
+        except EmptyPage:
+            return Response(
+                {
+                    'error': 'Invalid page',
+                    'total_pages': paginator.num_pages,
+                    'total': paginator.count,
+                },
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        listing_map = self._bulk_listing_payloads(page_obj.object_list)
+
+        rows = []
+        for link in page_obj.object_list:
+            ts = link.enriched_at
+            rows.append(
+                {
+                    'source': link.source,
+                    'listing_pk': link.listing_pk,
+                    'backend_id': link.backend_id,
+                    'status': link.status,
+                    'exposure_type': link.exposure_type,
+                    'layer_slug': link.layer_slug,
+                    'distance_km': link.distance_km,
+                    'nearest_point': link.nearest_point,
+                    'enriched_at': ts.isoformat() if ts is not None else None,
+                    'listing': listing_map.get((link.source, link.listing_pk)),
+                }
+            )
+
+        base = request.build_absolute_uri(request.path)
+
+        def _link_for_page(p):
+            q = request.query_params.copy()
+            q['page_size'] = str(page_size)
+            q['page'] = str(p)
+            return f"{base}?{q.urlencode()}"
+
+        return Response(
+            {
+                'layer_id': layer.pk,
+                'layer_slug': layer.slug,
+                'city_slug': layer.city.slug,
+                'count': len(rows),
+                'total': paginator.count,
+                'page': page_obj.number,
+                'page_size': page_size,
+                'total_pages': paginator.num_pages,
+                'next': _link_for_page(page_obj.next_page_number()) if page_obj.has_next() else None,
+                'previous': _link_for_page(page_obj.previous_page_number()) if page_obj.has_previous() else None,
+                'results': rows,
+            },
+            status=status.HTTP_200_OK,
+        )
 
 
 class DeveloperListingMediaDetailAPIView(APIView):

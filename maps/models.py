@@ -534,6 +534,58 @@ class LayerPointCountDetail(models.Model):
         return f"Detail(layer={self.layer_id}, source={self.source}, backend_id={self.backend_id}, overlap={self.is_overlapping})"
 
 
+class LayerListingLink(models.Model):
+    """
+    Denormalized edge: one row per (DataLayer, listing) when that listing's enriched_layers
+    includes the layer (overlap or within nearby threshold). Filled from enriched_layers JSON;
+    query by layer_id to list all lands/plots/developer listings with distance_km.
+    """
+    layer = models.ForeignKey(
+        DataLayer,
+        on_delete=models.CASCADE,
+        related_name='listing_links',
+    )
+    source = models.CharField(
+        max_length=32,
+        help_text='land, plot, developer_land, developer_plot',
+    )
+    listing_pk = models.IntegerField(help_text='Primary key of the row in the source listing table')
+    backend_id = models.IntegerField(help_text='Backend/API listing id')
+    status = models.CharField(
+        max_length=20,
+        blank=True,
+        default='',
+        help_text='Denormalized from Synced* listing row (e.g. active)',
+    )
+    exposure_type = models.CharField(
+        max_length=20,
+        blank=True,
+        default='',
+        help_text='Denormalized from Synced* listing row (e.g. public)',
+    )
+    layer_slug = models.CharField(max_length=255, blank=True, default='')
+    distance_km = models.FloatField(help_text='0 = inside layer geometry; else distance to layer in km')
+    nearest_point = models.JSONField(null=True, blank=True)
+    enriched_at = models.DateTimeField()
+
+    class Meta:
+        db_table = 'maps_layer_listing_link'
+        constraints = [
+            models.UniqueConstraint(
+                fields=['layer', 'source', 'listing_pk'],
+                name='uniq_maps_layer_listing_link_layer_source_listingpk',
+            ),
+        ]
+        indexes = [
+            models.Index(fields=['layer', 'source']),
+            models.Index(fields=['source', 'listing_pk']),
+            models.Index(fields=['layer', 'status'], name='maps_layer_ll_layer_status_idx'),
+        ]
+
+    def __str__(self):
+        return f"LayerListingLink(layer_id={self.layer_id}, source={self.source}, listing_pk={self.listing_pk})"
+
+
 # ================================
 # GEO FEATURE MODEL (COMPLETE)
 # ================================

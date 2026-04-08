@@ -20,6 +20,7 @@ from .models import (
     LandPlotWebhookEvent,
     LayerCategory,
     LayerGroup,
+    LayerListingLink,
     LayerPointCountCache,
     LayerPointCountDetail,
     State,
@@ -249,6 +250,41 @@ class LayerPointCountDetailAdmin(admin.ModelAdmin):
 
     def has_add_permission(self, request):
         return False  # Details are populated by refresh_layer_point_count_cache
+
+
+@admin.register(LayerListingLink)
+class LayerListingLinkAdmin(admin.ModelAdmin):
+    list_display = (
+        "id",
+        "layer",
+        "layer_slug",
+        "source",
+        "listing_pk",
+        "backend_id",
+        "status",
+        "exposure_type",
+        "distance_km",
+        "enriched_at",
+    )
+    list_filter = ("source", "status", "exposure_type")
+    search_fields = ("layer__slug", "layer__name", "layer_slug")
+    list_select_related = ("layer",)
+    autocomplete_fields = ("layer",)
+    readonly_fields = (
+        "layer",
+        "source",
+        "listing_pk",
+        "backend_id",
+        "status",
+        "exposure_type",
+        "layer_slug",
+        "distance_km",
+        "nearest_point",
+        "enriched_at",
+    )
+
+    def has_add_permission(self, request):
+        return False  # Populated by enrichment / materialize_layer_listing_links
 
 
 @admin.register(DataLayer)
