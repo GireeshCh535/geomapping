@@ -75,7 +75,7 @@ CRZ_SEARCH_LAYER_SLUGS = frozenset({
     'yanam_crz_layer',
 })
 
-# Highway / economic corridor layers: search `data` uses ROW (width), Name, Connecting Points, Lane Configuration
+# Highway / economic corridor layers: search `data` order — Name, Connecting Points, Lanes, Width (ROW)
 HIGHWAY_CORRIDOR_PROPERTY_SLUGS = frozenset({
     'mancherial_warangal_expressway',
     'amroor_jagitial_mancherial_expressway',
@@ -90,22 +90,22 @@ HIGHWAY_CORRIDOR_PROPERTY_SLUGS = frozenset({
 
 
 def _highway_corridor_search_data_string(properties):
-    """Comma-separated Width (ROW), Name, Connecting Points, Lanes (Lane Configuration)."""
+    """Comma-separated Name, Connecting Points, Lanes (Lane Configuration), Width (ROW)."""
     if not isinstance(properties, dict):
         properties = {}
     parts = []
+    name = properties.get('Name')
+    if name is not None and str(name).strip():
+        parts.append(f"{str(name).strip()}")
+    cp = properties.get('Connecting Points')
+    if cp is not None and str(cp).strip():
+        parts.append(f"{str(cp).strip()}")
+    lanes = properties.get('Lane Configuration')
+    if lanes is not None and str(lanes).strip():
+        parts.append(f"{str(lanes).strip()}")
     row = properties.get('ROW')
     if row is not None and str(row).strip():
         parts.append(f"Width: {str(row).strip()}")
-    name = properties.get('Name')
-    if name is not None and str(name).strip():
-        parts.append(f"Name: {str(name).strip()}")
-    cp = properties.get('Connecting Points')
-    if cp is not None and str(cp).strip():
-        parts.append(f"Connecting Points: {str(cp).strip()}")
-    lanes = properties.get('Lane Configuration')
-    if lanes is not None and str(lanes).strip():
-        parts.append(f"Lanes: {str(lanes).strip()}")
     return ', '.join(parts)
 
 
@@ -1554,7 +1554,7 @@ class CoordinateSearchTestView(APIView):
                             'all_layer_data': [feature_data],
                         }
 
-                    # Greenfield highways / corridors: Width (ROW), Name, Connecting Points, Lanes — comma-separated
+                    # Greenfield highways / corridors: Name, Connecting Points, Lanes, Width — comma-separated
                     elif layer.slug in HIGHWAY_CORRIDOR_PROPERTY_SLUGS:
                         detailed_category = feature_data.get('detailed_category', {})
                         properties = detailed_category.get('properties', {}) or {}
