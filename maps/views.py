@@ -75,7 +75,8 @@ CRZ_SEARCH_LAYER_SLUGS = frozenset({
     'yanam_crz_layer',
 })
 
-# Highway / economic corridor layers: search `data` order — Name, Connecting Points, Lanes, Width (ROW)
+# Highway / economic corridor layers (plus coastal/expressway slugs in HIGHWAY_INFRASTRUCTURE_EXTRA_POPUP_SLUGS):
+# coordinate-search `data` is multiline legend text — Name, Right of Way, Lane Configuration, Connects.
 HIGHWAY_CORRIDOR_PROPERTY_SLUGS = frozenset({
     'mancherial_warangal_expressway',
     'amroor_jagitial_mancherial_expressway',
@@ -88,25 +89,60 @@ HIGHWAY_CORRIDOR_PROPERTY_SLUGS = frozenset({
     'khammam_vijaywada_expressway',
 })
 
+# Coastal roads, expressways, sea links, bridges, corridors — same legend popup as greenfield corridors
+HIGHWAY_INFRASTRUCTURE_EXTRA_POPUP_SLUGS = frozenset({
+    'kharghar_coastal_road', 'versova_bhayander_coastal_road', 'pune_ring_roads',
+    'nagpur_chandrapur_expressway', 'nagpur_gondia_expressway',
+    'virar_alibaug_multimodal_corridor', 'shaktipeeth_expressway',
+    'madh_versova_bridge', 'uttan_virar_sea_link', 'vadhvan_tawa_connector_expressway',
+    'revas_karanja_bridge', 'bandra_versova_sea_link', 'thane_coastal_road',
+    'pune_bengaluru_expressway', 'konkan_expressway', 'talegaon_chakan_shikrapur_corridor',
+})
 
-def _highway_corridor_search_data_string(properties):
-    """Comma-separated Name, Connecting Points, Lanes (Lane Configuration), Width (ROW)."""
+HIGHWAY_INFRASTRUCTURE_POPUP_SLUGS = HIGHWAY_CORRIDOR_PROPERTY_SLUGS | HIGHWAY_INFRASTRUCTURE_EXTRA_POPUP_SLUGS
+
+
+def _lane_configuration_omit_from_legend(lanes):
+    """Skip lane line in legend when missing or explicitly not specified."""
+    if lanes is None:
+        return True
+    s = str(lanes).strip().lower()
+    return s == '' or s == 'not specified'
+
+
+def _format_right_of_way_for_legend(row_val):
+    """Display ROW like '45m' for legend (append m when absent)."""
+    if row_val is None:
+        return ''
+    s = str(row_val).strip()
+    if not s:
+        return ''
+    if s.lower().endswith('m'):
+        return s
+    return f'{s}m'
+
+
+def _highway_infra_legend_popup_text(properties):
+    """
+    Multiline legend popup: Name, Right of Way, Lane Configuration, Connects.
+    Omits Lane Configuration when value is 'not specified'; omits empty fields.
+    """
     if not isinstance(properties, dict):
         properties = {}
-    parts = []
+    lines = []
     name = properties.get('Name')
     if name is not None and str(name).strip():
-        parts.append(f"{str(name).strip()}")
+        lines.append(f"Name: {str(name).strip()}")
+    row_disp = _format_right_of_way_for_legend(properties.get('ROW'))
+    if row_disp:
+        lines.append(f'Right of Way: {row_disp}')
+    lanes = properties.get('Lane Configuration')
+    if not _lane_configuration_omit_from_legend(lanes):
+        lines.append(f'Lane Configuration: {str(lanes).strip()}')
     cp = properties.get('Connecting Points')
     if cp is not None and str(cp).strip():
-        parts.append(f"{str(cp).strip()}")
-    lanes = properties.get('Lane Configuration')
-    if lanes is not None and str(lanes).strip():
-        parts.append(f"{str(lanes).strip()}")
-    row = properties.get('ROW')
-    if row is not None and str(row).strip():
-        parts.append(f"Width: {str(row).strip()}")
-    return ', '.join(parts)
+        lines.append(f'Connects: {str(cp).strip()}')
+    return '\n'.join(lines)
 
 
 def _filter_crz_geojson_properties(feature_data):
@@ -1554,33 +1590,13 @@ class CoordinateSearchTestView(APIView):
                             'all_layer_data': [feature_data],
                         }
 
-                    # Greenfield highways / corridors: Name, Connecting Points, Lanes, Width — comma-separated
-                    elif layer.slug in HIGHWAY_CORRIDOR_PROPERTY_SLUGS:
+                    # Highways / corridors / coastal infra: legend popup (Name, ROW, lanes, connects)
+                    elif layer.slug in HIGHWAY_INFRASTRUCTURE_POPUP_SLUGS:
                         detailed_category = feature_data.get('detailed_category', {})
                         properties = detailed_category.get('properties', {}) or {}
-                        data_string = _highway_corridor_search_data_string(properties)
+                        data_string = _highway_infra_legend_popup_text(properties)
                         return {
                             'data': data_string,
-                            'fill_color': _masterplan_fill_color_svg_data_uri('#000000'),
-                            'found': True,
-                            'features': [feature_data],
-                            'all_layer_data': [feature_data],
-                        }
-
-                    # Coastal roads, expressways, sea links, bridges, corridors - use properties.Name, black fill
-                    elif layer.slug in [
-                        'kharghar_coastal_road', 'versova_bhayander_coastal_road', 'pune_ring_roads',
-                        'nagpur_chandrapur_expressway', 'nagpur_gondia_expressway',
-                        'virar_alibaug_multimodal_corridor', 'shaktipeeth_expressway',
-                        'madh_versova_bridge', 'uttan_virar_sea_link', 'vadhvan_tawa_connector_expressway',
-                        'revas_karanja_bridge', 'bandra_versova_sea_link', 'thane_coastal_road',
-                        'pune_bengaluru_expressway', 'konkan_expressway', 'talegaon_chakan_shikrapur_corridor',
-                    ]:
-                        detailed_category = feature_data.get('detailed_category', {})
-                        properties = detailed_category.get('properties', {}) or {}
-                        name = properties.get('Name', '')
-                        return {
-                            'data': name,
                             'fill_color': _masterplan_fill_color_svg_data_uri('#000000'),
                             'found': True,
                             'features': [feature_data],
@@ -2572,34 +2588,13 @@ class CoordinateSearchTestView(APIView):
                     'all_layer_data': containing_features,
                 }
 
-            if layer.slug in HIGHWAY_CORRIDOR_PROPERTY_SLUGS and containing_features:
+            if layer.slug in HIGHWAY_INFRASTRUCTURE_POPUP_SLUGS and containing_features:
                 primary_feature = containing_features[0]
                 detailed_category = primary_feature.get('detailed_category', {})
                 properties = detailed_category.get('properties', {}) or {}
-                data_string = _highway_corridor_search_data_string(properties)
+                data_string = _highway_infra_legend_popup_text(properties)
                 return {
                     'data': data_string,
-                    'fill_color': _masterplan_fill_color_svg_data_uri('#000000'),
-                    'found': True,
-                    'features': containing_features[:1],
-                    'all_layer_data': containing_features,
-                }
-
-            # Coastal roads, expressways, sea links, bridges, corridors - use properties.Name, black fill
-            if layer.slug in [
-                'kharghar_coastal_road', 'versova_bhayander_coastal_road', 'pune_ring_roads',
-                'nagpur_chandrapur_expressway', 'nagpur_gondia_expressway',
-                'virar_alibaug_multimodal_corridor', 'shaktipeeth_expressway',
-                'madh_versova_bridge', 'uttan_virar_sea_link', 'vadhvan_tawa_connector_expressway',
-                'revas_karanja_bridge', 'bandra_versova_sea_link', 'thane_coastal_road',
-                'pune_bengaluru_expressway', 'konkan_expressway', 'talegaon_chakan_shikrapur_corridor',
-            ] and containing_features:
-                primary_feature = containing_features[0]
-                detailed_category = primary_feature.get('detailed_category', {})
-                properties = detailed_category.get('properties', {}) or {}
-                name = properties.get('Name', '')
-                return {
-                    'data': name,
                     'fill_color': _masterplan_fill_color_svg_data_uri('#000000'),
                     'found': True,
                     'features': containing_features[:1],

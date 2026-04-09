@@ -19,6 +19,19 @@ def _fill_color_svg_data_uri(hex_color):
     return f"data:image/svg+xml,{quote(svg_str)}"
 
 
+_highway_infra_legend_cache = None
+
+
+def _highway_infra_legend_helpers():
+    """Lazy import from maps.views once (large module); used for corridor/coastal layer popups."""
+    global _highway_infra_legend_cache
+    if _highway_infra_legend_cache is None:
+        from maps.views import HIGHWAY_INFRASTRUCTURE_POPUP_SLUGS, _highway_infra_legend_popup_text
+
+        _highway_infra_legend_cache = (HIGHWAY_INFRASTRUCTURE_POPUP_SLUGS, _highway_infra_legend_popup_text)
+    return _highway_infra_legend_cache
+
+
 def _get_fill_color(properties):
     if not properties:
         return ''
@@ -44,6 +57,10 @@ def get_feature_display_data(layer, feature):
     layer_name = getattr(layer, 'name', None) or ''
     fill_color = _get_fill_color(props)
     fill_uri = _fill_color_svg_data_uri(fill_color)
+
+    hi_slugs, hi_legend_fn = _highway_infra_legend_helpers()
+    if slug in hi_slugs:
+        return {'data': hi_legend_fn(props), 'fill_color': _fill_color_svg_data_uri('#000000')}
 
     # hyderabad_masterplan
     if slug == 'hyderabad_masterplan':
