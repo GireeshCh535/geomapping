@@ -8,7 +8,7 @@
     project_dir: "/opt/{{ project_name }}"
     temp_dir: "/tmp/{{ project_name }}_deploy"
     zip_file: "{{ project_name }}.zip"
-    domain: "layers.1acre.in"  # Updated domain name
+    domain: "layers.citylands.in"  # Updated domain name
     # Set full_clean: true to prune images + build cache (slow next build). Default: fast deploys with cache.
     full_clean: false
 

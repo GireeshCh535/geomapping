@@ -31,7 +31,7 @@ DEBUG = os.getenv('DJANGO_DEBUG', 'True').lower() == 'true'
 
 # ALLOWED HOSTS (include IP with ports when Host header has port, e.g. behind nginx).
 # Entire literal on one line avoids IndentationError when "["/lines are corrupted on deploy.
-_required_hosts = ['*', '3.108.10.59', '3.108.10.59:80', '3.108.10.59:443', 'layers.1acre.in', 'citylands.in', 'www.citylands.in', 'tiles.citylands.in']
+_required_hosts = ['*', '3.108.10.59', '3.108.10.59:80', '3.108.10.59:443', 'layers.1acre.in', 'layers.citylands.in', 'citylands.in', 'www.citylands.in', 'tiles.citylands.in']
 _allowed = os.getenv('DJANGO_ALLOWED_HOSTS')
 if _allowed:
     ALLOWED_HOSTS = list(dict.fromkeys(
@@ -46,6 +46,8 @@ CSRF_TRUSTED_ORIGINS = [
     'http://localhost:3000',
     'https://layers.1acre.in',
     'http://layers.1acre.in',  # if you also use HTTP
+    'https://layers.citylands.in',
+    'http://layers.citylands.in',
     'https://citylands.in',
     'http://citylands.in',
     'https://www.citylands.in',
@@ -119,6 +121,8 @@ CORS_ALLOW_ALL_ORIGINS = False
 CORS_ALLOWED_ORIGINS = [
     'https://layers.1acre.in',
     'http://layers.1acre.in',
+    'https://layers.citylands.in',
+    'http://layers.citylands.in',
     'https://citylands.in',
     'http://citylands.in',
     'https://www.citylands.in',

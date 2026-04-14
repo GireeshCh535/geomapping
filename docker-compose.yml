@@ -66,7 +66,7 @@ services:
       - AWS_DEFAULT_REGION=ap-south-1
       - AWS_SECRET_ACCESS_KEY=45QpOp2sGal943rYVef3WSdBv2OkcGA+4i3wkwfQ
       - AWS_ACCESS_KEY_ID=AKIAW3MEBMOOEQKR3BXV
-      - TILE_CALLBACK_BASE_URL=https://layers.1acre.in/
+      - TILE_CALLBACK_BASE_URL=https://layers.citylands.in/
     depends_on:
       - db
       - redis
