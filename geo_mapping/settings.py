@@ -345,12 +345,12 @@ MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
 
 # ===================================
-# AWS S3 & CLOUDFRONT (tile URLs — no tiles.citylands.in default)
+# AWS S3 (tile URLs) — tiles are served from S3 by default (Django proxy fetches S3).
 # ===================================
 # No https://, no trailing slash.
-# - AWS_S3_TILE_DOMAIN: virtual-hosted bucket host (direct S3 when path is not CloudFront-whitelisted).
-# - CLOUDFRONT_DOMAIN: AWS CloudFront distribution for browser-safe public tiles.
-# - TILE_CDN_DOMAIN / CLOUDFLARE_TILE_DOMAIN: legacy aliases; default to CLOUDFRONT_DOMAIN unless env set.
+# - AWS_S3_TILE_DOMAIN: virtual-hosted bucket host for direct S3 object URLs.
+# - TILE_CDN_DOMAIN / CLOUDFLARE_TILE_DOMAIN: legacy aliases; default to AWS_S3_TILE_DOMAIN unless env set.
+# - CLOUDFRONT_*: optional legacy; set USE_CLOUDFRONT=true only if you still route some keys via CloudFront.
 
 # AWS S3 Configuration
 AWS_ACCESS_KEY_ID = 'AKIAW3MEBMOOEQKR3BXV'
@@ -360,25 +360,24 @@ AWS_STORAGE_BUCKET_NAME = 'gis-portal-layers'
 AWS_S3_CUSTOM_DOMAIN = f'{AWS_STORAGE_BUCKET_NAME}.s3.{AWS_S3_REGION_NAME}.amazonaws.com'
 AWS_S3_TILE_DOMAIN = os.getenv('AWS_S3_TILE_DOMAIN', '').strip() or AWS_S3_CUSTOM_DOMAIN
 
-# AWS CloudFront — only for S3 keys under CLOUDFRONT_PATH_PREFIXES (see CLOUDFRONT_RESTRICT_PATH_PREFIXES).
-CLOUDFRONT_DOMAIN = os.getenv('CLOUDFRONT_DOMAIN', 'd17yosovmfjm4.cloudfront.net').strip()
+# Optional CloudFront host (empty = unused). TilePathService only uses it when USE_CLOUDFRONT is True.
+CLOUDFRONT_DOMAIN = os.getenv('CLOUDFRONT_DOMAIN', '').strip()
 
-TILE_CDN_DOMAIN = os.getenv('TILE_CDN_DOMAIN', '').strip() or CLOUDFRONT_DOMAIN
-CLOUDFLARE_TILE_DOMAIN = os.getenv('CLOUDFLARE_TILE_DOMAIN', '').strip() or CLOUDFRONT_DOMAIN
+TILE_CDN_DOMAIN = os.getenv('TILE_CDN_DOMAIN', '').strip() or AWS_S3_TILE_DOMAIN
+CLOUDFLARE_TILE_DOMAIN = os.getenv('CLOUDFLARE_TILE_DOMAIN', '').strip() or AWS_S3_TILE_DOMAIN
 
 CLOUDFRONT_DISTRIBUTION_ID = os.getenv('CLOUDFRONT_DISTRIBUTION_ID', '')  # Set via environment variable
-USE_CLOUDFRONT = os.getenv('USE_CLOUDFRONT', 'True').lower() == 'true'
-ENABLE_CLOUDFRONT_INVALIDATION = os.getenv('ENABLE_CLOUDFRONT_INVALIDATION', 'True').lower() == 'true'
+USE_CLOUDFRONT = os.getenv('USE_CLOUDFRONT', 'False').lower() == 'true'
+ENABLE_CLOUDFRONT_INVALIDATION = os.getenv('ENABLE_CLOUDFRONT_INVALIDATION', 'False').lower() == 'true'
 
-# When True (default): only keys under CLOUDFRONT_PATH_PREFIXES use CloudFront (CLOUDFRONT_DOMAIN, e.g. d17…);
-# all other keys use direct S3 (AWS_S3_TILE_DOMAIN). When False: every key uses CloudFront (rare / rollout).
+# When USE_CLOUDFRONT and CLOUDFRONT_RESTRICT_PATH_PREFIXES: only matching S3 key prefixes use CloudFront.
+# When USE_CLOUDFRONT is False (default): all tiles use S3 URLs only.
 CLOUDFRONT_RESTRICT_PATH_PREFIXES = os.getenv('CLOUDFRONT_RESTRICT_PATH_PREFIXES', 'true').lower() == 'true'
 
-# Only used when CLOUDFRONT_RESTRICT_PATH_PREFIXES is True
+# Only consulted when USE_CLOUDFRONT is True and CLOUDFRONT_RESTRICT_PATH_PREFIXES is True
 CLOUDFRONT_PATH_PREFIXES = [
     'karnataka/bengaluru/bengaluru_master_plan_2015/',
     'telangana/hyderabad/hyderabad_masterplan/',
-
 ]
 # Tile proxy server-side cache TTL in seconds (0 = no cache)
 TILE_PROXY_CACHE_TTL = 3600
@@ -398,14 +397,13 @@ SKIP_LOCAL_TILE_STORAGE = True
 # ---------------------------------------------------------------------------
 # TILE SERVING FLOW (see maps/views.py CloudFrontTileView, S3DirectTileView)
 # ---------------------------------------------------------------------------
-# 1) /api/tiles/... : Django proxy fetches CloudFront only for CLOUDFRONT_PATH_PREFIXES keys; else S3 only.
+# 1) /api/tiles/... : Django proxy fetches S3 (default). If USE_CLOUDFRONT, whitelisted keys may try CF then S3.
 #
 # 2) Optional ?proxy=1 (debug): gated by ENABLE_TILE_PROXY_DEBUG (defaults to DEBUG); normal traffic is always proxied.
 #
-# 3) /api/s3-tiles/...: Django fetches tile from S3 via boto3 and returns bytes.
-#    Bypasses CloudFront. Flow: Client -> Django -> S3.
+# 3) /api/s3-tiles/...: Django fetches tile from S3 via boto3 and returns bytes. Client -> Django -> S3.
 # ---------------------------------------------------------------------------
-# Used only for keys matching CLOUDFRONT_PATH_PREFIXES (proxy / internal fetch). Other keys use S3 only.
+# Order used only when USE_CLOUDFRONT and the S3 key is whitelisted; otherwise only S3 is tried.
 TILE_SERVING_FALLBACK_ORDER = [
     'cloudfront',
     's3_direct',

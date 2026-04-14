@@ -2,8 +2,8 @@
 """
 S3-only tile serving reference (standalone). Production uses geo_mapping/settings.py.
 
-Active split: direct S3 (AWS_S3_TILE_DOMAIN) vs CloudFront (CLOUDFRONT_DOMAIN) for whitelisted key prefixes.
-TILE_CDN_DOMAIN defaults to CLOUDFRONT_DOMAIN in Django settings if unset.
+Tiles use direct S3 (AWS_S3_TILE_DOMAIN). Optional CloudFront only if CLOUDFRONT_DOMAIN
+and USE_CLOUDFRONT are set.
 """
 
 # S3-Only Tile Serving Settings
@@ -16,18 +16,13 @@ AWS_STORAGE_BUCKET_NAME = 'gis-portal-layers'
 AWS_S3_REGION_NAME = 'ap-south-1'
 AWS_S3_TILE_DOMAIN = f'{AWS_STORAGE_BUCKET_NAME}.s3.{AWS_S3_REGION_NAME}.amazonaws.com'
 
-CLOUDFRONT_DOMAIN = 'd17yosovmfjm4.cloudfront.net'
-TILE_CDN_DOMAIN = CLOUDFRONT_DOMAIN
-CLOUDFLARE_TILE_DOMAIN = CLOUDFRONT_DOMAIN
+CLOUDFRONT_DOMAIN = ''
+TILE_CDN_DOMAIN = AWS_S3_TILE_DOMAIN
+CLOUDFLARE_TILE_DOMAIN = AWS_S3_TILE_DOMAIN
 
-CLOUDFRONT_ENABLED = True
+USE_CLOUDFRONT = False
 
-CLOUDFRONT_PATH_PREFIXES = [
-    'karnataka/bengaluru/',
-    'telangana/hyderabad/',
-    'andhra-pradesh/amaravati/',
-    'land-plot/',
-]
+CLOUDFRONT_PATH_PREFIXES = []
 
 TILE_PROXY_CACHE_TTL = 3600
 

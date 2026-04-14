@@ -54,7 +54,7 @@ DEFAULTS_BUILDER = {
     SyncedDeveloperPlot: defaults_for_developer_plot,
 }
 
-DEFAULT_BASE_URL = 'https://prod-be.1acre.in'
+DEFAULT_BASE_URL = 'https://prod-be-aws.1acre.in'
 DEFAULT_PAGE_SIZE = 50  # 1acre-be CustomPagination max_page_size is 50
 
 # When --fetch-detail: for each list path, fetch this detail path (use {id} for backend_id)

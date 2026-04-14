@@ -2682,7 +2682,6 @@ class AvailableTilesView(APIView):
             aws_secret_access_key=getattr(settings, 'AWS_SECRET_ACCESS_KEY', None)
         )
         self.bucket_name = getattr(settings, 'AWS_STORAGE_BUCKET_NAME')
-        self.cloudfront_domain = settings.CLOUDFRONT_DOMAIN or None
     
     def get(self, request, city_slug):
         """
@@ -3883,7 +3882,7 @@ class OptimizedHierarchyAPIView(APIView):
 
 @extend_schema(
     summary="Serve map tiles",
-    description="Serve map tiles (PNG or MVT) via Django proxy: fetches from CloudFront only for CLOUDFRONT_PATH_PREFIXES keys, otherwise from S3.",
+    description="Serve map tiles (PNG or MVT) via Django proxy: fetches from S3 (optional CloudFront if USE_CLOUDFRONT and path whitelist).",
     tags=['tiles'],
     parameters=[
         OpenApiParameter(
@@ -3930,8 +3929,8 @@ class OptimizedHierarchyAPIView(APIView):
         ),
     ],
     responses={
-        302: {
-            'description': 'Redirect to CloudFront tile URL',
+        200: {
+            'description': 'Tile bytes (PNG or MVT) proxied from S3',
         },
         404: {
             'description': 'Tile or layer not found',
@@ -3960,7 +3959,7 @@ class OptimizedHierarchyAPIView(APIView):
 )
 class CloudFrontTileView(APIView):
     """
-    Tile serving API: proxy only (path-based CloudFront or S3; server-side cache).
+    Tile serving API: proxy only (S3 by default; optional CloudFront; server-side cache).
     Requires API key (X-API-Key) when any active ApiKey exists; same as other API endpoints except webhooks.
 
     Serves tiles with hierarchical URL structure; client never sees backend URL:
@@ -3972,7 +3971,7 @@ class CloudFrontTileView(APIView):
     - /api/tiles/andhra-pradesh/visakhapatnam/master_plan/12/2048/2048.png
     - /api/tiles/telangana/hyderabad/rrr/12/2048/2048.mvt
     
-    Backend is chosen by CLOUDFRONT_PATH_PREFIXES; tile body is cached (TILE_PROXY_CACHE_TTL).
+    Backend is S3 by default; tile body is cached (TILE_PROXY_CACHE_TTL).
     Layer existence is cached (5 min) to avoid DB hit per tile request.
     """
     
@@ -7689,7 +7688,7 @@ class DeveloperListingMapDataAPIView(APIView):
     - Center coordinates
     - S3 tile paths for all TIF files
     - Minimal listing info (name, location)
-    - tile_domains: s3_tile_domain, cloudfront_domain (developer land/plot rasters use /api/tiles/developer_data/... proxy templates)
+    - tile_domains: s3_tile_domain (developer rasters use /api/tiles/developer_data/... proxy templates)
     
     Much lighter and faster than the full detail API.
     """
@@ -7883,7 +7882,6 @@ class DeveloperListingMapDataAPIView(APIView):
                     },
                     'tile_domains': {
                         's3_tile_domain': settings.AWS_S3_TILE_DOMAIN,
-                        'cloudfront_domain': settings.CLOUDFRONT_DOMAIN,
                     },
                 },
                 status=status.HTTP_200_OK
@@ -7901,7 +7899,7 @@ class DeveloperListingMapDataAPIView(APIView):
 
 
 # ================================
-# LAND/PLOT MVT TILES (S3 or CloudFront per CLOUDFRONT_PATH_PREFIXES; local dev fallback)
+# LAND/PLOT MVT TILES (S3 by default; optional CloudFront; local dev fallback)
 # ================================
 
 
@@ -7919,7 +7917,7 @@ def _fetch_tile_url(url, timeout=5):
 
 class LandPlotTileView(APIView):
     """
-    Serve land/plot MVT tiles via proxy (path-based CloudFront or S3; server-side cache).
+    Serve land/plot MVT tiles via proxy (S3 by default; server-side cache).
     Optional local file fallback. No redirects; client never sees backend URL.
     Requires API key (X-API-Key) when any active ApiKey exists; same as other API endpoints except webhooks.
     """

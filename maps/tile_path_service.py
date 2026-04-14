@@ -1,7 +1,7 @@
 # maps/tile_path_service.py
 """
-Tile paths: direct S3 (AWS_S3_TILE_DOMAIN) for almost all keys; AWS CloudFront (CLOUDFRONT_DOMAIN)
-only for keys matching CLOUDFRONT_PATH_PREFIXES when CLOUDFRONT_RESTRICT_PATH_PREFIXES is True.
+Tile paths: direct S3 (AWS_S3_TILE_DOMAIN) by default.
+Optional CloudFront only when USE_CLOUDFRONT is True and the S3 key matches CLOUDFRONT_PATH_PREFIXES.
 """
 
 import os
@@ -39,7 +39,7 @@ def developer_raster_path_valid(city_slug: str, layer_slug: str) -> bool:
 
 class TilePathService:
     """
-    Default: most tiles → S3 URL; few whitelisted prefixes → CloudFront (d17… or env).
+    Default: S3 URL for all tiles. CloudFront only if USE_CLOUDFRONT and path rules match.
     """
 
     def __init__(self):
@@ -48,9 +48,7 @@ class TilePathService:
         self.s3_tile_domain = getattr(settings, 'AWS_S3_TILE_DOMAIN', None) or (
             f'{self.bucket_name}.s3.{self.region}.amazonaws.com'
         )
-        self.cloudfront_domain = getattr(
-            settings, 'CLOUDFRONT_DOMAIN', 'd17yosovmfjm4.cloudfront.net'
-        )
+        self.cloudfront_domain = (getattr(settings, 'CLOUDFRONT_DOMAIN', None) or '').strip()
     
     def generate_s3_key(self, state_slug: str, city_slug: str, layer_slug: str, 
                        z: int, x: int, y: int, format_type: str = 'png') -> str:
@@ -121,6 +119,8 @@ class TilePathService:
         is True (default). If restrict is False, all keys use CloudFront. If USE_CLOUDFRONT is False, always S3.
         """
         if not getattr(settings, 'USE_CLOUDFRONT', True):
+            return False
+        if not self.cloudfront_domain:
             return False
         if not getattr(settings, 'CLOUDFRONT_RESTRICT_PATH_PREFIXES', True):
             return True
