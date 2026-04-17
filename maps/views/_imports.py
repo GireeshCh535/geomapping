@@ -38,6 +38,13 @@ from ..feature_legend_display import (
     _highway_infra_legend_popup_text,
     _masterplan_fill_color_svg_data_uri,
 )
+
+# `from ._imports import *` omits names starting with '_' (see importlib). Expose
+# public aliases so view submodules get these helpers via star-import.
+masterplan_fill_color_svg_data_uri = _masterplan_fill_color_svg_data_uri
+filter_crz_geojson_properties = _filter_crz_geojson_properties
+highway_infra_legend_popup_text = _highway_infra_legend_popup_text
+
 import copy
 import logging
 import json

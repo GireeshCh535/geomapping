@@ -1069,7 +1069,7 @@ class CoordinateSearchTestView(APIView):
                         ) or ''
                         return {
                             'data': data_string,
-                            'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
+                            'fill_color': masterplan_fill_color_svg_data_uri(fill_color),
                             'found': True,
                             'features': [feature_data],
                             'all_layer_data': [feature_data],
@@ -1092,7 +1092,7 @@ class CoordinateSearchTestView(APIView):
                         ) or ''
                         return {
                             'data': data_string,
-                            'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
+                            'fill_color': masterplan_fill_color_svg_data_uri(fill_color),
                             'found': True,
                             'features': [feature_data],
                             'all_layer_data': [feature_data],
@@ -1133,7 +1133,7 @@ class CoordinateSearchTestView(APIView):
                         ) or ''
                         return {
                             'data': data_string,
-                            'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
+                            'fill_color': masterplan_fill_color_svg_data_uri(fill_color),
                             'found': True,
                             'features': [feature_data],
                             'all_layer_data': [feature_data],
@@ -1154,7 +1154,7 @@ class CoordinateSearchTestView(APIView):
                         ) or ''
                         return {
                             'data': data_string,
-                            'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
+                            'fill_color': masterplan_fill_color_svg_data_uri(fill_color),
                             'found': True,
                             'features': [feature_data],
                             'all_layer_data': [feature_data],
@@ -1175,7 +1175,7 @@ class CoordinateSearchTestView(APIView):
                         ) or ''
                         return {
                             'data': data_string,
-                            'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
+                            'fill_color': masterplan_fill_color_svg_data_uri(fill_color),
                             'found': True,
                             'features': [feature_data],
                             'all_layer_data': [feature_data],
@@ -1201,7 +1201,7 @@ class CoordinateSearchTestView(APIView):
                         ) or ''
                         return {
                             'data': data_string,
-                            'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
+                            'fill_color': masterplan_fill_color_svg_data_uri(fill_color),
                             'found': True,
                             'features': [feature_data],
                             'all_layer_data': [feature_data],
@@ -1223,7 +1223,7 @@ class CoordinateSearchTestView(APIView):
                         ) or ''
                         return {
                             'data': data_string,
-                            'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
+                            'fill_color': masterplan_fill_color_svg_data_uri(fill_color),
                             'found': True,
                             'features': [feature_data],
                             'all_layer_data': [feature_data],
@@ -1243,7 +1243,7 @@ class CoordinateSearchTestView(APIView):
                         ) or ''
                         return {
                             'data': data_string,
-                            'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
+                            'fill_color': masterplan_fill_color_svg_data_uri(fill_color),
                             'found': True,
                             'features': [feature_data],
                             'all_layer_data': [feature_data],
@@ -1266,7 +1266,7 @@ class CoordinateSearchTestView(APIView):
                         ) or ''
                         return {
                             'data': data_string,
-                            'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
+                            'fill_color': masterplan_fill_color_svg_data_uri(fill_color),
                             'found': True,
                             'features': [feature_data],
                             'all_layer_data': [feature_data],
@@ -1290,7 +1290,7 @@ class CoordinateSearchTestView(APIView):
                         data_string = ', '.join(data_parts) if data_parts else 'Master Plan Road'
                         return {
                             'data': data_string,
-                            'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
+                            'fill_color': masterplan_fill_color_svg_data_uri(fill_color),
                             'found': True,
                             'features': [feature_data],
                             'all_layer_data': [feature_data],
@@ -1298,7 +1298,7 @@ class CoordinateSearchTestView(APIView):
                     
                     # All CRZ layers (CRZ_SEARCH_LAYER_SLUGS): Name, Regulation Type, HEX; trim properties
                     elif layer.slug in CRZ_SEARCH_LAYER_SLUGS:
-                        _filter_crz_geojson_properties(feature_data)
+                        filter_crz_geojson_properties(feature_data)
                         detailed_category = feature_data.get('detailed_category', {})
                         properties = detailed_category.get('properties', {}) or {}
                         name = properties.get('Name', '')
@@ -1307,7 +1307,7 @@ class CoordinateSearchTestView(APIView):
                         fill_color = properties.get('HEX', '') or ''
                         return {
                             'data': data_string,
-                            'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
+                            'fill_color': masterplan_fill_color_svg_data_uri(fill_color),
                             'found': True,
                             'features': [feature_data],
                             'all_layer_data': [feature_data],
@@ -1317,10 +1317,10 @@ class CoordinateSearchTestView(APIView):
                     elif layer.slug in HIGHWAY_INFRASTRUCTURE_POPUP_SLUGS:
                         detailed_category = feature_data.get('detailed_category', {})
                         properties = detailed_category.get('properties', {}) or {}
-                        data_string = _highway_infra_legend_popup_text(properties)
+                        data_string = highway_infra_legend_popup_text(properties)
                         return {
                             'data': data_string,
-                            'fill_color': _masterplan_fill_color_svg_data_uri('#000000'),
+                            'fill_color': masterplan_fill_color_svg_data_uri('#000000'),
                             'found': True,
                             'features': [feature_data],
                             'all_layer_data': [feature_data],
@@ -1362,7 +1362,7 @@ class CoordinateSearchTestView(APIView):
                         ) or ''
                         return {
                             'data': data_str,
-                            'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
+                            'fill_color': masterplan_fill_color_svg_data_uri(fill_color),
                             'all_layer_data': [feature_data],
                         }
                     
@@ -1523,7 +1523,7 @@ class CoordinateSearchTestView(APIView):
                 ) or ''
                 return {
                     'data': data_string,
-                    'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
+                    'fill_color': masterplan_fill_color_svg_data_uri(fill_color),
                     'found': True,
                     'features': containing_features[:1],
                     'all_layer_data': containing_features,
@@ -1546,7 +1546,7 @@ class CoordinateSearchTestView(APIView):
                 ) or ''
                 return {
                     'data': data_string,
-                    'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
+                    'fill_color': masterplan_fill_color_svg_data_uri(fill_color),
                     'found': True,
                     'features': containing_features[:1],
                     'all_layer_data': containing_features,
@@ -1575,7 +1575,7 @@ class CoordinateSearchTestView(APIView):
                 ) or ''
                 return {
                         'data': data_string,
-                        'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
+                        'fill_color': masterplan_fill_color_svg_data_uri(fill_color),
                         'found': True,
                         'features': containing_features[:1],
                         'all_layer_data': containing_features,
@@ -1603,7 +1603,7 @@ class CoordinateSearchTestView(APIView):
                 data_string = ', '.join(data_parts) if data_parts else 'Master Plan Road'
                 return {
                     'data': data_string,
-                    'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
+                    'fill_color': masterplan_fill_color_svg_data_uri(fill_color),
                     'found': True,
                     'features': containing_features[:1],
                     'all_layer_data': containing_features,
@@ -1660,7 +1660,7 @@ class CoordinateSearchTestView(APIView):
                 ) or ''
                 return {
                     'data': data_string,
-                    'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
+                    'fill_color': masterplan_fill_color_svg_data_uri(fill_color),
                     'found': True,
                     'features': containing_features[:1],
                     'all_layer_data': containing_features,
@@ -1733,7 +1733,7 @@ class CoordinateSearchTestView(APIView):
                 fill_color = properties.get('fill_color', '') or properties.get('fillColor', '') or properties.get('FillColor', '') or properties.get('color', '')
                 return {
                     'data': name,
-                    'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
+                    'fill_color': masterplan_fill_color_svg_data_uri(fill_color),
                     'all_layer_data': containing_features,
                 }
 
@@ -1755,7 +1755,7 @@ class CoordinateSearchTestView(APIView):
                 ) or ''
                 return {
                     'data': feature_name,
-                    'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
+                    'fill_color': masterplan_fill_color_svg_data_uri(fill_color),
                     'all_layer_data': containing_features,
                 }
 
@@ -1770,7 +1770,7 @@ class CoordinateSearchTestView(APIView):
                 ) or ''
                 return {
                     'data': name,
-                    'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
+                    'fill_color': masterplan_fill_color_svg_data_uri(fill_color),
                     'all_layer_data': containing_features,
                 }
             
@@ -1813,7 +1813,7 @@ class CoordinateSearchTestView(APIView):
                 ) or ''
                 return {
                     'data': data_str,
-                    'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
+                    'fill_color': masterplan_fill_color_svg_data_uri(fill_color),
                     'all_layer_data': containing_features,
                 }
 
@@ -1831,7 +1831,7 @@ class CoordinateSearchTestView(APIView):
                 ) or ''
                 return {
                     'data': data_string,
-                    'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
+                    'fill_color': masterplan_fill_color_svg_data_uri(fill_color),
                     'all_layer_data': containing_features,
                 }
             
@@ -1870,7 +1870,7 @@ class CoordinateSearchTestView(APIView):
                 ) or ''
                 return {
                     'data': layer_name,
-                    'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
+                    'fill_color': masterplan_fill_color_svg_data_uri(fill_color),
                     'found': True,
                     'features': containing_features[:1],
                     'all_layer_data': containing_features,
@@ -1889,7 +1889,7 @@ class CoordinateSearchTestView(APIView):
                 ) or ''
                 return {
                     'data': layer_name,
-                    'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
+                    'fill_color': masterplan_fill_color_svg_data_uri(fill_color),
                     'all_layer_data': containing_features,
                 }
             
@@ -1905,7 +1905,7 @@ class CoordinateSearchTestView(APIView):
                 ) or ''
                 return {
                     'data': layer_value,
-                    'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
+                    'fill_color': masterplan_fill_color_svg_data_uri(fill_color),
                     'all_layer_data': containing_features,
                 }
             
@@ -1921,7 +1921,7 @@ class CoordinateSearchTestView(APIView):
                 ) or ''
                 return {
                     'data': name,
-                    'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
+                    'fill_color': masterplan_fill_color_svg_data_uri(fill_color),
                     'all_layer_data': containing_features,
                 }
             
@@ -1937,7 +1937,7 @@ class CoordinateSearchTestView(APIView):
                 ) or ''
                 return {
                     'data': ppt_full,
-                    'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
+                    'fill_color': masterplan_fill_color_svg_data_uri(fill_color),
                     'all_layer_data': containing_features,
                 }
             
@@ -1953,7 +1953,7 @@ class CoordinateSearchTestView(APIView):
                 ) or ''
                 return {
                     'data': ppt_full,
-                    'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
+                    'fill_color': masterplan_fill_color_svg_data_uri(fill_color),
                     'all_layer_data': containing_features,
                 }
             
@@ -1976,7 +1976,7 @@ class CoordinateSearchTestView(APIView):
                 ) or ''
                 return {
                     'data': layer_value,
-                    'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
+                    'fill_color': masterplan_fill_color_svg_data_uri(fill_color),
                     'all_layer_data': containing_features,
                 }
             
@@ -1992,7 +1992,7 @@ class CoordinateSearchTestView(APIView):
                 ) or ''
                 return {
                     'data': layer_value,
-                    'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
+                    'fill_color': masterplan_fill_color_svg_data_uri(fill_color),
                     'all_layer_data': containing_features,
                 }
             
@@ -2008,7 +2008,7 @@ class CoordinateSearchTestView(APIView):
                 ) or ''
                 return {
                     'data': symbology,
-                    'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
+                    'fill_color': masterplan_fill_color_svg_data_uri(fill_color),
                     'all_layer_data': containing_features,
                 }
             
@@ -2024,7 +2024,7 @@ class CoordinateSearchTestView(APIView):
                 ) or ''
                 return {
                     'data': landuse,
-                    'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
+                    'fill_color': masterplan_fill_color_svg_data_uri(fill_color),
                     'all_layer_data': containing_features,
                 }
             
@@ -2040,7 +2040,7 @@ class CoordinateSearchTestView(APIView):
                 ) or ''
                 return {
                     'data': landuse,
-                    'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
+                    'fill_color': masterplan_fill_color_svg_data_uri(fill_color),
                     'all_layer_data': containing_features,
                 }
             
@@ -2066,7 +2066,7 @@ class CoordinateSearchTestView(APIView):
                 ) or ''
                 return {
                     'data': name,
-                    'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
+                    'fill_color': masterplan_fill_color_svg_data_uri(fill_color),
                     'found': True,
                     'features': containing_features,
                     'all_layer_data': containing_features,
@@ -2084,7 +2084,7 @@ class CoordinateSearchTestView(APIView):
                 ) or ''
                 return {
                     'data': proposed_t,
-                    'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
+                    'fill_color': masterplan_fill_color_svg_data_uri(fill_color),
                     'all_layer_data': containing_features,
                 }
             
@@ -2100,7 +2100,7 @@ class CoordinateSearchTestView(APIView):
                 ) or ''
                 return {
                     'data': zone_subcategory,
-                    'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
+                    'fill_color': masterplan_fill_color_svg_data_uri(fill_color),
                     'all_layer_data': containing_features,
                 }
             
@@ -2129,7 +2129,7 @@ class CoordinateSearchTestView(APIView):
                 ) or ''
                 return {
                     'data': name,
-                    'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
+                    'fill_color': masterplan_fill_color_svg_data_uri(fill_color),
                     'all_layer_data': containing_features,
                 }
             
@@ -2145,7 +2145,7 @@ class CoordinateSearchTestView(APIView):
                 ) or ''
                 return {
                     'data': elu_plu_up,
-                    'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
+                    'fill_color': masterplan_fill_color_svg_data_uri(fill_color),
                     'all_layer_data': containing_features,
                 }
             
@@ -2161,7 +2161,7 @@ class CoordinateSearchTestView(APIView):
                 ) or ''
                 return {
                     'data': pro_lulc,
-                    'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
+                    'fill_color': masterplan_fill_color_svg_data_uri(fill_color),
                     'all_layer_data': containing_features,
                 }
             
@@ -2177,7 +2177,7 @@ class CoordinateSearchTestView(APIView):
                 ) or ''
                 return {
                     'data': proposed_t,
-                    'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
+                    'fill_color': masterplan_fill_color_svg_data_uri(fill_color),
                     'all_layer_data': containing_features,
                 }
             
@@ -2193,7 +2193,7 @@ class CoordinateSearchTestView(APIView):
                 ) or ''
                 return {
                     'data': proposed_t,
-                    'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
+                    'fill_color': masterplan_fill_color_svg_data_uri(fill_color),
                     'all_layer_data': containing_features,
                 }
             
@@ -2209,7 +2209,7 @@ class CoordinateSearchTestView(APIView):
                 ) or ''
                 return {
                     'data': old_dp_plu,
-                    'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
+                    'fill_color': masterplan_fill_color_svg_data_uri(fill_color),
                     'all_layer_data': containing_features,
                 }
             
@@ -2226,7 +2226,7 @@ class CoordinateSearchTestView(APIView):
                 ) or ''
                 return {
                     'data': landuse_ca,
-                    'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
+                    'fill_color': masterplan_fill_color_svg_data_uri(fill_color),
                     'all_layer_data': containing_features,
                 }
             
@@ -2248,7 +2248,7 @@ class CoordinateSearchTestView(APIView):
                 ) or ''
                 return {
                     'data': name or 'Placemark',
-                    'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
+                    'fill_color': masterplan_fill_color_svg_data_uri(fill_color),
                     'found': True,
                     'features': containing_features[:1],
                     'all_layer_data': containing_features,
@@ -2270,7 +2270,7 @@ class CoordinateSearchTestView(APIView):
                 ) or ''
                 return {
                     'data': landuse_category or primary_feature.get('feature_name', ''),
-                    'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
+                    'fill_color': masterplan_fill_color_svg_data_uri(fill_color),
                     'found': True,
                     'features': containing_features[:1],
                     'all_layer_data': containing_features,
@@ -2286,7 +2286,7 @@ class CoordinateSearchTestView(APIView):
                 fill_color = (properties.get('fill_color') or '').strip() or ''
                 return {
                     'data': category,
-                    'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
+                    'fill_color': masterplan_fill_color_svg_data_uri(fill_color),
                     'found': True,
                     'features': containing_features[:1],
                     'all_layer_data': containing_features,
@@ -2295,7 +2295,7 @@ class CoordinateSearchTestView(APIView):
             # All CRZ layers: Name, Regulation Type, HEX; trim properties on each feature
             if layer.slug in CRZ_SEARCH_LAYER_SLUGS and containing_features:
                 for fd in containing_features:
-                    _filter_crz_geojson_properties(fd)
+                    filter_crz_geojson_properties(fd)
                 primary_feature = containing_features[0]
                 detailed_category = primary_feature.get('detailed_category', {})
                 properties = detailed_category.get('properties', {}) or {}
@@ -2305,7 +2305,7 @@ class CoordinateSearchTestView(APIView):
                 fill_color = properties.get('HEX', '') or ''
                 return {
                     'data': data_string,
-                    'fill_color': _masterplan_fill_color_svg_data_uri(fill_color),
+                    'fill_color': masterplan_fill_color_svg_data_uri(fill_color),
                     'found': True,
                     'features': containing_features[:1],
                     'all_layer_data': containing_features,
@@ -2315,10 +2315,10 @@ class CoordinateSearchTestView(APIView):
                 primary_feature = containing_features[0]
                 detailed_category = primary_feature.get('detailed_category', {})
                 properties = detailed_category.get('properties', {}) or {}
-                data_string = _highway_infra_legend_popup_text(properties)
+                data_string = highway_infra_legend_popup_text(properties)
                 return {
                     'data': data_string,
-                    'fill_color': _masterplan_fill_color_svg_data_uri('#000000'),
+                    'fill_color': masterplan_fill_color_svg_data_uri('#000000'),
                     'found': True,
                     'features': containing_features[:1],
                     'all_layer_data': containing_features,
