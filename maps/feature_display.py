@@ -4,7 +4,12 @@ Used by enrichment API so layer enrichment returns the same data string and dist
 """
 from urllib.parse import quote
 
-# SVG template for fill color indicator (same as views.MASTERPLAN_FILL_COLOR_SVG)
+from .feature_legend_display import (
+    HIGHWAY_INFRASTRUCTURE_POPUP_SLUGS,
+    _highway_infra_legend_popup_text,
+)
+
+# SVG template for fill color indicator (same as feature_legend_display.MASTERPLAN_FILL_COLOR_SVG)
 _FILL_COLOR_SVG = (
     '<svg width="16" height="16" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg">'
     '<rect x="0" y="0" width="16" height="16" rx="4" ry="4" fill="{color}"/>'
@@ -17,19 +22,6 @@ def _fill_color_svg_data_uri(hex_color):
         return ''
     svg_str = _FILL_COLOR_SVG.format(color=hex_color)
     return f"data:image/svg+xml,{quote(svg_str)}"
-
-
-_highway_infra_legend_cache = None
-
-
-def _highway_infra_legend_helpers():
-    """Lazy import from maps.views once (large module); used for corridor/coastal layer popups."""
-    global _highway_infra_legend_cache
-    if _highway_infra_legend_cache is None:
-        from maps.views import HIGHWAY_INFRASTRUCTURE_POPUP_SLUGS, _highway_infra_legend_popup_text
-
-        _highway_infra_legend_cache = (HIGHWAY_INFRASTRUCTURE_POPUP_SLUGS, _highway_infra_legend_popup_text)
-    return _highway_infra_legend_cache
 
 
 def _get_fill_color(properties):
@@ -58,9 +50,11 @@ def get_feature_display_data(layer, feature):
     fill_color = _get_fill_color(props)
     fill_uri = _fill_color_svg_data_uri(fill_color)
 
-    hi_slugs, hi_legend_fn = _highway_infra_legend_helpers()
-    if slug in hi_slugs:
-        return {'data': hi_legend_fn(props), 'fill_color': _fill_color_svg_data_uri('#000000')}
+    if slug in HIGHWAY_INFRASTRUCTURE_POPUP_SLUGS:
+        return {
+            'data': _highway_infra_legend_popup_text(props),
+            'fill_color': _fill_color_svg_data_uri('#000000'),
+        }
 
     # hyderabad_masterplan
     if slug == 'hyderabad_masterplan':

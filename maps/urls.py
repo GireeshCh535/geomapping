@@ -3,7 +3,6 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 from . import views
-from .views import *
 
 # Create router for viewsets
 router = DefaultRouter()
@@ -74,10 +73,10 @@ urlpatterns = [
          name='s3_direct_tile_mvt'),
     
     path('cities/<slug:city_slug>/tiles/coordinates/',
-         TileCoordinatesView.as_view(), name='tile_coordinates'),
+         views.TileCoordinatesView.as_view(), name='tile_coordinates'),
     
     path('cities/<slug:city_slug>/tiles/available/',
-         AvailableTilesView.as_view(), name='available_tiles'),
+         views.AvailableTilesView.as_view(), name='available_tiles'),
     
     path('cities/<slug:city_slug>/search-coords-test/',
          views.CoordinateSearchTestView.as_view(), name='coordinate_search_test'),
@@ -169,7 +168,7 @@ urlpatterns = [
          views.LandPlotMapTestView.as_view(),
          name='land_plot_map_test'),
 
-     path('tiles/land-plot-mvt-build/<int:z>/<int:x>/<int:y>/',
-     views.LandPlotMVTBuildView.as_view(),
-     name='land_plot_mvt_build'),
+    path('tiles/land-plot-mvt-build/<int:z>/<int:x>/<int:y>/',
+         views.LandPlotMVTBuildView.as_view(),
+         name='land_plot_mvt_build'),
 ]

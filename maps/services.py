@@ -1,28 +1,25 @@
-import os
-import sys
-import json
-import tempfile
-import shutil
-import logging
-import traceback
-import re
-import time
 import glob
 import json
-import tempfile
+import logging
 import os
+import re
+import shutil
+import sys
+import tempfile
+import time
+import traceback
 from pathlib import Path
 from datetime import datetime, timedelta
 from collections import Counter
+
+from django.contrib.gis.db.models import Extent
 from django.contrib.gis.geos import GEOSGeometry, MultiPolygon, Polygon
 from django.core.files.storage import default_storage
-from django.contrib.gis.db.models import Extent
+from django.db import transaction
 from django.utils import timezone
 from django.utils.text import slugify
-from django.db import transaction
-import mercantile
 import mapbox_vector_tile
-from django.contrib.gis.geos import Polygon
+import mercantile
 
 from .models import *
 from .config import *
