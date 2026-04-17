@@ -25,8 +25,6 @@ from .layers_spatial import (
     LayerBoundsAPIView,
     LayerBoundsZoomAPIView,
     LayerCoordinateSearchView,
-    LayerListingLinksAPIView,
-    LayerPointCountsAPIView,
     NearbyLayersAPIView,
 )
 from .webhooks import (
@@ -49,6 +47,8 @@ from .listings import (
     DeveloperListingMediaDetailAPIView,
     EnrichmentLookupAPIView,
     HyderabadHMDABoundaryCheckAPIView,
+    LayerListingLinksAPIView,
+    LayerPointCountsAPIView,
     WebhookEventListAPIView,
 )
 from .land_plot import (
