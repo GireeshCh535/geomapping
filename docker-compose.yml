@@ -68,6 +68,8 @@ services:
       - AWS_SECRET_ACCESS_KEY=45QpOp2sGal943rYVef3WSdBv2OkcGA+4i3wkwfQ
       - AWS_ACCESS_KEY_ID=AKIAW3MEBMOOEQKR3BXV
       - TILE_CALLBACK_BASE_URL=https://layers.citylands.in/
+      - CLOUDFLARE_R2_ACCESS_KEY_ID=6df209d58f44c6b0f037a24b7f7215b0
+      - CLOUDFLARE_R2_SECRET_ACCESS_KEY=b6bd718dcfd3d8c70605cb754f3995c7dfd278e32aa781112443dec61c0b3548
     depends_on:
       - db
       - redis

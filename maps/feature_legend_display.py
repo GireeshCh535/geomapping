@@ -51,6 +51,19 @@ HIGHWAY_CORRIDOR_PROPERTY_SLUGS = frozenset({
     'ahilyanagar_akalkot_expresssway',
     'warangal_khammam_expressway',
     'khammam_vijaywada_expressway',
+    'atal_progressway',
+    'lucknow_kanpur_expressway',
+    'varanasi_kolkata_expressway',
+    'ambala_shamli_expressway',
+    'ayodhya_ring_road',
+    'prayagraj_ring_road',
+    'kanpur_ring_road',
+    'kanpur_kabrai_highway',
+    'agra_gwalior_expressway',
+    'new_parandur_airport',
+    'new_purandar_airport_spa',
+    'gorakhpur_siliguri_expressway',
+    'ghazipur_ballia_expressway'
 })
 
 # Coastal roads, expressways, sea links, bridges, corridors — same legend popup as greenfield corridors

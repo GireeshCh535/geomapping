@@ -1058,3 +1058,139 @@ docker-compose exec web python manage.py insert_masterplan_layer \
   --min-zoom 5 \
   --max-zoom 18 \
   --delete-existing
+
+
+  # 1. maharashtra/pune/new_purandar_airport_spa
+docker-compose exec web python manage.py insert_masterplan_layer \
+  --city-slug "pune" \
+  --layer-name "New Purandar Airport SPA" \
+  --layer-slug "new_purandar_airport_spa" \
+  --data-dir "data/set28/New Purandar Airport SPA" \
+  --authority "Airports Authority of India" \
+  --delete-existing
+
+# 2. tamil_nadu/chennai/new_parandur_airport
+docker-compose exec web python manage.py insert_masterplan_layer \
+  --city-slug "chennai" \
+  --layer-name "New Parandur Airport" \
+  --layer-slug "new_parandur_airport" \
+  --data-dir "data/set28/New Parandur Airport" \
+  --authority "Airports Authority of India" \
+  --delete-existing
+
+# 3. madhya_pradesh/gwalior/agra_gwalior_expressway
+docker-compose exec web python manage.py insert_masterplan_layer \
+  --city-slug "gwalior" \
+  --layer-name "Agra Gwalior Expressway" \
+  --layer-slug "agra_gwalior_expressway" \
+  --data-dir "data/set28/Agra - Gwalior Expressway" \
+  --authority "National Highways Authority of India" \
+  --delete-existing
+
+# 4. uttar_pradesh/kanpur/kanpur_kabrai_highway
+docker-compose exec web python manage.py insert_masterplan_layer \
+  --city-slug "kanpur" \
+  --layer-name "Kanpur Kabrai Highway" \
+  --layer-slug "kanpur_kabrai_highway" \
+  --data-dir "data/set28/Kanpur - Kabrai HIghway" \
+  --authority "National Highways Authority of India" \
+  --delete-existing
+
+# 5. uttar_pradesh/kanpur/kanpur_ring_road
+docker-compose exec web python manage.py insert_masterplan_layer \
+  --city-slug "kanpur" \
+  --layer-name "Kanpur Ring Road" \
+  --layer-slug "kanpur_ring_road" \
+  --data-dir "data/set28/Kanpur Ring Road" \
+  --authority "Uttar Pradesh Expressways Industrial Development Authority" \
+  --delete-existing
+
+# 6. uttar_pradesh/prayagraj/prayagraj_ring_road
+docker-compose exec web python manage.py insert_masterplan_layer \
+  --city-slug "prayagraj" \
+  --layer-name "Prayagraj Ring Road" \
+  --layer-slug "prayagraj_ring_road" \
+  --data-dir "data/set28/Prayagraj Ring Road" \
+  --authority "Uttar Pradesh Expressways Industrial Development Authority" \
+  --delete-existing
+
+# 7. uttar_pradesh/ayodhya/ayodhya_ring_road
+docker-compose exec web python manage.py insert_masterplan_layer \
+  --city-slug "ayodhya" \
+  --layer-name "Ayodhya Ring Road" \
+  --layer-slug "ayodhya_ring_road" \
+  --data-dir "data/set28/Ayodhya Ring Road" \
+  --authority "Uttar Pradesh Expressways Industrial Development Authority" \
+  --delete-existing
+
+# 8. haryana/ambala/ambala_shamli_expressway
+docker-compose exec web python manage.py insert_masterplan_layer \
+  --city-slug "ambala" \
+  --layer-name "Ambala Shamli Expressway" \
+  --layer-slug "ambala_shamli_expressway" \
+  --data-dir "data/set28/Ambala - Shamli Expressway" \
+  --authority "National Highways Authority of India" \
+  --delete-existing
+
+# 9. uttar_pradesh/varanasi/varanasi_kolkata_expressway
+docker-compose exec web python manage.py insert_masterplan_layer \
+  --city-slug "varanasi" \
+  --layer-name "Varanasi Kolkata Expressway" \
+  --layer-slug "varanasi_kolkata_expressway" \
+  --data-dir "data/set28/Varanasi - Kolkata Expressway" \
+  --authority "National Highways Authority of India" \
+  --delete-existing
+
+# 10. uttar_pradesh/kanpur/lucknow_kanpur_expressway
+docker-compose exec web python manage.py insert_masterplan_layer \
+  --city-slug "kanpur" \
+  --layer-name "Lucknow Kanpur Expressway" \
+  --layer-slug "lucknow_kanpur_expressway" \
+  --data-dir "data/set28/Lucknow - Kanpur Expressway" \
+  --authority "Uttar Pradesh Expressways Industrial Development Authority" \
+  --delete-existing
+
+# 11. rajasthan/kota/atal_progressway
+docker-compose exec web python manage.py insert_masterplan_layer \
+  --city-slug "kota" \
+  --layer-name "Atal Progressway" \
+  --layer-slug "atal_progressway" \
+  --data-dir "data/set28/Atal Progressway" \
+  --authority "National Highways Authority of India" \
+  --delete-existing
+
+# 12. uttar_pradesh/uttar_pradesh_gorakhpur_siliguri_expressway/gorakhpur_siliguri_expressway
+docker-compose exec web python manage.py insert_masterplan_layer \
+  --city-slug "uttar_pradesh_gorakhpur_siliguri_expressway" \
+  --layer-name "Gorakhpur Siliguri Expressway" \
+  --layer-slug "gorakhpur_siliguri_expressway" \
+  --data-dir "data/set28/Gorakhpur - Siliguri Expressway" \
+  --authority "National Highways Authority of India" \
+  --delete-existing
+
+# 13. uttar_pradesh/uttar_pradesh_ghazipur_ballia_expressway/ghazipur_ballia_expressway
+docker-compose exec web python manage.py insert_masterplan_layer \
+  --city-slug "uttar_pradesh_ghazipur_ballia_expressway" \
+  --layer-name "Ghazipur Ballia Expressway" \
+  --layer-slug "ghazipur_ballia_expressway" \
+  --data-dir "data/set28/Ghazipur - Ballia Expressway" \
+  --authority "National Highways Authority of India" \
+  --delete-existing
+
+# 14. goa/goa_crz/goa_crz_layer
+docker-compose exec web python manage.py insert_shapefile_layer \
+  --city-slug "goa_crz" \
+  --layer-name "Goa CRZ Layer" \
+  --layer-slug "goa_crz_layer" \
+  --data-dir "data/Goa_Crz_Files/Boundary" \
+  --authority "Goa Coastal Zone Management Authority" \
+  --delete-existing
+
+# 15. daman/daman_crz/daman_crz_layer
+docker-compose exec web python manage.py insert_shapefile_layer \
+  --city-slug "daman_crz" \
+  --layer-name "Daman CRZ Layer" \
+  --layer-slug "daman_crz_layer" \
+  --data-dir "data/daman/Boundary_File" \
+  --authority "Daman and Diu Coastal Zone Management Authority" \
+  --delete-existing
