@@ -1524,6 +1524,16 @@ class ApiKey(models.Model):
     key_hash = models.CharField(max_length=64, unique=True, editable=False, help_text='SHA-256 hash of the key')
     key_prefix = models.CharField(max_length=12, editable=False, help_text='First 8 chars of key for identification')
     is_active = models.BooleanField(default=True)
+    allowed_domains = models.JSONField(
+        default=list,
+        blank=True,
+        help_text=(
+            'List of allowed domain patterns. '
+            'Use "*.1acre.in" to allow all subdomains, or "layers.1acre.in" for an exact domain. '
+            'Examples: ["*.1acre.in"] or ["layers.1acre.in", "app.1acre.in"]. '
+            'Leave empty for no domain restriction.'
+        ),
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     last_used_at = models.DateTimeField(null=True, blank=True)
     # Optional: set in admin when creating; DB may have had NOT NULL, so nullable for compatibility

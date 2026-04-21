@@ -2,10 +2,11 @@
 API key authentication for geo_mapping API.
 All API requests (except webhooks) require a valid API key when any active ApiKey exists in the DB.
 Keys are created in Django admin; the plain key is shown once on creation.
+If a key has allowed_domains set, the request Origin/Referer must match one of those domains.
 """
 import hashlib
+from urllib.parse import urlparse
 
-from django.conf import settings
 from django.utils import timezone
 from rest_framework import authentication
 from rest_framework.exceptions import AuthenticationFailed
@@ -17,12 +18,12 @@ class APIKeyAuthentication(authentication.BaseAuthentication):
     """
     Authenticate by X-API-Key header or Authorization: Api-Key <key>.
     Validates against ApiKey model (key_hash). If no active keys exist in DB, access is allowed.
+    If the matched key has allowed_domains set, the request origin is also validated.
     Webhooks are exempted by AllowIfWebhookOrHasAPIKey permission.
     """
     keyword = 'Api-Key'
 
     def authenticate(self, request):
-        # If any active API key exists in DB, require a valid key
         has_active_keys = ApiKey.objects.filter(is_active=True).exists()
         if not has_active_keys:
             return (None, {'api_key': 'none'})
@@ -44,6 +45,57 @@ class APIKeyAuthentication(authentication.BaseAuthentication):
         if not api_key_obj:
             raise AuthenticationFailed('Invalid API key.')
 
+        self._validate_domain(request, api_key_obj)
+
         ApiKey.objects.filter(pk=api_key_obj.pk).update(last_used_at=timezone.now())
         return (None, {'api_key': 'valid'})
 
+    def _validate_domain(self, request, api_key_obj):
+        """If the key has allowed_domains, ensure Origin or Referer matches."""
+        allowed_domains = api_key_obj.allowed_domains
+        if not allowed_domains:
+            return
+
+        origin = request.headers.get('Origin', '')
+        referer = request.headers.get('Referer', '') or request.META.get('HTTP_REFERER', '')
+
+        request_host = None
+        for header in (origin, referer):
+            if header:
+                parsed = urlparse(header)
+                if parsed.hostname:
+                    request_host = parsed.hostname.lower()
+                    break
+
+        if not request_host:
+            raise AuthenticationFailed(
+                'This API key is domain-restricted. Requests must originate from an allowed domain.'
+            )
+
+        normalized = [d.lower().strip() for d in allowed_domains]
+        if any(self._domain_matches(request_host, d) for d in normalized):
+            return
+
+        raise AuthenticationFailed(
+            f'This API key is not authorized for domain "{request_host}". '
+            'Contact the API owner to whitelist your domain.'
+        )
+
+    @staticmethod
+    def _domain_matches(host: str, pattern: str) -> bool:
+        """
+        Match a hostname against a domain pattern.
+
+        Supported patterns:
+          *.1acre.in   → any single subdomain: layers.1acre.in, app.1acre.in
+                         does NOT match bare 1acre.in
+          1acre.in     → exact match only: 1acre.in
+                         does NOT auto-match subdomains (use *.1acre.in for that)
+          layers.1acre.in → exact match only
+        """
+        if pattern.startswith('*.'):
+            # Wildcard: match any single-level subdomain of the base domain
+            base = pattern[2:]  # strip leading "*."
+            return host.endswith('.' + base) and host != base
+        else:
+            return host == pattern

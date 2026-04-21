@@ -1483,7 +1483,7 @@ class ApiKeyAdmin(admin.ModelAdmin):
     search_fields = ("name", "key_prefix")
     readonly_fields = ("key_hash", "key_prefix", "created_at", "last_used_at")
     fieldsets = (
-        (None, {"fields": ("name", "is_active")}),
+        (None, {"fields": ("name", "is_active", "allowed_domains")}),
         ("Key (auto-generated on create)", {"fields": ("key_prefix", "key_hash", "created_at", "last_used_at")}),
     )
 

@@ -41,9 +41,11 @@ else:
     ALLOWED_HOSTS = _required_hosts
 
 CSRF_TRUSTED_ORIGINS = [
+    'https://fe.staging.1acre.in',
     'http://localhost:8000',
     'https://localhost:8000',
     'http://localhost:3000',
+    'http://192.168.0.118:8000',
     'https://layers.1acre.in',
     'http://layers.1acre.in',  # if you also use HTTP
     'https://layers.citylands.in',
@@ -119,19 +121,18 @@ MIDDLEWARE = [
 # Restricting by origin is the right approach for browser clients.)
 CORS_ALLOW_ALL_ORIGINS = False
 CORS_ALLOWED_ORIGINS = [
+    'https://fe.staging.1acre.in',
     'https://layers.1acre.in',
     'http://layers.1acre.in',
     'https://layers.citylands.in',
     'http://layers.citylands.in',
+    'http://192.168.0.118:8000',
     'https://citylands.in',
     'http://citylands.in',
     'https://www.citylands.in',
     'http://www.citylands.in',
     'https://gis-map.1acre.in',
     'http://gis-map.1acre.in',
-    'https://lita-unsarcastic-serina.ngrok-free.dev',
-    'https://router-disposal-www-calculator.trycloudflare.com',
-    'https://declaration-app-busy-cached.trycloudflare.com',
     'http://3.108.10.59',
     'https://3.108.10.59',
     'http://localhost:8000',
