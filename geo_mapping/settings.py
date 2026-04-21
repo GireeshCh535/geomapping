@@ -125,7 +125,6 @@ CORS_ALLOW_ALL_ORIGINS = False
 CORS_ALLOWED_ORIGINS = [
     'https://1acre.in',
     'http://1acre.in',
-    '1acre.in',
     'https://fe.staging.1acre.in',
     'https://layers.1acre.in',
     'http://layers.1acre.in',
@@ -149,10 +148,25 @@ CORS_ALLOWED_ORIGINS = [
     'http://127.0.0.1:3001',
     'http://127.0.0.1:5173',
 ]
-# Optional: allow extra origins from env (comma-separated), e.g. for new frontend domains
+# Optional: allow extra origins from env (comma-separated), e.g. for new frontend domains.
+# django-cors-headers requires each entry to include a scheme (https:// or http://).
+def _normalize_cors_origin_entry(raw: str) -> str:
+    o = raw.strip().rstrip('/')
+    if not o:
+        return ''
+    if '://' not in o:
+        return f'https://{o}'
+    return o
+
+
 _extra_origins = os.getenv('CORS_EXTRA_ORIGINS', '')
 if _extra_origins:
-    CORS_ALLOWED_ORIGINS = list(CORS_ALLOWED_ORIGINS) + [o.strip() for o in _extra_origins.split(',') if o.strip()]
+    extras = []
+    for part in _extra_origins.split(','):
+        n = _normalize_cors_origin_entry(part)
+        if n:
+            extras.append(n)
+    CORS_ALLOWED_ORIGINS = list(CORS_ALLOWED_ORIGINS) + extras
 CORS_ALLOW_HEADERS = [
     'accept', 'accept-encoding', 'authorization', 'content-type',
     'dnt', 'origin', 'user-agent', 'x-api-key', 'x-csrftoken', 'x-requested-with',
