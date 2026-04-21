@@ -41,6 +41,8 @@ else:
     ALLOWED_HOSTS = _required_hosts
 
 CSRF_TRUSTED_ORIGINS = [
+    'https://1acre.in',
+    'http://1acre.in',
     'https://fe.staging.1acre.in',
     'http://localhost:8000',
     'https://localhost:8000',
@@ -121,6 +123,9 @@ MIDDLEWARE = [
 # Restricting by origin is the right approach for browser clients.)
 CORS_ALLOW_ALL_ORIGINS = False
 CORS_ALLOWED_ORIGINS = [
+    'https://1acre.in',
+    'http://1acre.in',
+    '1acre.in',
     'https://fe.staging.1acre.in',
     'https://layers.1acre.in',
     'http://layers.1acre.in',
