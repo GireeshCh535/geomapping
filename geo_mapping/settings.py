@@ -287,6 +287,8 @@ REQUIRE_API_KEY = os.getenv('REQUIRE_API_KEY', 'false').lower() in ('true', '1',
 # Optional hostname for API keys that have allowed_domains but whose clients send no
 # Origin, Referer, or X-API-Caller-Host (legacy server HTTP stacks). Same trust as
 # X-API-Caller-Host: anyone with the secret key could imitate this host from curl.
+# Only applies to non-strict paths (see maps.authentication.path_disallows_api_key_domain_fallback);
+# layers/hierarchy/tiles/router/enrichment/point-counts etc. always require explicit caller headers.
 # Example: API_KEY_DOMAIN_FALLBACK_HOST=prod-be-aws.1acre.in
 API_KEY_DOMAIN_FALLBACK_HOST = os.getenv('API_KEY_DOMAIN_FALLBACK_HOST', '').strip().lower()
 

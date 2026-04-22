@@ -57,7 +57,7 @@ services:
       - USE_CLOUDFRONT=False
       - ENABLE_CLOUDFRONT_INVALIDATION=False
       - DEVELOPER_BACKEND_API_URL=${DEVELOPER_BACKEND_API_URL:-https://be.1acre.in}
-      # Optional: default hostname for domain-restricted API keys when callers send no Origin/Referer/X-API-Caller-Host
+      # Optional: default caller hostname when no Origin/Referer/X-API-Caller-Host (non-strict paths only; layers/tiles/router etc. always need headers — see maps.authentication)
       - API_KEY_DOMAIN_FALLBACK_HOST=${API_KEY_DOMAIN_FALLBACK_HOST:-prod-be-aws.1acre.in}
       # Fix 4: 4 workers, 60s timeout for faster response; webhook work offloaded to background
       - WEB_CONCURRENCY=4
