@@ -169,7 +169,7 @@ if _extra_origins:
     CORS_ALLOWED_ORIGINS = list(CORS_ALLOWED_ORIGINS) + extras
 CORS_ALLOW_HEADERS = [
     'accept', 'accept-encoding', 'authorization', 'content-type',
-    'dnt', 'origin', 'user-agent', 'x-api-key', 'x-csrftoken', 'x-requested-with',
+    'dnt', 'origin', 'user-agent', 'x-api-key', 'x-api-caller-host', 'x-csrftoken', 'x-requested-with',
 ]
 CORS_ALLOW_METHODS = ['DELETE', 'GET', 'OPTIONS', 'PATCH', 'POST', 'PUT']
 CORS_ALLOW_CREDENTIALS = True

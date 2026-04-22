@@ -1531,6 +1531,8 @@ class ApiKey(models.Model):
             'List of allowed domain patterns. '
             'Use "*.1acre.in" to allow all subdomains, or "layers.1acre.in" for an exact domain. '
             'Examples: ["*.1acre.in"] or ["layers.1acre.in", "app.1acre.in"]. '
+            'Browsers are checked via Origin/Referer; backend HTTP clients should send '
+            'X-API-Caller-Host: <hostname> (e.g. prod-be-aws.1acre.in). '
             'Leave empty for no domain restriction.'
         ),
     )

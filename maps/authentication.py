@@ -2,7 +2,9 @@
 API key authentication for geo_mapping API.
 All API requests (except webhooks) require a valid API key when any active ApiKey exists in the DB.
 Keys are created in Django admin; the plain key is shown once on creation.
-If a key has allowed_domains set, the request Origin/Referer must match one of those domains.
+If a key has allowed_domains set, the caller host must match one of those domains.
+That host is taken from Origin, Referer, or (for server-to-server clients that send neither)
+the optional X-API-Caller-Host header with a bare hostname, e.g. prod-be-aws.1acre.in.
 """
 import hashlib
 from urllib.parse import urlparse
@@ -18,7 +20,8 @@ class APIKeyAuthentication(authentication.BaseAuthentication):
     """
     Authenticate by X-API-Key header or Authorization: Api-Key <key>.
     Validates against ApiKey model (key_hash). If no active keys exist in DB, access is allowed.
-    If the matched key has allowed_domains set, the request origin is also validated.
+    If the matched key has allowed_domains set, the caller host (Origin / Referer /
+    X-API-Caller-Host) is also validated.
     Webhooks are exempted by AllowIfWebhookOrHasAPIKey permission.
     """
     keyword = 'Api-Key'
@@ -51,13 +54,17 @@ class APIKeyAuthentication(authentication.BaseAuthentication):
         return (None, {'api_key': 'valid'})
 
     def _validate_domain(self, request, api_key_obj):
-        """If the key has allowed_domains, ensure Origin or Referer matches."""
+        """If the key has allowed_domains, ensure the caller host matches an allowed pattern."""
         allowed_domains = api_key_obj.allowed_domains
         if not allowed_domains:
             return
 
         origin = request.headers.get('Origin', '')
         referer = request.headers.get('Referer', '') or request.META.get('HTTP_REFERER', '')
+        caller_host_raw = (
+            request.headers.get('X-API-Caller-Host', '')
+            or request.META.get('HTTP_X_API_CALLER_HOST', '')
+        )
 
         request_host = None
         for header in (origin, referer):
@@ -67,9 +74,14 @@ class APIKeyAuthentication(authentication.BaseAuthentication):
                     request_host = parsed.hostname.lower()
                     break
 
+        if not request_host and caller_host_raw.strip():
+            request_host = self._hostname_from_caller_header(caller_host_raw.strip())
+
         if not request_host:
             raise AuthenticationFailed(
-                'This API key is domain-restricted. Requests must originate from an allowed domain.'
+                'This API key is domain-restricted. Browser clients must send Origin or Referer '
+                'from an allowed domain. Server-to-server clients must send '
+                'X-API-Caller-Host with the caller hostname (e.g. prod-be-aws.1acre.in).'
             )
 
         normalized = [d.lower().strip() for d in allowed_domains]
@@ -80,6 +92,16 @@ class APIKeyAuthentication(authentication.BaseAuthentication):
             f'This API key is not authorized for domain "{request_host}". '
             'Contact the API owner to whitelist your domain.'
         )
+
+    @staticmethod
+    def _hostname_from_caller_header(raw: str) -> str | None:
+        """Normalize X-API-Caller-Host to a lowercase hostname."""
+        if '://' in raw:
+            parsed = urlparse(raw)
+            return parsed.hostname.lower() if parsed.hostname else None
+        # bare hostname; ignore accidental path or port
+        host = raw.split('/')[0].split(':')[0].strip().lower()
+        return host or None
 
     @staticmethod
     def _domain_matches(host: str, pattern: str) -> bool:
