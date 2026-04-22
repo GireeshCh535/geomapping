@@ -90,8 +90,7 @@ class APIKeyAuthentication(authentication.BaseAuthentication):
 
         if not provided:
             raise AuthenticationFailed(
-                'Missing API key. Provide X-API-Key header or Authorization: Api-Key <key>. '
-                'Create and copy keys from Django admin → API Keys.'
+                'Missing The Correct Method. Try again with the Correct Method'
             )
 
         key_hash = hashlib.sha256(provided.encode()).hexdigest()
