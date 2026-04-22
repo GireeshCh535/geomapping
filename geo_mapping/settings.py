@@ -284,6 +284,12 @@ API_KEY = os.getenv('GEO_MAPPING_API_KEY', '').strip()
 # When True, require API key for non-webhook requests; if API_KEY is empty, requests get 401 until you set it.
 REQUIRE_API_KEY = os.getenv('REQUIRE_API_KEY', 'false').lower() in ('true', '1', 'yes')
 
+# Optional hostname for API keys that have allowed_domains but whose clients send no
+# Origin, Referer, or X-API-Caller-Host (legacy server HTTP stacks). Same trust as
+# X-API-Caller-Host: anyone with the secret key could imitate this host from curl.
+# Example: API_KEY_DOMAIN_FALLBACK_HOST=prod-be-aws.1acre.in
+API_KEY_DOMAIN_FALLBACK_HOST = os.getenv('API_KEY_DOMAIN_FALLBACK_HOST', '').strip().lower()
+
 # REST FRAMEWORK
 REST_FRAMEWORK = {
     'DEFAULT_RENDERER_CLASSES': [

@@ -1,6 +1,6 @@
 from types import SimpleNamespace
 
-from django.test import RequestFactory, SimpleTestCase
+from django.test import RequestFactory, SimpleTestCase, override_settings
 from rest_framework.exceptions import AuthenticationFailed
 
 from maps.authentication import APIKeyAuthentication
@@ -33,3 +33,9 @@ class APIKeyDomainRestrictionTests(SimpleTestCase):
         key = SimpleNamespace(allowed_domains=['*.1acre.in'])
         with self.assertRaises(AuthenticationFailed):
             self.auth._validate_domain(request, key)
+
+    @override_settings(API_KEY_DOMAIN_FALLBACK_HOST='prod-be-aws.1acre.in')
+    def test_domain_fallback_host_matches_allowed_patterns(self):
+        request = self.factory.get('/api/foo')
+        key = SimpleNamespace(allowed_domains=['*.1acre.in'])
+        self.auth._validate_domain(request, key)

@@ -3,12 +3,13 @@ API key authentication for geo_mapping API.
 All API requests (except webhooks) require a valid API key when any active ApiKey exists in the DB.
 Keys are created in Django admin; the plain key is shown once on creation.
 If a key has allowed_domains set, the caller host must match one of those domains.
-That host is taken from Origin, Referer, or (for server-to-server clients that send neither)
-the optional X-API-Caller-Host header with a bare hostname, e.g. prod-be-aws.1acre.in.
+That host is taken from Origin, Referer, X-API-Caller-Host, or (if configured on the server)
+settings.API_KEY_DOMAIN_FALLBACK_HOST for server-to-server calls that send none of the above.
 """
 import hashlib
 from urllib.parse import urlparse
 
+from django.conf import settings
 from django.utils import timezone
 from rest_framework import authentication
 from rest_framework.exceptions import AuthenticationFailed
@@ -21,7 +22,7 @@ class APIKeyAuthentication(authentication.BaseAuthentication):
     Authenticate by X-API-Key header or Authorization: Api-Key <key>.
     Validates against ApiKey model (key_hash). If no active keys exist in DB, access is allowed.
     If the matched key has allowed_domains set, the caller host (Origin / Referer /
-    X-API-Caller-Host) is also validated.
+    X-API-Caller-Host / API_KEY_DOMAIN_FALLBACK_HOST) is also validated.
     Webhooks are exempted by AllowIfWebhookOrHasAPIKey permission.
     """
     keyword = 'Api-Key'
@@ -78,10 +79,16 @@ class APIKeyAuthentication(authentication.BaseAuthentication):
             request_host = self._hostname_from_caller_header(caller_host_raw.strip())
 
         if not request_host:
+            fb = getattr(settings, 'API_KEY_DOMAIN_FALLBACK_HOST', '') or ''
+            if fb:
+                request_host = fb
+
+        if not request_host:
             raise AuthenticationFailed(
                 'This API key is domain-restricted. Browser clients must send Origin or Referer '
                 'from an allowed domain. Server-to-server clients must send '
-                'X-API-Caller-Host with the caller hostname (e.g. prod-be-aws.1acre.in).'
+                'X-API-Caller-Host with the caller hostname (e.g. prod-be-aws.1acre.in), '
+                'or set API_KEY_DOMAIN_FALLBACK_HOST on the geomapping server for trusted defaults.'
             )
 
         normalized = [d.lower().strip() for d in allowed_domains]
