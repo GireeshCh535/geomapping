@@ -137,7 +137,7 @@ class APIKeyAuthentication(authentication.BaseAuthentication):
             msg = (
                 'This API key is domain-restricted. Browser clients must send Origin or Referer '
                 'from an allowed domain. Server-to-server clients must send '
-                'X-API-Caller-Host with the caller hostname (e.g. prod-be-aws.1acre.in).'
+                'X-API-Caller-Host with the caller hostname.'
             )
             if not strict:
                 msg += (
