@@ -3,7 +3,7 @@
   hosts: aws_servers
   become: yes
   vars:
-    repo_url: "https://gitlab.com/rohit.boni/geomapping.git"
+    repo_url: "git@gitlab.com:rohit.boni/geomapping.git"
     project_name: "geomapping"
     project_dir: "/opt/{{ project_name }}"
     temp_dir: "/tmp/{{ project_name }}_deploy"
