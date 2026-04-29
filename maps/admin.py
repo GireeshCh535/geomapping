@@ -23,6 +23,8 @@ from .models import (
     LayerListingLink,
     LayerPointCountCache,
     LayerPointCountDetail,
+    LgdDivision,
+    RelevantLayer,
     State,
     SyncedLandPlot,
     SyncedLand,
@@ -1474,6 +1476,34 @@ class SyncedDeveloperPlotAdmin(admin.ModelAdmin):
         ("API payload", {"fields": ("payload",)}),
     )
     ordering = ("-synced_at",)
+
+
+@admin.register(LgdDivision)
+class LgdDivisionAdmin(gis_admin.GISModelAdmin):
+    """Mirror of 1acre-be LgdDivision rows used for relevance overlap."""
+    list_display = (
+        "id", "backend_id", "name", "division_type", "state_backend_id",
+        "parent_backend_id", "synced_at",
+    )
+    list_filter = ("division_type", "state_backend_id")
+    search_fields = ("name", "slug", "code", "backend_id")
+    readonly_fields = ("synced_at",)
+    autocomplete_fields = ("parent",)
+    ordering = ("division_type", "name")
+
+
+@admin.register(RelevantLayer)
+class RelevantLayerAdmin(admin.ModelAdmin):
+    """Computed (DataLayer, LgdDivision) overlap pairs."""
+    list_display = (
+        "id", "layer", "lgddivision", "matched_level",
+        "source_state_backend_id", "updated_at",
+    )
+    list_filter = ("matched_level", "source_state_backend_id")
+    search_fields = ("layer__slug", "layer__name", "lgddivision__name", "lgddivision__backend_id")
+    autocomplete_fields = ("layer", "lgddivision")
+    readonly_fields = ("created_at", "updated_at")
+    ordering = ("-updated_at",)
 
 
 @admin.register(ApiKey)

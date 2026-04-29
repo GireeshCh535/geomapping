@@ -5,6 +5,7 @@ from django.conf import settings
 from django.contrib.gis.db import models
 from django.contrib.gis.geos import GEOSGeometry
 from django.contrib.gis.db.models import Extent
+from django.contrib.postgres.indexes import GistIndex
 from django.utils.text import slugify
 import uuid
 import json
@@ -1559,3 +1560,128 @@ class ApiKey(models.Model):
 
     def __str__(self):
         return f"{self.name} ({self.key_prefix}…)"
+
+
+# ================================
+# LGD DIVISION MIRROR + RELEVANCE PAIRS
+# ================================
+
+class LgdDivision(models.Model):
+    """
+    Mirror of 1acre-be `LgdDivision` polygons (state / district / subdistrict / mandal).
+    Synced from the 1acre-be LGD pg_dump and used as the spatial input for relevance
+    overlap computation against `DataLayer` (via `GeoFeature.geometry`).
+
+    `backend_id` is the `id` of the row on 1acre-be side and is the natural sync key.
+    `state_backend_id` is the rolled-up state `backend_id` (self for state rows) so we
+    can scope district/subdistrict matches without walking the parent chain on every query.
+    """
+
+    DIVISION_TYPES = [
+        ('state', 'State'),
+        ('district', 'District'),
+        ('subdistrict', 'Subdistrict'),
+        ('mandal', 'Mandal'),
+        ('village', 'Village'),
+    ]
+
+    backend_id = models.IntegerField(
+        unique=True,
+        help_text='Primary key of the LgdDivision row on 1acre-be (sync key)',
+    )
+    name = models.CharField(max_length=255)
+    slug = models.CharField(max_length=500, blank=True, default='')
+    code = models.CharField(max_length=64, blank=True, default='', help_text='LGD code from source data')
+    division_type = models.CharField(max_length=32, choices=DIVISION_TYPES)
+    parent = models.ForeignKey(
+        'self',
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name='children',
+        help_text='Parent division on 1acre-be (resolved by backend_id during sync)',
+    )
+    parent_backend_id = models.IntegerField(
+        null=True,
+        blank=True,
+        db_index=True,
+        help_text='Raw parent backend_id, kept for repair after partial sync',
+    )
+    state_backend_id = models.IntegerField(
+        null=True,
+        blank=True,
+        db_index=True,
+        help_text='backend_id of the rolled-up state row (self for state rows)',
+    )
+    geom = models.MultiPolygonField(srid=4326, null=True, blank=True)
+    backend_updated_at = models.DateTimeField(null=True, blank=True)
+    synced_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'lgd_divisions'
+        ordering = ['division_type', 'name']
+        indexes = [
+            models.Index(fields=['division_type']),
+            models.Index(fields=['state_backend_id', 'division_type']),
+            models.Index(fields=['parent']),
+            models.Index(fields=['slug']),
+            GistIndex(fields=['geom']),
+        ]
+
+    def __str__(self):
+        return f"{self.get_division_type_display()}: {self.name} (#{self.backend_id})"
+
+
+class RelevantLayer(models.Model):
+    """
+    Output of the spatial overlap engine: a (DataLayer, LgdDivision) pair means the
+    layer's geometry intersects that LGD polygon. Authoritative source for the
+    `relevant-layers?lgd_division_id=` API consumed by 1acre-be.
+
+    `matched_level` records *why* the row exists (state/district/subdistrict) so a
+    single relevance set can serve both polygon-level and rolled-up state queries.
+    `source_state_backend_id` is the state the match was computed under (= the
+    layer's primary or one of its additional states) so we can clean up cleanly
+    when a layer's state scope changes.
+    """
+
+    layer = models.ForeignKey(
+        DataLayer,
+        on_delete=models.CASCADE,
+        related_name='relevant_lgd_divisions',
+    )
+    lgddivision = models.ForeignKey(
+        LgdDivision,
+        on_delete=models.CASCADE,
+        related_name='relevant_layers',
+    )
+    source_state_backend_id = models.IntegerField(
+        null=True,
+        blank=True,
+        help_text='backend_id of the state under which this match was computed',
+    )
+    matched_level = models.CharField(
+        max_length=20,
+        help_text='state | district | subdistrict | mandal',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'relevant_layers'
+        constraints = [
+            models.UniqueConstraint(
+                fields=['layer', 'lgddivision'],
+                name='uniq_relevant_layer_pair',
+            ),
+        ]
+        indexes = [
+            models.Index(fields=['lgddivision']),
+            models.Index(fields=['layer']),
+            models.Index(fields=['updated_at']),
+            models.Index(fields=['matched_level']),
+        ]
+
+    def __str__(self):
+        return f"RelevantLayer(layer={self.layer_id}, lgd={self.lgddivision_id}, level={self.matched_level})"
+

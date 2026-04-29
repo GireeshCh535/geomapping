@@ -1,7 +1,8 @@
 """
-Django signals for automatic listing-layer enrichment and tile job enqueue.
+Django signals for automatic listing-layer enrichment, LGD relevance reindex, and tile job enqueue.
 
-- DataLayer: when a new layer is added or becomes processed, enrich listings near that layer.
+- DataLayer: when a new layer is added or becomes processed, enrich listings near that layer and
+  run `reindex_layer` so `RelevantLayer` rows are populated from PostGIS overlap with LGD divisions.
 - SyncedLand / SyncedPlot: when saved with coordinates, enqueue land/plot MVT tile job (SQS).
 - DeveloperListingMedia (TIF): when saved, enqueue developer listing PNG tile job (SQS) after commit.
 """
@@ -89,26 +90,56 @@ def _enrich_listings_near_layer_after_commit(layer_id: int):
         logger.exception("Auto-enrichment for layer id=%s failed: %s", layer_id, e)
 
 
+def _relevance_reindex_after_commit(layer_id: int):
+    """Compute (DataLayer, LgdDivision) pairs and persist `RelevantLayer` rows."""
+    try:
+        layer = (
+            DataLayer.objects
+            .select_related('city__state_ref')
+            .filter(pk=layer_id)
+            .first()
+        )
+        if not layer:
+            return
+        from maps.relevance_service import reindex_layer
+
+        result = reindex_layer(layer, payload=None)
+        logger.info(
+            "Relevance reindex for layer id=%s slug=%s -> %s",
+            layer_id,
+            layer.slug,
+            result,
+        )
+    except Exception as e:
+        logger.exception("Relevance reindex for layer id=%s failed: %s", layer_id, e)
+
+
+def _datalayer_ready_after_commit(layer_id: int):
+    """After a layer is committed as processed: listing enrichment then LGD relevance index."""
+    _enrich_listings_near_layer_after_commit(layer_id)
+    _relevance_reindex_after_commit(layer_id)
+
+
 @receiver(post_save, sender=DataLayer)
 def _datalayer_post_save(sender, instance, created, **kwargs):
-    """When a new layer is added or a layer becomes processed, enrich affected listings."""
+    """When a new layer is added or a layer becomes processed, enrich listings and reindex LGD relevance."""
     if not instance.is_processed:
         return
     # Skip listing-owned TIF layers
     if instance.category and getattr(instance.category, 'code', None) == 'DEVELOPER_LISTING':
         return
-    should_enrich = False
+    should_run = False
     if created:
-        should_enrich = True
+        should_run = True
     else:
         was_processed = getattr(instance, '_signal_was_processed', None)
         if was_processed is False:
-            should_enrich = True
-    if not should_enrich:
+            should_run = True
+    if not should_run:
         return
     # Run after transaction commits so layer (and any new features) are committed
     layer_id = instance.pk
-    transaction.on_commit(lambda: _enrich_listings_near_layer_after_commit(layer_id))
+    transaction.on_commit(lambda lid=layer_id: _datalayer_ready_after_commit(lid))
 
 
 # ----- LayerListingLink cleanup when listing rows are deleted -----

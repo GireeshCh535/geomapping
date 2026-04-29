@@ -61,6 +61,7 @@ from .land_plot import (
     _marker_id_for_listing,
     _tier_for_price,
 )
+from .relevance_reindex import RelevanceReindexAPIView
 
 __all__ = [
     "StateViewSet",
@@ -111,4 +112,5 @@ __all__ = [
     "_marker_id_for_listing",
     "LandPlotGeoJSONView",
     "LandPlotMapTestView",
+    "RelevanceReindexAPIView",
 ]

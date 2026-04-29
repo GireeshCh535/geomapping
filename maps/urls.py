@@ -171,4 +171,14 @@ urlpatterns = [
     path('tiles/land-plot-mvt-build/<int:z>/<int:x>/<int:y>/',
          views.LandPlotMVTBuildView.as_view(),
          name='land_plot_mvt_build'),
+
+    # ================================
+    # RELEVANCE (LgdDivision <-> DataLayer overlap sync)
+    # ================================
+    path('relevance/reindex',
+         views.RelevanceReindexAPIView.as_view(),
+         name='relevance_reindex_no_slash'),
+    path('relevance/reindex/',
+         views.RelevanceReindexAPIView.as_view(),
+         name='relevance_reindex'),
 ]
