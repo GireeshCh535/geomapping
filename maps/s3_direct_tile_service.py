@@ -4,7 +4,6 @@ Enhanced S3 Direct Tile Generation Service with Pattern Support
 Generates tiles (PNG/MVT) directly to S3 with hatched, dotted, and striped patterns
 """
 
-import boto3
 import io
 import mercantile
 import logging
@@ -19,6 +18,11 @@ import time
 from maps.services import VectorTileService
 from maps.tile_rendering_service import TileRenderingService  # Enhanced version with patterns
 from maps.tile_path_service import TilePathService
+from maps.tile_storage import (
+    get_tile_object_storage_bucket_name,
+    get_tile_object_storage_s3_client,
+    public_https_url_for_object_key,
+)
 from maps.models import DataLayer, City, GeoFeature, CityLayerStyle, CityZoneMapping
 from maps.config import get_city_style_config, get_visakhapatnam_styles, get_amaravati_styles
 
@@ -31,20 +35,14 @@ class S3DirectTileGenerationService:
     """
     
     def __init__(self):
-        self.bucket_name = getattr(settings, 'AWS_STORAGE_BUCKET_NAME')
+        self.bucket_name = get_tile_object_storage_bucket_name()
         self.region = getattr(settings, 'AWS_S3_REGION_NAME', 'ap-south-1')
-        self.s3_tile_domain = getattr(settings, 'AWS_S3_TILE_DOMAIN', None) or (
-            f'{self.bucket_name}.s3.{self.region}.amazonaws.com'
+        self.s3_tile_domain = (
+            (getattr(settings, 'AWS_S3_TILE_DOMAIN', None) or '').strip()
+            or (getattr(settings, 'PUBLIC_TILE_CDN_HOST', None) or '').strip()
         )
         self.cloudfront_domain = getattr(settings, 'CLOUDFRONT_DOMAIN', None)
-        
-        # Initialize S3 client
-        self.s3_client = boto3.client(
-            's3',
-            region_name=self.region,
-            aws_access_key_id=getattr(settings, 'AWS_ACCESS_KEY_ID', None),
-            aws_secret_access_key=getattr(settings, 'AWS_SECRET_ACCESS_KEY', None)
-        )
+        self.s3_client = get_tile_object_storage_s3_client()
         
         # Initialize tile services
         self.vector_service = VectorTileService()
@@ -85,16 +83,16 @@ class S3DirectTileGenerationService:
                 ExtraArgs=extra_args
             )
             
-            s3_url = f"https://{self.s3_tile_domain}/{s3_key}"
+            public_url = public_https_url_for_object_key(s3_key)
             cloudfront_url = None
-            if self.cloudfront_domain:
+            if self.cloudfront_domain and not (getattr(settings, 'PUBLIC_TILE_CDN_HOST', None) or '').strip():
                 cloudfront_url = f"https://{self.cloudfront_domain}/{s3_key}"
 
             return {
                 'success': True,
                 's3_key': s3_key,
                 'size': len(data_bytes),
-                's3_url': s3_url,
+                's3_url': public_url,
                 'cloudfront_url': cloudfront_url,
             }
             
@@ -675,8 +673,13 @@ class S3DirectTileGenerationService:
         """Generate sample URLs using the same CloudFront vs S3 rules as tile_path_service."""
         tps = TilePathService()
         sample_key = f"{city_slug}/combined/0_0_0.png"
-        host = tps.cloudfront_domain if tps.use_cloudfront_for_path(sample_key) else tps.s3_tile_domain
-        base_url = f"https://{host}"
+        if tps.use_public_cdn_for_tile_origin():
+            base_url = f"https://{tps.public_tile_cdn_host}"
+            if tps.public_tile_cdn_path_prefix:
+                base_url = f"{base_url}/{tps.public_tile_cdn_path_prefix}"
+        else:
+            host = tps.cloudfront_domain if tps.use_cloudfront_for_path(sample_key) else tps.s3_tile_domain
+            base_url = f"https://{host}"
         mid_zoom = (min_zoom + max_zoom) // 2
         
         return {

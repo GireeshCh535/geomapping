@@ -610,8 +610,8 @@ class CompleteHierarchyAPIView(APIView):
         }
     
     def _get_layer_tile_urls(self, state_slug, city_slug, layer_slug, include_cloudfront=True):
-        """Tile URL templates pointing at Django proxy (/api/tiles/...); backend fetches S3 or CloudFront."""
-        base = hierarchical_tile_proxy_base(state_slug, city_slug, layer_slug)
+        """Tile URL templates on the Django proxy only; CDN is used only server-side to fetch bytes."""
+        base = hierarchical_tile_proxy_url_for_client(state_slug, city_slug, layer_slug)
         return {
             'png_template': f"{base}/{{z}}/{{x}}/{{y}}.png",
             'mvt_template': f"{base}/{{z}}/{{x}}/{{y}}.mvt",
@@ -633,7 +633,7 @@ def _build_layer_data_minimal(layer, state_slug, city_slug, feature_count_map):
     fc = feature_count_map.get(layer.id, 0)
     tile_template = None
     if layer.tiles_generated:
-        b = hierarchical_tile_proxy_base(state_slug, city_slug, layer.slug)
+        b = hierarchical_tile_proxy_url_for_client(state_slug, city_slug, layer.slug)
         tile_template = f"{b}/{{z}}/{{x}}/{{y}}.png"
     bounds = None
     if layer.bbox_xmin is not None and layer.bbox_ymin is not None and layer.bbox_xmax is not None and layer.bbox_ymax is not None:
@@ -654,7 +654,7 @@ def _build_layer_data_optimized(layer, state_slug, city_slug, feature_count_map)
     layer_feature_count = feature_count_map.get(layer.id, 0)
     tile_urls = None
     if layer.tiles_generated:
-        base = hierarchical_tile_proxy_base(state_slug, city_slug, layer.slug)
+        base = hierarchical_tile_proxy_url_for_client(state_slug, city_slug, layer.slug)
         tile_urls = {
             'png_template': f"{base}/{{z}}/{{x}}/{{y}}.png",
             'mvt_template': f"{base}/{{z}}/{{x}}/{{y}}.mvt",
@@ -717,7 +717,7 @@ def _build_layer_data_full_trimmed(layer, state_slug, city_slug, feature_count_m
     layer_feature_count = feature_count_map.get(layer.id, 0)
     tile_urls = None
     if layer.tiles_generated:
-        base = hierarchical_tile_proxy_base(state_slug, city_slug, layer.slug)
+        base = hierarchical_tile_proxy_url_for_client(state_slug, city_slug, layer.slug)
         tile_urls = {
             'png_template': f"{base}/{{z}}/{{x}}/{{y}}.png",
             'mvt_template': f"{base}/{{z}}/{{x}}/{{y}}.mvt",

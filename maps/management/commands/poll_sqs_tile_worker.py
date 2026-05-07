@@ -1,6 +1,8 @@
 # maps/management/commands/poll_sqs_tile_worker.py
 """
 Poll SQS for tile jobs (TIF and land/plot MVT) and process them.
+Uploads go to Cloudflare R2 (S3TileUploadService / tile_storage); tiles are served from PUBLIC_TILE_CDN_HOST.
+
 Only the job type from the message is run: developer-listing webhook -> job_type=tif only;
 land-plot webhook -> job_type=land_plot_mvt only. No cross-triggering.
 
@@ -8,7 +10,8 @@ Usage:
   python manage.py poll_sqs_tile_worker
   python manage.py poll_sqs_tile_worker --wait 20   # long-poll 20s
 
-Requires: TILE_SQS_QUEUE_URL, AWS credentials (or EC2 instance profile).
+Requires: CLOUDFLARE_R2_* and PUBLIC_TILE_CDN_HOST (same as Django app). TILE_SQS_QUEUE_URL if using SQS.
+For AWS SQS only: AWS credentials or EC2 instance profile (sqs:ReceiveMessage, sqs:DeleteMessage).
 """
 
 import json
@@ -21,6 +24,8 @@ import requests
 from django.conf import settings
 from django.core.management.base import BaseCommand
 from django.db import close_old_connections
+
+from maps.tile_debug import tile_debug_always
 
 logger = logging.getLogger(__name__)
 
@@ -43,7 +48,7 @@ class _TileLogCapture(logging.Handler):
 
 
 class Command(BaseCommand):
-    help = "Poll SQS for tile jobs (tif / land_plot_mvt), run tile gen, upload to S3, POST callback."
+    help = "Poll SQS for tile jobs (tif / land_plot_mvt), run tile gen, upload to R2, POST callback."
 
     def add_arguments(self, parser):
         parser.add_argument(
@@ -108,7 +113,11 @@ class Command(BaseCommand):
         data = payload.get("data") or {}
         msg_id = msg.get("MessageId", "?")
         self.stdout.write(f"Processing message_id={msg_id} job_type={job_type} event={event}")
+        tile_debug_always(
+            f"SQS job start msg_id={msg_id} job_type={job_type} event={event} listing_id={data.get('listing_id')}"
+        )
         if job_type not in ("tif", "land_plot_mvt"):
+            tile_debug_always(f"SQS unknown job_type={job_type} msg_id={msg_id}, deleting")
             logger.warning("Unknown job_type=%s, deleting message", job_type)
             sqs.delete_message(QueueUrl=queue_url, ReceiptHandle=receipt_handle)
             return
@@ -123,9 +132,11 @@ class Command(BaseCommand):
             else:
                 logger.warning("Unhandled job_type=%s", job_type)
         except Exception as e:
+            tile_debug_always(f"SQS job FAIL msg_id={msg_id} job_type={job_type} err={e}")
             logger.exception("Job failed job_type=%s: %s", job_type, e)
             # Do not delete so message can retry after visibility timeout
             return
+        tile_debug_always(f"SQS job OK msg_id={msg_id} job_type={job_type}, deleting message")
         sqs.delete_message(QueueUrl=queue_url, ReceiptHandle=receipt_handle)
 
     def _process_tif_job(self, data):

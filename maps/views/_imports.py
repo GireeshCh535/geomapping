@@ -20,8 +20,10 @@ from ..models import *
 from ..serializers import *
 from ..tile_path_service import (
     TilePathService,
+    client_tile_proxy_api_root,
     developer_raster_path_valid,
     hierarchical_tile_proxy_base,
+    hierarchical_tile_proxy_url_for_client,
     is_developer_data_tile_request,
     public_https_base_for_s3_tile_prefix,
     tile_proxy_png_template_from_s3_tile_path,

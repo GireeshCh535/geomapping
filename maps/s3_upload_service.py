@@ -1,34 +1,30 @@
 # maps/services/s3_upload_service.py
 import io
-import boto3
 import os
 from pathlib import Path
 from django.conf import settings
 from botocore.exceptions import ClientError, NoCredentialsError
-from botocore.config import Config
 import mimetypes
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import logging
 
-logger = logging.getLogger(__name__)
+from maps.tile_debug import tile_debug
+from maps.tile_storage import (
+    get_tile_object_storage_bucket_name,
+    get_tile_object_storage_s3_client,
+    public_https_url_for_object_key,
+)
 
-# Timeouts so S3 uploads don't hang indefinitely (connect 30s, read 120s)
-S3_CONFIG = Config(connect_timeout=30, read_timeout=120, retries={'max_attempts': 3, 'mode': 'standard'})
+logger = logging.getLogger(__name__)
 
 
 class S3TileUploadService:
-    """Service for uploading generated tiles to S3"""
+    """Upload tiles to Cloudflare R2 (S3-compatible API)."""
     
     def __init__(self):
-        self.bucket_name = getattr(settings, 'AWS_STORAGE_BUCKET_NAME', 'gis-portal')
+        self.bucket_name = get_tile_object_storage_bucket_name()
         self.region = getattr(settings, 'AWS_S3_REGION_NAME', 'ap-south-1')
-        self.s3_client = boto3.client(
-            's3',
-            region_name=self.region,
-            aws_access_key_id=getattr(settings, 'AWS_ACCESS_KEY_ID', None),
-            aws_secret_access_key=getattr(settings, 'AWS_SECRET_ACCESS_KEY', None),
-            config=S3_CONFIG,
-        )
+        self.s3_client = get_tile_object_storage_s3_client()
         
     def upload_file(self, local_file_path, s3_key):
         """Upload a single file to S3 (Fixed - No ACL)"""
@@ -52,17 +48,21 @@ class S3TileUploadService:
                 ExtraArgs=extra_args
             )
             
+            sz = os.path.getsize(local_file_path)
+            tile_debug(f"R2 upload_file OK key={s3_key[:200]} size={sz}")
             return {
                 'success': True,
-                'url': f"https://{self.bucket_name}.s3.{self.region}.amazonaws.com/{s3_key}",
+                'url': public_https_url_for_object_key(s3_key),
                 's3_key': s3_key,
-                'size': os.path.getsize(local_file_path)
+                'size': sz,
             }
             
         except ClientError as e:
+            tile_debug(f"R2 upload_file ClientError key={s3_key[:200]} err={e}")
             logger.error(f"Failed to upload {s3_key}: {e}")
             return {'success': False, 'error': str(e)}
         except Exception as e:
+            tile_debug(f"R2 upload_file error key={s3_key[:200]} err={e}")
             logger.error(f"Unexpected error uploading {s3_key}: {e}")
             return {'success': False, 'error': str(e)}
 
@@ -110,15 +110,18 @@ class S3TileUploadService:
                 s3_key,
                 ExtraArgs=default_extra,
             )
+            tile_debug(f"R2 upload_bytes OK key={s3_key[:200]} size={len(data)} ct={content_type}")
             return {
                 'success': True,
                 's3_key': s3_key,
                 'size': len(data),
             }
         except ClientError as e:
+            tile_debug(f"R2 upload_bytes ClientError key={s3_key[:200]} err={e}")
             logger.error(f"Failed to upload bytes to {s3_key}: {e}")
             return {'success': False, 'error': str(e)}
         except Exception as e:
+            tile_debug(f"R2 upload_bytes error key={s3_key[:200]} err={e}")
             logger.error(f"Unexpected error uploading bytes to {s3_key}: {e}")
             return {'success': False, 'error': str(e)}
 

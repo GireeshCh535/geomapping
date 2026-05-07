@@ -1,6 +1,6 @@
 """
 Service for generating tiles from developer listing TIF files
-Downloads TIF files from CloudFront, generates tiles, and uploads to S3
+Downloads TIF files from configured URLs, generates tiles, and uploads to object storage (R2 or S3).
 """
 
 import os
@@ -18,6 +18,8 @@ from .tile_path_service import (
     public_https_base_for_s3_tile_prefix,
     tile_proxy_png_template_from_s3_tile_path,
 )
+from .tile_debug import tile_debug
+from .tile_storage import get_tile_object_storage_bucket_name, get_tile_object_storage_s3_client
 from botocore.exceptions import ClientError
 import rasterio
 from rasterio.warp import calculate_default_transform, reproject, Resampling
@@ -34,25 +36,27 @@ class DeveloperListingTileService:
     """Service for processing TIF files and generating map tiles"""
     
     def __init__(self):
-        self.bucket_name = getattr(settings, 'AWS_STORAGE_BUCKET_NAME', 'gis-portal')
+        self.bucket_name = get_tile_object_storage_bucket_name()
         self.region = getattr(settings, 'AWS_S3_REGION_NAME', 'ap-south-1')
-        self.s3_client = boto3.client(
-            's3',
-            region_name=self.region,
-            aws_access_key_id=getattr(settings, 'AWS_ACCESS_KEY_ID', None),
-            aws_secret_access_key=getattr(settings, 'AWS_SECRET_ACCESS_KEY', None)
-        )
+        self.s3_client = get_tile_object_storage_s3_client()
         # CloudFront client for cache invalidation
         self.cloudfront_client = None
         self.cloudfront_distribution_id = getattr(settings, 'CLOUDFRONT_DISTRIBUTION_ID', None)
         self.enable_cloudfront_invalidation = getattr(settings, 'ENABLE_CLOUDFRONT_INVALIDATION', True)
-        if self.enable_cloudfront_invalidation and self.cloudfront_distribution_id:
+        aws_key = (getattr(settings, 'AWS_ACCESS_KEY_ID', None) or '').strip()
+        aws_secret = (getattr(settings, 'AWS_SECRET_ACCESS_KEY', None) or '').strip()
+        if (
+            self.enable_cloudfront_invalidation
+            and self.cloudfront_distribution_id
+            and aws_key
+            and aws_secret
+        ):
             try:
                 self.cloudfront_client = boto3.client(
                     'cloudfront',
-                    region_name='us-east-1',  # CloudFront API is always us-east-1
-                    aws_access_key_id=getattr(settings, 'AWS_ACCESS_KEY_ID', None),
-                    aws_secret_access_key=getattr(settings, 'AWS_SECRET_ACCESS_KEY', None)
+                    region_name='us-east-1',
+                    aws_access_key_id=aws_key,
+                    aws_secret_access_key=aws_secret,
                 )
             except Exception as e:
                 logger.warning(f"[CLOUDFRONT] Failed to initialize CloudFront client: {e}")
@@ -91,7 +95,11 @@ class DeveloperListingTileService:
             listing_id = webhook_data.get('listing_id')
             tif_files = webhook_data.get('tif_files', [])
             s3_tile_base_path = webhook_data.get('s3_tile_base_path', '')
-            
+            base_snip = (s3_tile_base_path or "")[:120]
+            tile_debug(
+                f"TIF process_webhook event={event_type} action={action} "
+                f"listing={listing_type}/{listing_id} n_tif={len(tif_files)} base={base_snip}"
+            )
             logger.info(f"[TILE_GEN] Starting listing={listing_type} id={listing_id} tif_files={len(tif_files)}")
             
             # Get listing if not provided

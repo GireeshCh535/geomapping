@@ -1,5 +1,7 @@
 from ._imports import *
 
+from maps.tile_debug import tile_debug, tile_route
+
 # ================================
 # LAND/PLOT MVT TILES (S3 by default; optional CloudFront; local dev fallback)
 # ================================
@@ -10,10 +12,11 @@ def _fetch_tile_url(url, timeout=5):
     try:
         response = requests.get(url, timeout=timeout)
         if response.status_code == 200:
+            tile_debug(f"land_plot fetch OK bytes={len(response.content)} url={url[:200]}")
             return response.content
-        # print(f"[tile_proxy] _fetch_tile_url HTTP error: {response.status_code} {url[:100]}...")
+        tile_debug(f"land_plot fetch HTTP {response.status_code} url={url[:200]}")
     except Exception as e:
-        print(f"[tile_proxy] _fetch_tile_url error: {e}")
+        tile_debug(f"land_plot fetch ERR url={url[:160]} err={e}")
     return None
 
 
@@ -35,18 +38,32 @@ class LandPlotTileView(APIView):
         from pathlib import Path
         local_path = Path(settings.BASE_DIR) / 'land_plot_tiles' / str(z) / str(x) / f'{y}.mvt'
         if local_path.is_file():
+            tile_route(TilePathService.format_tile_api_routing_local_disk(request.path, str(local_path)))
+            tile_debug(f"land_plot MVT local file z={z} x={x} y={y} path={local_path}")
             return self._mvt_response(local_path.read_bytes())
 
         s3_key = tile_path_service.land_plot_s3_key(z, x, y)
+        upstream = tile_path_service.generate_public_cdn_url(s3_key)
         cache_key = f"tile_proxy:{s3_key}"
         ttl = getattr(settings, 'TILE_PROXY_CACHE_TTL', 3600)
         if ttl > 0:
             cached = cache.get(cache_key)
             if cached is not None:
+                tile_route(
+                    tile_path_service.format_tile_api_routing_for_log(request.path, s3_key, upstream)
+                    + " | this_request=Django_tile_response_cache_HIT (no HTTP to CDN)"
+                )
+                tile_debug(f"land_plot MVT cache HIT z={z} x={x} y={y} key={s3_key[:120]}")
                 return self._mvt_response(cached)
-        backend_url = tile_path_service.get_backend_url_for_land_plot(z, x, y)
+        backend_url = upstream
         backend_label = tile_path_service._backend_label(s3_key)
-        # print(f"[tile_proxy] land-plot serving from {backend_label}: {backend_url}")
+        tile_route(
+            tile_path_service.format_tile_api_routing_for_log(request.path, s3_key, backend_url)
+            + " | this_request=Django_HTTP_GET_to_tile_CDN (R2 objects behind CDN)"
+        )
+        tile_debug(
+            f"land_plot MVT cache MISS z={z} x={x} y={y} label={backend_label} origin={backend_url[:200]}"
+        )
         tile_data = _fetch_tile_url(backend_url)
         if tile_data:
             if ttl > 0:
@@ -54,8 +71,9 @@ class LandPlotTileView(APIView):
                     cache.set(cache_key, tile_data, ttl)
                 except Exception:
                     pass
+            tile_debug(f"land_plot MVT OK bytes={len(tile_data)} key={s3_key[:120]}")
             return self._mvt_response(tile_data)
-        # print(f"[tile_proxy] land-plot fetch FAIL ({backend_label}): {s3_key}")
+        tile_debug(f"land_plot MVT MISS key={s3_key[:160]} label={backend_label}")
         return Response({'error': 'Tile not found'}, status=404)
 
     def _mvt_response(self, data):

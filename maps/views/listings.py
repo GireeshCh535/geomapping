@@ -1300,7 +1300,10 @@ class DeveloperListingMapDataAPIView(APIView):
                         'total_tiles': sum(tf['tiles_generated'] for tf in tif_files)
                     },
                     'tile_domains': {
-                        's3_tile_domain': settings.AWS_S3_TILE_DOMAIN,
+                        'tile_proxy_api_base': client_tile_proxy_api_root(),
+                        'tile_proxy_public_base_url': (
+                            (getattr(settings, 'TILE_PROXY_PUBLIC_BASE_URL', None) or '').strip() or None
+                        ),
                     },
                 },
                 status=status.HTTP_200_OK

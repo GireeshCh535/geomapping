@@ -597,9 +597,9 @@ class DeveloperListingMediaWebhookView(APIView):
     
     The service will:
     1. Save full webhook data to database (no fields dropped)
-    2. Download TIF files from CloudFront URLs
+    2. Download TIF files from configured URLs
     3. Generate map tiles from TIF files
-    4. Upload tiles to S3 at the specified path
+    4. Upload tiles to Cloudflare R2 at the specified object key prefix
     5. Store TIF metadata and bounds
     """
     permission_classes = [AllowAny]  # Public endpoint (webhook)

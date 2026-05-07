@@ -1,6 +1,6 @@
 """
 Land/plot MVT tile refresh on webhook: compute affected tiles from (lat, lng),
-regenerate with active+public filter, upload to S3.
+regenerate with active+public filter, upload to Cloudflare R2 (via S3TileUploadService).
 Pipeline: generation and upload run in parallel (upload starts as soon as each tile is ready).
 """
 
@@ -13,6 +13,8 @@ from typing import List, Tuple
 import mercantile
 from django.conf import settings
 from botocore.exceptions import ClientError
+
+from maps.tile_debug import tile_debug
 
 logger = logging.getLogger(__name__)
 
@@ -79,7 +81,7 @@ def _upload_worker(
             results.append(success)
             n = len(results)
             if total_count > 0 and (n % 5 == 0 or n == total_count):
-                print(f"[MVT] Uploaded {n}/{total_count} tiles to S3", flush=True)
+                print(f"[MVT] Uploaded {n}/{total_count} tiles to R2", flush=True)
         except Exception as e:
             tile_id = f"{item[0]}/{item[1]}/{item[2]}" if len(item) == 4 else "?"
             logger.warning(f"[LAND_PLOT_TILE_REFRESH] Upload failed {tile_id}: {e}", exc_info=True)
@@ -95,7 +97,7 @@ def refresh_tiles_for_listing(
 ) -> None:
     """
     For the given (lat, lng): compute affected tile keys, generate MVT tiles in parallel,
-    and upload to S3 in parallel. Upload starts as soon as each tile is generated (pipeline).
+    and upload to R2 in parallel. Upload starts as soon as each tile is generated (pipeline).
     Logs errors and does not raise.
     """
     from maps.tile_path_service import TilePathService
@@ -105,6 +107,7 @@ def refresh_tiles_for_listing(
     s3_service = S3TileUploadService()
 
     affected = get_affected_land_plot_tile_keys(lng, lat)
+    tile_debug(f"land_plot refresh keys={len(affected)} lat={lat} lng={lng}")
     if not affected:
         return
 
@@ -120,7 +123,7 @@ def refresh_tiles_for_listing(
     upload_workers = REFRESH_UPLOAD_WORKERS
     out_queue = queue.Queue()
 
-    print(f"[MVT] {len(affected)} tiles to generate and upload to S3", flush=True)
+    print(f"[MVT] {len(affected)} tiles to generate and upload to R2", flush=True)
     logger.info(
         f"[LAND_PLOT_TILE_REFRESH] Refreshing {len(affected)} tiles for ({lat}, {lng}) "
         f"(generate_workers={gen_workers}, upload_workers={upload_workers})"
@@ -151,7 +154,7 @@ def refresh_tiles_for_listing(
                 done += 1
                 if done % 5 == 0 or done == len(affected):
                     print(f"[MVT] Generated {done}/{len(affected)} tiles...", flush=True)
-        print(f"[MVT] Uploading {total_tiles} tiles to S3...", flush=True)
+        print(f"[MVT] Uploading {total_tiles} tiles to R2...", flush=True)
         # Join before putting None: join() waits for task_done() per put().
         # We only put 17 tiles (from gen workers); worker calls task_done() 17 times.
         # If we put None first, queue would have 18 items and join() would wait forever.
@@ -164,7 +167,7 @@ def refresh_tiles_for_listing(
     print(f"[MVT] Uploads complete.", flush=True)
 
     ok = sum(1 for r in upload_results if r)
-    print(f"[MVT] Generated and uploaded {ok}/{len(affected)} tiles to S3", flush=True)
+    print(f"[MVT] Generated and uploaded {ok}/{len(affected)} tiles to R2", flush=True)
     if ok < len(affected):
         logger.warning(f"[LAND_PLOT_TILE_REFRESH] {ok}/{len(affected)} tiles succeeded")
 
@@ -206,18 +209,22 @@ def _invalidate_cloudfront_land_plot(paths: List[str]) -> None:
 
 
 def __get_cloudfront_client():
-    """Lazy boto3 CloudFront client (us-east-1). Returns None on failure."""
+    """Lazy boto3 CloudFront client (us-east-1). None if AWS keys unset (tiles use R2/CDN)."""
     try:
         return __get_cloudfront_client._client
     except AttributeError:
         pass
+    if not (getattr(settings, "AWS_ACCESS_KEY_ID", None) or "").strip():
+        __get_cloudfront_client._client = None
+        return None
     try:
         import boto3
+
         __get_cloudfront_client._client = boto3.client(
-            'cloudfront',
-            region_name='us-east-1',
-            aws_access_key_id=getattr(settings, 'AWS_ACCESS_KEY_ID', None),
-            aws_secret_access_key=getattr(settings, 'AWS_SECRET_ACCESS_KEY', None),
+            "cloudfront",
+            region_name="us-east-1",
+            aws_access_key_id=getattr(settings, "AWS_ACCESS_KEY_ID", None),
+            aws_secret_access_key=getattr(settings, "AWS_SECRET_ACCESS_KEY", None),
         )
         return __get_cloudfront_client._client
     except Exception as e:

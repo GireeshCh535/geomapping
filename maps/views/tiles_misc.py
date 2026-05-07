@@ -8,14 +8,6 @@ class AvailableTilesView(APIView):
     
     def __init__(self):
         super().__init__()
-        # Initialize S3 client for checking tile existence
-        self.s3_client = boto3.client(
-            's3',
-            region_name=getattr(settings, 'AWS_S3_REGION_NAME', 'ap-south-1'),
-            aws_access_key_id=getattr(settings, 'AWS_ACCESS_KEY_ID', None),
-            aws_secret_access_key=getattr(settings, 'AWS_SECRET_ACCESS_KEY', None)
-        )
-        self.bucket_name = getattr(settings, 'AWS_STORAGE_BUCKET_NAME')
     
     def get(self, request, city_slug):
         """

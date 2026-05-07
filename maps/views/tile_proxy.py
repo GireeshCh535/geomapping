@@ -1,8 +1,27 @@
 from ._imports import *
 
+from maps.tile_debug import tile_debug, tile_route
+
+
+def _fetch_tile_bytes(url, timeout=5):
+    """HTTP GET tile body; used by tile proxy views (CDN or legacy origins)."""
+    try:
+        response = requests.get(url, timeout=timeout)
+        if response.status_code == 200:
+            n = len(response.content)
+            tile_debug(f"fetch OK bytes={n} url={url[:200]}")
+            return response.content
+        tile_debug(f"fetch HTTP {response.status_code} url={url[:200]}")
+        logger.debug(f"Failed to fetch {url}: HTTP {response.status_code}")
+    except Exception as e:
+        tile_debug(f"fetch ERR url={url[:160]} err={e}")
+        logger.debug(f"Failed to fetch {url}: {e}")
+    return None
+
+
 @extend_schema(
     summary="Serve map tiles",
-    description="Serve map tiles (PNG or MVT) via Django proxy: fetches from S3 (optional CloudFront if USE_CLOUDFRONT and path whitelist).",
+    description="Serve map tiles (PNG or MVT) via Django proxy: same URL for clients always; origin fetches tile bytes from the configured CDN/R2 host server-side (no redirect to CDN).",
     tags=['tiles'],
     parameters=[
         OpenApiParameter(
@@ -50,7 +69,7 @@ from ._imports import *
     ],
     responses={
         200: {
-            'description': 'Tile bytes (PNG or MVT) proxied from S3',
+            'description': 'Tile bytes (PNG or MVT) proxied from tile origin (CDN or S3)',
         },
         404: {
             'description': 'Tile or layer not found',
@@ -79,7 +98,7 @@ from ._imports import *
 )
 class CloudFrontTileView(APIView):
     """
-    Tile serving API: proxy only (S3 by default; optional CloudFront; server-side cache).
+    Tile serving API: proxy only; clients use this path on the app domain. Backend fetches bytes from PUBLIC_TILE_CDN_HOST internally.
     Requires API key (X-API-Key) when any active ApiKey exists; same as other API endpoints except webhooks.
 
     Serves tiles with hierarchical URL structure; client never sees backend URL:
@@ -91,7 +110,7 @@ class CloudFrontTileView(APIView):
     - /api/tiles/andhra-pradesh/visakhapatnam/master_plan/12/2048/2048.png
     - /api/tiles/telangana/hyderabad/rrr/12/2048/2048.mvt
     
-    Backend is S3 by default; tile body is cached (TILE_PROXY_CACHE_TTL).
+    Backend URL comes from TilePathService (CDN or S3/CloudFront); tile body is cached (TILE_PROXY_CACHE_TTL).
     Layer existence is cached (5 min) to avoid DB hit per tile request.
     """
     
@@ -136,7 +155,7 @@ class CloudFrontTileView(APIView):
         return response
 
     def get(self, request, state_slug, city_slug, layer_slug, z, x, y):
-        """Serve tiles via proxy (path-based CloudFront or S3; server-side cache). No redirects."""
+        """Serve tiles via proxy (server-side fetch from tile CDN; no redirect to CDN)."""
         try:
             z, x, y = int(z), int(x), int(y)
 
@@ -175,47 +194,46 @@ class CloudFrontTileView(APIView):
             )
             if s3_key.startswith("__invalid__/"):
                 return self._return_error_tile("Invalid tile path")
+            upstream = self.tile_path_service.generate_public_cdn_url(s3_key)
             cache_key = f"tile_proxy:{s3_key}"
             ttl = getattr(settings, 'TILE_PROXY_CACHE_TTL', 3600)
             if ttl > 0:
                 cached = cache.get(cache_key)
                 if cached is not None:
+                    tile_route(
+                        self.tile_path_service.format_tile_api_routing_for_log(
+                            request.path, s3_key, upstream
+                        )
+                        + " | this_request=Django_tile_response_cache_HIT (no HTTP to CDN)"
+                    )
+                    tile_debug(
+                        f"proxy HIT cache_key={cache_key[:120]} fmt={format_type} "
+                        f"path={state_slug}/{city_slug}/{layer_slug}/{z}/{x}/{y}"
+                    )
                     return self._build_tile_response(cached, format_type)
-            # Whitelisted keys: CloudFront then S3 (per TILE_SERVING_FALLBACK_ORDER). Others: S3 only.
-            use_cf = self.tile_path_service.use_cloudfront_for_path(s3_key)
-            candidates = []
-            if use_cf:
-                fallback_order = getattr(
-                    settings, 'TILE_SERVING_FALLBACK_ORDER', ['cloudfront', 's3_direct']
-                ) or ['cloudfront', 's3_direct']
-                for source in fallback_order:
-                    if source == 'cloudfront':
-                        candidates.append(('CloudFront', self.tile_path_service.generate_cloudfront_url(
-                            state_slug, city_slug, layer_slug, z, x, y, format_type
-                        )))
-                    elif source == 's3_direct':
-                        candidates.append(('S3', self.tile_path_service.generate_s3_url(
-                            state_slug, city_slug, layer_slug, z, x, y, format_type
-                        )))
-            else:
-                candidates.append(('S3', self.tile_path_service.generate_s3_url(
-                    state_slug, city_slug, layer_slug, z, x, y, format_type
-                )))
-
-            tile_data = None
-            for backend_label, backend_url in candidates:
-                # print(f"[tile_proxy] Serving from {backend_label}: {backend_url}")
-                tile_data = self._fetch_url(backend_url)
-                if tile_data:
-                    break
+            backend_url = self.tile_path_service.get_backend_url_for_tile(
+                state_slug, city_slug, layer_slug, z, x, y, format_type
+            )
+            tile_route(
+                self.tile_path_service.format_tile_api_routing_for_log(
+                    request.path, s3_key, backend_url
+                )
+                + " | this_request=Django_HTTP_GET_to_tile_CDN (R2 objects behind CDN)"
+            )
+            tile_debug(
+                f"proxy MISS fetch layer={state_slug}/{city_slug}/{layer_slug} "
+                f"z={z} x={x} y={y} fmt={format_type} origin={backend_url[:200]}"
+            )
+            tile_data = self._fetch_url(backend_url)
             if tile_data:
                 if ttl > 0:
                     try:
                         cache.set(cache_key, tile_data, ttl)
                     except Exception:
                         pass
+                tile_debug(f"proxy OK bytes={len(tile_data)} s3_key={s3_key[:160]}")
                 return self._build_tile_response(tile_data, format_type)
-            # print(f"[tile_proxy] fetch FAIL ({backend_label}): {s3_key}")
+            tile_debug(f"proxy MISS bytes layer={state_slug}/{city_slug}/{layer_slug} key={s3_key[:160]}")
             return self._return_error_tile(
                 f"Tile not found: {state_slug}/{city_slug}/{layer_slug}/{z}/{x}/{y}.{format_type}"
             )
@@ -235,60 +253,33 @@ class CloudFrontTileView(APIView):
             return self._return_error_tile(f"Error serving tile: {str(e)}")
 
     def _get_tile_with_fallback(self, state_slug, city_slug, layer_slug, z, x, y, format_type, layer):
-        """
-        CloudFront first only for CLOUDFRONT_PATH_PREFIXES keys; then S3; optional on-demand.
-        """
-        
+        """Fetch tile from the public CDN; optional on-demand generation if enabled."""
         s3_key = self.tile_path_service.generate_s3_key(
             state_slug, city_slug, layer_slug, z, x, y, format_type
         )
         if s3_key.startswith("__invalid__/"):
             return None
-        if self.tile_path_service.use_cloudfront_for_path(s3_key):
-            cloudfront_url = self.tile_path_service.generate_cloudfront_url(
-                state_slug, city_slug, layer_slug, z, x, y, format_type
-            )
-            logger.debug(f"🔍 Trying CloudFront: {cloudfront_url}")
-            tile_data = self._fetch_url(cloudfront_url)
-            if tile_data:
-                logger.debug(f"✅ Served from CloudFront: {cloudfront_url}")
-                return tile_data
-
-        s3_url = self.tile_path_service.generate_s3_url(
+        url = self.tile_path_service.get_backend_url_for_tile(
             state_slug, city_slug, layer_slug, z, x, y, format_type
         )
-        logger.debug(f"🔍 Trying S3 Direct: {s3_url}")
-        tile_data = self._fetch_url(s3_url)
+        tile_data = self._fetch_url(url)
         if tile_data:
-            logger.debug(f"✅ Served from S3: {s3_url}")
             return tile_data
-        
-        # 3. Generate on-demand (optional - can be disabled for performance)
         if getattr(settings, 'ENABLE_ON_DEMAND_TILE_GENERATION', False):
-            logger.debug(f"🔍 Trying on-demand generation for {z}/{x}/{y}.{format_type}")
             tile_data = self._generate_tile_on_demand(layer, z, x, y, format_type)
             if tile_data:
-                logger.debug(f"✅ Generated on-demand: {z}/{x}/{y}.{format_type}")
                 return tile_data
-        
-        logger.debug(f"❌ Tile not found from any source: {state_slug}/{city_slug}/{layer_slug}/{z}/{x}/{y}.{format_type}")
+        logger.debug(
+            f"❌ Tile not found: {state_slug}/{city_slug}/{layer_slug}/{z}/{x}/{y}.{format_type}"
+        )
         return None
     
     def _fetch_url(self, url, timeout=5):
         """Fetch data from URL with timeout"""
-        try:
-            response = requests.get(url, timeout=timeout)
-            if response.status_code == 200:
-                return response.content
-            else:
-                logger.debug(f"Failed to fetch {url}: HTTP {response.status_code}")
-        except Exception as e:
-            logger.debug(f"Failed to fetch {url}: {e}")
-        return None
+        return _fetch_tile_bytes(url, timeout=timeout)
     
     def _read_local_file(self, file_path):
-        """Read tile from local file system (disabled - S3/CloudFront only)"""
-        # Local file reading disabled - using S3/CloudFront only
+        """Read tile from local file system (disabled)."""
         return None
     
     def _generate_tile_on_demand(self, layer, z, x, y, format_type):
@@ -342,10 +333,10 @@ class CloudFrontTileView(APIView):
 
 class S3DirectTileView(APIView):
     """
-    S3 Direct Tile Serving API.
+    Same proxy pattern as CloudFrontTileView: HTTP GET to the internal tile origin (CDN), not exposed as a redirect to the client.
     Requires API key (X-API-Key) when any active ApiKey exists; same as other API endpoints except webhooks.
 
-    Serves tiles directly from S3 with hierarchical URL structure:
+    Hierarchical URL structure:
     GET /api/s3-tiles/<state_slug>/<city_slug>/<layer_slug>/<z>/<x>/<y>.png
     GET /api/s3-tiles/<state_slug>/<city_slug>/<layer_slug>/<z>/<x>/<y>.mvt
     
@@ -364,13 +355,6 @@ class S3DirectTileView(APIView):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.tile_path_service = TilePathService()
-        self.s3_client = boto3.client(
-            's3',
-            region_name=getattr(settings, 'AWS_S3_REGION_NAME', 'ap-south-1'),
-            aws_access_key_id=getattr(settings, 'AWS_ACCESS_KEY_ID', None),
-            aws_secret_access_key=getattr(settings, 'AWS_SECRET_ACCESS_KEY', None)
-        )
-        self.bucket_name = 'gis-portal-layers'
 
     def _layer_exists_cached(self, state_slug, city_slug, layer_slug):
         """Return True if layer exists, False otherwise. Uses same cache key as CloudFrontTileView."""
@@ -384,7 +368,7 @@ class S3DirectTileView(APIView):
         return exists
 
     def get(self, request, state_slug, city_slug, layer_slug, z, x, y):
-        """Serve tiles directly from S3"""
+        """Serve tile bytes from the public tile CDN (HTTP)."""
         try:
             z, x, y = int(z), int(x), int(y)
             
@@ -422,10 +406,23 @@ class S3DirectTileView(APIView):
                 
                 return self._return_error_tile(f"Layer not found: {state_slug}/{city_slug}/{layer_slug}")
             
-            logger.debug(f"🔍 Serving S3 direct tile: {state_slug}/{city_slug}/{layer_slug}/{z}/{x}/{y}.{format_type}")
-            
-            # Get tile directly from S3
-            tile_data = self._get_tile_from_s3(state_slug, city_slug, layer_slug, z, x, y, format_type)
+            logger.debug(f"🔍 Serving direct tile: {state_slug}/{city_slug}/{layer_slug}/{z}/{x}/{y}.{format_type}")
+
+            url = self.tile_path_service.get_backend_url_for_tile(
+                state_slug, city_slug, layer_slug, z, x, y, format_type
+            )
+            sk = self.tile_path_service.generate_s3_key(
+                state_slug, city_slug, layer_slug, z, x, y, format_type
+            )
+            tile_route(
+                self.tile_path_service.format_tile_api_routing_for_log(request.path, sk, url)
+                + " | this_request=Django_HTTP_GET_to_tile_CDN_each_request (R2 via CDN)"
+            )
+            tile_debug(
+                f"s3-direct fetch layer={state_slug}/{city_slug}/{layer_slug} "
+                f"z={z} x={x} y={y} fmt={format_type} origin={url[:200]}"
+            )
+            tile_data = _fetch_tile_bytes(url)
             
             if tile_data:
                 # Return the tile data with appropriate headers
@@ -436,10 +433,12 @@ class S3DirectTileView(APIView):
                 response['Pragma'] = 'no-cache'
                 response['Expires'] = '0'
                 response['Access-Control-Allow-Origin'] = '*'
-                logger.debug(f"✅ Successfully served S3 direct tile: {state_slug}/{city_slug}/{layer_slug}/{z}/{x}/{y}.{format_type}")
+                tile_debug(f"s3-direct OK bytes={len(tile_data)}")
+                logger.debug(f"✅ Successfully served direct tile: {state_slug}/{city_slug}/{layer_slug}/{z}/{x}/{y}.{format_type}")
                 return response
             else:
-                logger.debug(f"❌ Tile not found in S3: {state_slug}/{city_slug}/{layer_slug}/{z}/{x}/{y}.{format_type}")
+                tile_debug(f"s3-direct MISS origin={state_slug}/{city_slug}/{layer_slug}/{z}/{x}/{y}.{format_type}")
+                logger.debug(f"❌ Tile not found at origin: {state_slug}/{city_slug}/{layer_slug}/{z}/{x}/{y}.{format_type}")
                 return self._return_error_tile(f"Tile not found: {state_slug}/{city_slug}/{layer_slug}/{z}/{x}/{y}.{format_type}")
             
         except (OperationalError, DatabaseError) as e:
@@ -455,42 +454,6 @@ class S3DirectTileView(APIView):
         except Exception as e:
             logger.error(f"Error serving S3 direct tile: {str(e)}")
             return self._return_error_tile(f"Error serving tile: {str(e)}")
-    
-    def _get_tile_from_s3(self, state_slug, city_slug, layer_slug, z, x, y, format_type):
-        """
-        Get tile directly from S3 bucket
-        """
-        try:
-            s3_key = self.tile_path_service.generate_s3_key(
-                state_slug, city_slug, layer_slug, z, x, y, format_type
-            )
-            if s3_key.startswith("__invalid__/"):
-                return None
-            
-            logger.debug(f"🔍 Fetching from S3: s3://{self.bucket_name}/{s3_key}")
-            
-            # Get object from S3
-            response = self.s3_client.get_object(
-                Bucket=self.bucket_name,
-                Key=s3_key
-            )
-            
-            # Read the tile data
-            tile_data = response['Body'].read()
-            
-            if tile_data:
-                logger.debug(f"✅ Successfully fetched from S3: s3://{self.bucket_name}/{s3_key}")
-                return tile_data
-            else:
-                logger.debug(f"❌ Empty tile data from S3: s3://{self.bucket_name}/{s3_key}")
-                return None
-                
-        except self.s3_client.exceptions.NoSuchKey:
-            logger.debug(f"❌ Tile not found in S3: s3://{self.bucket_name}/{s3_key}")
-            return None
-        except Exception as e:
-            logger.error(f"❌ Error fetching from S3: s3://{self.bucket_name}/{s3_key} - {str(e)}")
-            return None
     
     def _get_layer_by_hierarchy(self, state_slug, city_slug, layer_slug):
         """Get layer by hierarchical path with connection error handling"""

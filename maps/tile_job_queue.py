@@ -13,6 +13,8 @@ import boto3
 from django.conf import settings
 from django.urls import reverse
 
+from maps.tile_debug import tile_debug
+
 logger = logging.getLogger(__name__)
 
 # Thread-local context: when set by webhook handlers, signals include webhook_event_id in payload.
@@ -62,6 +64,7 @@ def send_tile_job_to_sqs(event_type: str, job_type: str, data: Dict[str, Any]) -
     """
     queue_url = getattr(settings, "TILE_SQS_QUEUE_URL", "").strip()
     if not queue_url:
+        tile_debug("SQS enqueue skip: TILE_SQS_QUEUE_URL not set")
         return False, "TILE_SQS_QUEUE_URL not set"
     region = getattr(settings, "AWS_DEFAULT_REGION", "ap-south-1")
     try:
@@ -69,9 +72,11 @@ def send_tile_job_to_sqs(event_type: str, job_type: str, data: Dict[str, Any]) -
         body = json.dumps({"event": event_type, "job_type": job_type, "data": data}, default=str)
         response = sqs.send_message(QueueUrl=queue_url, MessageBody=body)
         msg_id = response.get("MessageId", "")
+        tile_debug(f"SQS enqueue OK msg_id={msg_id} job_type={job_type} event={event_type}")
         logger.info("[SQS] Queued message: %s job_type=%s event=%s", msg_id, job_type, event_type)
         return True, msg_id
     except Exception as e:
+        tile_debug(f"SQS enqueue FAIL job_type={job_type} event={event_type} err={e}")
         logger.exception("[SQS] send_message failed: %s", e)
         return False, str(e)
 

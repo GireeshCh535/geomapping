@@ -9,10 +9,9 @@ universal_masterplan_tile_generator:
 - Use a small buffer when querying points so edge points are included.
 - 3 price tiers (low / mid / high) per type for coloring.
 
-S3 serving: Use --upload to upload generated tiles to S3 after generation.
-Bucket from settings AWS_STORAGE_BUCKET_NAME (e.g. gis-portal-layers), prefix: land-plot/
-(i.e. s3://<bucket>/land-plot/{z}/{x}/{y}.mvt). The API serves tiles from CloudFront → S3
-→ local in that order (LandPlotTileView).
+Object storage: Use --upload to push generated tiles to Cloudflare R2 (same keys as before;
+S3TileUploadService uses CLOUDFLARE_R2_* from settings). Override bucket/prefix with --s3-bucket / --s3-prefix.
+Tiles are read via PUBLIC_TILE_CDN_HOST (LandPlotTileView).
 """
 
 import math
@@ -25,6 +24,7 @@ from django.conf import settings
 from django.core.management.base import BaseCommand
 
 from maps.models import SyncedLand, SyncedPlot
+from maps.tile_debug import tile_debug
 
 # Small buffer in degrees when querying points (avoids missing points on tile edges)
 TILE_QUERY_BUFFER_DEG = 1e-6
@@ -282,6 +282,9 @@ def build_land_plot_tile_mvt(z, x, y, percentiles=None, swap_lat_long=False):
             "extents": extent,
         },
     )
+    tile_debug(
+        f"MVT build z={z}/{x}/{y} features={len(mvt_features)} encoded_bytes={len(mvt_bytes)}"
+    )
     return mvt_bytes
 
 
@@ -327,7 +330,7 @@ class Command(BaseCommand):
         parser.add_argument(
             "--skip-existing",
             action="store_true",
-            help="Skip if tile already exists (local file when not using --upload, S3 object when using --upload). Use to resume after a stopped run.",
+            help="Skip if tile already exists (local file when not using --upload, R2 object when using --upload). Use to resume after a stopped run.",
         )
         parser.add_argument(
             "--swap-lat-long",
@@ -337,25 +340,25 @@ class Command(BaseCommand):
         parser.add_argument(
             "--upload",
             action="store_true",
-            help="Upload each tile to S3 as it is generated (no local save).",
+            help="Upload each tile to R2 as it is generated (no local save).",
         )
         parser.add_argument(
             "--force",
             "-f",
             action="store_true",
-            help="With --upload: delete each tile from S3 (if present) then upload new tile. Without --upload: overwrite existing local files.",
+            help="With --upload: delete each tile from R2 (if present) then upload new tile. Without --upload: overwrite existing local files.",
         )
         parser.add_argument(
             "--s3-bucket",
             type=str,
             default="gis-portal-layers",
-            help="S3 bucket for upload (default: gis-portal-layers). Used only with --upload.",
+            help="R2 bucket name for upload (default: gis-portal-layers). Used only with --upload.",
         )
         parser.add_argument(
             "--s3-prefix",
             type=str,
             default="land-plot",
-            help="S3 key prefix (default: land-plot). Tiles go to s3://<bucket>/<prefix>/{z}/{x}/{y}.mvt",
+            help="Object key prefix (default: land-plot). Tiles go to <bucket>/<prefix>/{z}/{x}/{y}.mvt on R2",
         )
         parser.add_argument(
             "--workers",
@@ -400,9 +403,9 @@ class Command(BaseCommand):
             s3_service.bucket_name = s3_bucket
             bucket = s3_bucket
             prefix = s3_prefix
-            self.stdout.write(f"Upload only (no local save): s3://{bucket}/{prefix}/  (workers={workers})")
+            self.stdout.write(f"Upload only (no local save): R2 {bucket}/{prefix}/  (workers={workers})")
             if force:
-                self.stdout.write(self.style.WARNING("--force: deleting existing S3 tile then uploading new tile for each."))
+                self.stdout.write(self.style.WARNING("--force: deleting existing R2 object then uploading new tile for each."))
             self.stdout.write(
                 self.style.WARNING(
                     "To avoid blocking the live API, run this in a separate container: "
@@ -457,7 +460,7 @@ class Command(BaseCommand):
             skipped_zoom_s3 = 0
 
             if do_upload:
-                # Parallel: process in chunks, each tile = (optional skip if exists on S3) + (optional delete if --force) + generate + upload
+                # Parallel: each tile = (optional skip if exists on R2) + (optional delete if --force) + generate + upload
                 def process_one_tile(tile):
                     z, x, y = tile.z, tile.x, tile.y
                     s3_key = f"{prefix}/{z}/{x}/{y}.mvt"
@@ -530,9 +533,9 @@ class Command(BaseCommand):
                 self.stdout.write(f"  Zoom {zoom}: wrote {written_zoom} tiles, skipped existing {skipped_zoom}")
 
         if do_upload:
-            msg = f"Done. Uploaded {total_uploaded} tiles to s3://{bucket}/{prefix}/"
+            msg = f"Done. Uploaded {total_uploaded} tiles to R2 bucket {bucket} prefix {prefix}/"
             if total_skipped_s3:
-                msg += f", skipped {total_skipped_s3} (already on S3)."
+                msg += f", skipped {total_skipped_s3} (already on R2)."
             if total_upload_failed:
                 msg += f" {total_upload_failed} failed."
             self.stdout.write(self.style.SUCCESS(msg))

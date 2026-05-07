@@ -1,7 +1,6 @@
 # maps/tile_path_service.py
 """
-Tile paths: direct S3 (AWS_S3_TILE_DOMAIN) by default.
-Optional CloudFront only when USE_CLOUDFRONT is True and the S3 key matches CLOUDFRONT_PATH_PREFIXES.
+Tile origin URLs: HTTPS on PUBLIC_TILE_CDN_HOST only (same object keys as Cloudflare R2). No AWS S3/CloudFront.
 """
 
 import os
@@ -9,6 +8,7 @@ import re
 from pathlib import Path
 from typing import Dict, Optional, Tuple
 from django.conf import settings
+from django.core.exceptions import ImproperlyConfigured
 from django.utils.text import slugify
 
 _DEVELOPER_TILE_ROOT_NORM = "developer_data"
@@ -39,16 +39,41 @@ def developer_raster_path_valid(city_slug: str, layer_slug: str) -> bool:
 
 class TilePathService:
     """
-    Default: S3 URL for all tiles. CloudFront only if USE_CLOUDFRONT and path rules match.
+    Tile fetch URLs: always PUBLIC_TILE_CDN_HOST (CDN in front of R2).
     """
 
     def __init__(self):
         self.bucket_name = getattr(settings, 'AWS_STORAGE_BUCKET_NAME', 'gis-portal-layers')
         self.region = getattr(settings, 'AWS_S3_REGION_NAME', 'ap-south-1')
-        self.s3_tile_domain = getattr(settings, 'AWS_S3_TILE_DOMAIN', None) or (
-            f'{self.bucket_name}.s3.{self.region}.amazonaws.com'
+        # Legacy attribute name; value is the public tile CDN host (not AWS S3).
+        self.s3_tile_domain = (
+            (getattr(settings, 'AWS_S3_TILE_DOMAIN', None) or '').strip()
+            or (getattr(settings, 'PUBLIC_TILE_CDN_HOST', None) or '').strip()
         )
         self.cloudfront_domain = (getattr(settings, 'CLOUDFRONT_DOMAIN', None) or '').strip()
+        self.public_tile_cdn_host = (getattr(settings, 'PUBLIC_TILE_CDN_HOST', None) or '').strip()
+        self.public_tile_cdn_path_prefix = (
+            (getattr(settings, 'PUBLIC_TILE_CDN_PATH_PREFIX', None) or '').strip().strip('/')
+        )
+
+    def use_public_cdn_for_tile_origin(self) -> bool:
+        """Always True when PUBLIC_TILE_CDN_HOST is configured (required for this app)."""
+        return bool(self.public_tile_cdn_host)
+
+    def _public_cdn_path(self, object_key: str) -> str:
+        key = (object_key or '').lstrip('/')
+        if self.public_tile_cdn_path_prefix:
+            return f"{self.public_tile_cdn_path_prefix}/{key}"
+        return key
+
+    def generate_public_cdn_url(self, object_key: str) -> str:
+        """https://{PUBLIC_TILE_CDN_HOST}/{optional prefix}/{key}"""
+        if not self.public_tile_cdn_host:
+            raise ImproperlyConfigured(
+                "PUBLIC_TILE_CDN_HOST must be set (e.g. tiles.citylands.in). Tiles are not loaded from AWS S3."
+            )
+        path = self._public_cdn_path(object_key)
+        return f"https://{self.public_tile_cdn_host}/{path}"
     
     def generate_s3_key(self, state_slug: str, city_slug: str, layer_slug: str, 
                        z: int, x: int, y: int, format_type: str = 'png') -> str:
@@ -114,46 +139,49 @@ class TilePathService:
         return f"https://{self.s3_tile_domain}/{s3_key}"
     
     def use_cloudfront_for_path(self, s3_key: str) -> bool:
-        """
-        True only for keys matching CLOUDFRONT_PATH_PREFIXES when CLOUDFRONT_RESTRICT_PATH_PREFIXES
-        is True (default). If restrict is False, all keys use CloudFront. If USE_CLOUDFRONT is False, always S3.
-        """
-        if not getattr(settings, 'USE_CLOUDFRONT', True):
-            return False
-        if not self.cloudfront_domain:
-            return False
-        if not getattr(settings, 'CLOUDFRONT_RESTRICT_PATH_PREFIXES', True):
-            return True
-        prefixes = getattr(settings, 'CLOUDFRONT_PATH_PREFIXES', []) or []
-        key = (s3_key or '').strip()
-        for prefix in prefixes:
-            p = (prefix or '').strip().rstrip('/')
-            if p and (key == p or key.startswith(p + '/')):
-                return True
+        """Deprecated: tiles no longer use AWS CloudFront."""
         return False
 
     def _backend_label(self, s3_key: str) -> str:
-        """Debug: label CloudFront vs S3 for prints."""
-        return "CloudFront" if self.use_cloudfront_for_path(s3_key) else "S3"
+        """Debug: label origin for prints."""
+        return "CDN"
+
+    def format_tile_api_routing_for_log(
+        self,
+        django_api_path: str,
+        object_key: str,
+        upstream_https_url: str,
+    ) -> str:
+        """
+        One line for logs: where the browser called vs where Django loads bytes.
+        Reads are always HTTPS to PUBLIC_TILE_CDN_HOST (tile CDN in front of R2), not boto3 AWS S3.
+        """
+        host = (self.public_tile_cdn_host or "").strip() or "(PUBLIC_TILE_CDN_HOST unset)"
+        pfx = (self.public_tile_cdn_path_prefix or "").strip()
+        pfx_txt = f" cdn_path_prefix={pfx!r}" if pfx else ""
+        key_snip = (object_key or "")[:140]
+        url_snip = (upstream_https_url or "")[:220]
+        return (
+            f"api={django_api_path} | flow=browser→Django_proxy→HTTP_GET→tile_CDN(host={host!r}){pfx_txt} "
+            f"| objects_stored_on=Cloudflare_R2 | not_AWS_S3_GetObject | object_key={key_snip} | upstream_url={url_snip}"
+        )
+
+    @staticmethod
+    def format_tile_api_routing_local_disk(django_api_path: str, local_file: str) -> str:
+        return (
+            f"api={django_api_path} | flow=browser→Django_proxy→LOCAL_DISK(no HTTP) "
+            f"| file={local_file} | (skips CDN/R2 fetch)"
+        )
 
     def get_backend_url_for_tile(self, state_slug: str, city_slug: str, layer_slug: str,
                                  z: int, x: int, y: int, format_type: str = 'png') -> str:
-        """
-        Return the single backend URL for this tile (CloudFront or S3 based on path; no fallback).
-        """
+        """HTTPS URL on the public tile CDN (object key matches R2)."""
         s3_key = self.generate_s3_key(state_slug, city_slug, layer_slug, z, x, y, format_type)
-        if self.use_cloudfront_for_path(s3_key):
-            return self.generate_cloudfront_url(state_slug, city_slug, layer_slug, z, x, y, format_type)
-        return self.generate_s3_url(state_slug, city_slug, layer_slug, z, x, y, format_type)
+        return self.generate_public_cdn_url(s3_key)
 
     def get_backend_url_for_land_plot(self, z: int, x: int, y: int) -> str:
-        """
-        Return the single backend URL for this land-plot MVT tile (CloudFront or S3 based on path; no fallback).
-        """
-        s3_key = self.land_plot_s3_key(z, x, y)
-        if self.use_cloudfront_for_path(s3_key):
-            return self.land_plot_cloudfront_url(z, x, y)
-        return self.land_plot_s3_url(z, x, y)
+        """HTTPS URL on the public tile CDN for land-plot MVT."""
+        return self.generate_public_cdn_url(self.land_plot_s3_key(z, x, y))
     
     # Land/plot MVT tiles (global, no state/city/layer) – same pattern as PNGs
     LAND_PLOT_S3_PREFIX = 'land-plot'
@@ -316,6 +344,38 @@ def hierarchical_tile_proxy_base(state_slug: str, city_slug: str, layer_slug: st
     return f"{prefix}/{state_slug}/{city_slug}/{layer_slug}"
 
 
+def hierarchical_tile_proxy_url_for_client(state_slug: str, city_slug: str, layer_slug: str) -> str:
+    """
+    Same as hierarchical_tile_proxy_base, but prefixed with TILE_PROXY_PUBLIC_BASE_URL when set
+    so clients get absolute URLs on the Layers app origin (never the tile CDN hostname).
+    """
+    rel = hierarchical_tile_proxy_base(state_slug, city_slug, layer_slug)
+    origin = (getattr(settings, 'TILE_PROXY_PUBLIC_BASE_URL', None) or '').strip().rstrip('/')
+    if origin:
+        return f"{origin}{rel}"
+    return rel
+
+
+def client_tile_proxy_api_root() -> str:
+    """
+    Base URL for tile links returned in API JSON: Django proxy only.
+
+    If TILE_PROXY_PUBLIC_BASE_URL is set (e.g. https://layers.citylands.in), returns
+    origin + TILE_PROXY_PATH_PREFIX (e.g. https://layers.citylands.in/api/tiles).
+    If unset, returns path-only prefix (e.g. /api/tiles) for same-origin relative URLs.
+
+    The tile CDN (PUBLIC_TILE_CDN_HOST) is not included here; Django uses it only server-side.
+    """
+    origin = (getattr(settings, 'TILE_PROXY_PUBLIC_BASE_URL', None) or '').strip().rstrip('/')
+    path_prefix = (getattr(settings, 'TILE_PROXY_PATH_PREFIX', None) or '/api/tiles').strip()
+    if not path_prefix.startswith('/'):
+        path_prefix = '/' + path_prefix
+    path_prefix = path_prefix.rstrip('/')
+    if origin:
+        return f"{origin}{path_prefix}"
+    return path_prefix
+
+
 def tile_proxy_png_template_from_s3_tile_path(s3_tile_path: str) -> Optional[str]:
     """
     /api/tiles/developer_data/<city>/<id>/<tif_name>/{{z}}/{{x}}/{{y}}.png (matches s3_tile_path in DB).
@@ -330,29 +390,22 @@ def tile_proxy_png_template_from_s3_tile_path(s3_tile_path: str) -> Optional[str
     layer = "/".join(parts[2:])
     if not developer_raster_path_valid(city, layer):
         return None
-    base = hierarchical_tile_proxy_base(state, city, layer)
+    base = hierarchical_tile_proxy_url_for_client(state, city, layer)
     return f"{base}/{{z}}/{{x}}/{{y}}.png"
 
 
 def public_https_base_for_layer_path(state_slug: str, city_slug: str, layer_slug: str) -> str:
     """
-    Direct https base for state/city/layer keys (CloudFront or S3). Prefer hierarchical_tile_proxy_base
-    for URLs sent to browsers so traffic stays on the Django tile proxy.
+    Base URL for client-visible tile API paths (Django proxy). Legacy name; not the CDN.
+
+    state_slug/city_slug/layer_slug are ignored; use hierarchical_tile_proxy_url_for_client when
+    you have hierarchy segments.
     """
-    svc = TilePathService()
-    sample_key = svc.generate_s3_key(state_slug, city_slug, layer_slug, 0, 0, 0, 'png')
-    host = svc.cloudfront_domain if svc.use_cloudfront_for_path(sample_key) else svc.s3_tile_domain
-    return f"https://{host}"
+    return client_tile_proxy_api_root()
 
 
 def public_https_base_for_s3_tile_prefix(s3_tile_path: str) -> str:
     """
-    Same as public_https_base_for_layer_path but for arbitrary prefixes (e.g. developer_data/...).
+    Base URL for building client tile URL templates (Django proxy). Legacy name; s3_tile_path ignored.
     """
-    svc = TilePathService()
-    p = (s3_tile_path or "").strip().strip("/")
-    if not p:
-        return f"https://{svc.s3_tile_domain}"
-    sample_key = f"{p}/0/0/0.png"
-    host = svc.cloudfront_domain if svc.use_cloudfront_for_path(sample_key) else svc.s3_tile_domain
-    return f"https://{host}"
+    return client_tile_proxy_api_root()

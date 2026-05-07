@@ -10,13 +10,13 @@ This command:
 4. Updates database records if needed
 """
 
-import boto3
 import logging
 from django.core.management.base import BaseCommand
 from django.conf import settings
 from botocore.exceptions import ClientError
 from maps.models import State, City, DataLayer
 from maps.tile_path_service import TilePathService
+from maps.tile_storage import get_tile_object_storage_bucket_name, get_tile_object_storage_s3_client
 
 logger = logging.getLogger(__name__)
 
@@ -25,14 +25,9 @@ class Command(BaseCommand):
     
     def __init__(self):
         super().__init__()
-        self.bucket_name = getattr(settings, 'AWS_STORAGE_BUCKET_NAME', 'gis-portal-layers')
+        self.bucket_name = get_tile_object_storage_bucket_name()
         self.region = getattr(settings, 'AWS_S3_REGION_NAME', 'ap-south-1')
-        self.s3_client = boto3.client(
-            's3',
-            region_name=self.region,
-            aws_access_key_id=getattr(settings, 'AWS_ACCESS_KEY_ID', None),
-            aws_secret_access_key=getattr(settings, 'AWS_SECRET_ACCESS_KEY', None)
-        )
+        self.s3_client = get_tile_object_storage_s3_client()
         self.tile_path_service = TilePathService()
     
     def add_arguments(self, parser):
