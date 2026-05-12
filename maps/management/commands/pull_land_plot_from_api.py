@@ -28,8 +28,12 @@ Other:
 
 import logging
 import os
+import time
+
 import requests
 from django.core.management.base import BaseCommand
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 from maps.models import (
     SyncedLand,
@@ -128,6 +132,18 @@ class Command(BaseCommand):
             action='store_true',
             help='For each list item, fetch detail API (/lands/{id}/, /plots/{id}/, etc.) and store that full response in payload (slower but complete data).',
         )
+        parser.add_argument(
+            '--http-timeout',
+            type=float,
+            default=float(os.environ.get('ONECRE_BE_HTTP_TIMEOUT', '120')),
+            help='Per-request read timeout in seconds (connect timeout fixed at 30s). Default 120 or ONECRE_BE_HTTP_TIMEOUT.',
+        )
+        parser.add_argument(
+            '--page-retries',
+            type=int,
+            default=int(os.environ.get('ONECRE_BE_PAGE_RETRIES', '5')),
+            help='If a list page fails after urllib3 retries, retry that same page this many times before aborting. Default 5 or ONECRE_BE_PAGE_RETRIES.',
+        )
 
     def handle(self, *args, **options):
         base_url = options['base_url'].rstrip('/')
@@ -139,6 +155,9 @@ class Command(BaseCommand):
         developer_plots_only = options['developer_plots_only']
         dry_run = options['dry_run']
         fetch_detail = options.get('fetch_detail', False)
+        http_read_timeout = max(10.0, float(options['http_timeout']))
+        page_retries = max(1, int(options['page_retries']))
+        timeout = (30.0, http_read_timeout)
 
         any_only = lands_only or plots_only or developer_lands_only or developer_plots_only
         fetch_lands = lands_only or not any_only
@@ -166,6 +185,11 @@ class Command(BaseCommand):
             'Authorization': auth_header,
         }
 
+        session = self._build_http_session()
+        self.stdout.write(
+            f'HTTP: pooled session, timeout connect=30s read={http_read_timeout}s, page_retries={page_retries}'
+        )
+
         total_lands = 0
         total_plots = 0
         total_dev_lands = 0
@@ -174,6 +198,7 @@ class Command(BaseCommand):
         if fetch_lands:
             self.stdout.write('Fetching lands...')
             total_lands = self._fetch_and_save(
+                session=session,
                 base_url=base_url,
                 path='/lands/',
                 model_class=SyncedLand,
@@ -181,12 +206,15 @@ class Command(BaseCommand):
                 page_size=page_size,
                 dry_run=dry_run,
                 fetch_detail=fetch_detail,
+                timeout=timeout,
+                page_retries=page_retries,
             )
             self.stdout.write(self.style.SUCCESS(f'Lands: {total_lands} items'))
 
         if fetch_plots:
             self.stdout.write('Fetching plots...')
             total_plots = self._fetch_and_save(
+                session=session,
                 base_url=base_url,
                 path='/plots/',
                 model_class=SyncedPlot,
@@ -194,12 +222,15 @@ class Command(BaseCommand):
                 page_size=page_size,
                 dry_run=dry_run,
                 fetch_detail=fetch_detail,
+                timeout=timeout,
+                page_retries=page_retries,
             )
             self.stdout.write(self.style.SUCCESS(f'Plots: {total_plots} items'))
 
         if fetch_dev_lands:
             self.stdout.write('Fetching developer lands...')
             total_dev_lands = self._fetch_and_save(
+                session=session,
                 base_url=base_url,
                 path='/developer-lands-listings/',
                 model_class=SyncedDeveloperLand,
@@ -207,12 +238,15 @@ class Command(BaseCommand):
                 page_size=page_size,
                 dry_run=dry_run,
                 fetch_detail=fetch_detail,
+                timeout=timeout,
+                page_retries=page_retries,
             )
             self.stdout.write(self.style.SUCCESS(f'Developer lands: {total_dev_lands} items'))
 
         if fetch_dev_plots:
             self.stdout.write('Fetching developer plots...')
             total_dev_plots = self._fetch_and_save(
+                session=session,
                 base_url=base_url,
                 path='/developer-plots-listings/',
                 model_class=SyncedDeveloperPlot,
@@ -220,6 +254,8 @@ class Command(BaseCommand):
                 page_size=page_size,
                 dry_run=dry_run,
                 fetch_detail=fetch_detail,
+                timeout=timeout,
+                page_retries=page_retries,
             )
             self.stdout.write(self.style.SUCCESS(f'Developer plots: {total_dev_plots} items'))
 
@@ -233,18 +269,52 @@ class Command(BaseCommand):
                 )
             )
 
-    def _fetch_detail(self, base_url, detail_path, headers):
+    @staticmethod
+    def _build_http_session():
+        """Single Session for all paginated GETs: keep-alive + retries (incl. read timeout)."""
+        session = requests.Session()
+        retry = Retry(
+            total=8,
+            connect=5,
+            read=5,
+            backoff_factor=1.5,
+            status_forcelist=(429, 500, 502, 503, 504),
+            allowed_methods=frozenset(['GET']),
+            raise_on_status=False,
+        )
+        adapter = HTTPAdapter(
+            max_retries=retry,
+            pool_connections=20,
+            pool_maxsize=20,
+        )
+        session.mount('https://', adapter)
+        session.mount('http://', adapter)
+        return session
+
+    def _fetch_detail(self, session, base_url, detail_path, headers, timeout):
         """Fetch a single detail API response. Returns dict or None on failure."""
         url = f'{base_url}{detail_path}'
         try:
-            resp = requests.get(url, headers=headers, timeout=30)
+            resp = session.get(url, headers=headers, timeout=timeout)
             resp.raise_for_status()
             return resp.json()
         except requests.RequestException as e:
             logger.warning('Detail fetch failed: %s error=%s', url, e)
             return None
 
-    def _fetch_and_save(self, base_url, path, model_class, headers, page_size, dry_run, fetch_detail=False):
+    def _fetch_and_save(
+        self,
+        session,
+        base_url,
+        path,
+        model_class,
+        headers,
+        page_size,
+        dry_run,
+        fetch_detail=False,
+        timeout=(30.0, 120.0),
+        page_retries=5,
+    ):
         url = f'{base_url}{path}'
         count = 0
         page = 1
@@ -252,12 +322,28 @@ class Command(BaseCommand):
 
         while True:
             params = {'page': page, 'page_size': page_size}
-            try:
-                resp = requests.get(url, headers=headers, params=params, timeout=60)
-                resp.raise_for_status()
-            except requests.RequestException as e:
+            resp = None
+            last_err = None
+            for attempt in range(1, page_retries + 1):
+                try:
+                    resp = session.get(url, headers=headers, params=params, timeout=timeout)
+                    resp.raise_for_status()
+                    break
+                except requests.RequestException as e:
+                    last_err = e
+                    wait = min(60.0, 2.0 ** (attempt - 1))
+                    self.stdout.write(
+                        self.style.WARNING(
+                            f'Page request failed (attempt {attempt}/{page_retries}): {url} '
+                            f'params={params} error={e} — sleeping {wait:.1f}s'
+                        )
+                    )
+                    time.sleep(wait)
+            if resp is None:
                 self.stdout.write(
-                    self.style.ERROR(f'Request failed: {url} params={params} error={e}')
+                    self.style.ERROR(
+                        f'Request failed after {page_retries} attempts: {url} params={params} error={last_err}'
+                    )
                 )
                 break
 
@@ -275,7 +361,9 @@ class Command(BaseCommand):
                     # Optionally fetch full detail so payload = /lands/{id}/ etc.
                     if fetch_detail and detail_path_template:
                         detail_path = detail_path_template.format(id=backend_id)
-                        detail_item = self._fetch_detail(base_url, detail_path, headers)
+                        detail_item = self._fetch_detail(
+                            session, base_url, detail_path, headers, timeout
+                        )
                         if detail_item is not None:
                             item = detail_item
                         # else keep list item so we still persist something

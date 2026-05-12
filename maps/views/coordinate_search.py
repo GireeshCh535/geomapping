@@ -1313,6 +1313,21 @@ class CoordinateSearchTestView(APIView):
                             'all_layer_data': [feature_data],
                         }
 
+                    # Airport SPA / boundary polygons: same Name/ROW-style legend text as corridors where
+                    # present, but fill swatch from GeoJSON ``fill`` (not highway black).
+                    elif layer.slug in AIRPORT_POLYGON_FILL_FROM_GEOJSON_SLUGS:
+                        detailed_category = feature_data.get('detailed_category', {}) or {}
+                        properties = detailed_category.get('properties', {}) or {}
+                        data_string = highway_infra_legend_popup_text(properties)
+                        fill_color = fill_hex_from_geojson_properties_for_legend(properties)
+                        return {
+                            'data': data_string,
+                            'fill_color': masterplan_fill_color_svg_data_uri(fill_color),
+                            'found': True,
+                            'features': [feature_data],
+                            'all_layer_data': [feature_data],
+                        }
+
                     # Highways / corridors / coastal infra: legend popup (Name, ROW, lanes, connects)
                     elif layer.slug in HIGHWAY_INFRASTRUCTURE_POPUP_SLUGS:
                         detailed_category = feature_data.get('detailed_category', {})
@@ -2303,6 +2318,20 @@ class CoordinateSearchTestView(APIView):
                 regulation_type = properties.get('Regulation Type', '')
                 data_string = f"{name}, {regulation_type}".strip(', ')
                 fill_color = properties.get('HEX', '') or ''
+                return {
+                    'data': data_string,
+                    'fill_color': masterplan_fill_color_svg_data_uri(fill_color),
+                    'found': True,
+                    'features': containing_features[:1],
+                    'all_layer_data': containing_features,
+                }
+
+            if layer.slug in AIRPORT_POLYGON_FILL_FROM_GEOJSON_SLUGS and containing_features:
+                primary_feature = containing_features[0]
+                detailed_category = primary_feature.get('detailed_category', {}) or {}
+                properties = detailed_category.get('properties', {}) or {}
+                data_string = highway_infra_legend_popup_text(properties)
+                fill_color = fill_hex_from_geojson_properties_for_legend(properties)
                 return {
                     'data': data_string,
                     'fill_color': masterplan_fill_color_svg_data_uri(fill_color),

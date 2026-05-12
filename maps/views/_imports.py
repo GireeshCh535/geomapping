@@ -34,8 +34,10 @@ from ..developer_listing_map_bounds import (
     tighten_bounds_for_map_fit,
 )
 from ..feature_legend_display import (
+    AIRPORT_POLYGON_FILL_FROM_GEOJSON_SLUGS,
     CRZ_SEARCH_LAYER_SLUGS,
     HIGHWAY_INFRASTRUCTURE_POPUP_SLUGS,
+    fill_hex_from_geojson_properties_for_legend,
     _filter_crz_geojson_properties,
     _highway_infra_legend_popup_text,
     _masterplan_fill_color_svg_data_uri,

@@ -5,7 +5,9 @@ Used by enrichment API so layer enrichment returns the same data string and dist
 from urllib.parse import quote
 
 from .feature_legend_display import (
+    AIRPORT_POLYGON_FILL_FROM_GEOJSON_SLUGS,
     HIGHWAY_INFRASTRUCTURE_POPUP_SLUGS,
+    fill_hex_from_geojson_properties_for_legend,
     _highway_infra_legend_popup_text,
 )
 
@@ -27,7 +29,7 @@ def _fill_color_svg_data_uri(hex_color):
 def _get_fill_color(properties):
     if not properties:
         return ''
-    return (
+    return fill_hex_from_geojson_properties_for_legend(properties) or (
         properties.get('fill_color') or properties.get('fillColor') or
         properties.get('FillColor') or properties.get('color')
     ) or ''
@@ -49,6 +51,13 @@ def get_feature_display_data(layer, feature):
     layer_name = getattr(layer, 'name', None) or ''
     fill_color = _get_fill_color(props)
     fill_uri = _fill_color_svg_data_uri(fill_color)
+
+    if slug in AIRPORT_POLYGON_FILL_FROM_GEOJSON_SLUGS:
+        hex_color = fill_hex_from_geojson_properties_for_legend(props)
+        return {
+            'data': _highway_infra_legend_popup_text(props),
+            'fill_color': _fill_color_svg_data_uri(hex_color),
+        }
 
     if slug in HIGHWAY_INFRASTRUCTURE_POPUP_SLUGS:
         return {
