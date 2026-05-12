@@ -29,9 +29,10 @@ Usage:
   python manage.py enrich_listing_layers --developer-only   # only DeveloperListing
   python manage.py enrich_listing_layers --synced-only     # only 4 Synced* tables
   python manage.py enrich_listing_layers --dry-run
+  python manage.py enrich_listing_layers --skip-layer-listing-links  # enrich Synced* JSON only; no LayerListingLink writes
 
 LayerListingLink rows (land/plot/developer_land/developer_plot only) update when Synced* rows
-are enriched. Rebuild from JSON: python manage.py materialize_layer_listing_links
+are enriched (unless --skip-layer-listing-links). Rebuild links from JSON: python manage.py materialize_layer_listing_links
 """
 
 import logging
@@ -62,7 +63,10 @@ SYNCED_TABLES = [
 
 
 class Command(BaseCommand):
-    help = 'Enrich all listings (DeveloperListing + 4 Synced* tables) with overlapping and nearby data layers (≤30 km).'
+    help = (
+        'Enrich all listings (DeveloperListing + 4 Synced* tables) with overlapping and nearby '
+        'data layers (≤30 km). Use --skip-layer-listing-links to skip LayerListingLink writes for Synced*.'
+    )
 
     def add_arguments(self, parser):
         parser.add_argument(
@@ -105,9 +109,15 @@ class Command(BaseCommand):
             action='store_true',
             help='Log what would be done without writing to DB',
         )
+        parser.add_argument(
+            '--skip-layer-listing-links',
+            action='store_true',
+            help='When enriching Synced* tables, update enriched_layers only; do not sync LayerListingLink',
+        )
 
     def handle(self, *args, **options):
         dry_run = options['dry_run']
+        update_layer_listing_links = not options.get('skip_layer_listing_links', False)
         update_four_tables = options.get('update_four_tables', False)
         if update_four_tables:
             do_developer = False
@@ -131,6 +141,8 @@ class Command(BaseCommand):
             )
         )
         self._log(f'Enrichment started | mode={mode} | developer={do_developer} | synced={do_synced}')
+        if not update_layer_listing_links:
+            self._log('LayerListingLink sync disabled (--skip-layer-listing-links).')
         if mode == 'incremental':
             self._log('Skip-if-done: only processing never-enriched, stale, or near-new-layer listings.')
         start_time = time.time()
@@ -142,15 +154,25 @@ class Command(BaseCommand):
         if options['refresh']:
             cleared = self._clear_enrichment(dry_run, do_developer, do_synced)
             self._log(f'Cleared enrichment for {cleared} records. Running full enrichment...')
-            total_processed, total_skipped, errors = self._enrich_full(dry_run, do_developer, do_synced)
+            total_processed, total_skipped, errors = self._enrich_full(
+                dry_run, do_developer, do_synced, update_layer_listing_links
+            )
         elif options['new_layers_only']:
-            total_processed, total_skipped, errors = self._enrich_for_new_layers(dry_run, do_developer, do_synced)
+            total_processed, total_skipped, errors = self._enrich_for_new_layers(
+                dry_run, do_developer, do_synced, update_layer_listing_links
+            )
         elif options['full']:
-            total_processed, total_skipped, errors = self._enrich_full(dry_run, do_developer, do_synced)
+            total_processed, total_skipped, errors = self._enrich_full(
+                dry_run, do_developer, do_synced, update_layer_listing_links
+            )
         elif options['new_listings_only']:
-            total_processed, total_skipped, errors = self._enrich_new_listings_only(dry_run, do_developer, do_synced)
+            total_processed, total_skipped, errors = self._enrich_new_listings_only(
+                dry_run, do_developer, do_synced, update_layer_listing_links
+            )
         else:
-            total_processed, total_skipped, errors = self._enrich_incremental(dry_run, do_developer, do_synced)
+            total_processed, total_skipped, errors = self._enrich_incremental(
+                dry_run, do_developer, do_synced, update_layer_listing_links
+            )
 
         if errors:
             for msg in errors:
@@ -197,7 +219,13 @@ class Command(BaseCommand):
                 self._log(f'Cleared {label}: {c} rows')
         return cleared
 
-    def _enrich_full(self, dry_run: bool, do_developer: bool, do_synced: bool):
+    def _enrich_full(
+        self,
+        dry_run: bool,
+        do_developer: bool,
+        do_synced: bool,
+        update_layer_listing_links: bool,
+    ):
         processed, skipped = 0, 0
         errors = []
         if do_developer:
@@ -226,7 +254,11 @@ class Command(BaseCommand):
                         processed += total
                         self._log(f'  [dry-run] Would process {total}')
                     else:
-                        p, s = enrich_synced_queryset(qs, update_location_point=True)
+                        p, s = enrich_synced_queryset(
+                            qs,
+                            update_location_point=True,
+                            update_layer_listing_links=update_layer_listing_links,
+                        )
                         processed += p
                         skipped += s
                         self._log(f'  {label}: processed={p}, skipped={s}')
@@ -235,7 +267,13 @@ class Command(BaseCommand):
                     logger.exception('Enrich %s failed', label)
         return processed, skipped, errors
 
-    def _enrich_new_listings_only(self, dry_run: bool, do_developer: bool, do_synced: bool):
+    def _enrich_new_listings_only(
+        self,
+        dry_run: bool,
+        do_developer: bool,
+        do_synced: bool,
+        update_layer_listing_links: bool,
+    ):
         processed, skipped = 0, 0
         errors = []
         self._log('Phase: never-enriched only (enriched_at is null)')
@@ -263,7 +301,11 @@ class Command(BaseCommand):
                     if dry_run:
                         processed += n
                     else:
-                        p, s = enrich_synced_queryset(qs, update_location_point=True)
+                        p, s = enrich_synced_queryset(
+                            qs,
+                            update_location_point=True,
+                            update_layer_listing_links=update_layer_listing_links,
+                        )
                         processed += p
                         skipped += s
                         self._log(f'  {label}: processed={p}, skipped={s}')
@@ -272,7 +314,13 @@ class Command(BaseCommand):
                     logger.exception('Enrich %s failed', label)
         return processed, skipped, errors
 
-    def _enrich_incremental(self, dry_run: bool, do_developer: bool, do_synced: bool):
+    def _enrich_incremental(
+        self,
+        dry_run: bool,
+        do_developer: bool,
+        do_synced: bool,
+        update_layer_listing_links: bool,
+    ):
         processed = 0
         skipped = 0
         errors = []
@@ -314,7 +362,11 @@ class Command(BaseCommand):
                     if dry_run:
                         processed += n_new
                     else:
-                        p, s = enrich_synced_queryset(qs_new, update_location_point=True)
+                        p, s = enrich_synced_queryset(
+                            qs_new,
+                            update_location_point=True,
+                            update_layer_listing_links=update_layer_listing_links,
+                        )
                         processed += p
                         skipped += s
                     qs_stale = model.objects.filter(
@@ -325,7 +377,11 @@ class Command(BaseCommand):
                     if dry_run:
                         processed += n_stale
                     else:
-                        p, s = enrich_synced_queryset(qs_stale, update_location_point=True)
+                        p, s = enrich_synced_queryset(
+                            qs_stale,
+                            update_location_point=True,
+                            update_layer_listing_links=update_layer_listing_links,
+                        )
                         processed += p
                         skipped += s
                     self._log(f'  {label}: new={n_new}, stale={n_stale}')
@@ -360,7 +416,11 @@ class Command(BaseCommand):
                         if dry_run:
                             processed += qs.count()
                         else:
-                            p, s = enrich_synced_queryset(qs, update_location_point=False)
+                            p, s = enrich_synced_queryset(
+                                qs,
+                                update_location_point=False,
+                                update_layer_listing_links=update_layer_listing_links,
+                            )
                             processed += p
                             skipped += s
             except Exception as e:
@@ -369,7 +429,13 @@ class Command(BaseCommand):
 
         return processed, skipped, errors
 
-    def _enrich_for_new_layers(self, dry_run: bool, do_developer: bool, do_synced: bool):
+    def _enrich_for_new_layers(
+        self,
+        dry_run: bool,
+        do_developer: bool,
+        do_synced: bool,
+        update_layer_listing_links: bool,
+    ):
         since = timezone.now() - timedelta(hours=24)
         new_layers = list(
             DataLayer.objects.filter(
@@ -402,7 +468,11 @@ class Command(BaseCommand):
                         if dry_run:
                             processed += qs.count()
                         else:
-                            p, s = enrich_synced_queryset(qs, update_location_point=False)
+                            p, s = enrich_synced_queryset(
+                                qs,
+                                update_location_point=False,
+                                update_layer_listing_links=update_layer_listing_links,
+                            )
                             processed += p
                             skipped += s
             except Exception as e:

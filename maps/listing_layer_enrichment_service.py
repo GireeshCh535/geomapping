@@ -147,8 +147,10 @@ def sync_layer_listing_links(
         LayerListingLink.objects.bulk_create(rows)
 
 
-def refresh_layer_listing_links_from_stored_enrichment(record):
+def refresh_layer_listing_links_from_stored_enrichment(record, update_layer_listing_links: bool = True):
     """Sync LayerListingLink from a Synced* row's enriched_layers (land/plot/developer_land/developer_plot only)."""
+    if not update_layer_listing_links:
+        return
     src = layer_link_source_for_synced_model(type(record))
     if src:
         st, ex = layer_link_status_exposure_from_record(record)
@@ -162,11 +164,13 @@ def refresh_layer_listing_links_from_stored_enrichment(record):
         )
 
 
-def _flush_synced_enrich_batch(batch):
+def _flush_synced_enrich_batch(batch, update_layer_listing_links: bool = True):
     if not batch:
         return
     cls = type(batch[0])
     cls.objects.bulk_update(batch, ['enriched_layers', 'enriched_at'])
+    if not update_layer_listing_links:
+        return
     src = layer_link_source_for_synced_model(cls)
     if not src:
         return
@@ -177,11 +181,13 @@ def _flush_synced_enrich_batch(batch):
         )
 
 
-def _flush_synced_clear_batch(clear_batch):
+def _flush_synced_clear_batch(clear_batch, update_layer_listing_links: bool = True):
     if not clear_batch:
         return
     cls = type(clear_batch[0])
     cls.objects.bulk_update(clear_batch, ['enriched_layers', 'enriched_at'])
+    if not update_layer_listing_links:
+        return
     src = layer_link_source_for_synced_model(cls)
     if not src:
         return
@@ -891,7 +897,7 @@ def enrich_listings_queryset(queryset, update_location_point: bool = True):
     return processed, skipped
 
 
-def enrich_synced_record(record, update_location_point: bool = True) -> bool:
+def enrich_synced_record(record, update_location_point: bool = True, update_layer_listing_links: bool = True) -> bool:
     """
     Compute and save enriched_layers for one SyncedLand, SyncedPlot, SyncedDeveloperLand, or SyncedDeveloperPlot.
     Returns True if enrichment was run and saved, False if record has no point (skipped).
@@ -904,7 +910,9 @@ def enrich_synced_record(record, update_location_point: bool = True) -> bool:
         record.enriched_layers = []
         record.enriched_at = None
         record.save(update_fields=['enriched_layers', 'enriched_at'])
-        refresh_layer_listing_links_from_stored_enrichment(record)
+        refresh_layer_listing_links_from_stored_enrichment(
+            record, update_layer_listing_links=update_layer_listing_links
+        )
         return False
     payload = getattr(record, 'payload', None) or {}
     state_name = _get_state_name_from_payload(payload)
@@ -912,16 +920,23 @@ def enrich_synced_record(record, update_location_point: bool = True) -> bool:
     record.enriched_layers = enriched
     record.enriched_at = timezone.now()
     record.save(update_fields=['enriched_layers', 'enriched_at'])
-    refresh_layer_listing_links_from_stored_enrichment(record)
+    refresh_layer_listing_links_from_stored_enrichment(
+        record, update_layer_listing_links=update_layer_listing_links
+    )
     logger.debug("Enriched %s backend_id=%s: %d layers", type(record).__name__, getattr(record, 'backend_id', record.pk), len(enriched))
     return True
 
 
-def enrich_synced_queryset(queryset, update_location_point: bool = True):
+def enrich_synced_queryset(
+    queryset,
+    update_location_point: bool = True,
+    update_layer_listing_links: bool = True,
+):
     """
     Enrich all records in queryset (SyncedLand, SyncedPlot, etc.) that have a point.
     Records with no coordinates get enriched_layers=[], enriched_at=None (cleared).
     Uses bulk_update in batches. Returns (processed, skipped).
+    When update_layer_listing_links is False, only Synced* JSON columns are updated; LayerListingLink is untouched.
     """
     processed = 0
     skipped = 0
@@ -936,7 +951,7 @@ def enrich_synced_queryset(queryset, update_location_point: bool = True):
             clear_batch.append(record)
             skipped += 1
             if len(clear_batch) >= ENRICH_BULK_BATCH_SIZE:
-                _flush_synced_clear_batch(clear_batch)
+                _flush_synced_clear_batch(clear_batch, update_layer_listing_links=update_layer_listing_links)
                 clear_batch = []
             continue
         payload = getattr(record, 'payload', None) or {}
@@ -947,12 +962,12 @@ def enrich_synced_queryset(queryset, update_location_point: bool = True):
         batch.append(record)
         processed += 1
         if len(batch) >= ENRICH_BULK_BATCH_SIZE:
-            _flush_synced_enrich_batch(batch)
+            _flush_synced_enrich_batch(batch, update_layer_listing_links=update_layer_listing_links)
             batch = []
     if batch:
-        _flush_synced_enrich_batch(batch)
+        _flush_synced_enrich_batch(batch, update_layer_listing_links=update_layer_listing_links)
     if clear_batch:
-        _flush_synced_clear_batch(clear_batch)
+        _flush_synced_clear_batch(clear_batch, update_layer_listing_links=update_layer_listing_links)
     return processed, skipped
 
 
