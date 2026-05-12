@@ -42,10 +42,14 @@ CRZ_SEARCH_LAYER_SLUGS = frozenset({
 # Highway / economic corridor layers (plus coastal/expressway slugs in HIGHWAY_INFRASTRUCTURE_EXTRA_POPUP_SLUGS):
 # coordinate-search `data` is multiline legend text — Name, Right of Way, Lane Configuration, Connects.
 HIGHWAY_CORRIDOR_PROPERTY_SLUGS = frozenset({
+    'amaravati_anantapur_greenfield_expressway',
+    'amaravati_seed_access_road',
     'mancherial_warangal_expressway',
     'amroor_jagitial_mancherial_expressway',
     'badvel_nellore_highway',
     'bengaluru_vijaywada_expressway',
+    'chennai_peripheral_ring_road',
+    'chennai_port_maduravoyal_expressway',
     'thatchoor_chittoor_expressway',
     'urukunnu_kadampattukonam_economic_corridor',
     'ahilyanagar_akalkot_expresssway',
