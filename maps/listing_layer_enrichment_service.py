@@ -82,6 +82,7 @@ def sync_layer_listing_links(
     Replace all LayerListingLink rows for this listing with edges parsed from enriched_layers.
     When enriched_layers is empty, only deletes existing rows.
     status and exposure_type are denormalized from the Synced* listing row (same value on each edge).
+    Entries whose layer_id does not exist on DataLayer are skipped (stale JSON after layer deletes).
     """
     if now is None:
         now = timezone.now()
@@ -103,7 +104,7 @@ def sync_layer_listing_links(
     if not enriched_layers:
         return
     seen = set()
-    rows = []
+    candidates = []
     for e in enriched_layers:
         if not isinstance(e, dict):
             continue
@@ -129,6 +130,26 @@ def sync_layer_listing_links(
         np = e.get('nearest_point')
         if np is not None and not isinstance(np, (dict, list)):
             np = None
+        candidates.append((lid, dist, slug, np))
+    if not candidates:
+        return
+    layer_ids = [c[0] for c in candidates]
+    valid_layer_ids = set(
+        DataLayer.objects.filter(pk__in=layer_ids).values_list('pk', flat=True)
+    )
+    stale = [lid for lid in layer_ids if lid not in valid_layer_ids]
+    if stale:
+        logger.debug(
+            'Skipping %d missing DataLayer id(s) for source=%s listing_pk=%s: %s',
+            len(stale),
+            source,
+            listing_pk,
+            stale[:15] if len(stale) > 15 else stale,
+        )
+    rows = []
+    for lid, dist, slug, np in candidates:
+        if lid not in valid_layer_ids:
+            continue
         rows.append(
             LayerListingLink(
                 layer_id=lid,
