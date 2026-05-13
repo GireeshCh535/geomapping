@@ -81,8 +81,6 @@ def _enrich_listings_near_layer_after_commit(layer_id: int):
                 "Auto-enrichment for new/updated layer id=%s: %d listings processed, %d skipped",
                 layer_id, total_p, total_s,
             )
-        else:
-            logger.debug("No listings near layer id=%s, skipping enrichment", layer_id)
         # Refresh layer point count cache for this layer so /api/layer-point-counts/ is up to date
         try:
             refresh_layer_point_count_cache(layer_ids=[layer_id])

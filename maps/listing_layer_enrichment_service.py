@@ -137,15 +137,6 @@ def sync_layer_listing_links(
     valid_layer_ids = set(
         DataLayer.objects.filter(pk__in=layer_ids).values_list('pk', flat=True)
     )
-    stale = [lid for lid in layer_ids if lid not in valid_layer_ids]
-    if stale:
-        logger.debug(
-            'Skipping %d missing DataLayer id(s) for source=%s listing_pk=%s: %s',
-            len(stale),
-            source,
-            listing_pk,
-            stale[:15] if len(stale) > 15 else stale,
-        )
     rows = []
     for lid, dist, slug, np in candidates:
         if lid not in valid_layer_ids:
@@ -865,8 +856,7 @@ def get_place_for_point_in_layer(point: Point, layer_id: int, distance_km: float
         if getattr(feature, 'properties', None):
             place['properties'] = feature.properties
         return place
-    except Exception as e:
-        logger.debug("get_place_for_point_in_layer: %s", e)
+    except Exception:
         return None
 
 
@@ -883,7 +873,6 @@ def enrich_listing(listing: DeveloperListing, update_location_point: bool = True
 
     point = get_listing_point(listing)
     if point is None:
-        logger.debug("Listing %s has no coordinates; clearing enrichment", listing.id)
         listing.enriched_layers = []
         listing.enriched_at = None
         listing.save(update_fields=['enriched_layers', 'enriched_at'])
@@ -894,7 +883,6 @@ def enrich_listing(listing: DeveloperListing, update_location_point: bool = True
     listing.enriched_layers = enriched
     listing.enriched_at = timezone.now()
     listing.save(update_fields=['enriched_layers', 'enriched_at'])
-    logger.debug("Enriched listing %s: %d layers", listing.id, len(enriched))
     return True
 
 
@@ -927,7 +915,6 @@ def enrich_synced_record(record, update_location_point: bool = True, update_laye
     """
     point = get_point_for_synced(record, update_location_point=update_location_point)
     if point is None:
-        logger.debug("Synced record %s %s has no coordinates; clearing enrichment", type(record).__name__, getattr(record, 'backend_id', record.pk))
         record.enriched_layers = []
         record.enriched_at = None
         record.save(update_fields=['enriched_layers', 'enriched_at'])
@@ -944,7 +931,6 @@ def enrich_synced_record(record, update_location_point: bool = True, update_laye
     refresh_layer_listing_links_from_stored_enrichment(
         record, update_layer_listing_links=update_layer_listing_links
     )
-    logger.debug("Enriched %s backend_id=%s: %d layers", type(record).__name__, getattr(record, 'backend_id', record.pk), len(enriched))
     return True
 
 

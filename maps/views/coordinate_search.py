@@ -351,10 +351,7 @@ class CoordinateSearchTestView(APIView):
             cached_result = cache.get(cache_key)
             if cached_result is not None:
                 cached_result['metadata']['from_cache'] = True
-                logger.debug(f"Cache HIT for coordinate search: {cache_key}")
                 return Response(cached_result)
-            
-            logger.debug(f"Cache MISS for coordinate search: {cache_key}")
             
             # Create point geometry
             search_point = Point(longitude, latitude, srid=4326)
@@ -410,7 +407,6 @@ class CoordinateSearchTestView(APIView):
             ttl = self.CACHE_TTL_EMPTY if not result.get('found') and not result.get('features') else self.CACHE_TTL
             try:
                 cache.set(cache_key, result, ttl)
-                logger.debug(f"Cached result for {cache_key} with TTL {ttl}s")
             except Exception as e:
                 logger.warning(f"Failed to cache result: {e}")
             

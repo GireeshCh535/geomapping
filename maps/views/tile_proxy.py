@@ -12,10 +12,8 @@ def _fetch_tile_bytes(url, timeout=5):
             tile_debug(f"fetch OK bytes={n} url={url[:200]}")
             return response.content
         tile_debug(f"fetch HTTP {response.status_code} url={url[:200]}")
-        logger.debug(f"Failed to fetch {url}: HTTP {response.status_code}")
     except Exception as e:
         tile_debug(f"fetch ERR url={url[:160]} err={e}")
-        logger.debug(f"Failed to fetch {url}: {e}")
     return None
 
 
@@ -185,8 +183,6 @@ class CloudFrontTileView(APIView):
                             k: v for k, v in self._layer_warning_cache.items()
                             if v > cutoff_time
                         }
-                else:
-                    logger.debug(f"❌ Layer not found (suppressed): {layer_key}")
                 return self._return_error_tile(f"Layer not found: {state_slug}/{city_slug}/{layer_slug}")
 
             s3_key = self.tile_path_service.generate_s3_key(
@@ -269,9 +265,6 @@ class CloudFrontTileView(APIView):
             tile_data = self._generate_tile_on_demand(layer, z, x, y, format_type)
             if tile_data:
                 return tile_data
-        logger.debug(
-            f"❌ Tile not found: {state_slug}/{city_slug}/{layer_slug}/{z}/{x}/{y}.{format_type}"
-        )
         return None
     
     def _fetch_url(self, url, timeout=5):
@@ -310,15 +303,13 @@ class CloudFrontTileView(APIView):
         try:
             # Suppress logging for routine missing tile/layer errors to reduce log spam
             # These are normal in tile serving - not every tile coordinate has data
-            if "Tile not found" in error_message or "Layer not found" in error_message:
-                # Already logged at appropriate level above, don't log again here
-                logger.debug(f"Returning 404 for: {error_message[:100]}")
-            elif "Invalid tile coordinates" in error_message:
-                # Invalid coordinates are worth logging but not as warning
-                logger.info(f"Invalid tile coordinates requested")
-            else:
-                # Only log actual errors as warnings
-                logger.warning(f"❌ Returning error tile: {error_message}")
+            if "Tile not found" not in error_message and "Layer not found" not in error_message:
+                if "Invalid tile coordinates" in error_message:
+                    # Invalid coordinates are worth logging but not as warning
+                    logger.info(f"Invalid tile coordinates requested")
+                else:
+                    # Only log actual errors as warnings
+                    logger.warning(f"❌ Returning error tile: {error_message}")
             
             return Response({
                 'error': error_message,
@@ -400,14 +391,9 @@ class S3DirectTileView(APIView):
                             k: v for k, v in self._layer_warning_cache.items()
                             if v > cutoff_time
                         }
-                else:
-                    # Log at debug level for subsequent requests
-                    logger.debug(f"❌ Layer not found (suppressed): {layer_key}")
                 
                 return self._return_error_tile(f"Layer not found: {state_slug}/{city_slug}/{layer_slug}")
             
-            logger.debug(f"🔍 Serving direct tile: {state_slug}/{city_slug}/{layer_slug}/{z}/{x}/{y}.{format_type}")
-
             url = self.tile_path_service.get_backend_url_for_tile(
                 state_slug, city_slug, layer_slug, z, x, y, format_type
             )
@@ -434,11 +420,9 @@ class S3DirectTileView(APIView):
                 response['Expires'] = '0'
                 response['Access-Control-Allow-Origin'] = '*'
                 tile_debug(f"s3-direct OK bytes={len(tile_data)}")
-                logger.debug(f"✅ Successfully served direct tile: {state_slug}/{city_slug}/{layer_slug}/{z}/{x}/{y}.{format_type}")
                 return response
             else:
                 tile_debug(f"s3-direct MISS origin={state_slug}/{city_slug}/{layer_slug}/{z}/{x}/{y}.{format_type}")
-                logger.debug(f"❌ Tile not found at origin: {state_slug}/{city_slug}/{layer_slug}/{z}/{x}/{y}.{format_type}")
                 return self._return_error_tile(f"Tile not found: {state_slug}/{city_slug}/{layer_slug}/{z}/{x}/{y}.{format_type}")
             
         except (OperationalError, DatabaseError) as e:
@@ -503,15 +487,13 @@ class S3DirectTileView(APIView):
         try:
             # Suppress logging for routine missing tile/layer errors to reduce log spam
             # These are normal in tile serving - not every tile coordinate has data
-            if "Tile not found" in error_message or "Layer not found" in error_message:
-                # Already logged at appropriate level above, don't log again here
-                logger.debug(f"Returning 404 for: {error_message[:100]}")
-            elif "Invalid tile coordinates" in error_message:
-                # Invalid coordinates are worth logging but not as warning
-                logger.info(f"Invalid tile coordinates requested")
-            else:
-                # Only log actual errors as warnings
-                logger.warning(f"❌ Returning error tile: {error_message}")
+            if "Tile not found" not in error_message and "Layer not found" not in error_message:
+                if "Invalid tile coordinates" in error_message:
+                    # Invalid coordinates are worth logging but not as warning
+                    logger.info(f"Invalid tile coordinates requested")
+                else:
+                    # Only log actual errors as warnings
+                    logger.warning(f"❌ Returning error tile: {error_message}")
             
             return Response({
                 'error': error_message,

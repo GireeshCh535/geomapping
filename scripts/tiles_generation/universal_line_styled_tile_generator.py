@@ -49,12 +49,10 @@ try:
 except Exception:
     logger = None
     def log_info(*a): print('[INFO]', *a)
-    def log_debug(*a): pass
     def log_error(*a): print('[ERROR]', *a)
 
 if logger:
     log_info = logger.info
-    log_debug = logger.debug
     log_error = logger.error
 
 # Draw order: outer first, then inner (same as RRR)

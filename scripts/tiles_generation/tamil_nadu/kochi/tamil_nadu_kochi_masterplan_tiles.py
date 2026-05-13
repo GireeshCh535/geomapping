@@ -411,8 +411,7 @@ class OptimizedKochiTileGenerator:
             
             return success
             
-        except Exception as e:
-            logger.debug(f"Error generating tile {tile_key}: {e}")
+        except Exception:
             self.error_tiles.add(tile_key)
             return False
     
@@ -459,8 +458,7 @@ class OptimizedKochiTileGenerator:
             
             return self.save_tile(tile_data, tile_path)
             
-        except Exception as e:
-            logger.debug(f"Memory generation failed: {e}")
+        except Exception:
             return False
     
     def generate_from_window_with_zoom(self, tile_bounds, tile_path, zoom):
@@ -497,8 +495,7 @@ class OptimizedKochiTileGenerator:
                         )
                     elif band_idx == 4:
                         tile_data[3] = 255
-                except Exception as e:
-                    logger.debug(f"Failed to reproject band {band_idx}: {e}")
+                except Exception:
                     if band_idx == 4:
                         tile_data[3] = 255
             
@@ -512,8 +509,7 @@ class OptimizedKochiTileGenerator:
             
             return self.save_tile(tile_data, tile_path)
             
-        except Exception as e:
-            logger.debug(f"Window generation failed: {e}")
+        except Exception:
             return False
     
     def generate_from_window_optimized(self, tile_bounds, tile_path):
@@ -585,9 +581,8 @@ class OptimizedKochiTileGenerator:
                                                   resampling=Resampling.nearest)
                 else:
                     window_data = self.src_dataset.read(window=window)
-            except Exception as e:
+            except Exception:
                 # Try band-by-band for corrupted regions
-                logger.debug(f"Failed to read window, trying band-by-band: {e}")
                 try:
                     window_data = []
                     for band_idx in range(1, min(5, self.src_dataset.count + 1)):
@@ -598,7 +593,6 @@ class OptimizedKochiTileGenerator:
                             placeholder = np.full((int(window.height), int(window.width)), 
                                                 255 if band_idx == 4 else 128, dtype=np.uint8)
                             window_data.append(placeholder)
-                            logger.debug(f"Band {band_idx} corrupted, using placeholder")
                     
                     window_data = np.array(window_data)
                     
@@ -606,8 +600,7 @@ class OptimizedKochiTileGenerator:
                         alpha = np.full((1, window_data.shape[1], window_data.shape[2]), 255, dtype=np.uint8)
                         window_data = np.concatenate([window_data, alpha], axis=0)
                         
-                except Exception as e2:
-                    logger.debug(f"Band-by-band read also failed: {e2}")
+                except Exception:
                     return False
             
             # Handle different band counts
@@ -641,8 +634,7 @@ class OptimizedKochiTileGenerator:
             img.save(tile_path, 'PNG', optimize=True, compress_level=6)
             return True
             
-        except Exception as e:
-            logger.debug(f"Optimized window generation failed: {e}")
+        except Exception:
             return False
     
     def save_tile(self, tile_data, tile_path):
@@ -678,8 +670,7 @@ class OptimizedKochiTileGenerator:
             img.save(tile_path, 'PNG', optimize=True, compress_level=6)
             return True
             
-        except Exception as e:
-            logger.debug(f"Failed to save tile: {e}")
+        except Exception:
             return False
     
     def get_best_overview_level(self, zoom):
@@ -789,10 +780,8 @@ class OptimizedKochiTileGenerator:
                                         successful += 1
                                     else:
                                         failed += 1
-                                except Exception as e:
+                                except Exception:
                                     failed += 1
-                                    z, x, y = futures[future]
-                                    logger.debug(f"Failed {z}/{x}/{y}: {e}")
                                 pbar.update(1)
                 
                 total_generated += successful

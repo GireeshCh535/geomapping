@@ -206,8 +206,7 @@ class OptimizedCoimbatoreTileGenerator:
             
             return success
             
-        except Exception as e:
-            logger.debug(f"Error generating tile {tile_key}: {e}")
+        except Exception:
             self.error_tiles.add(tile_key)
             return False
     
@@ -286,8 +285,7 @@ class OptimizedCoimbatoreTileGenerator:
             
             return self.save_tile(tile_data, tile_path)
             
-        except Exception as e:
-            logger.debug(f"Memory generation failed: {e}")
+        except Exception:
             return False
     
     def generate_from_window(self, tile_bounds, tile_path):
@@ -395,8 +393,7 @@ class OptimizedCoimbatoreTileGenerator:
             
             return self.save_tile(tile_data, tile_path)
             
-        except Exception as e:
-            logger.debug(f"Window generation failed: {e}")
+        except Exception:
             return False
     
     def save_tile(self, tile_data, tile_path):
@@ -432,8 +429,7 @@ class OptimizedCoimbatoreTileGenerator:
             img.save(tile_path, 'PNG', optimize=True, compress_level=6)
             return True
             
-        except Exception as e:
-            logger.debug(f"Failed to save tile: {e}")
+        except Exception:
             return False
     
     def tile_in_bounds(self, tile_bounds):
@@ -518,10 +514,8 @@ class OptimizedCoimbatoreTileGenerator:
                                         successful += 1
                                     else:
                                         failed += 1
-                                except Exception as e:
+                                except Exception:
                                     failed += 1
-                                    z, x, y = futures[future]
-                                    logger.debug(f"Failed {z}/{x}/{y}: {e}")
                                 pbar.update(1)
                 
                 total_generated += successful

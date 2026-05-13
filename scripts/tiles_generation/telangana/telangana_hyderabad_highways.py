@@ -498,7 +498,6 @@ class HyderabadHighwaysTileGenerator:
                     tiles_generated += 1
                     total_tiles += 1
                     skipped_tiles += 1
-                    logger.debug(f"   ⏭️  Tile {zoom}/{x}/{y} already exists, skipping...")
                     continue
                 
                 # Generate tile image (always returns an image)

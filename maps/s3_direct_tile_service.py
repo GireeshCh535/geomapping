@@ -280,7 +280,6 @@ class S3DirectTileGenerationService:
             
             # Check if we have valid MVT data
             if not mvt_data or len(mvt_data) == 0:
-                logger.debug(f"No MVT data for tile {city_slug}/{z}/{x}/{y}, generating empty tiles")
                 
                 # Generate empty tiles for areas with no data
                 if 'mvt' in tile_types:
@@ -310,7 +309,6 @@ class S3DirectTileGenerationService:
             
             # Generate and upload PNG if requested
             if 'png' in tile_types:
-                logger.debug(f"Generating PNG for tile {city_slug}/{z}/{x}/{y} with patterns={use_patterns}")
                 
                 # Use enhanced rendering with pattern support
                 if use_patterns and city_slug in ['visakhapatnam', 'amaravati']:
@@ -327,7 +325,6 @@ class S3DirectTileGenerationService:
                     png_result = self.upload_bytes_to_s3(png_data, png_key, 'image/png')
                     if png_result['success']:
                         result['png_size'] = len(png_data)
-                        logger.debug(f"Successfully uploaded PNG for {city_slug}/{z}/{x}/{y}, size: {len(png_data)} bytes")
                     else:
                         return {'success': False, 'error': f"PNG upload failed: {png_result.get('error')}"}
                 else:
@@ -378,8 +375,6 @@ class S3DirectTileGenerationService:
                 if layer_feature_count > 0:
                     tile_features.extend(list(layer_features))
                     total_features_in_tile += layer_feature_count
-            
-            logger.debug(f"🎯 Tile {z}/{x}/{y}: Processing {total_features_in_tile} features")
             
             # If no features in this tile, create empty tile
             if not tile_features:

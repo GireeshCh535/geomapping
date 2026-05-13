@@ -149,8 +149,7 @@ class HyderabadRRRStyledTileGenerator:
                 tile_bounds.east, tile_bounds.north
             ).buffer(buffer * 0.1)
             return features[features.geometry.intersects(tile_poly)]
-        except Exception as e:
-            logger.debug("get_features_for_tile: %s", e)
+        except Exception:
             return gpd.GeoDataFrame()
 
     def wgs84_to_tile_pixel(self, lon: float, lat: float, tile_x: int, tile_y: int, zoom: int) -> Tuple[int, int]:

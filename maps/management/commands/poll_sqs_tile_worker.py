@@ -88,7 +88,6 @@ class Command(BaseCommand):
                     if once:
                         self.stdout.write("No messages, exiting (--once).")
                         return
-                    logger.debug("Poll: 0 messages (queue empty or in-flight)")
                     continue
                 self.stdout.write(f"Poll: received {len(messages)} message(s)")
                 for msg in messages:

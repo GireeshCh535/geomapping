@@ -506,7 +506,6 @@ class HyderabadHighwaysTileGenerator:
                     tiles_generated += 1
                     total_tiles += 1
                     skipped_tiles += 1
-                    logger.debug(f"   ⏭️  Tile {zoom}/{x}/{y} already exists, skipping...")
                     continue
                 
                 # Generate tile image (always returns an image)
@@ -523,9 +522,6 @@ class HyderabadHighwaysTileGenerator:
                 # If no data, ensure it's a proper transparent tile
                 if not has_data:
                     img = self.create_blank_tile()
-                    logger.debug(f"   🔍 Empty tile generated: {zoom}/{x}/{y}")
-                else:
-                    logger.debug(f"   🎨 Data tile generated: {zoom}/{x}/{y}")
                 
                 # Always save the tile image
                 img.save(tile_path, 'PNG', optimize=True)

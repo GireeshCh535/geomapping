@@ -180,7 +180,6 @@ def _invalidate_cloudfront_land_plot(paths: List[str]) -> None:
     distribution_id = getattr(settings, 'CLOUDFRONT_DISTRIBUTION_ID', None) or ''
     enable = getattr(settings, 'ENABLE_CLOUDFRONT_INVALIDATION', True)
     if not enable or not distribution_id:
-        logger.debug("[LAND_PLOT_TILE_REFRESH] CloudFront invalidation disabled or not configured")
         return
 
     try:
