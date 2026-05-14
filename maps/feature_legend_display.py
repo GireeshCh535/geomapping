@@ -43,6 +43,7 @@ CRZ_SEARCH_LAYER_SLUGS = frozenset({
 # Highway / economic corridor layers (plus coastal/expressway slugs in HIGHWAY_INFRASTRUCTURE_EXTRA_POPUP_SLUGS):
 # coordinate-search `data` is multiline legend text — Name, Right of Way, Lane Configuration, Connects.
 HIGHWAY_CORRIDOR_PROPERTY_SLUGS = frozenset({
+    'amaravati_inner_ring_road',
     'amaravati_anantapur_greenfield_expressway',
     'amaravati_seed_access_road',
     'mancherial_warangal_expressway',
@@ -82,6 +83,35 @@ HIGHWAY_INFRASTRUCTURE_EXTRA_POPUP_SLUGS = frozenset({
 HIGHWAY_INFRASTRUCTURE_POPUP_SLUGS = (
     HIGHWAY_CORRIDOR_PROPERTY_SLUGS | HIGHWAY_INFRASTRUCTURE_EXTRA_POPUP_SLUGS
 )
+
+
+def is_default_highway_style_road_layer_slug(slug: str) -> bool:
+    """
+    True for road / expressway / corridor line layers not explicitly listed in
+    HIGHWAY_INFRASTRUCTURE_POPUP_SLUGS (e.g. amaravati_inner_ring_road). Drives the
+    same legend popup and black swatch as named highway layers.
+    """
+    s = (slug or '').strip().lower()
+    if not s or s in HIGHWAY_INFRASTRUCTURE_POPUP_SLUGS:
+        return False
+    if 'metro' in s or 'railway' in s:
+        return False
+    if ('masterplan' in s or 'master_plan' in s) and 'roads' not in s:
+        return False
+    return any(
+        k in s
+        for k in (
+            'road',
+            'highway',
+            'expressway',
+            'corridor',
+            'bridge',
+            'sea_link',
+            'sea-link',
+            'rrr',
+        )
+    )
+
 
 # Masterplan-style airport boundaries: GeoJSON carries `fill`; do not use highway black swatch.
 AIRPORT_POLYGON_FILL_FROM_GEOJSON_SLUGS = frozenset({
@@ -264,11 +294,16 @@ def _highway_infra_legend_popup_text(properties):
     if row_disp:
         lines.append(f'Right of Way: {row_disp}')
     lanes = properties.get('Lane Configuration')
+    if _lane_configuration_omit_from_legend(lanes):
+        lanes = properties.get('Lanes')
     if not _lane_configuration_omit_from_legend(lanes):
         lines.append(f'Lane Configuration: {str(lanes).strip()}')
     cp = properties.get('Connecting Points')
     if cp is not None and str(cp).strip():
         lines.append(f'Connects: {str(cp).strip()}')
+    length_val = properties.get('Length')
+    if length_val is not None and str(length_val).strip():
+        lines.append(f'Length: {str(length_val).strip()}')
     return '\n'.join(lines)
 
 
