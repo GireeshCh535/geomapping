@@ -212,8 +212,7 @@ class HighZoomTileGenerator:
             
             return Window(col_off, row_off, width, height)
             
-        except Exception as e:
-            logger.debug(f"Window calculation failed: {e}")
+        except Exception:
             return None
     
     def generate_tile_from_parent(self, zoom, x, y):
@@ -250,8 +249,7 @@ class HighZoomTileGenerator:
             
             return None
             
-        except Exception as e:
-            logger.debug(f"Failed to generate from parent: {e}")
+        except Exception:
             return None
     
     def generate_single_tile_highzoom(self, zoom, x, y):
@@ -290,7 +288,6 @@ class HighZoomTileGenerator:
             window = self.calculate_optimal_window(tile_bounds, zoom)
             
             if window is None or window.width <= 0 or window.height <= 0:
-                logger.debug(f"Invalid window for tile {tile_key}")
                 return False
             
             # Generate tile based on strategy
@@ -304,8 +301,7 @@ class HighZoomTileGenerator:
                 
             return success
             
-        except Exception as e:
-            logger.debug(f"Error generating tile {tile_key}: {e}")
+        except Exception:
             self.error_tiles.add(tile_key)
             return False
     
@@ -352,8 +348,7 @@ class HighZoomTileGenerator:
             
             return False
             
-        except Exception as e:
-            logger.debug(f"Memory generation failed: {e}")
+        except Exception:
             return False
     
     def generate_from_window(self, tile_bounds, window, tile_path):
@@ -389,8 +384,7 @@ class HighZoomTileGenerator:
             
             return self.save_tile(tile_data, tile_path)
             
-        except Exception as e:
-            logger.debug(f"Window generation failed: {e}")
+        except Exception:
             return False
     
     def save_tile(self, tile_data, tile_path):
@@ -426,8 +420,7 @@ class HighZoomTileGenerator:
             img.save(tile_path, 'PNG', optimize=True, compress_level=6)
             return True
             
-        except Exception as e:
-            logger.debug(f"Failed to save tile: {e}")
+        except Exception:
             return False
     
     def tile_in_bounds(self, tile_bounds):
@@ -508,10 +501,8 @@ class HighZoomTileGenerator:
                                 successful += 1
                             else:
                                 failed += 1
-                        except Exception as e:
+                        except Exception:
                             failed += 1
-                            z, x, y = futures[future]
-                            logger.debug(f"Failed {z}/{x}/{y}: {e}")
                         pbar.update(1)
         
         logger.info(f"Zoom {zoom}: {successful} successful, {failed} failed/skipped")

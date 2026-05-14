@@ -43,10 +43,14 @@ CRZ_SEARCH_LAYER_SLUGS = frozenset({
 # Highway / economic corridor layers (plus coastal/expressway slugs in HIGHWAY_INFRASTRUCTURE_EXTRA_POPUP_SLUGS):
 # coordinate-search `data` is multiline legend text — Name, Right of Way, Lane Configuration, Connects.
 HIGHWAY_CORRIDOR_PROPERTY_SLUGS = frozenset({
+    'amaravati_anantapur_greenfield_expressway',
+    'amaravati_seed_access_road',
     'mancherial_warangal_expressway',
     'amroor_jagitial_mancherial_expressway',
     'badvel_nellore_highway',
     'bengaluru_vijaywada_expressway',
+    'chennai_peripheral_ring_road',
+    'chennai_port_maduravoyal_expressway',
     'thatchoor_chittoor_expressway',
     'urukunnu_kadampattukonam_economic_corridor',
     'ahilyanagar_akalkot_expresssway',
@@ -61,8 +65,6 @@ HIGHWAY_CORRIDOR_PROPERTY_SLUGS = frozenset({
     'kanpur_ring_road',
     'kanpur_kabrai_highway',
     'agra_gwalior_expressway',
-    'new_parandur_airport',
-    'new_purandar_airport_spa',
     'gorakhpur_siliguri_expressway',
     'ghazipur_ballia_expressway'
 })
@@ -80,6 +82,24 @@ HIGHWAY_INFRASTRUCTURE_EXTRA_POPUP_SLUGS = frozenset({
 HIGHWAY_INFRASTRUCTURE_POPUP_SLUGS = (
     HIGHWAY_CORRIDOR_PROPERTY_SLUGS | HIGHWAY_INFRASTRUCTURE_EXTRA_POPUP_SLUGS
 )
+
+# Masterplan-style airport boundaries: GeoJSON carries `fill`; do not use highway black swatch.
+AIRPORT_POLYGON_FILL_FROM_GEOJSON_SLUGS = frozenset({
+    'new_parandur_airport',
+    'new_purandar_airport_spa',
+    'new_purandar_airport',
+})
+
+
+def fill_hex_from_geojson_properties_for_legend(properties):
+    """Hex for legend swatch: prefer GeoJSON polygon ``fill``, then fill_color / HEX."""
+    if not isinstance(properties, dict):
+        return ''
+    for key in ('fill', 'fill_color', 'fillColor', 'FillColor', 'HEX', 'Hex'):
+        val = properties.get(key)
+        if val is not None and str(val).strip():
+            return str(val).strip()
+    return ''
 
 
 def _lane_configuration_omit_from_legend(lanes):

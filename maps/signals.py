@@ -16,6 +16,7 @@ from maps.models import (
     DataLayer,
     DeveloperListing,
     DeveloperListingMedia,
+    LayerListingLink,
     SyncedDeveloperLand,
     SyncedDeveloperPlot,
     SyncedLand,
@@ -30,7 +31,9 @@ from maps.tile_job_queue import (
 )
 from maps.listing_layer_enrichment_service import (
     get_listings_near_layer,
+    get_synced_listings_near_layer,
     enrich_listings_queryset,
+    enrich_synced_queryset,
     refresh_layer_point_count_cache,
     NEARBY_THRESHOLD_KM,
 )
@@ -65,24 +68,19 @@ def _enrich_listings_near_layer_after_commit(layer_id: int):
             p, s = enrich_listings_queryset(listings, update_location_point=False)
             total_p += p
             total_s += s
-        # DISABLED: calls enrich_synced_queryset -> sync_layer_listing_links (LayerListingLink).
-        # Re-enable after bulk delete/enrich of SyncedLand/SyncedPlot/SyncedDeveloperLand/SyncedDeveloperPlot.
-        # Re-add imports: get_synced_listings_near_layer, enrich_synced_queryset
-        # land_qs, plot_qs, dev_land_qs, dev_plot_qs = get_synced_listings_near_layer(
-        #     layer, within_km=NEARBY_THRESHOLD_KM
-        # )
-        # for qs in (land_qs, plot_qs, dev_land_qs, dev_plot_qs):
-        #     if qs.exists():
-        #         p, s = enrich_synced_queryset(qs, update_location_point=False)
-        #         total_p += p
-        #         total_s += s
+        land_qs, plot_qs, dev_land_qs, dev_plot_qs = get_synced_listings_near_layer(
+            layer, within_km=NEARBY_THRESHOLD_KM
+        )
+        for qs in (land_qs, plot_qs, dev_land_qs, dev_plot_qs):
+            if qs.exists():
+                p, s = enrich_synced_queryset(qs, update_location_point=False)
+                total_p += p
+                total_s += s
         if total_p or total_s:
             logger.info(
                 "Auto-enrichment for new/updated layer id=%s: %d listings processed, %d skipped",
                 layer_id, total_p, total_s,
             )
-        else:
-            logger.debug("No listings near layer id=%s, skipping enrichment", layer_id)
         # Refresh layer point count cache for this layer so /api/layer-point-counts/ is up to date
         try:
             refresh_layer_point_count_cache(layer_ids=[layer_id])
@@ -145,27 +143,26 @@ def _datalayer_post_save(sender, instance, created, **kwargs):
 
 
 # ----- LayerListingLink cleanup when listing rows are deleted -----
-# DISABLED: deleting Synced* rows would remove LayerListingLink edges; re-enable after bulk maintenance.
-# from maps.models import LayerListingLink
-#
-# @receiver(post_delete, sender=SyncedLand)
-# def _layer_listing_link_delete_land(sender, instance, **kwargs):
-#     LayerListingLink.objects.filter(source='land', listing_pk=instance.pk).delete()
-#
-#
-# @receiver(post_delete, sender=SyncedPlot)
-# def _layer_listing_link_delete_plot(sender, instance, **kwargs):
-#     LayerListingLink.objects.filter(source='plot', listing_pk=instance.pk).delete()
-#
-#
-# @receiver(post_delete, sender=SyncedDeveloperLand)
-# def _layer_listing_link_delete_dev_land(sender, instance, **kwargs):
-#     LayerListingLink.objects.filter(source='developer_land', listing_pk=instance.pk).delete()
-#
-#
-# @receiver(post_delete, sender=SyncedDeveloperPlot)
-# def _layer_listing_link_delete_dev_plot(sender, instance, **kwargs):
-#     LayerListingLink.objects.filter(source='developer_plot', listing_pk=instance.pk).delete()
+
+
+@receiver(post_delete, sender=SyncedLand)
+def _layer_listing_link_delete_land(sender, instance, **kwargs):
+    LayerListingLink.objects.filter(source='land', listing_pk=instance.pk).delete()
+
+
+@receiver(post_delete, sender=SyncedPlot)
+def _layer_listing_link_delete_plot(sender, instance, **kwargs):
+    LayerListingLink.objects.filter(source='plot', listing_pk=instance.pk).delete()
+
+
+@receiver(post_delete, sender=SyncedDeveloperLand)
+def _layer_listing_link_delete_dev_land(sender, instance, **kwargs):
+    LayerListingLink.objects.filter(source='developer_land', listing_pk=instance.pk).delete()
+
+
+@receiver(post_delete, sender=SyncedDeveloperPlot)
+def _layer_listing_link_delete_dev_plot(sender, instance, **kwargs):
+    LayerListingLink.objects.filter(source='developer_plot', listing_pk=instance.pk).delete()
 
 
 # ----- Tile job enqueue (single source: webhook and admin/API both trigger via these signals) -----

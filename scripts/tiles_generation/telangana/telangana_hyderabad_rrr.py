@@ -419,8 +419,7 @@ class HyderabadRRRTileGenerator:
             
             return None
             
-        except Exception as e:
-            logger.debug(f"Error clipping geometry: {e}")
+        except Exception:
             return None
     
     def wgs84_to_tile_pixel(self, lon: float, lat: float, tile_x: int, tile_y: int, zoom: int) -> Tuple[int, int]:

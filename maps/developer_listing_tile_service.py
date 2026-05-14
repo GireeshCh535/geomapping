@@ -230,7 +230,6 @@ class DeveloperListingTileService:
             Invalidation ID if successful, None otherwise
         """
         if not self.enable_cloudfront_invalidation or not self.cloudfront_client or not self.cloudfront_distribution_id:
-            logger.debug(f"[CLOUDFRONT] ⚠️  CloudFront invalidation disabled or not configured")
             return None
         
         try:
@@ -667,9 +666,8 @@ class DeveloperListingTileService:
                         is_georeferenced = False
                     elif (src.bounds.left == src.bounds.right or src.bounds.bottom == src.bounds.top):
                         is_georeferenced = False
-                except Exception as e:
+                except Exception:
                     # If we can't calculate transform, file is likely not georeferenced
-                    logger.debug(f"[REPROJECT] Could not calculate transform: {e}")
                     is_georeferenced = False
                 
                 if not is_georeferenced:
@@ -925,8 +923,7 @@ class DeveloperListingTileService:
             
             return True
             
-        except Exception as e:
-            logger.debug(f"Error generating tile {zoom}/{x}/{y}: {e}")
+        except Exception:
             return False
     
     def _generate_tiles_from_tif(

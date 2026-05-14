@@ -82,6 +82,7 @@ def sync_layer_listing_links(
     Replace all LayerListingLink rows for this listing with edges parsed from enriched_layers.
     When enriched_layers is empty, only deletes existing rows.
     status and exposure_type are denormalized from the Synced* listing row (same value on each edge).
+    Entries whose layer_id does not exist on DataLayer are skipped (stale JSON after layer deletes).
     """
     if now is None:
         now = timezone.now()
@@ -103,7 +104,7 @@ def sync_layer_listing_links(
     if not enriched_layers:
         return
     seen = set()
-    rows = []
+    candidates = []
     for e in enriched_layers:
         if not isinstance(e, dict):
             continue
@@ -129,6 +130,17 @@ def sync_layer_listing_links(
         np = e.get('nearest_point')
         if np is not None and not isinstance(np, (dict, list)):
             np = None
+        candidates.append((lid, dist, slug, np))
+    if not candidates:
+        return
+    layer_ids = [c[0] for c in candidates]
+    valid_layer_ids = set(
+        DataLayer.objects.filter(pk__in=layer_ids).values_list('pk', flat=True)
+    )
+    rows = []
+    for lid, dist, slug, np in candidates:
+        if lid not in valid_layer_ids:
+            continue
         rows.append(
             LayerListingLink(
                 layer_id=lid,
@@ -844,8 +856,7 @@ def get_place_for_point_in_layer(point: Point, layer_id: int, distance_km: float
         if getattr(feature, 'properties', None):
             place['properties'] = feature.properties
         return place
-    except Exception as e:
-        logger.debug("get_place_for_point_in_layer: %s", e)
+    except Exception:
         return None
 
 
@@ -862,7 +873,6 @@ def enrich_listing(listing: DeveloperListing, update_location_point: bool = True
 
     point = get_listing_point(listing)
     if point is None:
-        logger.debug("Listing %s has no coordinates; clearing enrichment", listing.id)
         listing.enriched_layers = []
         listing.enriched_at = None
         listing.save(update_fields=['enriched_layers', 'enriched_at'])
@@ -873,7 +883,6 @@ def enrich_listing(listing: DeveloperListing, update_location_point: bool = True
     listing.enriched_layers = enriched
     listing.enriched_at = timezone.now()
     listing.save(update_fields=['enriched_layers', 'enriched_at'])
-    logger.debug("Enriched listing %s: %d layers", listing.id, len(enriched))
     return True
 
 
@@ -906,7 +915,6 @@ def enrich_synced_record(record, update_location_point: bool = True, update_laye
     """
     point = get_point_for_synced(record, update_location_point=update_location_point)
     if point is None:
-        logger.debug("Synced record %s %s has no coordinates; clearing enrichment", type(record).__name__, getattr(record, 'backend_id', record.pk))
         record.enriched_layers = []
         record.enriched_at = None
         record.save(update_fields=['enriched_layers', 'enriched_at'])
@@ -923,7 +931,6 @@ def enrich_synced_record(record, update_location_point: bool = True, update_laye
     refresh_layer_listing_links_from_stored_enrichment(
         record, update_layer_listing_links=update_layer_listing_links
     )
-    logger.debug("Enriched %s backend_id=%s: %d layers", type(record).__name__, getattr(record, 'backend_id', record.pk), len(enriched))
     return True
 
 

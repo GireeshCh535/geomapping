@@ -680,10 +680,9 @@ class KarnatakaBengaluruHighwaysTileGenerator:
             
             return None
             
-        except Exception as e:
-            logger.debug(f"Error clipping geometry: {e}")
+        except Exception:
             return None
-    
+            
     def coords_to_pixels(self, coords: List[Tuple[float, float]], 
                         tile_bounds: mercantile.LngLatBbox, tile_x: int, tile_y: int, zoom: int) -> List[Tuple[float, float]]:
         """
@@ -748,10 +747,9 @@ class KarnatakaBengaluruHighwaysTileGenerator:
                 actual_width = max(1, min(width, 6))  # Cap at 6 pixels max for controlled rendering
                 draw.line(cleaned_pixels, fill=color_rgb + (255,), width=actual_width)
                 
-        except Exception as e:
-            logger.debug(f"Error drawing highway line: {e}")
+        except Exception:
             return
-    
+            
     def create_blank_tile(self) -> Image.Image:
         """Create a fully transparent PNG tile (Mapbox-safe empty tile)"""
         return Image.new('RGBA', (self.tile_size, self.tile_size), (0, 0, 0, 0))
@@ -781,8 +779,7 @@ class KarnatakaBengaluruHighwaysTileGenerator:
             
             return pixel_x, pixel_y
             
-        except Exception as e:
-            logger.debug(f"Error converting coordinates ({lon}, {lat}) to pixel: {e}")
+        except Exception:
             return 0, 0
 
     def draw_line(self, draw: ImageDraw, coordinates: List[Tuple[float, float]], 
@@ -875,8 +872,7 @@ class KarnatakaBengaluruHighwaysTileGenerator:
                                         self.draw_highway_line(draw, pixels, color_rgb, line_width)
                                         drawn_segments.add(coord_hash)
                 
-                except Exception as e:
-                    logger.debug(f"Error drawing feature {idx} in tile {x}/{y}/{zoom}: {e}")
+                except Exception:
                     continue
             
             return img

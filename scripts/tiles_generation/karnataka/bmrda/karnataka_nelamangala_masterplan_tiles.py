@@ -182,7 +182,6 @@ class NelamangalaMasterplanTileGenerator:
         try:
             # Check if tile already exists and force_regenerate is not enabled
             if tile_path.exists() and not self.force_regenerate:
-                logger.debug(f"Tile {zoom}/{x}/{y} already exists, skipping...")
                 return True
             
             # Get tile bounds
