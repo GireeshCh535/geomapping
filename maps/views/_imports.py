@@ -37,8 +37,11 @@ from ..feature_legend_display import (
     CRZ_SEARCH_LAYER_SLUGS,
     HIGHWAY_INFRASTRUCTURE_POPUP_SLUGS,
     _filter_crz_geojson_properties,
+    _generic_geojson_properties_popup_text,
     _highway_infra_legend_popup_text,
+    _is_transit_route_proposed_geojson,
     _masterplan_fill_color_svg_data_uri,
+    _transit_route_proposed_geojson_popup_text,
 )
 
 # `from ._imports import *` omits names starting with '_' (see importlib). Expose
@@ -46,6 +49,9 @@ from ..feature_legend_display import (
 masterplan_fill_color_svg_data_uri = _masterplan_fill_color_svg_data_uri
 filter_crz_geojson_properties = _filter_crz_geojson_properties
 highway_infra_legend_popup_text = _highway_infra_legend_popup_text
+generic_geojson_properties_popup_text = _generic_geojson_properties_popup_text
+is_transit_route_proposed_geojson = _is_transit_route_proposed_geojson
+transit_route_proposed_geojson_popup_text = _transit_route_proposed_geojson_popup_text
 
 import copy
 import logging

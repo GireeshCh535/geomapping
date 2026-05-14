@@ -799,7 +799,10 @@ class CoordinateSearchTestView(APIView):
             # Prefer per-feature color from properties (e.g. HEX in CRZ/tile data) so API matches tile generation
             props = getattr(feature, 'properties', None) or {}
             if isinstance(props, dict):
-                hex_color = props.get('HEX') or props.get('fill_color') or props.get('fillColor') or props.get('FillColor') or props.get('color')
+                hex_color = (
+                    props.get('HEX') or props.get('fill_color') or props.get('fillColor') or
+                    props.get('FillColor') or props.get('color') or props.get('stroke')
+                )
                 if hex_color and isinstance(hex_color, str) and hex_color.strip().startswith('#'):
                     layer_color = hex_color.strip()
                 else:
@@ -1313,6 +1316,26 @@ class CoordinateSearchTestView(APIView):
                             'all_layer_data': [feature_data],
                         }
 
+                    # Proposed metro/LRT routes (GeoJSON: phase, length_km, stations, …) — before highway-only legend
+                    elif is_transit_route_proposed_geojson(
+                        (feature_data.get('detailed_category') or {}).get('properties') or {}
+                    ):
+                        detailed_category = feature_data.get('detailed_category', {})
+                        properties = detailed_category.get('properties', {}) or {}
+                        data_string = transit_route_proposed_geojson_popup_text(properties)
+                        fill_color = (
+                            properties.get('fill_color') or properties.get('fillColor') or
+                            properties.get('FillColor') or properties.get('color') or
+                            properties.get('stroke')
+                        ) or ''
+                        return {
+                            'data': data_string,
+                            'fill_color': masterplan_fill_color_svg_data_uri(fill_color),
+                            'found': True,
+                            'features': [feature_data],
+                            'all_layer_data': [feature_data],
+                        }
+
                     # Highways / corridors / coastal infra: legend popup (Name, ROW, lanes, connects)
                     elif layer.slug in HIGHWAY_INFRASTRUCTURE_POPUP_SLUGS:
                         detailed_category = feature_data.get('detailed_category', {})
@@ -1395,6 +1418,24 @@ class CoordinateSearchTestView(APIView):
                         layer_name = properties.get('Layer Name', '')
                         return {
                             'data': layer_name,
+                            'all_layer_data': [feature_data],
+                        }
+                    
+                    # Any layer: non-empty GeoJSON properties → labeled lines (new keys need no slug branch)
+                    detailed_category = feature_data.get('detailed_category', {}) or {}
+                    properties = detailed_category.get('properties', {}) or {}
+                    data_string = generic_geojson_properties_popup_text(properties)
+                    if data_string:
+                        fill_color = (
+                            properties.get('fill_color') or properties.get('fillColor') or
+                            properties.get('FillColor') or properties.get('color') or
+                            properties.get('stroke')
+                        ) or ''
+                        return {
+                            'data': data_string,
+                            'fill_color': masterplan_fill_color_svg_data_uri(fill_color),
+                            'found': True,
+                            'features': [feature_data],
                             'all_layer_data': [feature_data],
                         }
                     
@@ -2311,6 +2352,23 @@ class CoordinateSearchTestView(APIView):
                     'all_layer_data': containing_features,
                 }
 
+            if containing_features:
+                primary_feature = containing_features[0]
+                _props = (primary_feature.get('detailed_category') or {}).get('properties') or {}
+                if is_transit_route_proposed_geojson(_props):
+                    data_string = transit_route_proposed_geojson_popup_text(_props)
+                    fill_color = (
+                        _props.get('fill_color') or _props.get('fillColor') or
+                        _props.get('FillColor') or _props.get('color') or _props.get('stroke')
+                    ) or ''
+                    return {
+                        'data': data_string,
+                        'fill_color': masterplan_fill_color_svg_data_uri(fill_color),
+                        'found': True,
+                        'features': containing_features[:1],
+                        'all_layer_data': containing_features,
+                    }
+
             if layer.slug in HIGHWAY_INFRASTRUCTURE_POPUP_SLUGS and containing_features:
                 primary_feature = containing_features[0]
                 detailed_category = primary_feature.get('detailed_category', {})
@@ -2323,6 +2381,26 @@ class CoordinateSearchTestView(APIView):
                     'features': containing_features[:1],
                     'all_layer_data': containing_features,
                 }
+            
+            # Any layer: non-empty GeoJSON properties → labeled lines (new keys need no slug branch)
+            if containing_features:
+                primary_feature = containing_features[0]
+                detailed_category = primary_feature.get('detailed_category', {}) or {}
+                properties = detailed_category.get('properties', {}) or {}
+                data_string = generic_geojson_properties_popup_text(properties)
+                if data_string:
+                    fill_color = (
+                        properties.get('fill_color') or properties.get('fillColor') or
+                        properties.get('FillColor') or properties.get('color') or
+                        properties.get('stroke')
+                    ) or ''
+                    return {
+                        'data': data_string,
+                        'fill_color': masterplan_fill_color_svg_data_uri(fill_color),
+                        'found': True,
+                        'features': containing_features[:1],
+                        'all_layer_data': containing_features,
+                    }
             
             # Generate summary
             if containing_features:

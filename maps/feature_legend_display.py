@@ -4,6 +4,7 @@ Legend strings, CRZ property trimming, and masterplan fill-color SVG helpers.
 Used by coordinate-search / GeoJSON paths in views and by feature_display for
 enrichment. Lives outside views.py so callers avoid importing the full views module.
 """
+import json
 from urllib.parse import quote
 
 # SVG template for master plan fill color indicator (use {color} placeholder)
@@ -99,6 +100,107 @@ def _format_right_of_way_for_legend(row_val):
     if s.lower().endswith('m'):
         return s
     return f'{s}m'
+
+
+def _is_empty_geojson_property_value(val):
+    if val is None:
+        return True
+    if isinstance(val, str) and not val.strip():
+        return True
+    if isinstance(val, (list, dict)) and len(val) == 0:
+        return True
+    return False
+
+
+def _format_geojson_property_value(val):
+    if isinstance(val, (dict, list)):
+        return json.dumps(val, ensure_ascii=False)
+    if isinstance(val, bool):
+        return 'true' if val else 'false'
+    if isinstance(val, float) and val != val:  # NaN
+        return ''
+    if isinstance(val, str):
+        return val.strip()
+    return str(val)
+
+
+def _generic_geojson_properties_popup_text(properties):
+    """
+    Multiline popup from arbitrary feature.properties: each non-empty key as "Key: value".
+    New GeoJSON keys need no code change. Dict/list values are JSON-encoded on one line.
+    """
+    if not isinstance(properties, dict):
+        return ''
+    lines = []
+    for key in sorted(properties.keys(), key=lambda k: str(k)):
+        val = properties[key]
+        if _is_empty_geojson_property_value(val):
+            continue
+        formatted = _format_geojson_property_value(val)
+        if not formatted:
+            continue
+        sk = str(key).strip() if key is not None else ''
+        if not sk:
+            continue
+        lines.append(f'{sk}: {formatted}')
+    return '\n'.join(lines)
+
+
+def _is_transit_route_proposed_geojson(properties):
+    """
+    True for KML/Google-export style metro route features: Name + Connecting Points
+    plus structured fields (phase / length_km / stations) as in e.g. vijayawada_metro_actual.geojson.
+    Used so these layers are not reduced to highway-only legend lines (ROW/lanes).
+    """
+    if not isinstance(properties, dict):
+        return False
+    if not str(properties.get('Name', '')).strip():
+        return False
+    if not str(properties.get('Connecting Points', '')).strip():
+        return False
+    if properties.get('phase') is not None and str(properties.get('phase', '')).strip():
+        return True
+    if properties.get('length_km') is not None:
+        return True
+    if properties.get('stations') is not None:
+        return True
+    return False
+
+
+def _transit_route_proposed_geojson_popup_text(properties):
+    """
+    Human-readable multiline popup for proposed metro/LRT route GeoJSON:
+    Name, connects, phase, length, station count, route mode (properties['type']), status.
+    Omits empty fields. Does not echo map paint keys (color, stroke, stroke-width).
+    """
+    if not isinstance(properties, dict):
+        properties = {}
+    lines = []
+    name = properties.get('Name')
+    if name is not None and str(name).strip():
+        lines.append(f"Name: {str(name).strip()}")
+    cp = properties.get('Connecting Points')
+    if cp is not None and str(cp).strip():
+        lines.append(f"Connects: {str(cp).strip()}")
+    phase = properties.get('phase')
+    if phase is not None and str(phase).strip():
+        lines.append(f"Phase: {str(phase).strip()}")
+    length_km = properties.get('length_km')
+    if length_km is not None and str(length_km).strip() != '':
+        try:
+            lines.append(f"Length: {float(length_km)} km")
+        except (TypeError, ValueError):
+            lines.append(f"Length: {length_km} km")
+    stations = properties.get('stations')
+    if stations is not None and str(stations).strip() != '':
+        lines.append(f"Stations: {stations}")
+    mode = properties.get('type')
+    if mode is not None and str(mode).strip():
+        lines.append(f"Route type: {str(mode).strip()}")
+    status = properties.get('status') or properties.get('Status')
+    if status is not None and str(status).strip():
+        lines.append(f"Status: {str(status).strip()}")
+    return '\n'.join(lines)
 
 
 def _highway_infra_legend_popup_text(properties):

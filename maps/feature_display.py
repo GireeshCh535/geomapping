@@ -6,7 +6,10 @@ from urllib.parse import quote
 
 from .feature_legend_display import (
     HIGHWAY_INFRASTRUCTURE_POPUP_SLUGS,
+    _generic_geojson_properties_popup_text,
     _highway_infra_legend_popup_text,
+    _is_transit_route_proposed_geojson,
+    _transit_route_proposed_geojson_popup_text,
 )
 
 # SVG template for fill color indicator (same as feature_legend_display.MASTERPLAN_FILL_COLOR_SVG)
@@ -29,7 +32,7 @@ def _get_fill_color(properties):
         return ''
     return (
         properties.get('fill_color') or properties.get('fillColor') or
-        properties.get('FillColor') or properties.get('color')
+        properties.get('FillColor') or properties.get('color') or properties.get('stroke')
     ) or ''
 
 
@@ -49,6 +52,12 @@ def get_feature_display_data(layer, feature):
     layer_name = getattr(layer, 'name', None) or ''
     fill_color = _get_fill_color(props)
     fill_uri = _fill_color_svg_data_uri(fill_color)
+
+    if _is_transit_route_proposed_geojson(props):
+        return {
+            'data': _transit_route_proposed_geojson_popup_text(props),
+            'fill_color': _fill_color_svg_data_uri(fill_color),
+        }
 
     if slug in HIGHWAY_INFRASTRUCTURE_POPUP_SLUGS:
         return {
@@ -198,6 +207,12 @@ def get_feature_display_data(layer, feature):
     if slug in ('visakhapatnam_master_plan', 'visakhapatnam_masterplan'):
         category = props.get('Category', '')
         return {'data': category, 'fill_color': fill_uri}
+
+    # Any other layer: all non-empty GeoJSON properties as labeled lines
+    data_multi = _generic_geojson_properties_popup_text(props)
+    if data_multi:
+        fill_color = _get_fill_color(props)
+        return {'data': data_multi, 'fill_color': _fill_color_svg_data_uri(fill_color)}
 
     # Generic: feature name or properties Name/name or layer name
     data = (
