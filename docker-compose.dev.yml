@@ -1,8 +1,7 @@
-version: '3.8'
-
 services:
   db:
     image: postgis/postgis:15-3.3
+    platform: linux/amd64
     environment:
       POSTGRES_DB: geo_mapping_db
       POSTGRES_USER: postgres

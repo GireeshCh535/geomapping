@@ -10,6 +10,7 @@ from .feature_legend_display import (
     _highway_infra_legend_popup_text,
     _is_transit_route_proposed_geojson,
     _transit_route_proposed_geojson_popup_text,
+    _vijayawada_metro_lrt_coordinate_search_popup_text,
 )
 
 # SVG template for fill color indicator (same as feature_legend_display.MASTERPLAN_FILL_COLOR_SVG)
@@ -52,6 +53,12 @@ def get_feature_display_data(layer, feature):
     layer_name = getattr(layer, 'name', None) or ''
     fill_color = _get_fill_color(props)
     fill_uri = _fill_color_svg_data_uri(fill_color)
+
+    if slug == 'vijayawada_metro_lrt':
+        return {
+            'data': _vijayawada_metro_lrt_coordinate_search_popup_text(props),
+            'fill_color': fill_uri,
+        }
 
     if _is_transit_route_proposed_geojson(props):
         return {

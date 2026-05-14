@@ -42,6 +42,7 @@ from ..feature_legend_display import (
     _is_transit_route_proposed_geojson,
     _masterplan_fill_color_svg_data_uri,
     _transit_route_proposed_geojson_popup_text,
+    _vijayawada_metro_lrt_coordinate_search_popup_text,
 )
 
 # `from ._imports import *` omits names starting with '_' (see importlib). Expose
@@ -52,6 +53,7 @@ highway_infra_legend_popup_text = _highway_infra_legend_popup_text
 generic_geojson_properties_popup_text = _generic_geojson_properties_popup_text
 is_transit_route_proposed_geojson = _is_transit_route_proposed_geojson
 transit_route_proposed_geojson_popup_text = _transit_route_proposed_geojson_popup_text
+vijayawada_metro_lrt_coordinate_search_popup_text = _vijayawada_metro_lrt_coordinate_search_popup_text
 
 import copy
 import logging

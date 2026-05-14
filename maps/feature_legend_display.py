@@ -203,6 +203,32 @@ def _transit_route_proposed_geojson_popup_text(properties):
     return '\n'.join(lines)
 
 
+def _vijayawada_metro_lrt_coordinate_search_popup_text(properties):
+    """
+    Coordinate-search `data` for layer vijayawada_metro_lrt only:
+    Name, Connecting Points, Status, Length (from length_km). Omits other transit fields.
+    """
+    if not isinstance(properties, dict):
+        properties = {}
+    lines = []
+    name = properties.get('Name')
+    if name is not None and str(name).strip():
+        lines.append(f"Name: {str(name).strip()}")
+    cp = properties.get('Connecting Points')
+    if cp is not None and str(cp).strip():
+        lines.append(f"Connecting Points: {str(cp).strip()}")
+    status = properties.get('status') or properties.get('Status')
+    if status is not None and str(status).strip():
+        lines.append(f"Status: {str(status).strip()}")
+    length_km = properties.get('length_km')
+    if length_km is not None and str(length_km).strip() != '':
+        try:
+            lines.append(f"Length: {float(length_km)} km")
+        except (TypeError, ValueError):
+            lines.append(f"Length: {length_km} km")
+    return '\n'.join(lines)
+
+
 def _highway_infra_legend_popup_text(properties):
     """
     Multiline legend popup: Name, Right of Way, Lane Configuration, Connects.

@@ -1316,6 +1316,24 @@ class CoordinateSearchTestView(APIView):
                             'all_layer_data': [feature_data],
                         }
 
+                    # Vijayawada Metro LRT: compact `data` only (Name, Connecting Points, Status, Length)
+                    elif layer.slug == 'vijayawada_metro_lrt':
+                        detailed_category = feature_data.get('detailed_category', {})
+                        properties = detailed_category.get('properties', {}) or {}
+                        data_string = vijayawada_metro_lrt_coordinate_search_popup_text(properties)
+                        fill_color = (
+                            properties.get('fill_color') or properties.get('fillColor') or
+                            properties.get('FillColor') or properties.get('color') or
+                            properties.get('stroke')
+                        ) or ''
+                        return {
+                            'data': data_string,
+                            'fill_color': masterplan_fill_color_svg_data_uri(fill_color),
+                            'found': True,
+                            'features': [feature_data],
+                            'all_layer_data': [feature_data],
+                        }
+
                     # Proposed metro/LRT routes (GeoJSON: phase, length_km, stations, …) — before highway-only legend
                     elif is_transit_route_proposed_geojson(
                         (feature_data.get('detailed_category') or {}).get('properties') or {}
@@ -2344,6 +2362,23 @@ class CoordinateSearchTestView(APIView):
                 regulation_type = properties.get('Regulation Type', '')
                 data_string = f"{name}, {regulation_type}".strip(', ')
                 fill_color = properties.get('HEX', '') or ''
+                return {
+                    'data': data_string,
+                    'fill_color': masterplan_fill_color_svg_data_uri(fill_color),
+                    'found': True,
+                    'features': containing_features[:1],
+                    'all_layer_data': containing_features,
+                }
+
+            if layer.slug == 'vijayawada_metro_lrt' and containing_features:
+                primary_feature = containing_features[0]
+                detailed_category = primary_feature.get('detailed_category', {})
+                properties = detailed_category.get('properties', {}) or {}
+                data_string = vijayawada_metro_lrt_coordinate_search_popup_text(properties)
+                fill_color = (
+                    properties.get('fill_color') or properties.get('fillColor') or
+                    properties.get('FillColor') or properties.get('color') or properties.get('stroke')
+                ) or ''
                 return {
                     'data': data_string,
                     'fill_color': masterplan_fill_color_svg_data_uri(fill_color),
