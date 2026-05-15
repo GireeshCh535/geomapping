@@ -729,6 +729,113 @@ class LayerListingLinksAPIView(APIView):
         )
 
 
+class LayerListingLinksExportAPIView(APIView):
+    """
+    GET LayerListingLink rows for land and plot only (no SyncedLand/SyncedPlot joins).
+
+    GET /api/layer-listing-links-export/
+    Query:
+      - layer_slug (optional): filter link.layer_slug
+      - source (optional): land | plot
+      - page (default 1)
+      - page_size (default 100, max 1000)
+
+    Each row is fields stored on LayerListingLink (layer_name via layer FK).
+    """
+    permission_classes = [AllowAny]
+
+    _MAX_PAGE_SIZE = 1000
+    _VALID_SOURCES = frozenset({'land', 'plot'})
+
+    @staticmethod
+    def _iso(dt):
+        return dt.isoformat() if dt is not None else None
+
+    def get(self, request):
+        from ..models import LayerListingLink
+
+        qs = (
+            LayerListingLink.objects.filter(source__in=self._VALID_SOURCES)
+            .select_related('layer')
+            .order_by('layer_id', 'source', 'distance_km', 'id')
+        )
+
+        layer_slug = (request.query_params.get('layer_slug') or '').strip()
+        if layer_slug:
+            qs = qs.filter(layer_slug=layer_slug)
+
+        src = (request.query_params.get('source') or '').strip().lower()
+        if src:
+            if src not in self._VALID_SOURCES:
+                return Response(
+                    {'error': f'Invalid source. Use one of: {sorted(self._VALID_SOURCES)}'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            qs = qs.filter(source=src)
+
+        try:
+            page_size = int(request.query_params.get('page_size', 100))
+        except (TypeError, ValueError):
+            page_size = 1000
+        page_size = min(self._MAX_PAGE_SIZE, max(1, page_size))
+
+        try:
+            page_num = int(request.query_params.get('page', 1))
+        except (TypeError, ValueError):
+            page_num = 1
+        page_num = max(1, page_num)
+
+        paginator = Paginator(qs, page_size)
+        try:
+            page_obj = paginator.page(page_num)
+        except EmptyPage:
+            return Response(
+                {
+                    'error': 'Invalid page',
+                    'total_pages': paginator.num_pages,
+                    'total': paginator.count,
+                },
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        rows = []
+        for link in page_obj.object_list:
+            layer = link.layer
+            rows.append(
+                {
+                    'layer_name': layer.name if layer is not None else '',
+                    'layer_slug': link.layer_slug,
+                    'source': link.source,
+                    'backend_id': link.backend_id,
+                    'distance_km': link.distance_km,
+                    'nearest_point': link.nearest_point,
+                    'enriched_at': self._iso(link.enriched_at),
+                }
+            )
+
+        base = request.build_absolute_uri(request.path)
+
+        def _link_for_page(p):
+            q = request.query_params.copy()
+            q['page_size'] = str(page_size)
+            q['page'] = str(p)
+            return f"{base}?{q.urlencode()}"
+
+        return Response(
+            {
+                'count': len(rows),
+                'total': paginator.count,
+                'page': page_obj.number,
+                'page_size': page_size,
+                'total_pages': paginator.num_pages,
+                'next': _link_for_page(page_obj.next_page_number()) if page_obj.has_next() else None,
+                'previous': _link_for_page(page_obj.previous_page_number()) if page_obj.has_previous() else None,
+                'results': rows,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
 class DeveloperListingMediaDetailAPIView(APIView):
     """
     API endpoint to retrieve detailed information about a specific media file
