@@ -67,7 +67,10 @@ HIGHWAY_CORRIDOR_PROPERTY_SLUGS = frozenset({
     'kanpur_kabrai_highway',
     'agra_gwalior_expressway',
     'gorakhpur_siliguri_expressway',
-    'ghazipur_ballia_expressway'
+    'ghazipur_ballia_expressway',
+    # set30 line-styled roads
+    'sardar_patel_ring_road',
+    'sohna_elevated_road',
 })
 
 # Coastal roads, expressways, sea links, bridges, corridors — same legend popup as greenfield corridors
@@ -118,6 +121,7 @@ AIRPORT_POLYGON_FILL_FROM_GEOJSON_SLUGS = frozenset({
     'new_parandur_airport',
     'new_purandar_airport_spa',
     'new_purandar_airport',
+    'navi_mumbai_international_airport',
 })
 
 
@@ -298,7 +302,7 @@ def _highway_infra_legend_popup_text(properties):
         lanes = properties.get('Lanes')
     if not _lane_configuration_omit_from_legend(lanes):
         lines.append(f'Lane Configuration: {str(lanes).strip()}')
-    cp = properties.get('Connecting Points')
+    cp = properties.get('Connecting Points') or properties.get('Cntg_Pts')
     if cp is not None and str(cp).strip():
         lines.append(f'Connects: {str(cp).strip()}')
     length_val = properties.get('Length')
