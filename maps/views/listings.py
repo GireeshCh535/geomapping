@@ -565,19 +565,57 @@ class LayerListingLinksAPIView(APIView):
 
     GET /api/layers/<layer_slug>/listing-links/
     Query:
-      - source (optional): land | plot | developer_land | developer_plot
+      - source (optional): one or more of land, plot, developer_land, developer_plot — comma-separated in one param (e.g. source=land,plot) and/or repeated source= params
       - distance_km (optional): maximum distance in km — rows with distance_km <= this value (0 = inside layer)
+      - ordering (optional): sort field; default source, distance_km, id. Listing metrics use columns denormalized on LayerListingLink (see _ORDER_MAP).
       - page (default 1)
       - page_size (default 10, max 100)
 
-    Only returns links where the denormalized listing is status=active and exposure_type=public (case-insensitive).
+    Listing sort fields (price, size, dates) read denormalized columns on LayerListingLink; run
+    ``python manage.py backfill_listing_order_metrics`` after deploy if existing rows predate those columns.
 
-    Each result includes the corresponding Synced* row as `listing` (payload, enriched_layers, etc.), same shape as POST /api/enrichment-lookup/.
+    Each result includes denormalized ``created_at``, ``updated_at``, and order metrics (lakhs / acres)
+    from the link row, plus the corresponding Synced* row as ``listing`` (same shape as POST /api/enrichment-lookup/).
     """
     permission_classes = [AllowAny]
 
+    @staticmethod
+    def _iso_dt(value):
+        return value.isoformat() if value is not None else None
+
     _MAX_PAGE_SIZE = 100
     _VALID_SOURCES = frozenset({'land', 'plot', 'developer_land', 'developer_plot'})
+
+    _ORDER_MAP = {
+        '-created_at': '-listing_created_at',
+        'created_at': 'listing_created_at',
+        'updated_at': 'listing_updated_at',
+        '-updated_at': '-listing_updated_at',
+        'uploaded_date': 'listing_created_at',
+        '-uploaded_date': '-listing_created_at',
+        'total_size_in_acres': 'order_total_size_in_acres',
+        '-total_size_in_acres': '-order_total_size_in_acres',
+        'total_price_in_lakhs': 'order_total_price_in_lakhs',
+        '-total_price_in_lakhs': '-order_total_price_in_lakhs',
+        'price_per_acre_in_lakhs': 'order_price_per_acre_in_lakhs',
+        '-price_per_acre_in_lakhs': '-order_price_per_acre_in_lakhs',
+        'price_per_acre': 'order_price_per_acre_in_lakhs',
+        '-price_per_acre': '-order_price_per_acre_in_lakhs',
+        'total_price': 'order_total_price_in_lakhs',
+        '-total_price': '-order_total_price_in_lakhs',
+        'price': 'order_total_price_in_lakhs',
+        '-price': '-order_total_price_in_lakhs',
+        'size': 'order_total_size_in_acres',
+        '-size': '-order_total_size_in_acres',
+        'distance_km': 'distance_km',
+        '-distance_km': '-distance_km',
+        'source': 'source',
+        '-source': '-source',
+        'id': 'id',
+        '-id': '-id',
+        'backend_id': 'backend_id',
+        '-backend_id': '-backend_id',
+    }
 
     @staticmethod
     def _resolve_layer(layer_slug):
@@ -627,20 +665,48 @@ class LayerListingLinksAPIView(APIView):
         if err is not None:
             return err
 
-        qs = (
-            LayerListingLink.objects.filter(layer_id=layer.pk)
-            .filter(status__iexact='active', exposure_type__iexact='public')
-            .order_by('source', 'distance_km', 'id')
+        qs = LayerListingLink.objects.filter(layer_id=layer.pk).filter(
+            status__iexact='active', exposure_type__iexact='public'
         )
 
-        src = (request.query_params.get('source') or '').strip().lower()
-        if src:
-            if src not in self._VALID_SOURCES:
+        source_raw_chunks = request.query_params.getlist('source')
+        parts = []
+        for chunk in source_raw_chunks:
+            chunk = (chunk or '').strip().lower()
+            parts.extend(p.strip() for p in chunk.split(',') if p.strip())
+        sources = []
+        seen = set()
+        for p in parts:
+            if p not in seen:
+                seen.add(p)
+                sources.append(p)
+        if sources:
+            invalid = [p for p in sources if p not in self._VALID_SOURCES]
+            if invalid:
                 return Response(
-                    {'error': f'Invalid source. Use one of: {sorted(self._VALID_SOURCES)}'},
+                    {
+                        'error': 'Invalid source value(s). Each token must be one of the allowed sources.',
+                        'invalid': invalid,
+                        'allowed': sorted(self._VALID_SOURCES),
+                    },
                     status=status.HTTP_400_BAD_REQUEST,
                 )
-            qs = qs.filter(source=src)
+            qs = qs.filter(source__in=sources)
+
+        ordering_raw = (request.query_params.get('ordering') or '').strip()
+        if ordering_raw:
+            order_expr = self._ORDER_MAP.get(ordering_raw)
+            if order_expr is None:
+                return Response(
+                    {
+                        'error': 'Invalid ordering.',
+                        'allowed': sorted(self._ORDER_MAP.keys()),
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            qs = qs.order_by(order_expr, 'id')
+        else:
+            qs = qs.order_by('source', 'distance_km', 'id')
 
         dist_raw = (request.query_params.get('distance_km') or '').strip()
         if dist_raw:
@@ -687,7 +753,6 @@ class LayerListingLinksAPIView(APIView):
 
         rows = []
         for link in page_obj.object_list:
-            ts = link.enriched_at
             rows.append(
                 {
                     'source': link.source,
@@ -698,7 +763,12 @@ class LayerListingLinksAPIView(APIView):
                     'layer_slug': link.layer_slug,
                     'distance_km': link.distance_km,
                     'nearest_point': link.nearest_point,
-                    'enriched_at': ts.isoformat() if ts is not None else None,
+                    'enriched_at': self._iso_dt(link.enriched_at),
+                    'created_at': self._iso_dt(link.listing_created_at),
+                    'updated_at': self._iso_dt(link.listing_updated_at),
+                    'total_price_in_lakhs': link.order_total_price_in_lakhs,
+                    'total_size_in_acres': link.order_total_size_in_acres,
+                    'price_per_acre_in_lakhs': link.order_price_per_acre_in_lakhs,
                     'listing': listing_map.get((link.source, link.listing_pk)),
                 }
             )
@@ -716,113 +786,6 @@ class LayerListingLinksAPIView(APIView):
                 'layer_id': layer.pk,
                 'layer_slug': layer.slug,
                 'city_slug': layer.city.slug,
-                'count': len(rows),
-                'total': paginator.count,
-                'page': page_obj.number,
-                'page_size': page_size,
-                'total_pages': paginator.num_pages,
-                'next': _link_for_page(page_obj.next_page_number()) if page_obj.has_next() else None,
-                'previous': _link_for_page(page_obj.previous_page_number()) if page_obj.has_previous() else None,
-                'results': rows,
-            },
-            status=status.HTTP_200_OK,
-        )
-
-
-class LayerListingLinksExportAPIView(APIView):
-    """
-    GET LayerListingLink rows for land and plot only (no SyncedLand/SyncedPlot joins).
-
-    GET /api/layer-listing-links-export/
-    Query:
-      - layer_slug (optional): filter link.layer_slug
-      - source (optional): land | plot
-      - page (default 1)
-      - page_size (default 100, max 1000)
-
-    Each row is fields stored on LayerListingLink (layer_name via layer FK).
-    """
-    permission_classes = [AllowAny]
-
-    _MAX_PAGE_SIZE = 1000
-    _VALID_SOURCES = frozenset({'land', 'plot'})
-
-    @staticmethod
-    def _iso(dt):
-        return dt.isoformat() if dt is not None else None
-
-    def get(self, request):
-        from ..models import LayerListingLink
-
-        qs = (
-            LayerListingLink.objects.filter(source__in=self._VALID_SOURCES)
-            .select_related('layer')
-            .order_by('layer_id', 'source', 'distance_km', 'id')
-        )
-
-        layer_slug = (request.query_params.get('layer_slug') or '').strip()
-        if layer_slug:
-            qs = qs.filter(layer_slug=layer_slug)
-
-        src = (request.query_params.get('source') or '').strip().lower()
-        if src:
-            if src not in self._VALID_SOURCES:
-                return Response(
-                    {'error': f'Invalid source. Use one of: {sorted(self._VALID_SOURCES)}'},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-            qs = qs.filter(source=src)
-
-        try:
-            page_size = int(request.query_params.get('page_size', 100))
-        except (TypeError, ValueError):
-            page_size = 1000
-        page_size = min(self._MAX_PAGE_SIZE, max(1, page_size))
-
-        try:
-            page_num = int(request.query_params.get('page', 1))
-        except (TypeError, ValueError):
-            page_num = 1
-        page_num = max(1, page_num)
-
-        paginator = Paginator(qs, page_size)
-        try:
-            page_obj = paginator.page(page_num)
-        except EmptyPage:
-            return Response(
-                {
-                    'error': 'Invalid page',
-                    'total_pages': paginator.num_pages,
-                    'total': paginator.count,
-                },
-                status=status.HTTP_404_NOT_FOUND,
-            )
-
-        rows = []
-        for link in page_obj.object_list:
-            layer = link.layer
-            rows.append(
-                {
-                    'layer_name': layer.name if layer is not None else '',
-                    'layer_slug': link.layer_slug,
-                    'source': link.source,
-                    'backend_id': link.backend_id,
-                    'distance_km': link.distance_km,
-                    'nearest_point': link.nearest_point,
-                    'enriched_at': self._iso(link.enriched_at),
-                }
-            )
-
-        base = request.build_absolute_uri(request.path)
-
-        def _link_for_page(p):
-            q = request.query_params.copy()
-            q['page_size'] = str(page_size)
-            q['page'] = str(p)
-            return f"{base}?{q.urlencode()}"
-
-        return Response(
-            {
                 'count': len(rows),
                 'total': paginator.count,
                 'page': page_obj.number,
