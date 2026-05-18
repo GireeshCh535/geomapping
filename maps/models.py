@@ -1210,13 +1210,14 @@ class WebhookEvent(models.Model):
         ('developer_listing_created', 'Developer Listing Created'),
         ('developer_listing_updated', 'Developer Listing Updated'),
         ('developer_listing_media_uploaded', 'Media Uploaded'),
+        ('developer_listing_media_updated', 'Media Updated'),
         ('developer_listing_media_deleted', 'Media Deleted'),
         ('developer_listing_listing_deleted', 'Listing Deleted'),
     ]
     
     # Event identification
     event_type = models.CharField(max_length=50, choices=EVENT_TYPES)
-    action = models.CharField(max_length=50, blank=True, help_text='Action: created, updated, media_uploaded, media_deleted, listing_deleted')
+    action = models.CharField(max_length=50, blank=True, help_text='Action: created, updated, media_uploaded, media_updated, media_deleted, listing_deleted')
     
     # Listing information
     listing_type = models.CharField(max_length=20)

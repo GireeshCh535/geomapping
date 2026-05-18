@@ -400,7 +400,7 @@ def _process_developer_listing_webhook(webhook_event_id):
                 }
             )
 
-        if action in ['updated', 'media_uploaded'] and webhook_media_ids:
+        if action in ['updated', 'media_uploaded', 'media_updated'] and webhook_media_ids:
             existing_media = DeveloperListingMedia.objects.filter(listing=listing)
             for existing_media_obj in existing_media:
                 if existing_media_obj.backend_media_id not in webhook_media_ids:
@@ -657,6 +657,7 @@ class DeveloperListingMediaWebhookView(APIView):
                 'developer_listing_created',
                 'developer_listing_updated',
                 'developer_listing_media_uploaded',
+                'developer_listing_media_updated',
                 'developer_listing_media_deleted',
                 'developer_listing_listing_deleted'
             ]

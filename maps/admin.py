@@ -1165,6 +1165,7 @@ class WebhookEventAdmin(AuditFieldsMixin, admin.ModelAdmin):
             "developer_listing_created": "#28a745",  # Green
             "developer_listing_updated": "#17a2b8",  # Blue
             "developer_listing_media_uploaded": "#007bff",  # Primary blue
+            "developer_listing_media_updated": "#0056b3",  # Darker blue
             "developer_listing_media_deleted": "#dc3545",  # Red
             "developer_listing_listing_deleted": "#721c24",  # Dark red
         }
@@ -1186,6 +1187,7 @@ class WebhookEventAdmin(AuditFieldsMixin, admin.ModelAdmin):
             "created": "#28a745",
             "updated": "#17a2b8",
             "media_uploaded": "#007bff",
+            "media_updated": "#0056b3",
             "media_deleted": "#dc3545",
             "listing_deleted": "#721c24",
         }
