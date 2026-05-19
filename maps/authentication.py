@@ -64,8 +64,6 @@ def path_disallows_api_key_domain_fallback(request) -> bool:
         return True
     if p.startswith('layer-point-counts/'):
         return True
-    if p.startswith('layer-listing-links/') or p.startswith('layer-listing-links-export/'):
-        return True
     return False
 
 

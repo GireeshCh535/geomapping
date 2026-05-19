@@ -10,10 +10,15 @@ Used by:
 
 All data is stored: each defaults_* function sets payload=<full item> so the
 complete API response or webhook listing_data is persisted in the Synced* payload JSONField.
+
+Each defaults_* also sets order_total_price_in_lakhs, order_total_size_in_acres, and
+order_price_per_acre_in_lakhs (see maps.listing_order_metrics) for cheap API ordering.
 """
 
 from django.utils.dateparse import parse_datetime
 from django.contrib.gis.geos import Point
+
+from maps.listing_order_metrics import land_order_metrics, plot_order_metrics
 
 
 def _f(v, default=None):
@@ -124,6 +129,7 @@ def defaults_for_land(item):
     pt = _point_from_lat_lng(lat, lng)
     if pt is not None:
         out['location_point'] = pt
+    out.update(land_order_metrics(out.get('total_price'), out.get('total_land_size')))
     return out
 
 
@@ -159,6 +165,7 @@ def defaults_for_plot(item):
     pt = _point_from_lat_lng(lat, lng)
     if pt is not None:
         out['location_point'] = pt
+    out.update(plot_order_metrics(out.get('total_price'), out.get('total_plot_size')))
     return out
 
 
@@ -193,6 +200,7 @@ def defaults_for_developer_land(item):
     pt = _point_from_lat_lng(lat, lng)
     if pt is not None:
         out['location_point'] = pt
+    out.update(land_order_metrics(out.get('total_price'), out.get('total_land_size')))
     return out
 
 
@@ -235,4 +243,5 @@ def defaults_for_developer_plot(item):
     pt = _point_from_lat_lng(lat, lng)
     if pt is not None:
         out['location_point'] = pt
+    out.update(plot_order_metrics(out.get('total_price'), out.get('total_plot_size')))
     return out

@@ -263,6 +263,11 @@ class LayerListingLinkAdmin(admin.ModelAdmin):
         "source",
         "listing_pk",
         "backend_id",
+        "order_total_price_in_lakhs",
+        "order_total_size_in_acres",
+        "order_price_per_acre_in_lakhs",
+        "listing_created_at",
+        "listing_updated_at",
         "status",
         "exposure_type",
         "distance_km",
@@ -283,6 +288,44 @@ class LayerListingLinkAdmin(admin.ModelAdmin):
         "distance_km",
         "nearest_point",
         "enriched_at",
+        "order_total_price_in_lakhs",
+        "order_total_size_in_acres",
+        "order_price_per_acre_in_lakhs",
+        "listing_created_at",
+        "listing_updated_at",
+    )
+    ordering = ("-listing_updated_at", "-id")
+    fieldsets = (
+        (
+            None,
+            {
+                "fields": (
+                    "layer",
+                    "source",
+                    "listing_pk",
+                    "backend_id",
+                    "status",
+                    "exposure_type",
+                    "layer_slug",
+                    "distance_km",
+                    "nearest_point",
+                    "enriched_at",
+                )
+            },
+        ),
+        (
+            "API ordering (denormalized from listing)",
+            {
+                "fields": (
+                    "order_total_price_in_lakhs",
+                    "order_total_size_in_acres",
+                    "order_price_per_acre_in_lakhs",
+                    "listing_created_at",
+                    "listing_updated_at",
+                ),
+                "description": "Used by listing-links ordering. Filled on sync / enrichment; backfill with backfill_listing_order_metrics.",
+            },
+        ),
     )
 
     def has_add_permission(self, request):
@@ -1122,6 +1165,7 @@ class WebhookEventAdmin(AuditFieldsMixin, admin.ModelAdmin):
             "developer_listing_created": "#28a745",  # Green
             "developer_listing_updated": "#17a2b8",  # Blue
             "developer_listing_media_uploaded": "#007bff",  # Primary blue
+            "developer_listing_media_updated": "#0056b3",  # Darker blue
             "developer_listing_media_deleted": "#dc3545",  # Red
             "developer_listing_listing_deleted": "#721c24",  # Dark red
         }
@@ -1143,6 +1187,7 @@ class WebhookEventAdmin(AuditFieldsMixin, admin.ModelAdmin):
             "created": "#28a745",
             "updated": "#17a2b8",
             "media_uploaded": "#007bff",
+            "media_updated": "#0056b3",
             "media_deleted": "#dc3545",
             "listing_deleted": "#721c24",
         }
@@ -1391,18 +1436,27 @@ class SyncedLandAdmin(admin.ModelAdmin):
     """Land data from GET /lands/. Columns + payload + enrichment."""
     list_display = (
         "id", "backend_id", "lat", "long", "status", "total_land_size", "total_price",
-        "enriched_at", "synced_at",
+        "order_total_price_in_lakhs", "order_total_size_in_acres", "order_price_per_acre_in_lakhs",
+        "updated_at", "enriched_at", "synced_at",
     )
     list_filter = ("status", "synced_at", "enriched_at")
     search_fields = ("backend_id", "slug", "status")
     readonly_fields = (
         "backend_id", "lat", "long", "slug", "status", "price_per_acre", "total_land_size", "total_price",
         "created_at", "updated_at", "exposure_type", "seller_type", "zone_type", "is_exact", "approach_road_length",
+        "order_total_price_in_lakhs", "order_total_size_in_acres", "order_price_per_acre_in_lakhs",
         "payload", "synced_at", "location_point", "enriched_layers", "enriched_at",
     )
     fieldsets = (
         ("Identity", {"fields": ("backend_id", "synced_at")}),
         ("Columns", {"fields": ("lat", "long", "slug", "status", "price_per_acre", "total_land_size", "total_price", "created_at", "updated_at", "exposure_type", "seller_type", "zone_type", "is_exact", "approach_road_length")}),
+        (
+            "API ordering (denormalized)",
+            {
+                "fields": ("order_total_price_in_lakhs", "order_total_size_in_acres", "order_price_per_acre_in_lakhs"),
+                "description": "Lakhs / acres / lakhs-per-acre for listing-links sort. Set on sync; run backfill_listing_order_metrics for legacy rows.",
+            },
+        ),
         ("Enrichment", {"fields": ("location_point", "enriched_layers", "enriched_at"), "description": "Layer overlap/nearby (0–30 km). Filled by enrich_listing_layers."}),
         ("API payload", {"fields": ("payload",)}),
     )
@@ -1414,18 +1468,27 @@ class SyncedPlotAdmin(admin.ModelAdmin):
     """Plot data from GET /plots/. Columns + payload + enrichment."""
     list_display = (
         "id", "backend_id", "lat", "long", "status", "total_plot_size", "total_price",
-        "enriched_at", "synced_at",
+        "order_total_price_in_lakhs", "order_total_size_in_acres", "order_price_per_acre_in_lakhs",
+        "updated_at", "enriched_at", "synced_at",
     )
     list_filter = ("status", "synced_at", "enriched_at")
     search_fields = ("backend_id", "slug", "status")
     readonly_fields = (
         "backend_id", "lat", "long", "slug", "status", "total_plot_size", "total_price", "price_per_square_yard",
         "created_at", "updated_at", "exposure_type", "seller_type", "zone_type", "is_exact", "abutting_road_length",
+        "order_total_price_in_lakhs", "order_total_size_in_acres", "order_price_per_acre_in_lakhs",
         "payload", "synced_at", "location_point", "enriched_layers", "enriched_at",
     )
     fieldsets = (
         ("Identity", {"fields": ("backend_id", "synced_at")}),
         ("Columns", {"fields": ("lat", "long", "slug", "status", "total_plot_size", "total_price", "price_per_square_yard", "created_at", "updated_at", "exposure_type", "seller_type", "zone_type", "is_exact", "abutting_road_length")}),
+        (
+            "API ordering (denormalized)",
+            {
+                "fields": ("order_total_price_in_lakhs", "order_total_size_in_acres", "order_price_per_acre_in_lakhs"),
+                "description": "Normalized to lakhs / acres / lakhs-per-acre for listing-links sort. Set on sync; run backfill_listing_order_metrics for legacy rows.",
+            },
+        ),
         ("Enrichment", {"fields": ("location_point", "enriched_layers", "enriched_at"), "description": "Layer overlap/nearby (0–30 km). Filled by enrich_listing_layers."}),
         ("API payload", {"fields": ("payload",)}),
     )
@@ -1437,18 +1500,27 @@ class SyncedDeveloperLandAdmin(admin.ModelAdmin):
     """Developer Land from GET /developer-lands-listings/. Columns + payload + enrichment."""
     list_display = (
         "id", "backend_id", "status", "deal_type", "total_land_size", "total_price",
-        "enriched_at", "synced_at",
+        "order_total_price_in_lakhs", "order_total_size_in_acres", "order_price_per_acre_in_lakhs",
+        "updated_at", "enriched_at", "synced_at",
     )
     list_filter = ("status", "deal_type", "synced_at", "enriched_at")
     search_fields = ("backend_id", "marker_title", "location", "status")
     readonly_fields = (
         "backend_id", "status", "location", "deal_type", "total_land_size", "total_price", "price_per_acre",
         "created_at", "updated_at", "exposure_type", "marker_title", "description",
+        "order_total_price_in_lakhs", "order_total_size_in_acres", "order_price_per_acre_in_lakhs",
         "payload", "synced_at", "location_point", "enriched_layers", "enriched_at",
     )
     fieldsets = (
         ("Identity", {"fields": ("backend_id", "synced_at")}),
         ("Columns", {"fields": ("status", "location", "deal_type", "total_land_size", "total_price", "price_per_acre", "created_at", "updated_at", "exposure_type", "marker_title", "description")}),
+        (
+            "API ordering (denormalized)",
+            {
+                "fields": ("order_total_price_in_lakhs", "order_total_size_in_acres", "order_price_per_acre_in_lakhs"),
+                "description": "Lakhs / acres / lakhs-per-acre for listing-links sort. Set on sync; run backfill_listing_order_metrics for legacy rows.",
+            },
+        ),
         ("Enrichment", {"fields": ("location_point", "enriched_layers", "enriched_at"), "description": "Layer overlap/nearby (0–30 km). Filled by enrich_listing_layers."}),
         ("API payload", {"fields": ("payload",)}),
     )
@@ -1460,18 +1532,27 @@ class SyncedDeveloperPlotAdmin(admin.ModelAdmin):
     """Developer Plot from GET /developer-plots-listings/. Columns + payload + enrichment."""
     list_display = (
         "id", "backend_id", "status", "deal_type", "total_plot_size", "total_price",
-        "enriched_at", "synced_at",
+        "order_total_price_in_lakhs", "order_total_size_in_acres", "order_price_per_acre_in_lakhs",
+        "updated_at", "enriched_at", "synced_at",
     )
     list_filter = ("status", "deal_type", "synced_at", "enriched_at")
     search_fields = ("backend_id", "marker_title", "location", "status")
     readonly_fields = (
         "backend_id", "status", "location", "deal_type", "total_plot_size", "total_price", "price_per_square_yard",
         "created_at", "updated_at", "exposure_type", "marker_title", "description",
+        "order_total_price_in_lakhs", "order_total_size_in_acres", "order_price_per_acre_in_lakhs",
         "payload", "synced_at", "location_point", "enriched_layers", "enriched_at",
     )
     fieldsets = (
         ("Identity", {"fields": ("backend_id", "synced_at")}),
         ("Columns", {"fields": ("status", "location", "deal_type", "total_plot_size", "total_price", "price_per_square_yard", "created_at", "updated_at", "exposure_type", "marker_title", "description")}),
+        (
+            "API ordering (denormalized)",
+            {
+                "fields": ("order_total_price_in_lakhs", "order_total_size_in_acres", "order_price_per_acre_in_lakhs"),
+                "description": "Normalized to lakhs / acres / lakhs-per-acre for listing-links sort. Set on sync; run backfill_listing_order_metrics for legacy rows.",
+            },
+        ),
         ("Enrichment", {"fields": ("location_point", "enriched_layers", "enriched_at"), "description": "Layer overlap/nearby (0–30 km). Filled by enrich_listing_layers."}),
         ("API payload", {"fields": ("payload",)}),
     )

@@ -568,6 +568,12 @@ class LayerListingLink(models.Model):
     distance_km = models.FloatField(help_text='0 = inside layer geometry; else distance to layer in km')
     nearest_point = models.JSONField(null=True, blank=True)
     enriched_at = models.DateTimeField()
+    # Denormalized from Synced* at link materialization time (API ordering on layer listing-links).
+    order_total_price_in_lakhs = models.FloatField(null=True, blank=True)
+    order_total_size_in_acres = models.FloatField(null=True, blank=True)
+    order_price_per_acre_in_lakhs = models.FloatField(null=True, blank=True)
+    listing_created_at = models.DateTimeField(null=True, blank=True)
+    listing_updated_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         db_table = 'maps_layer_listing_link'
@@ -581,6 +587,8 @@ class LayerListingLink(models.Model):
             models.Index(fields=['layer', 'source']),
             models.Index(fields=['source', 'listing_pk']),
             models.Index(fields=['layer', 'status'], name='maps_layer_ll_layer_status_idx'),
+            models.Index(fields=['layer', 'order_total_price_in_lakhs'], name='maps_layer_ll_ord_price_idx'),
+            models.Index(fields=['layer', 'listing_updated_at'], name='maps_layer_ll_lst_upd_idx'),
         ]
 
     def __str__(self):
@@ -1202,13 +1210,14 @@ class WebhookEvent(models.Model):
         ('developer_listing_created', 'Developer Listing Created'),
         ('developer_listing_updated', 'Developer Listing Updated'),
         ('developer_listing_media_uploaded', 'Media Uploaded'),
+        ('developer_listing_media_updated', 'Media Updated'),
         ('developer_listing_media_deleted', 'Media Deleted'),
         ('developer_listing_listing_deleted', 'Listing Deleted'),
     ]
     
     # Event identification
     event_type = models.CharField(max_length=50, choices=EVENT_TYPES)
-    action = models.CharField(max_length=50, blank=True, help_text='Action: created, updated, media_uploaded, media_deleted, listing_deleted')
+    action = models.CharField(max_length=50, blank=True, help_text='Action: created, updated, media_uploaded, media_updated, media_deleted, listing_deleted')
     
     # Listing information
     listing_type = models.CharField(max_length=20)
@@ -1372,6 +1381,10 @@ class SyncedLand(models.Model):
         help_text='Unified list: layer_id, layer_slug, layer_type, distance_km, optional nearest_point (GeoJSON Point on layer closest to listing)'
     )
     enriched_at = models.DateTimeField(null=True, blank=True)
+    # Denormalized from total_price / total_land_size for API ordering (see maps.listing_order_metrics).
+    order_total_price_in_lakhs = models.FloatField(null=True, blank=True)
+    order_total_size_in_acres = models.FloatField(null=True, blank=True)
+    order_price_per_acre_in_lakhs = models.FloatField(null=True, blank=True)
 
     class Meta:
         db_table = 'synced_land'
@@ -1417,6 +1430,9 @@ class SyncedPlot(models.Model):
         help_text='Unified list: layer_id, layer_slug, layer_type, distance_km, optional nearest_point (GeoJSON Point on layer closest to listing)'
     )
     enriched_at = models.DateTimeField(null=True, blank=True)
+    order_total_price_in_lakhs = models.FloatField(null=True, blank=True)
+    order_total_size_in_acres = models.FloatField(null=True, blank=True)
+    order_price_per_acre_in_lakhs = models.FloatField(null=True, blank=True)
 
     class Meta:
         db_table = 'synced_plot'
@@ -1457,6 +1473,9 @@ class SyncedDeveloperLand(models.Model):
         help_text='Unified list: layer_id, layer_slug, layer_type, distance_km, optional nearest_point (GeoJSON Point on layer closest to listing)'
     )
     enriched_at = models.DateTimeField(null=True, blank=True)
+    order_total_price_in_lakhs = models.FloatField(null=True, blank=True)
+    order_total_size_in_acres = models.FloatField(null=True, blank=True)
+    order_price_per_acre_in_lakhs = models.FloatField(null=True, blank=True)
 
     class Meta:
         db_table = 'synced_developer_land'
@@ -1496,6 +1515,9 @@ class SyncedDeveloperPlot(models.Model):
         help_text='Unified list: layer_id, layer_slug, layer_type, distance_km, optional nearest_point (GeoJSON Point on layer closest to listing)'
     )
     enriched_at = models.DateTimeField(null=True, blank=True)
+    order_total_price_in_lakhs = models.FloatField(null=True, blank=True)
+    order_total_size_in_acres = models.FloatField(null=True, blank=True)
+    order_price_per_acre_in_lakhs = models.FloatField(null=True, blank=True)
 
     class Meta:
         db_table = 'synced_developer_plot'

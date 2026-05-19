@@ -24,6 +24,7 @@ from django.db.models import Exists, FloatField, OuterRef, Q
 from django.db.models.expressions import RawSQL
 from django.db.models.functions import Cast
 
+from maps.listing_order_metrics import layer_link_denormalized_order_fields
 from maps.models import (
     DeveloperListing,
     DataLayer,
@@ -77,11 +78,14 @@ def sync_layer_listing_links(
     now=None,
     status='',
     exposure_type='',
+    link_order=None,
 ):
     """
     Replace all LayerListingLink rows for this listing with edges parsed from enriched_layers.
     When enriched_layers is empty, only deletes existing rows.
     status and exposure_type are denormalized from the Synced* listing row (same value on each edge).
+    link_order: optional dict with order_total_*_in_lakhs / acres, listing_created_at, listing_updated_at
+    (from layer_link_denormalized_order_fields); copied onto each LayerListingLink row.
     Entries whose layer_id does not exist on DataLayer are skipped (stale JSON after layer deletes).
     """
     if now is None:
@@ -137,6 +141,7 @@ def sync_layer_listing_links(
     valid_layer_ids = set(
         DataLayer.objects.filter(pk__in=layer_ids).values_list('pk', flat=True)
     )
+    lo = link_order if isinstance(link_order, dict) else {}
     rows = []
     for lid, dist, slug, np in candidates:
         if lid not in valid_layer_ids:
@@ -153,6 +158,11 @@ def sync_layer_listing_links(
                 distance_km=dist,
                 nearest_point=np,
                 enriched_at=now,
+                order_total_price_in_lakhs=lo.get('order_total_price_in_lakhs'),
+                order_total_size_in_acres=lo.get('order_total_size_in_acres'),
+                order_price_per_acre_in_lakhs=lo.get('order_price_per_acre_in_lakhs'),
+                listing_created_at=lo.get('listing_created_at'),
+                listing_updated_at=lo.get('listing_updated_at'),
             )
         )
     if rows:
@@ -173,6 +183,7 @@ def refresh_layer_listing_links_from_stored_enrichment(record, update_layer_list
             record.enriched_layers or [],
             status=st,
             exposure_type=ex,
+            link_order=layer_link_denormalized_order_fields(record),
         )
 
 
@@ -189,7 +200,13 @@ def _flush_synced_enrich_batch(batch, update_layer_listing_links: bool = True):
     for rec in batch:
         st, ex = layer_link_status_exposure_from_record(rec)
         sync_layer_listing_links(
-            src, rec.pk, rec.backend_id, rec.enriched_layers or [], status=st, exposure_type=ex
+            src,
+            rec.pk,
+            rec.backend_id,
+            rec.enriched_layers or [],
+            status=st,
+            exposure_type=ex,
+            link_order=layer_link_denormalized_order_fields(rec),
         )
 
 
@@ -206,7 +223,13 @@ def _flush_synced_clear_batch(clear_batch, update_layer_listing_links: bool = Tr
     for rec in clear_batch:
         st, ex = layer_link_status_exposure_from_record(rec)
         sync_layer_listing_links(
-            src, rec.pk, rec.backend_id, rec.enriched_layers or [], status=st, exposure_type=ex
+            src,
+            rec.pk,
+            rec.backend_id,
+            rec.enriched_layers or [],
+            status=st,
+            exposure_type=ex,
+            link_order=layer_link_denormalized_order_fields(rec),
         )
 
 

@@ -28,11 +28,7 @@ urlpatterns = [
     path('layers/<slug:layer_slug>/listing-links/',
          views.LayerListingLinksAPIView.as_view(),
          name='layer_listing_links'),
-     # All land/plot LayerListingLink rows (layer metadata + synced listing timestamps)
-     path('layer-listing-links-export/',
-         views.LayerListingLinksExportAPIView.as_view(),
-         name='layer_listing_links_export'),
-
+    
     # Layer bounds API - Get bounds for a specific layer based on actual data
     path('layers/<slug:state_slug>/<slug:city_slug>/<slug:layer_slug>/bounds/',
          views.LayerBoundsAPIView.as_view(), name='layer_bounds'),

@@ -2,6 +2,9 @@
 Rebuild maps_layer_listing_link from enriched_layers on Synced* tables only.
 
 Run after enrich_listing_layers or to repair drift. Uses stored JSON only (no spatial recompute).
+After adding order denormalization columns (migrate 0047), run backfill_listing_order_metrics so
+LayerListingLink rows get order_* / listing_* timestamps; or rely on this command to refresh links
+(which calls refresh_layer_listing_links_from_stored_enrichment and copies metrics from each Synced* row).
 
 Usage:
   python manage.py materialize_layer_listing_links
