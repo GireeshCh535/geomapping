@@ -44,6 +44,7 @@ CRZ_SEARCH_LAYER_SLUGS = frozenset({
 # coordinate-search `data` is multiline legend text — Name, Right of Way, Lane Configuration, Connects.
 HIGHWAY_CORRIDOR_PROPERTY_SLUGS = frozenset({
     'amaravati_inner_ring_road',
+    'amaravati_outer_ring_road',
     'amaravati_anantapur_greenfield_expressway',
     'amaravati_seed_access_road',
     'mancherial_warangal_expressway',
