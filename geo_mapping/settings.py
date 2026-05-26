@@ -44,6 +44,7 @@ CSRF_TRUSTED_ORIGINS = [
     'https://1acre.in',
     'http://1acre.in',
     'https://fe.staging.1acre.in',
+    'https://developer-dashboard-fe.staging.1acre.in',
     'https://developers.1acre.in',
     'http://developers.1acre.in',
     'http://localhost:8000',
@@ -130,6 +131,7 @@ CORS_ALLOWED_ORIGINS = [
     'https://developers.1acre.in',
     'http://developers.1acre.in',
     'https://fe.staging.1acre.in',
+    'https://developer-dashboard-fe.staging.1acre.in',
     'https://layers.1acre.in',
     'http://layers.1acre.in',
     'https://layers.citylands.in',
@@ -146,6 +148,8 @@ CORS_ALLOWED_ORIGINS = [
     'http://localhost:8000',
     'http://localhost:3000',
     'http://localhost:3001',
+    'https://localhost:3002'
+    'http://localhost:3003',
     'http://localhost:5173',   # Vite default
     'http://127.0.0.1:8000',
     'http://127.0.0.1:3000',
