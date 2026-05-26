@@ -7,11 +7,14 @@ from urllib.parse import quote
 from .feature_legend_display import (
     AIRPORT_POLYGON_FILL_FROM_GEOJSON_SLUGS,
     HIGHWAY_INFRASTRUCTURE_POPUP_SLUGS,
+    LAYER_NAME_POPUP_MASTERPLAN_SLUGS,
     _generic_geojson_properties_popup_text,
     _highway_infra_legend_popup_text,
     _is_transit_route_proposed_geojson,
     _transit_route_proposed_geojson_popup_text,
     _vijayawada_metro_lrt_coordinate_search_popup_text,
+    fill_hex_from_geojson_properties_for_legend,
+    layer_name_popup_text_from_geojson_properties,
 )
 
 # SVG template for fill color indicator (same as feature_legend_display.MASTERPLAN_FILL_COLOR_SVG)
@@ -136,10 +139,20 @@ def get_feature_display_data(layer, feature):
     if slug in bmrda_like:
         return {'data': slug, 'fill_color': fill_uri}
 
-    # bengaluru_master_plan_2015
-    if slug == 'bengaluru_master_plan_2015':
-        layer_name_val = props.get('Layer Name', '')
-        return {'data': layer_name_val, 'fill_color': fill_uri}
+    # Bengaluru 2015 + data/set31 masterplans (Layer Name + HEX / fill_color)
+    if slug in LAYER_NAME_POPUP_MASTERPLAN_SLUGS:
+        fallbacks = {}
+        if getattr(feature, 'name', None):
+            fallbacks['feature_name'] = feature.name
+        zone_sub = getattr(feature, 'zone_subcategory', None)
+        if zone_sub:
+            fallbacks['zone_subcategory'] = zone_sub
+        layer_name_val = layer_name_popup_text_from_geojson_properties(props, fallbacks)
+        hex_color = fill_hex_from_geojson_properties_for_legend(props)
+        return {
+            'data': layer_name_val,
+            'fill_color': _fill_color_svg_data_uri(hex_color),
+        }
 
     # warangal_master_plan
     if slug == 'warangal_master_plan':

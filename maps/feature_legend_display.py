@@ -138,6 +138,38 @@ def fill_hex_from_geojson_properties_for_legend(properties):
     return ''
 
 
+# data/set31 — ArcGIS exports with ``Layer Name`` + ``fill_color`` / ``HEX`` (same as Bengaluru 2015).
+SET31_LAYER_NAME_POPUP_MASTERPLAN_SLUGS = frozenset({
+    'jammu_masterplan',
+    'alipur_masterplan',
+    'kot_behla_masterplan',
+    'shree_mata_mansa_devi_masterplan',
+})
+
+LAYER_NAME_POPUP_MASTERPLAN_SLUGS = frozenset({
+    'bengaluru_master_plan_2015',
+}) | SET31_LAYER_NAME_POPUP_MASTERPLAN_SLUGS
+
+
+def layer_name_popup_text_from_geojson_properties(properties, fallbacks=None):
+    """
+    Short popup label for ArcGIS-style masterplans: ``Layer Name`` (or ``Landuse``),
+    then zone_subcategory / feature_name from processed feature metadata.
+    """
+    if not isinstance(properties, dict):
+        properties = {}
+    fallbacks = fallbacks if isinstance(fallbacks, dict) else {}
+    for key in ('Layer Name', 'Landuse'):
+        val = properties.get(key)
+        if val is not None and str(val).strip():
+            return str(val).strip()
+    for key in ('zone_subcategory', 'feature_name'):
+        val = fallbacks.get(key)
+        if val is not None and str(val).strip():
+            return str(val).strip()
+    return ''
+
+
 def _lane_configuration_omit_from_legend(lanes):
     """Skip lane line in legend when missing or explicitly not specified."""
     if lanes is None:

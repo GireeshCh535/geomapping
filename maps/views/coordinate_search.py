@@ -1425,13 +1425,16 @@ class CoordinateSearchTestView(APIView):
                             'all_layer_data': [],
                         }
                     
-                    elif layer.slug == 'bengaluru_master_plan_2015':
-                        # Return just the feature name (Layer Name from properties)
-                        detailed_category = feature_data.get('detailed_category', {})
-                        properties = detailed_category.get('properties', {})
-                        layer_name = properties.get('Layer Name', '')
+                    elif layer.slug in LAYER_NAME_POPUP_MASTERPLAN_SLUGS:
+                        detailed_category = feature_data.get('detailed_category', {}) or {}
+                        properties = detailed_category.get('properties', {}) or {}
+                        layer_name = layer_name_popup_text_from_geojson_properties(
+                            properties, feature_data,
+                        )
+                        fill_hex = fill_hex_from_geojson_properties_for_legend(properties)
                         return {
                             'data': layer_name,
+                            'fill_color': masterplan_fill_color_svg_data_uri(fill_hex),
                             'all_layer_data': [feature_data],
                         }
                     
@@ -1913,19 +1916,18 @@ class CoordinateSearchTestView(APIView):
                     'all_layer_data': containing_features,
                 }
             
-            # Special handling for bengaluru_master_plan_2015
-            if layer.slug == 'bengaluru_master_plan_2015' and containing_features:
+            # Bengaluru 2015 + data/set31 masterplans (Layer Name + HEX / fill_color)
+            if layer.slug in LAYER_NAME_POPUP_MASTERPLAN_SLUGS and containing_features:
                 primary_feature = containing_features[0]
-                detailed_category = primary_feature.get('detailed_category', {})
+                detailed_category = primary_feature.get('detailed_category', {}) or {}
                 properties = detailed_category.get('properties', {}) or {}
-                layer_name = properties.get('Layer Name', '')
-                fill_color = (
-                    properties.get('fill_color') or properties.get('fillColor') or
-                    properties.get('FillColor') or properties.get('color')
-                ) or ''
+                layer_name = layer_name_popup_text_from_geojson_properties(
+                    properties, primary_feature,
+                )
+                fill_hex = fill_hex_from_geojson_properties_for_legend(properties)
                 return {
                     'data': layer_name,
-                    'fill_color': masterplan_fill_color_svg_data_uri(fill_color),
+                    'fill_color': masterplan_fill_color_svg_data_uri(fill_hex),
                     'found': True,
                     'features': containing_features[:1],
                     'all_layer_data': containing_features,
