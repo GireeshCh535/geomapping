@@ -87,6 +87,7 @@ def add_fill_color_to_geojson(
         "LANDUSE_CA", "LANDUSE_CATEGORY", "LANDUSE_SUBCAT_LEVEL_1",
         "NAME", "Name", "name",  # Delhi master plan uses NAME
         "class",
+        "Max Permissible Height",
         "Pemissible Height", "Permissible Height", "Height", "Zone",
         "zone_name", "zone_category",
     )

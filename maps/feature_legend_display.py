@@ -64,6 +64,7 @@ HIGHWAY_CORRIDOR_PROPERTY_SLUGS = frozenset({
     'ambala_shamli_expressway',
     'ayodhya_ring_road',
     'prayagraj_ring_road',
+    'ganga_expressway',
     'kanpur_ring_road',
     'kanpur_kabrai_highway',
     'agra_gwalior_expressway',

@@ -9,12 +9,13 @@ import argparse
 import json
 import csv
 import math
+import re
 import sys
 import time
 from pathlib import Path
 from PIL import Image, ImageDraw
 import mercantile
-from shapely.geometry import shape, box, Point, Polygon, LineString, MultiPolygon
+from shapely.geometry import shape, box, Point, Polygon, LineString, MultiLineString, MultiPolygon
 from shapely.ops import transform
 from rtree import index
 
@@ -27,18 +28,21 @@ except ImportError:
 
 
 class UniversalMasterPlanTiles:
-    def __init__(self, data_dir, output_dir, legend_file='legend.csv'):
+    def __init__(self, data_dir, output_dir, legend_path=None):
         """
         Initialize Universal Tile Generator
         
         Args:
-            data_dir: Directory containing GeoJSON files and legend.csv
+            data_dir: Directory containing GeoJSON files
             output_dir: Output directory for tiles
-            legend_file: Name of the legend CSV file (default: legend.csv)
+            legend_path: Path to legend CSV (default: <data_dir>/legend.csv)
         """
         self.data_dir = Path(data_dir)
         self.output_dir = Path(output_dir)
-        self.legend_file = self.data_dir / legend_file
+        if legend_path is not None:
+            self.legend_file = Path(legend_path)
+        else:
+            self.legend_file = self.data_dir / "legend.csv"
         self.tile_size = 256
         self.spatial_index = index.Index()
         self.feature_id_counter = 0
@@ -72,6 +76,7 @@ class UniversalMasterPlanTiles:
         
         print(f"📖 Loading legend from: {self.legend_file}")
         color_map = {}
+        n_cats = 0
         
         try:
             with open(self.legend_file, 'r', encoding='utf-8') as f:
@@ -80,6 +85,7 @@ class UniversalMasterPlanTiles:
                     category = row.get('category', '').strip()
                     if not category:
                         continue
+                    n_cats += 1
                     
                     # Normalize category (uppercase with spaces)
                     category_norm = self.normalize_category(category)
@@ -107,7 +113,7 @@ class UniversalMasterPlanTiles:
                     category_underscore = category_norm.replace(' ', '_')
                     color_map[category_underscore] = color_info
             
-            print(f"✓ Loaded {len(color_map) // 2} categories from legend")
+            print(f"✓ Loaded {n_cats} categories from legend")
             return color_map
             
         except Exception as e:
@@ -367,7 +373,10 @@ class UniversalMasterPlanTiles:
                         # Try multiple property fields for category
                         name_value = props.get("Name") or props.get("name") or props.get("NAME")
                         raw_category = (
-                            props.get("LANDUSE_CATEGORY")
+                            props.get("Max Permissible Height")
+                            or props.get("Pemissible Height")
+                            or props.get("Permissible Height")
+                            or props.get("LANDUSE_CATEGORY")
                             or props.get("Layer Name")
                             or props.get("Layer_Name")
                             or props.get("LAYER_NAME")
@@ -641,7 +650,11 @@ class UniversalMasterPlanTiles:
         poly_draw = ImageDraw.Draw(poly_img)
         
         fill_rgba = fill_rgb + (255,) if fill_rgb else None
-        black_outline = (0, 0, 0, 255)
+        outline_rgb = color_info.get('outline', (0, 0, 0))
+        if isinstance(outline_rgb, tuple) and len(outline_rgb) == 3:
+            stroke_rgba = outline_rgb + (255,)
+        else:
+            stroke_rgba = (0, 0, 0, 255)
         
         if 'pattern' in color_info:
             pattern_color_rgb = color_info.get('pattern_color', (0, 0, 0))
@@ -654,7 +667,7 @@ class UniversalMasterPlanTiles:
         
         if len(exterior_pixels) > 1:
             closed_pixels = exterior_pixels + [exterior_pixels[0]]
-            poly_draw.line(closed_pixels, fill=black_outline, width=outline_width)
+            poly_draw.line(closed_pixels, fill=stroke_rgba, width=outline_width)
         
         for interior in polygon.interiors:
             interior_pixels = []
@@ -668,7 +681,7 @@ class UniversalMasterPlanTiles:
                 poly_draw.polygon(interior_pixels, fill=(0, 0, 0, 0))
                 if len(interior_pixels) > 1:
                     closed_interior = interior_pixels + [interior_pixels[0]]
-                    poly_draw.line(closed_interior, fill=black_outline, width=outline_width)
+                    poly_draw.line(closed_interior, fill=stroke_rgba, width=outline_width)
         
         return poly_img
     
@@ -745,7 +758,7 @@ class UniversalMasterPlanTiles:
                     
                     rendered_count += 1
                 
-                elif hasattr(geom, 'geoms'):
+                elif isinstance(geom, MultiPolygon):
                     for poly in geom.geoms:
                         if poly.area < 1e-10:
                             continue
@@ -763,6 +776,41 @@ class UniversalMasterPlanTiles:
                             img_buffered = Image.alpha_composite(img_buffered, poly_img)
                         
                         rendered_count += 1
+
+                elif isinstance(geom, (LineString, MultiLineString)):
+                    stroke_rgb = fill_rgb or color_info.get('outline')
+                    if not stroke_rgb:
+                        hex_val = props_fb.get('HEX') or props_fb.get('hex')
+                        if hex_val:
+                            h = str(hex_val).strip()
+                            m = re.match(r'^#[0-9a-fA-F]{6}$', h, re.I)
+                            if m:
+                                stroke_rgb = self.hex_to_rgb(m.group(0))
+                            else:
+                                for line in h.splitlines():
+                                    if 'outline' in line.lower():
+                                        om = re.search(r'#[0-9a-fA-F]{6}', line, re.I)
+                                        if om:
+                                            stroke_rgb = self.hex_to_rgb(om.group(0))
+                                            break
+                    if stroke_rgb:
+                        line_width = max(1, outline_width)
+                        lines = [geom] if isinstance(geom, LineString) else list(geom.geoms)
+                        for line in lines:
+                            if line.is_empty or len(line.coords) < 2:
+                                continue
+                            pixel_coords = []
+                            for lon, lat in line.coords:
+                                px = ((lon - tile_bounds.west) / lon_range * img_size) + buffer_pixels
+                                py = ((tile_bounds.north - lat) / lat_range * img_size) + buffer_pixels
+                                pixel_coords.append((int(px), int(py)))
+                            if len(pixel_coords) >= 2:
+                                draw.line(
+                                    pixel_coords,
+                                    fill=stroke_rgb + (255,),
+                                    width=line_width,
+                                )
+                                rendered_count += 1
                 
                 else:
                     if hasattr(geom, 'x') and hasattr(geom, 'y'):
@@ -911,9 +959,9 @@ def main():
         description="Universal Master Plan Tile Generator",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
-Required in data directory:
-  - *.geojson files (your GeoJSON data)
-  - legend.csv (color mapping configuration)
+Required:
+  - data_directory: *.geojson files
+  - legend CSV (--legend or <data_directory>/legend.csv)
 
 legend.csv format:
   category,fill_color,outline_color,pattern,pattern_color
@@ -923,7 +971,7 @@ legend.csv format:
 Supported patterns: hatch, dots, cross_hatch, dashed, dotted
         """,
     )
-    parser.add_argument("data_directory", help="Directory containing GeoJSON files and legend.csv")
+    parser.add_argument("data_directory", help="Directory containing GeoJSON files")
     parser.add_argument(
         "output_directory",
         nargs="?",
@@ -955,6 +1003,12 @@ Supported patterns: hatch, dots, cross_hatch, dashed, dotted
         action="store_true",
         help="Regenerate tiles even if they already exist",
     )
+    parser.add_argument(
+        "--legend",
+        "-l",
+        metavar="PATH",
+        help="Path to legend CSV (default: <data_directory>/legend.csv)",
+    )
     args = parser.parse_args()
 
     data_dir = Path(args.data_directory)
@@ -969,6 +1023,24 @@ Supported patterns: hatch, dots, cross_hatch, dashed, dotted
         print("✗ --min-zoom must be <= --max-zoom")
         sys.exit(1)
 
+    if args.legend:
+        legend_path = Path(args.legend)
+        if not legend_path.is_absolute():
+            from_cwd = (Path.cwd() / legend_path).resolve()
+            from_data = (data_dir / legend_path).resolve()
+            if from_cwd.exists():
+                legend_path = from_cwd
+            elif from_data.exists():
+                legend_path = from_data
+            else:
+                legend_path = from_cwd
+    else:
+        legend_path = data_dir / "legend.csv"
+
+    if not legend_path.exists():
+        print(f"✗ Legend file not found: {legend_path}")
+        sys.exit(1)
+
     print("="*80)
     print("UNIVERSAL MASTER PLAN TILE GENERATOR")
     print("✅ Handles polygon holes/interior rings")
@@ -977,11 +1049,12 @@ Supported patterns: hatch, dots, cross_hatch, dashed, dotted
     print("✅ Optimized for speed")
     print("="*80)
     print(f"Input:  {data_dir}")
+    print(f"Legend: {legend_path}")
     print(f"Output: {output_dir}")
     print(f"City:   {city_name}")
     print(f"Zoom:   {args.min_zoom}-{args.max_zoom}" + (" (force)" if args.force else ""))
 
-    generator = UniversalMasterPlanTiles(data_dir, output_dir)
+    generator = UniversalMasterPlanTiles(data_dir, output_dir, legend_path=legend_path)
     generator.load_geojson_files()
 
     if generator.feature_id_counter == 0:
