@@ -696,6 +696,43 @@ python scripts/utils/geojson_add_fill_color_from_legend.py \
 
 ---
 
+## 49. data/set31 (Jammu + Haryana Panchkula)
+
+ArcGIS exports use **`Layer Name`** + **`fill_color`** / **`HEX`**. Coordinate-search `data` uses `Layer Name` (see `SET31_LAYER_NAME_POPUP_MASTERPLAN_SLUGS` in `maps/feature_legend_display.py`).
+
+| CDN / tile path | `--city-slug` | `--layer-slug` | `--data-dir` |
+|-----------------|---------------|----------------|--------------|
+| `jammu-kashmir/jammu_masterplan` | `jammu` | `jammu_masterplan` | `data/set31/Jammu Masterplan` |
+| `haryana/panchkula/panchkula_extension_2_alipur_masterplan` | `panchkula` | `panchkula_extension_2_alipur_masterplan` | `data/haryana/panchkula/panchkula_extension_2_alipur_masterplan` |
+| `haryana/panchkula/kot_behla_masterplan` | `panchkula` | `kot_behla_masterplan` | `data/haryana/panchkula/kot_behla_masterplan` |
+| `haryana/panchkula/mansa_devi_complex_masterplan` | `panchkula` | `mansa_devi_complex_masterplan` | `data/haryana/panchkula/mansa_devi_complex_masterplan` |
+
+Panchkula data dirs are symlinks to `data/set31/*` (create with `mkdir -p data/haryana/panchkula` and `ln -sfn`).
+
+**DB insert:** `./set31_insert_commands.sh` · **Tiles:** `./set31.sh`
+
+Per-layer fill_color:
+
+```bash
+python scripts/utils/geojson_add_fill_color_from_legend.py \
+  --legend "data/set31/Jammu Masterplan/legend.csv" \
+  --data-dir "data/set31/Jammu Masterplan"
+
+python scripts/utils/geojson_add_fill_color_from_legend.py \
+  --legend "data/haryana/panchkula/panchkula_extension_2_alipur_masterplan/legend.csv" \
+  --data-dir "data/haryana/panchkula/panchkula_extension_2_alipur_masterplan"
+
+python scripts/utils/geojson_add_fill_color_from_legend.py \
+  --legend "data/haryana/panchkula/kot_behla_masterplan/legend.csv" \
+  --data-dir "data/haryana/panchkula/kot_behla_masterplan"
+
+python scripts/utils/geojson_add_fill_color_from_legend.py \
+  --legend "data/haryana/panchkula/mansa_devi_complex_masterplan/legend.csv" \
+  --data-dir "data/haryana/panchkula/mansa_devi_complex_masterplan"
+```
+
+---
+
 ## Notes
 
 - **Air funnel zones:** Features are matched using `Pemissible Height`, `Permissible Height`, `Height`, or `Zone` (script already includes these).

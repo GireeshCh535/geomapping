@@ -139,11 +139,12 @@ def fill_hex_from_geojson_properties_for_legend(properties):
 
 
 # data/set31 — ArcGIS exports with ``Layer Name`` + ``fill_color`` / ``HEX`` (same as Bengaluru 2015).
+# Haryana Panchkula layers: haryana/panchkula/{layer_slug}
 SET31_LAYER_NAME_POPUP_MASTERPLAN_SLUGS = frozenset({
     'jammu_masterplan',
-    'alipur_masterplan',
+    'panchkula_extension_2_alipur_masterplan',
     'kot_behla_masterplan',
-    'shree_mata_mansa_devi_masterplan',
+    'mansa_devi_complex_masterplan',
 })
 
 LAYER_NAME_POPUP_MASTERPLAN_SLUGS = frozenset({
