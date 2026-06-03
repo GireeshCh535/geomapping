@@ -21,7 +21,10 @@ from django.conf import settings
 from django.conf.urls.static import static
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView, SpectacularRedocView
 
+from geo_mapping.views import health_check
+
 urlpatterns = [
+    path('health/', health_check, name='health_check'),
     path('admin/', admin.site.urls),
     path('api/', include('maps.urls')),  # API endpoints
     path('', include('maps.urls')),      # Frontend (includes /map/)

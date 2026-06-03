@@ -115,6 +115,7 @@ MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',
     'geo_mapping.middleware.RestrictAPIOriginMiddleware',  # Only allow API from frontend origins
     "django.middleware.security.SecurityMiddleware",
+    "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
@@ -216,7 +217,7 @@ WSGI_APPLICATION = "geo_mapping.wsgi.application"
 #   DJANGO_DB_HOST=127.0.0.1
 #   DJANGO_DB_PORT=5433
 #   DJANGO_DB_SSLMODE=require
-# Docker Compose sets DJANGO_DB_HOST=db, DJANGO_DB_PORT=5432, DJANGO_DB_SSLMODE=disable so .env tunnel values do not break containers.
+# Docker Compose / ECS provide DJANGO_DB_* via environment; these values override .env defaults.
 _db_pg_options = {
     'connect_timeout': 10,
 }
@@ -378,6 +379,15 @@ STATICFILES_IGNORE_PATTERNS = [
     # '*.png',  # This would exclude ALL PNGs - use cautiously
 ]
 
+STORAGES = {
+    'default': {
+        'BACKEND': 'django.core.files.storage.FileSystemStorage',
+    },
+    'staticfiles': {
+        'BACKEND': 'whitenoise.storage.CompressedStaticFilesStorage',
+    },
+}
+
 # Media files (still local for user uploads)
 MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
@@ -479,6 +489,10 @@ if not DEBUG:
 SESSION_ENGINE = 'django.contrib.sessions.backends.db'  # Use database instead of cache
 SESSION_COOKIE_AGE = 86400  # 24 hours
 
+# logs/ is gitignored and excluded from Docker images; ensure dir exists before FileHandler init.
+_LOGS_DIR = BASE_DIR / 'logs'
+_LOGS_DIR.mkdir(parents=True, exist_ok=True)
+
 LOGGING = {
     'version': 1,
     'disable_existing_loggers': False,
@@ -501,7 +515,7 @@ LOGGING = {
         'file': {
             'level': 'INFO',  # INFO and above to file (not only errors)
             'class': 'logging.FileHandler',
-            'filename': os.path.join(BASE_DIR, 'logs', 'django_errors.log'),
+            'filename': str(_LOGS_DIR / 'django_errors.log'),
             'formatter': 'verbose',
         },
     },

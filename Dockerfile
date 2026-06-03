@@ -19,6 +19,8 @@ ENV GEOS_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu/libgeos_c.so
 
 WORKDIR /app
 
+RUN mkdir -p /app/logs
+
 # Copy requirements and install Python dependencies
 COPY requirements.txt .
 
@@ -30,6 +32,12 @@ RUN ln -s /usr/lib/python3/dist-packages/osgeo /usr/local/lib/python3.11/site-pa
 
 COPY . .
 
+# Bake admin/DRF static assets into the image (ECS has no nginx for /static/).
+RUN DJANGO_DB_HOST=localhost DJANGO_DB_NAME=collectstatic DJANGO_DB_USER=postgres \
+    DJANGO_DB_PASSWORD=postgres python manage.py collectstatic --noinput \
+    --ignore='*.png' --ignore='tiles_png' --ignore='real_estate_tiles_png'
+
 EXPOSE 8000
 
-CMD ["python", "manage.py", "runserver", "0.0.0.0:8000"]
+# Production default for ECS/Fargate (local dev can still override command in compose).
+CMD ["gunicorn", "geo_mapping.wsgi:application", "-c", "gunicorn_config.py"]
