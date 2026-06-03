@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Merge main into master but keep production's deploy.yml, run_play.sh, nginx/conf.d/default.conf.
-# Usage: run from repo root: ./scripts/merge-main-to-master.sh
+# Merge main into master, then push master to trigger ECS deploy (GitHub Actions).
+# Usage: git checkout master && ./scripts/merge-main-to-master.sh
 
 set -e
 if [[ $(git branch --show-current) != master ]]; then
@@ -8,5 +8,4 @@ if [[ $(git branch --show-current) != master ]]; then
   exit 1
 fi
 git merge main -m "Merge main into master"
-git checkout HEAD^1 -- run_play.sh deploy.yml nginx/conf.d/default.conf
-echo "Done. main merged into master; run_play.sh, deploy.yml, nginx/conf.d/default.conf restored to production versions (staged, not committed)."
+echo "Done. Commit if needed, then: git push origin master"
