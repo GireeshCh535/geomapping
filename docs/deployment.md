@@ -82,6 +82,8 @@ Use the **`GEOMAPPING_`** prefix so each repo can define its own ECS deploy vari
 
 ### Variables (non-sensitive, per-repo or org)
 
+Create these under **Variables** (not **Secrets**). If you use **organization** variables, open each variable and allow access to this repository.
+
 | Variable | Example / notes |
 |----------|------------------|
 | `GEOMAPPING_AWS_REGION` | `ap-south-1` |

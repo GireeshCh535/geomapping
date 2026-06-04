@@ -11,7 +11,7 @@ on:
         required: false
         default: master
 
-# Non-sensitive deploy config: repo/org Variables (GEOMAPPING_* prefix).
+# Deploy config: repository/org Variables (GEOMAPPING_* prefix).
 # Credentials only: Secrets AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY.
 env:
   AWS_REGION: ${{ vars.GEOMAPPING_AWS_REGION }}
@@ -34,6 +34,29 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: ${{ github.event.inputs.branch || github.ref }}
+
+      - name: Validate deploy configuration
+        run: |
+          set -euo pipefail
+          missing=()
+          for name in AWS_REGION ECR_REPOSITORY ECS_CLUSTER ECS_SERVICE ECS_TASK_DEFINITION \
+            ECS_SUBNET_1 ECS_SUBNET_2 ECS_SECURITY_GROUP ECS_ASSIGN_PUBLIC_IP; do
+            if [ -z "${!name:-}" ]; then
+              missing+=("$name")
+            fi
+          done
+          if [ ${#missing[@]} -gt 0 ]; then
+            echo "::error::Missing GitHub Actions Variables (Variables tab, not Secrets):"
+            echo "  GEOMAPPING_AWS_REGION, GEOMAPPING_ECR_REPOSITORY, GEOMAPPING_ECS_CLUSTER,"
+            echo "  GEOMAPPING_ECS_SERVICE, GEOMAPPING_ECS_TASK_DEFINITION, GEOMAPPING_ECS_SUBNET_1,"
+            echo "  GEOMAPPING_ECS_SUBNET_2, GEOMAPPING_ECS_SECURITY_GROUP, GEOMAPPING_ECS_ASSIGN_PUBLIC_IP"
+            echo "Unset in this run: ${missing[*]}"
+            echo "Org variables must grant access to this repository."
+            exit 1
+          fi
+          echo "AWS region: ${AWS_REGION}"
+          echo "ECS cluster: ${ECS_CLUSTER}"
+          echo "ECS service: ${ECS_SERVICE}"
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
