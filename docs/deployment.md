@@ -67,23 +67,34 @@ Admin: http://localhost:8001/admin/
 
 ---
 
-## 4. GitHub Actions secrets
+## 4. GitHub Actions — secrets and variables
 
-Repository → **Settings → Secrets and variables → Actions**:
+Repository (or organization) → **Settings → Secrets and variables → Actions**.
+
+Use the **`GEOMAPPING_`** prefix so each repo can define its own ECS deploy variables without clashing with other projects.
+
+### Secrets (credentials only)
 
 | Secret | Example / notes |
 |--------|------------------|
 | `AWS_ACCESS_KEY_ID` | IAM user for deploy |
 | `AWS_SECRET_ACCESS_KEY` | |
-| `AWS_REGION` | `ap-south-1` |
-| `ECR_REPOSITORY` | `geomapping-staging-web` |
-| `ECS_CLUSTER` | `layers-staging-cluster` |
-| `ECS_SERVICE` | `geomapping-staging-service` |
-| `ECS_TASK_DEFINITION` | `geomapping-staging-web` (family name or `family:revision`) |
-| `ECS_SUBNET_1` | Private subnet ID |
-| `ECS_SUBNET_2` | Private subnet ID |
-| `ECS_SECURITY_GROUP` | `ecs-layers-tasks-sg` ID |
-| `ECS_ASSIGN_PUBLIC_IP` | `DISABLED` (private subnets + NAT) or `ENABLED` |
+
+### Variables (non-sensitive, per-repo or org)
+
+| Variable | Example / notes |
+|----------|------------------|
+| `GEOMAPPING_AWS_REGION` | `ap-south-1` |
+| `GEOMAPPING_ECR_REPOSITORY` | `geomapping-staging-web` |
+| `GEOMAPPING_ECS_CLUSTER` | `layers-staging-cluster` |
+| `GEOMAPPING_ECS_SERVICE` | `geomapping-staging-service` |
+| `GEOMAPPING_ECS_TASK_DEFINITION` | `geomapping-staging-web` (family name or `family:revision`) |
+| `GEOMAPPING_ECS_SUBNET_1` | Private subnet ID |
+| `GEOMAPPING_ECS_SUBNET_2` | Private subnet ID |
+| `GEOMAPPING_ECS_SECURITY_GROUP` | `ecs-layers-tasks-sg` ID |
+| `GEOMAPPING_ECS_ASSIGN_PUBLIC_IP` | `DISABLED` (private subnets + NAT) or `ENABLED` |
+
+Other repos can use their own prefix (e.g. `OTHERAPP_ECS_CLUSTER`) in that repo’s workflow.
 
 Workflow file: `.github/workflows/deploy-workflow.yml`
 
