@@ -11,22 +11,20 @@ on:
         required: false
         default: master
 
-# All GEOMAPPING_* and AWS_* must be in Actions → Secrets (not Variables).
-env:
-  AWS_REGION: ${{ secrets.GEOMAPPING_AWS_REGION }}
-  ECR_REPOSITORY: ${{ secrets.GEOMAPPING_ECR_REPOSITORY }}
-  ECS_CLUSTER: ${{ secrets.GEOMAPPING_ECS_CLUSTER }}
-  ECS_SERVICE: ${{ secrets.GEOMAPPING_ECS_SERVICE }}
-  ECS_TASK_DEFINITION: ${{ secrets.GEOMAPPING_ECS_TASK_DEFINITION }}
-  ECS_CONTAINER_NAME: web
-  ECS_SUBNET_1: ${{ secrets.GEOMAPPING_ECS_SUBNET_1 }}
-  ECS_SUBNET_2: ${{ secrets.GEOMAPPING_ECS_SUBNET_2 }}
-  ECS_SECURITY_GROUP: ${{ secrets.GEOMAPPING_ECS_SECURITY_GROUP }}
-  ECS_ASSIGN_PUBLIC_IP: ${{ secrets.GEOMAPPING_ECS_ASSIGN_PUBLIC_IP }}
-
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    env:
+      AWS_REGION: ${{ secrets.GEOMAPPING_AWS_REGION }}
+      ECR_REPOSITORY: ${{ secrets.GEOMAPPING_ECR_REPOSITORY }}
+      ECS_CLUSTER: ${{ secrets.GEOMAPPING_ECS_CLUSTER }}
+      ECS_SERVICE: ${{ secrets.GEOMAPPING_ECS_SERVICE }}
+      ECS_TASK_DEFINITION: ${{ secrets.GEOMAPPING_ECS_TASK_DEFINITION }}
+      ECS_CONTAINER_NAME: web
+      ECS_SUBNET_1: ${{ secrets.GEOMAPPING_ECS_SUBNET_1 }}
+      ECS_SUBNET_2: ${{ secrets.GEOMAPPING_ECS_SUBNET_2 }}
+      ECS_SECURITY_GROUP: ${{ secrets.GEOMAPPING_ECS_SECURITY_GROUP }}
+      ECS_ASSIGN_PUBLIC_IP: ${{ secrets.GEOMAPPING_ECS_ASSIGN_PUBLIC_IP }}
 
     steps:
       - name: Checkout repository
@@ -50,10 +48,16 @@ jobs:
             echo "  GEOMAPPING_ECS_SERVICE, GEOMAPPING_ECS_TASK_DEFINITION, GEOMAPPING_ECS_SUBNET_1,"
             echo "  GEOMAPPING_ECS_SUBNET_2, GEOMAPPING_ECS_SECURITY_GROUP, GEOMAPPING_ECS_ASSIGN_PUBLIC_IP"
             echo "Unset in this run: ${missing[*]}"
-            echo "Org secrets must grant access to this repository."
+            echo "Add under Settings → Secrets and variables → Actions → Secrets (not Variables)."
+            exit 1
+          fi
+          repo="${ECR_REPOSITORY//[$'\t\r\n ']}"
+          if [[ "$repo" == *"/"* ]] || [[ "$repo" == *":"* ]]; then
+            echo "::error::GEOMAPPING_ECR_REPOSITORY must be the ECR repo name only (e.g. geomapping-staging-web), not a full image URL."
             exit 1
           fi
           echo "AWS region: ${AWS_REGION}"
+          echo "ECR repository: ${repo}"
           echo "ECS cluster: ${ECS_CLUSTER}"
           echo "ECS service: ${ECS_SERVICE}"
 

@@ -69,16 +69,23 @@ Admin: http://localhost:8001/admin/
 
 ## 4. GitHub Actions secrets
 
-Repository (or organization) → **Settings → Secrets and variables → Actions → Secrets**.
+Repository → **Settings → Secrets and variables → Actions**.
 
-Use the **`GEOMAPPING_`** prefix so each repo can define its own ECS deploy settings without clashing with other projects. The workflow reads **`secrets.*`** only (not the Variables tab).
+That page has two tabs — use only **Secrets**, not **Variables**:
+
+| Tab | Used by this workflow? |
+|-----|-------------------------|
+| **Secrets** | Yes — all names below |
+| **Variables** | No — ignored |
+
+Use the **`GEOMAPPING_`** prefix so each repo can define its own ECS deploy settings without clashing with other projects. You do **not** need GitHub Environments for deploy.
 
 | Secret | Example / notes |
 |--------|------------------|
 | `AWS_ACCESS_KEY_ID` | IAM user for deploy |
 | `AWS_SECRET_ACCESS_KEY` | |
 | `GEOMAPPING_AWS_REGION` | `ap-south-1` |
-| `GEOMAPPING_ECR_REPOSITORY` | `geomapping-staging-web` |
+| `GEOMAPPING_ECR_REPOSITORY` | ECR **repo name only** (e.g. `geomapping-staging-web`), not a full URL |
 | `GEOMAPPING_ECS_CLUSTER` | `layers-staging-cluster` |
 | `GEOMAPPING_ECS_SERVICE` | `geomapping-staging-service` |
 | `GEOMAPPING_ECS_TASK_DEFINITION` | `geomapping-staging-web` (family name or `family:revision`) |
