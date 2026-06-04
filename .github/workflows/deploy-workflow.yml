@@ -11,19 +11,18 @@ on:
         required: false
         default: master
 
-# Deploy config: repository/org Variables (GEOMAPPING_* prefix).
-# Credentials only: Secrets AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY.
+# All GEOMAPPING_* and AWS_* must be in Actions → Secrets (not Variables).
 env:
-  AWS_REGION: ${{ vars.GEOMAPPING_AWS_REGION }}
-  ECR_REPOSITORY: ${{ vars.GEOMAPPING_ECR_REPOSITORY }}
-  ECS_CLUSTER: ${{ vars.GEOMAPPING_ECS_CLUSTER }}
-  ECS_SERVICE: ${{ vars.GEOMAPPING_ECS_SERVICE }}
-  ECS_TASK_DEFINITION: ${{ vars.GEOMAPPING_ECS_TASK_DEFINITION }}
+  AWS_REGION: ${{ secrets.GEOMAPPING_AWS_REGION }}
+  ECR_REPOSITORY: ${{ secrets.GEOMAPPING_ECR_REPOSITORY }}
+  ECS_CLUSTER: ${{ secrets.GEOMAPPING_ECS_CLUSTER }}
+  ECS_SERVICE: ${{ secrets.GEOMAPPING_ECS_SERVICE }}
+  ECS_TASK_DEFINITION: ${{ secrets.GEOMAPPING_ECS_TASK_DEFINITION }}
   ECS_CONTAINER_NAME: web
-  ECS_SUBNET_1: ${{ vars.GEOMAPPING_ECS_SUBNET_1 }}
-  ECS_SUBNET_2: ${{ vars.GEOMAPPING_ECS_SUBNET_2 }}
-  ECS_SECURITY_GROUP: ${{ vars.GEOMAPPING_ECS_SECURITY_GROUP }}
-  ECS_ASSIGN_PUBLIC_IP: ${{ vars.GEOMAPPING_ECS_ASSIGN_PUBLIC_IP }}
+  ECS_SUBNET_1: ${{ secrets.GEOMAPPING_ECS_SUBNET_1 }}
+  ECS_SUBNET_2: ${{ secrets.GEOMAPPING_ECS_SUBNET_2 }}
+  ECS_SECURITY_GROUP: ${{ secrets.GEOMAPPING_ECS_SECURITY_GROUP }}
+  ECS_ASSIGN_PUBLIC_IP: ${{ secrets.GEOMAPPING_ECS_ASSIGN_PUBLIC_IP }}
 
 jobs:
   deploy:
@@ -46,12 +45,12 @@ jobs:
             fi
           done
           if [ ${#missing[@]} -gt 0 ]; then
-            echo "::error::Missing GitHub Actions Variables (Variables tab, not Secrets):"
+            echo "::error::Missing GitHub Actions Secrets (Secrets tab):"
             echo "  GEOMAPPING_AWS_REGION, GEOMAPPING_ECR_REPOSITORY, GEOMAPPING_ECS_CLUSTER,"
             echo "  GEOMAPPING_ECS_SERVICE, GEOMAPPING_ECS_TASK_DEFINITION, GEOMAPPING_ECS_SUBNET_1,"
             echo "  GEOMAPPING_ECS_SUBNET_2, GEOMAPPING_ECS_SECURITY_GROUP, GEOMAPPING_ECS_ASSIGN_PUBLIC_IP"
             echo "Unset in this run: ${missing[*]}"
-            echo "Org variables must grant access to this repository."
+            echo "Org secrets must grant access to this repository."
             exit 1
           fi
           echo "AWS region: ${AWS_REGION}"

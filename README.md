@@ -24,7 +24,7 @@ docker compose -f docker-compose.dev.yml up --build
 See **[docs/deployment.md](docs/deployment.md)** for:
 
 - AWS / ECS / ECR / S3 env file setup
-- GitHub Actions secrets (`AWS_*`) and variables (`GEOMAPPING_*`)
+- GitHub Actions secrets (`AWS_*`, `GEOMAPPING_*`)
 - CI deploy flow (no docker-compose on server)
 
 Workflow: `.github/workflows/deploy-workflow.yml`

@@ -67,25 +67,16 @@ Admin: http://localhost:8001/admin/
 
 ---
 
-## 4. GitHub Actions — secrets and variables
+## 4. GitHub Actions secrets
 
-Repository (or organization) → **Settings → Secrets and variables → Actions**.
+Repository (or organization) → **Settings → Secrets and variables → Actions → Secrets**.
 
-Use the **`GEOMAPPING_`** prefix so each repo can define its own ECS deploy variables without clashing with other projects.
-
-### Secrets (credentials only)
+Use the **`GEOMAPPING_`** prefix so each repo can define its own ECS deploy settings without clashing with other projects. The workflow reads **`secrets.*`** only (not the Variables tab).
 
 | Secret | Example / notes |
 |--------|------------------|
 | `AWS_ACCESS_KEY_ID` | IAM user for deploy |
 | `AWS_SECRET_ACCESS_KEY` | |
-
-### Variables (non-sensitive, per-repo or org)
-
-Create these under **Variables** (not **Secrets**). If you use **organization** variables, open each variable and allow access to this repository.
-
-| Variable | Example / notes |
-|----------|------------------|
 | `GEOMAPPING_AWS_REGION` | `ap-south-1` |
 | `GEOMAPPING_ECR_REPOSITORY` | `geomapping-staging-web` |
 | `GEOMAPPING_ECS_CLUSTER` | `layers-staging-cluster` |
@@ -95,6 +86,8 @@ Create these under **Variables** (not **Secrets**). If you use **organization** 
 | `GEOMAPPING_ECS_SUBNET_2` | Private subnet ID |
 | `GEOMAPPING_ECS_SECURITY_GROUP` | `ecs-layers-tasks-sg` ID |
 | `GEOMAPPING_ECS_ASSIGN_PUBLIC_IP` | `DISABLED` (private subnets + NAT) or `ENABLED` |
+
+If you use **organization secrets**, grant this repository access to each secret.
 
 Other repos can use their own prefix (e.g. `OTHERAPP_ECS_CLUSTER`) in that repo’s workflow.
 
