@@ -1363,9 +1363,26 @@ class CoordinateSearchTestView(APIView):
                             'all_layer_data': [feature_data],
                         }
                     
+                    # set32 IAF air funnel (iaf_air_funnel_zones_*): comma-separated data, no colour/hex in text
+                    elif is_iaf_air_funnel_zones_slug(layer.slug):
+                        detailed_category = feature_data.get('detailed_category', {})
+                        properties = detailed_category.get('properties', {}) or {}
+                        data_str = iaf_air_funnel_zones_popup_text(properties)
+                        fill_color = fill_hex_from_geojson_properties_for_legend(properties) or (
+                            properties.get('fill_color') or properties.get('fillColor') or
+                            properties.get('FillColor') or properties.get('color')
+                        ) or ''
+                        return {
+                            'data': data_str,
+                            'fill_color': masterplan_fill_color_svg_data_uri(fill_color),
+                            'found': True,
+                            'features': [feature_data],
+                            'all_layer_data': [feature_data],
+                        }
+
                     # Special handling for all air funnel zones layers (nearby features)
                     elif layer.slug in [
-                        'bhubaneswar_air_funnel_zones'
+                        'bhubaneswar_air_funnel_zones',
                         'bengaluru_air_funnel_zones',
                         'hyderabad_air_funnel_zones',
                         'kozhikode_air_funnel_zones',
@@ -1872,6 +1889,24 @@ class CoordinateSearchTestView(APIView):
                 return {
                     'data': data_str,
                     'fill_color': masterplan_fill_color_svg_data_uri(fill_color),
+                    'all_layer_data': containing_features,
+                }
+
+            # set32 IAF air funnel (iaf_air_funnel_zones_*): comma-separated data, no colour/hex in text
+            if is_iaf_air_funnel_zones_slug(layer.slug) and containing_features:
+                primary_feature = containing_features[0]
+                detailed_category = primary_feature.get('detailed_category', {})
+                properties = detailed_category.get('properties', {}) or {}
+                data_str = iaf_air_funnel_zones_popup_text(properties)
+                fill_color = fill_hex_from_geojson_properties_for_legend(properties) or (
+                    properties.get('fill_color') or properties.get('fillColor') or
+                    properties.get('FillColor') or properties.get('color')
+                ) or ''
+                return {
+                    'data': data_str,
+                    'fill_color': masterplan_fill_color_svg_data_uri(fill_color),
+                    'found': True,
+                    'features': containing_features[:1],
                     'all_layer_data': containing_features,
                 }
 

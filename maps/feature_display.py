@@ -10,6 +10,8 @@ from .feature_legend_display import (
     LAYER_NAME_POPUP_MASTERPLAN_SLUGS,
     _generic_geojson_properties_popup_text,
     _highway_infra_legend_popup_text,
+    _iaf_air_funnel_zones_popup_text,
+    _is_iaf_air_funnel_zones_slug,
     _is_transit_route_proposed_geojson,
     _transit_route_proposed_geojson_popup_text,
     _vijayawada_metro_lrt_coordinate_search_popup_text,
@@ -116,6 +118,12 @@ def get_feature_display_data(layer, feature):
         height_value = props.get('Pemissible Height', '') or props.get('Permissible Height', '')
         data_str = f"Permissible Height : {height_value}" if height_value else "Permissible Height : "
         return {'data': data_str, 'fill_color': fill_uri}
+
+    if _is_iaf_air_funnel_zones_slug(slug):
+        return {
+            'data': _iaf_air_funnel_zones_popup_text(props),
+            'fill_color': fill_uri,
+        }
 
     # heritage sites
     if slug in ['hyderabad_heritage_sites', 'bengaluru_heritage_sites']:

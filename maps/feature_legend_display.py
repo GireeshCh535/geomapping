@@ -213,6 +213,40 @@ def _format_geojson_property_value(val):
     return str(val)
 
 
+IAF_AIR_FUNNEL_ZONES_SLUG_PREFIX = 'iaf_air_funnel_zones_'
+
+# Map paint / legend keys omitted from coordinate-search `data` for set32 IAF air funnel layers.
+IAF_AIR_FUNNEL_POPUP_SKIP_KEYS = frozenset({
+    'colour', 'hex', 'fill_color', 'fillcolor', 'color', 'stroke', 'fill',
+})
+
+
+def _is_iaf_air_funnel_zones_slug(slug):
+    return bool(slug) and str(slug).startswith(IAF_AIR_FUNNEL_ZONES_SLUG_PREFIX)
+
+
+def _iaf_air_funnel_zones_popup_text(properties):
+    """
+    Comma-separated popup for set32 IAF air funnel GeoJSON (e.g. iaf_air_funnel_zones_patna).
+    Omits Colour, HEX, fill_color and other map paint keys; fill_color SVG is returned separately.
+    """
+    if not isinstance(properties, dict):
+        return ''
+    parts = []
+    for key in sorted(properties.keys(), key=lambda k: str(k)):
+        sk = str(key).strip() if key is not None else ''
+        if not sk or sk.lower() in IAF_AIR_FUNNEL_POPUP_SKIP_KEYS:
+            continue
+        val = properties[key]
+        if _is_empty_geojson_property_value(val):
+            continue
+        formatted = _format_geojson_property_value(val)
+        if not formatted:
+            continue
+        parts.append(f'{sk}: {formatted}')
+    return ', '.join(parts)
+
+
 def _generic_geojson_properties_popup_text(properties):
     """
     Multiline popup from arbitrary feature.properties: each non-empty key as "Key: value".
