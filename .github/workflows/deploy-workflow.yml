@@ -90,16 +90,58 @@ jobs:
         id: migrate
         run: |
           set -euo pipefail
-          TASK_ARN=$(aws ecs run-task \
+
+          NETWORK_JSON=$(aws ecs describe-services \
+            --cluster "${ECS_CLUSTER}" \
+            --services "${ECS_SERVICE}" \
+            --query 'services[0].networkConfiguration.awsvpcConfiguration' \
+            --output json)
+
+          if [ -z "${NETWORK_JSON}" ] || [ "${NETWORK_JSON}" = "null" ]; then
+            echo "::warning::Could not read network config from ECS service; using GEOMAPPING_ECS_SUBNET_* secrets."
+            SUBNETS="${ECS_SUBNET_1},${ECS_SUBNET_2}"
+            SGS="${ECS_SECURITY_GROUP}"
+            PUBLIC_IP="${ECS_ASSIGN_PUBLIC_IP}"
+          else
+            SUBNETS=$(echo "${NETWORK_JSON}" | jq -r '[.subnets[]] | join(",")')
+            SGS=$(echo "${NETWORK_JSON}" | jq -r '[.securityGroups[]] | join(",")')
+            PUBLIC_IP=$(echo "${NETWORK_JSON}" | jq -r '.assignPublicIp')
+            echo "Using ECS service network: subnets=${SUBNETS} assignPublicIp=${PUBLIC_IP}"
+          fi
+
+          OVERRIDES=$(jq -n \
+            --arg name "${ECS_CONTAINER_NAME}" \
+            '{
+              containerOverrides: [{
+                name: $name,
+                command: ["python", "manage.py", "migrate", "--noinput"],
+                healthCheck: {
+                  command: ["CMD-SHELL", "true"],
+                  interval: 30,
+                  timeout: 5,
+                  retries: 3,
+                  startPeriod: 300
+                }
+              }]
+            }')
+
+          RUN_TASK_OUTPUT=$(aws ecs run-task \
             --cluster "${ECS_CLUSTER}" \
             --launch-type FARGATE \
             --task-definition "${ECS_TASK_DEFINITION}" \
-            --network-configuration "awsvpcConfiguration={subnets=[${ECS_SUBNET_1},${ECS_SUBNET_2}],securityGroups=[${ECS_SECURITY_GROUP}],assignPublicIp=${ECS_ASSIGN_PUBLIC_IP}}" \
-            --overrides "{\"containerOverrides\":[{\"name\":\"${ECS_CONTAINER_NAME}\",\"command\":[\"python\",\"manage.py\",\"migrate\",\"--noinput\"]}]}" \
-            --query 'tasks[0].taskArn' \
-            --output text)
+            --network-configuration "awsvpcConfiguration={subnets=[${SUBNETS}],securityGroups=[${SGS}],assignPublicIp=${PUBLIC_IP}}" \
+            --overrides "${OVERRIDES}" \
+            --output json)
 
-          if [ -z "${TASK_ARN}" ] || [ "${TASK_ARN}" = "None" ]; then
+          TASK_ARN=$(echo "${RUN_TASK_OUTPUT}" | jq -r '.tasks[0].taskArn // empty')
+          RUN_FAILURES=$(echo "${RUN_TASK_OUTPUT}" | jq -r '.failures[]? | "\(.reason): \(.detail // "no detail")"')
+
+          if [ -n "${RUN_FAILURES}" ]; then
+            echo "::error::ECS run-task failures:"
+            echo "${RUN_FAILURES}"
+          fi
+
+          if [ -z "${TASK_ARN}" ] || [ "${TASK_ARN}" = "null" ]; then
             echo "Failed to start migration task"
             exit 1
           fi
@@ -109,17 +151,66 @@ jobs:
             --cluster "${ECS_CLUSTER}" \
             --tasks "${TASK_ARN}"
 
-          EXIT_CODE=$(aws ecs describe-tasks \
+          TASK_JSON=$(aws ecs describe-tasks \
             --cluster "${ECS_CLUSTER}" \
             --tasks "${TASK_ARN}" \
-            --query "tasks[0].containers[?name=='${ECS_CONTAINER_NAME}'].exitCode | [0]" \
-            --output text)
+            --output json)
 
-          if [ "${EXIT_CODE}" != "0" ]; then
-            echo "Migration failed with exit code ${EXIT_CODE}"
+          STOP_CODE=$(echo "${TASK_JSON}" | jq -r '.tasks[0].stopCode // "unknown"')
+          STOPPED_REASON=$(echo "${TASK_JSON}" | jq -r '.tasks[0].stoppedReason // "unknown"')
+          CONTAINER_JSON=$(echo "${TASK_JSON}" | jq -r --arg name "${ECS_CONTAINER_NAME}" \
+            '.tasks[0].containers[] | select(.name == $name)')
+          EXIT_CODE=$(echo "${CONTAINER_JSON}" | jq -r '.exitCode // empty')
+          CONTAINER_REASON=$(echo "${CONTAINER_JSON}" | jq -r '.reason // empty')
+
+          if [ -z "${CONTAINER_JSON}" ] || [ "${CONTAINER_JSON}" = "null" ]; then
+            echo "::error::No container named '${ECS_CONTAINER_NAME}' in task. Containers:"
+            echo "${TASK_JSON}" | jq -r '.tasks[0].containers[] | "  - \(.name)"'
+            echo "Set ECS container name in task definition to 'web' or update ECS_CONTAINER_NAME in the workflow."
             exit 1
           fi
-          echo "Migrations completed successfully"
+
+          LOG_GROUP=$(aws ecs describe-task-definition \
+            --task-definition "${ECS_TASK_DEFINITION}" \
+            --query "taskDefinition.containerDefinitions[?name=='${ECS_CONTAINER_NAME}'].logConfiguration.options.\"awslogs-group\" | [0]" \
+            --output text)
+
+          if [ -n "${LOG_GROUP}" ] && [ "${LOG_GROUP}" != "None" ]; then
+            TASK_ID="${TASK_ARN##*/}"
+            LOG_STREAM=$(aws logs describe-log-streams \
+              --log-group-name "${LOG_GROUP}" \
+              --log-stream-name-prefix "web/${ECS_CONTAINER_NAME}/${TASK_ID}" \
+              --order-by LastEventTime \
+              --descending \
+              --limit 5 \
+              --query 'logStreams[0].logStreamName' \
+              --output text 2>/dev/null || true)
+            if [ -n "${LOG_STREAM}" ] && [ "${LOG_STREAM}" != "None" ]; then
+              echo "--- Migration CloudWatch logs (${LOG_GROUP}) ---"
+              aws logs get-log-events \
+                --log-group-name "${LOG_GROUP}" \
+                --log-stream-name "${LOG_STREAM}" \
+                --limit 100 \
+                --query 'events[*].message' \
+                --output text || true
+              echo "--- end logs ---"
+            fi
+          fi
+
+          if [ "${EXIT_CODE}" = "0" ]; then
+            echo "Migrations completed successfully"
+            exit 0
+          fi
+
+          echo "::error::Migration task failed"
+          echo "stopCode: ${STOP_CODE}"
+          echo "stoppedReason: ${STOPPED_REASON}"
+          echo "container exitCode: ${EXIT_CODE:-None}"
+          if [ -n "${CONTAINER_REASON}" ] && [ "${CONTAINER_REASON}" != "null" ]; then
+            echo "container reason: ${CONTAINER_REASON}"
+          fi
+          echo "Check CloudWatch log group: ${LOG_GROUP:-unknown}"
+          exit 1
 
       - name: Deploy to ECS
         run: |
