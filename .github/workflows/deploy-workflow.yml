@@ -114,14 +114,7 @@ jobs:
             '{
               containerOverrides: [{
                 name: $name,
-                command: ["python", "manage.py", "migrate", "--noinput"],
-                healthCheck: {
-                  command: ["CMD-SHELL", "true"],
-                  interval: 30,
-                  timeout: 5,
-                  retries: 3,
-                  startPeriod: 300
-                }
+                command: ["python", "manage.py", "migrate", "--noinput"]
               }]
             }')
 
