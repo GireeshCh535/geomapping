@@ -114,7 +114,7 @@ jobs:
             '{
               containerOverrides: [{
                 name: $name,
-                command: ["python", "manage.py", "migrate", "--noinput"]
+                command: ["python", "manage.py", "migrate", "--noinput", "-v", "1"]
               }]
             }')
 
@@ -163,31 +163,29 @@ jobs:
             exit 1
           fi
 
-          LOG_GROUP=$(aws ecs describe-task-definition \
+          TASK_DEF_JSON=$(aws ecs describe-task-definition \
             --task-definition "${ECS_TASK_DEFINITION}" \
-            --query "taskDefinition.containerDefinitions[?name=='${ECS_CONTAINER_NAME}'].logConfiguration.options.\"awslogs-group\" | [0]" \
-            --output text)
+            --output json)
+          LOG_GROUP=$(echo "${TASK_DEF_JSON}" | jq -r --arg name "${ECS_CONTAINER_NAME}" \
+            '.taskDefinition.containerDefinitions[] | select(.name == $name) | .logConfiguration.options."awslogs-group" // empty')
+          LOG_PREFIX=$(echo "${TASK_DEF_JSON}" | jq -r --arg name "${ECS_CONTAINER_NAME}" \
+            '.taskDefinition.containerDefinitions[] | select(.name == $name) | .logConfiguration.options."awslogs-stream-prefix" // "ecs"')
 
-          if [ -n "${LOG_GROUP}" ] && [ "${LOG_GROUP}" != "None" ]; then
+          if [ -n "${LOG_GROUP}" ] && [ "${LOG_GROUP}" != "null" ]; then
             TASK_ID="${TASK_ARN##*/}"
-            LOG_STREAM=$(aws logs describe-log-streams \
+            LOG_STREAM="${LOG_PREFIX}/${ECS_CONTAINER_NAME}/${TASK_ID}"
+            echo "Fetching logs: ${LOG_GROUP} / ${LOG_STREAM}"
+            sleep 5
+            echo "--- Migration CloudWatch logs ---"
+            aws logs get-log-events \
               --log-group-name "${LOG_GROUP}" \
-              --log-stream-name-prefix "web/${ECS_CONTAINER_NAME}/${TASK_ID}" \
-              --order-by LastEventTime \
-              --descending \
-              --limit 5 \
-              --query 'logStreams[0].logStreamName' \
-              --output text 2>/dev/null || true)
-            if [ -n "${LOG_STREAM}" ] && [ "${LOG_STREAM}" != "None" ]; then
-              echo "--- Migration CloudWatch logs (${LOG_GROUP}) ---"
-              aws logs get-log-events \
-                --log-group-name "${LOG_GROUP}" \
-                --log-stream-name "${LOG_STREAM}" \
-                --limit 100 \
-                --query 'events[*].message' \
-                --output text || true
-              echo "--- end logs ---"
-            fi
+              --log-stream-name "${LOG_STREAM}" \
+              --start-from-head \
+              --limit 200 \
+              --query 'events[*].message' \
+              --output text 2>/dev/null \
+              || aws logs tail "${LOG_GROUP}" --since 15m --format short || true
+            echo "--- end logs ---"
           fi
 
           if [ "${EXIT_CODE}" = "0" ]; then
